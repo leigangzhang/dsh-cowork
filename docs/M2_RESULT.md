@@ -86,17 +86,11 @@ run `m2-2d375750-cb9d-470f-ac8a-7bd5de68c4d2`：`setup → memory-write → isol
 
 ## 限制 / 已知问题
 
-- **合并 teardown 不是事务**（M2 审查 I1，medium）：`cowork_checkout_merge` 在 `git merge` 成功后依次执行 `resolveByPath`、`removeCheckout`、`deleteWorkspace`、`archiveSession`、`updateThread`，这串步骤没有整体 try/catch。任一步抛错会出现「git 已合并、工具报失败、索引未更新、清理不全」。影响：master 需要用 `cowork_project_status` 对照现场，必要时人工清理 clone/分支。后续：M3 修复，teardown 失败降级为 `cleanupErrors` 明细返回，不改变已发生的 merge 结果。
-- **E2E 驱动超出单文件字号指引**（M2 审查 E2，low）：`src/m2-e2e.ts` 63 KB / 1573 行，超过仓库 50 KB 的单文件指引；内容是内嵌中文 prompt 的真实宿主证据设施，不是产品逻辑。未拆分是因为拆分后必须重跑 E2E 才能绑定新字节。后续：M3 若继续扩展该驱动，先拆分再改。
-- 其余 low（不阻塞）：merge 失败后的 `merge --abort` 结果未检查；git stderr 进入错误 details 时未截断；`mkdirSync` 失败未映射为 `checkout/create-failed`；记忆来源时间只校验正则形态与 `Date.parse` 可读性，不校验时区顺序；`MemoryValidationIssue.field` 用一次 cast 承载 `'kind'`；`createCheckoutThread` 未对 sessionId 做 fail-closed 校验；merge teardown 中先 `resolveByPath` 再删 clone（为在 canonical 路径失效前匹配）与契约文字顺序相反，但结果等价。
-- E2E 证据 JSON 含宿主 hostname（本机 gitignored 文件）：文档与提交不得复制该机器标识。
-- clone 成本与依赖：`--local` clone 约 101 ms（P0 实测），只含已提交文件；thread 需要 `node_modules` 时得在 clone 内自行安装，master 审查要在主仓库看 fetch 后的分支。
-- 隔离的边界：thread 不能读主仓库工作区（沙箱根 = clone）；它仍能通过自己的 clone 提交任意改动，master 合并前应审查。
-- preset 仍是运行时注册，重启消失（M4 解决）；记忆 section 随 agent 存活，插件卸载时由 `registerMemoryPrompt` 的 dispose 释放，热重载期间同一 agent 若已有同名 section 会被计数跳过并 warn。
-- 冲突不自动解决：冲突交给 thread（在 clone 内 merge 主分支并解决）或人工；master 只重试合并。
-- 记忆注入的模型可见性没有从模型回复反证：证据是 P0 的 assembly seam、注入模块单测与 E2E 的检索命中；若要断言“模型确实读到了记忆块”，需在 E2E 中新增一步让模型复述约束（M3 可做）。
-- 记忆只追加，不去重、不删除、不压缩；检索是关键词（ASCII 词 + CJK bigram），无向量。
-- 所有结论以 workspace-write 策略为前提；`danger-full-access` 下 worktree 也许可用，但 F 是选定方案，不依赖全权限。
+**设计限制（不修，归 [KNOWN_ISSUES](KNOWN_ISSUES.md)）**：clone 成本与 thread 读不到主仓库（PLAN 要求 thread 是可交互普通会话的因果后果）、merge 冲突必须人工或 thread 解决、记忆只追加且关键词检索（M5 目标）、preset 运行时注册（M4）、所有结论以 workspace-write 为策略前提。逐条影响与重估条件只写在 KNOWN_ISSUES，本文不复制。
+
+**收口修复（本阶段内完成，归[修复提案](../.agents/notes/proposed/bug-fix/2026-11-05-m2-follow-up-fixes.md)与 [M2 修复交接](M2_FIX_HANDOFF.md)）**：集成审查的 I1（merge teardown 非事务，medium）与 I2/I3，三模块审查的 memory/checkout/memory-prompt low 项，E2E 驱动的 63 KB 体积与证据 hostname，记忆注入的模型可见性证据缺口，以及 PLAN §5.6 的 teardown 顺序文字与 `PANEL_HANDOFF` 的旧字段名。清单、验收 id 与执行顺序在修复提案与修复交接里，本文不重复。
+
+**证据设施现状**：证据文件 `.dsh-cowork/e2e/M2_E2E.json` 是本地 gitignored 数据，文档与提交不复制其中的机器标识；场景与原始输出见上文。
 
 ## 回滚
 

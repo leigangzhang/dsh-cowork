@@ -50,6 +50,18 @@
       "reason": "M2 delivered surface and real-host E2E evidence (M2A1-M2A8), with limitations and rollback: environment-bound raw output for contributors, not a user-facing guide"
     },
     {
+      "pattern": "docs/KNOWN_ISSUES.md",
+      "reason": "deferred and planned-away issue list for contributors: current status, ownership, and re-evaluation triggers; not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M2_FIX_HANDOFF.md",
+      "reason": "handoff for the M2 closeout fix session: fix list, order, verification, traps, and completion gate; internal because it is session-specific operational guidance, not a user guide"
+    },
+    {
+      "pattern": "docs/M3_HANDOFF.md",
+      "reason": "handoff for the M3 session: read order, first probes, stage order, traps, and completion gate; internal because it is session-specific operational guidance, not a user guide"
+    },
+    {
       "pattern": "docs/PANEL_RECON.md",
       "reason": "reconnaissance for the Cowork panel: host slot/token/packaging facts read from cordis_inspect and the DSH checkout, environment-bound evidence for contributors"
     },

@@ -38,7 +38,7 @@ DSH 单会话长跑会出现：任务失焦、上下文退化导致推理质量�
 ### 1.3 非目标（MVP 不做）
 
 - 不做多机/远端协作、公网访问；
-- 不做向量语义检索（先做本地关键词 + master 模型辅助路由）；
+- MVP 不做向量语义检索（M2 用本地关键词 + master 模型辅助路由）；去重与语义检索作为 M5 目标，见 §6；
 - 不做定时后台无人值守（后续再接）；
 - 不替换 DSH 官方 Plan Mode / Todo / Compaction，只在其上叠加；
 - 不做复杂权限系统，继承 DSH 沙箱与审批。
@@ -285,6 +285,7 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 - 写入与检索：`cowork_memory_write` 追加一条带来源的记忆（单条正文 ≤8000 字符，目录锁 + 原子替换，损坏文件带行号报错且不改写）；`cowork_memory_search` 用与 router 相同的 `tokenize`（ASCII 词 + CJK bigram）打分，limit 默认 5、上限 20。
 - 生命周期：agent 创建时注册、插件卸载时释放 section disposer；同名重复注册只计数并记录，不影响其他 agent。
 - 适配器接口：`recall(projectId, query, budget) / save(projectId, entry)`；后续适配器：`dsh-project-memory`、`dsh-engram`、OpenViking peer。
+- 整理与检索（M5 目标）：去重/合并/更新/删除、按相关性装填预算、可选的语义检索（放在上面的适配器 seam 后）；M2 的追加式关键词实现是兼容基线，见 §6 M5。
 
 ### 5.6 thread checkout（每 thread 本地 clone）
 
@@ -379,6 +380,15 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 - 一个新 profile 只安装 `dsh-cowork` 一个包即可获得全部能力；
 - `dsh plugin --profile web add <path or npm>` 后重启可用；
 - README 含安装、使用、卸载、数据落点说明。
+
+### M5：记忆整理与检索
+
+目标（方案与评测口径在 M5 规划时再定）：
+
+- 记忆可去重、合并、更新、删除，重复与过时约束不再无界累积；
+- 注入按相关性而非固定文件顺序装填预算，预算内的条目可解释；
+- 语义检索作为可选能力通过适配器接入，检索质量有可复现的评测集与指标；
+- 与 M2 的追加式实现兼容：既有 `memory/*.md` 与工具行为是迁移基线。
 
 ---
 
