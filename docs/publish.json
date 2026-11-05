@@ -24,6 +24,10 @@
     {
       "pattern": "docs/M0_PROBE_RESULT.md",
       "reason": "M0 decision-gate evidence for the five PLAN §3.2 API risks: environment- and version-bound raw output for contributors, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M1_HANDOFF.md",
+      "reason": "handoff for the next implementation session: read order, the first preset/tool probe, and the completion gate; internal because it is session-specific operational guidance, not a user guide"
     }
   ]
 }

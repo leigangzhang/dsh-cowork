@@ -11,6 +11,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |
 | 怎样才算“验证过” | [testing.md](testing.md) |
 | M0 五项 API 风险证明了什么、原始证据在哪 | [M0_PROBE_RESULT.md](M0_PROBE_RESULT.md) |
+| M1 从哪开始、先验证什么、怎样算完成 | [M1_HANDOFF.md](M1_HANDOFF.md) |
 | 工程规则与命令 | [AGENTS.md](../AGENTS.md) |
 | 哪个文件可以发布 | [publish.json](publish.json) |
 | 决策记录怎么写、为什么写 | [.agents/notes/README.md](../.agents/notes/README.md) |
@@ -27,6 +28,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/documentation.md` | guide | 文档种类、单一事实源、发布开关 |
 | `docs/glossary.md` | reference | 术语含义与拼写 |
 | `docs/plain-language.md` | reference | 面向人的说法替换 |
+| `docs/M1_HANDOFF.md` | guide | M1 实施入口：读什么、先验证什么、完成定义 |
 | `docs/publish.json` | switch | 唯一发布开关 |
 | `tools/workflow.json` | machinery | surface 与证据命令 |
 | `.agents/notes/` | records | 决策记录与模板 |
