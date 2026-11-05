@@ -1,6 +1,7 @@
 node_modules/
 lib/
 dist/
+*.tsbuildinfo
 *.tgz
 .dsh-cowork/
 .DS_Store
