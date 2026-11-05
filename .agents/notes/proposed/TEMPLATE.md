@@ -1,35 +1,39 @@
-# <title>
+# Proposal: <one-line title>
 
-- Class: feature | bug-fix | simplification | architecture | process | testing
-- Date: YYYY-MM-DD
-- Status: proposed
+Status: proposed
+Date: <yyyy-mm-dd, the day the topic was first proposed>
+Class: feature | bug-fix | simplification | architecture | process | testing
+
+## Problem
+
+<The motivation, written so it stands without the solution. What breaks, for whom, and what it costs today. Facts and observations, not adjectives.>
 
 ## Proposal
 
-Why do this, and what does done look like. Do not write implementation steps here.
-
-- 背景与要解决的问题：<一段话>
-- 提案内容：<接口、数据格式、行为变化>
-- 完成定义：<可以被独立复核的结果>
+<The intended change, in the future tense. Plans, migration steps, and open questions belong here while the work is unbuilt. Name the exact files, keys, interfaces, or commands it will add or change.>
 
 ## Alternatives considered
 
-What was rejected and why. This section may not be empty.
+<Mandatory, and it may not be empty. One bold-led paragraph per real alternative and why it lost. Recorded, never invented: if an alternative was genuinely never on the table, say so and say why not.>
 
-- 方案 A（已否决）：<描述>。否决理由：<代价、风险或不满足的验收标准>
-- 方案 B（已否决，如无则删除此行）：<描述>。否决理由：<…>
+**<Alternative A>.** <Why it lost.>
+
+**<Alternative B>.** <Why it lost.>
 
 ## Acceptance criteria
 
-Each criterion carries a stable id (`AC-1`) and names, inside backticks, the check or surface in `tools/workflow.json` that will go red when it breaks.
+<What observable state means done. Every line must be translatable into an assertion, a command, or a snapshot — if you cannot picture the check, it is a wish, not a criterion. Give each line a stable id and name, in backticks, the check or surface that would go red for it, so "if I broke this now, which check fails?" is answered next to the claim. The two below trace to real surfaces in tools/workflow.json; replace them.>
 
-- AC-1: <criterion> — `tests`
-- AC-2: <criterion> — `source`
-- AC-3: <criterion> — `packaging`
+- [A1] <a statement that pins behaviour> — `source`
+- [A2] <a statement that pins the workflow evidence> — `tests`
 
 ## Risks
 
-What can go wrong, and what the fallback is.
+<What could go wrong, and what the change knowingly gives up. Include the condition under which this decision should be revisited.>
 
-- 风险 1：<描述> → 缓解/回退：<具体动作>
-- 风险 2：<描述> → 缓解/回退：<具体动作>
+## Delivery stages
+
+<Optional. When the change is too large to land at once, split it into ordered stages that are each independently shippable and testable. Delete this section for small changes.>
+
+1. <stage> — <what it makes true>
+2. <stage> — <what it makes true>

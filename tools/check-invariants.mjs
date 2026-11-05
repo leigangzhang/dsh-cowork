@@ -24,16 +24,83 @@ const root = resolve(here, '..')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
 const exists = (rel) => existsSync(resolve(root, rel))
 
-function sectionHasBullet(doc, heading) {
+function sectionBodyLines(doc, heading) {
   const lines = doc.split('\n')
   const start = lines.findIndex((l) => l.trim() === heading)
-  if (start < 0) return false
+  if (start < 0) return null
+  const body = []
   for (let i = start + 1; i < lines.length; i += 1) {
-    const line = lines[i]
-    if (/^##\s/.test(line)) return false
-    if (/^\s*-\s+/.test(line)) return true
+    if (/^##\s/.test(lines[i])) break
+    body.push(lines[i])
   }
-  return false
+  return body
+}
+
+function sectionHasBody(doc, heading) {
+  const body = sectionBodyLines(doc, heading)
+  return body !== null && body.some((line) => line.trim() !== '')
+}
+
+const NOTE_CLASSES = ['feature', 'bug-fix', 'simplification', 'architecture', 'process', 'testing']
+const NOTE_SECTIONS = {
+  proposed: ['## Problem', '## Proposal', '## Alternatives considered', '## Acceptance criteria'],
+  implemented: ['## Problem', '## Decision', '## Alternatives considered', '## Consequences', '## Testing'],
+}
+const NOTE_CRITERIA = { proposed: '## Acceptance criteria', implemented: '## Testing' }
+const PROPOSAL_ERA_HEADING = /^## (?:Proposal|Plan|Migration plan|Acceptance criteria)\b/m
+const CRITERION_ID = /\[([A-Za-z][A-Za-z0-9]*-?\d+)\]/
+const CRITERION_SURFACE = /`([a-z][a-z0-9-]*)`/g
+
+function noteErrors(rel, doc, declaredSurfaces, { template = false } = {}) {
+  const lifecycle = rel.includes('/proposed/') ? 'proposed' : rel.includes('/implemented/') ? 'implemented' : null
+  if (lifecycle === null) return [`${rel}: note record is outside proposed/ or implemented/`]
+  const errors = []
+  for (const heading of NOTE_SECTIONS[lifecycle]) {
+    if (!doc.includes(heading)) errors.push(`${rel}: decision-${lifecycle} missing ${heading}`)
+    else if (!sectionHasBody(doc, heading)) errors.push(`${rel}: decision-${lifecycle} section is empty: ${heading}`)
+  }
+  if (lifecycle === 'implemented' && PROPOSAL_ERA_HEADING.test(doc)) {
+    errors.push(`${rel}: implemented record keeps a proposal-era heading (Proposal/Plan/Migration plan/Acceptance criteria)`)
+  }
+  if (!template) {
+    const lines = doc.split('\n')
+    const title = lines.find((line) => line.startsWith('# ')) ?? ''
+    const prefix = lifecycle === 'proposed' ? '# Proposal: ' : '# Decision: '
+    if (!title.startsWith(prefix)) errors.push(`${rel}: title must start with "${prefix.trim()}"`)
+    const status = doc.match(/^Status:\s*(.+)$/m)
+    if (status === null) errors.push(`${rel}: missing Status: line`)
+    else if (status[1].trim() !== lifecycle) errors.push(`${rel}: Status: ${status[1].trim()} disagrees with ${lifecycle}/`)
+    const date = doc.match(/^Date:\s*(\d{4}-\d{2}-\d{2})$/m)
+    if (date === null) errors.push(`${rel}: missing Date: line`)
+    else {
+      const fileDate = (rel.split('/').pop() ?? '').match(/^(\d{4}-\d{2}-\d{2})-/)
+      if (fileDate !== null && fileDate[1] !== date[1]) errors.push(`${rel}: Date: ${date[1]} disagrees with filename ${fileDate[1]}`)
+    }
+    const cls = doc.match(/^Class:\s*(.+)$/m)
+    if (cls === null) errors.push(`${rel}: missing Class: line`)
+    else {
+      const fromPath = rel.split('/')[3]
+      const value = cls[1].trim()
+      if (!NOTE_CLASSES.includes(value)) errors.push(`${rel}: unknown Class: ${value}`)
+      else if (value !== fromPath) errors.push(`${rel}: Class: ${value} disagrees with folder ${fromPath}`)
+    }
+  }
+  const criteriaHeading = NOTE_CRITERIA[lifecycle]
+  const bullets = (sectionBodyLines(doc, criteriaHeading) ?? [])
+    .map((line) => line.trim())
+    .filter((line) => /^[-*]\s/.test(line) || /^\d+\.\s/.test(line))
+  if (bullets.length === 0) {
+    errors.push(`${rel}: ${criteriaHeading} carries no criterion bullets`)
+  } else {
+    for (const bullet of bullets) {
+      if (!CRITERION_ID.test(bullet)) errors.push(`${rel}: criterion has no [id]: ${bullet.slice(0, 60)}`)
+      const cited = [...bullet.matchAll(CRITERION_SURFACE)].map((match) => match[1])
+      if (!cited.some((name) => declaredSurfaces.has(name))) {
+        errors.push(`${rel}: criterion cites no declared surface: ${bullet.slice(0, 60)}`)
+      }
+    }
+  }
+  return errors
 }
 
 const IGNORED_DIRS = new Set(['.git', 'node_modules', 'lib', 'dist'])
@@ -182,69 +249,21 @@ function collect(rootDir) {
     errors.push('tools/workflow.json is missing')
   }
 
-  // Note templates: the sections are the lifecycle contract, and an empty
-  // section is a hollow template — every owner section must carry a bullet.
-  if (exists('.agents/notes/proposed/TEMPLATE.md')) {
-    const p = read('.agents/notes/proposed/TEMPLATE.md')
-    for (const token of ['## Alternatives considered', '## Acceptance criteria']) {
-      if (!p.includes(token)) errors.push(`proposed TEMPLATE is missing section: ${token}`)
-      else if (!sectionHasBullet(p, token)) errors.push(`proposed TEMPLATE section is empty: ${token}`)
-    }
-  } else {
-    errors.push('.agents/notes/proposed/TEMPLATE.md is missing')
-  }
-  if (exists('.agents/notes/implemented/TEMPLATE.md')) {
-    const d = read('.agents/notes/implemented/TEMPLATE.md')
-    for (const token of ['## Decision', '## Consequences', '## Testing']) {
-      if (!d.includes(token)) errors.push(`implemented TEMPLATE is missing section: ${token}`)
-      else if (!sectionHasBullet(d, token)) errors.push(`implemented TEMPLATE section is empty: ${token}`)
-    }
-  } else {
-    errors.push('.agents/notes/implemented/TEMPLATE.md is missing')
-  }
-
-  // kit gates for records: decision-proposed / decision-implemented / no-proposal-era-headings
-  const proposedRecords = listMarkdownFiles(rootDir).map((f) => relative(rootDir, f)).filter((f) => f.startsWith('.agents/notes/proposed/') && !f.endsWith('/TEMPLATE.md'))
-  for (const rel of proposedRecords) {
-    const doc = read(rel)
-    for (const heading of ['## Alternatives considered', '## Acceptance criteria']) {
-      if (!doc.includes(heading)) errors.push(`${rel}: decision-proposed missing ${heading}`)
-      else if (!sectionHasBullet(doc, heading)) errors.push(`${rel}: decision-proposed section is empty: ${heading}`)
-    }
-  }
-  const implementedRecords = listMarkdownFiles(rootDir).map((f) => relative(rootDir, f)).filter((f) => f.startsWith('.agents/notes/implemented/') && !f.endsWith('/TEMPLATE.md'))
-  for (const rel of implementedRecords) {
-    const doc = read(rel)
-    for (const heading of ['## Decision', '## Consequences', '## Testing']) {
-      if (!doc.includes(heading)) errors.push(`${rel}: decision-implemented missing ${heading}`)
-      else if (!sectionHasBullet(doc, heading)) errors.push(`${rel}: decision-implemented section is empty: ${heading}`)
-    }
-    for (const banned of ['## Proposal', '## Plan', '## Acceptance criteria', '## Risks']) {
-      if (doc.includes(banned)) errors.push(`${rel}: implemented record keeps proposal-era heading ${banned}`)
-    }
-  }
-
-  // criteria-traced: every criterion bullet cites a declared surface name from tools/workflow.json
+  // Note templates and records: the kit skeleton is the lifecycle contract.
   const declaredSurfaces = new Set((workflow?.surfaces ?? []).map((s) => s?.name).filter(Boolean))
-  for (const rel of [...proposedRecords, ...implementedRecords, '.agents/notes/proposed/TEMPLATE.md', '.agents/notes/implemented/TEMPLATE.md']) {
-    if (!exists(rel)) continue
-    const doc = read(rel)
-    for (const heading of ['## Acceptance criteria', '## Testing']) {
-      if (!doc.includes(heading)) continue
-      const lines = doc.split('\n')
-      const start = lines.findIndex((l) => l.trim() === heading)
-      for (let i = start + 1; i < lines.length; i += 1) {
-        const line = lines[i]
-        if (/^##\s/.test(line)) break
-        const bullet = line.trim()
-        if (!/^-\s*AC-\d+/.test(bullet)) continue
-        if (!/AC-\d+/.test(bullet)) errors.push(`${rel}: criterion bullet has no id: ${bullet.slice(0, 60)}`)
-        const backticks = [...bullet.matchAll(/`([^`]+)`/g)].map((m) => m[1])
-        if (!backticks.some((t) => declaredSurfaces.has(t))) {
-          errors.push(`${rel}: criterion bullet cites no declared surface: ${bullet.slice(0, 60)}`)
-        }
-      }
+  const noteTemplates = ['.agents/notes/proposed/TEMPLATE.md', '.agents/notes/implemented/TEMPLATE.md']
+  for (const rel of noteTemplates) {
+    if (!exists(rel)) {
+      errors.push(`${rel} is missing`)
+      continue
     }
+    errors.push(...noteErrors(rel, read(rel), declaredSurfaces, { template: true }))
+  }
+  const noteRecords = listMarkdownFiles(rootDir)
+    .map((f) => relative(rootDir, f))
+    .filter((rel) => /^\.agents\/notes\/(proposed|implemented)\//.test(rel) && !rel.endsWith('/TEMPLATE.md'))
+  for (const rel of noteRecords) {
+    errors.push(...noteErrors(rel, read(rel), declaredSurfaces))
   }
 
   // kit gates for standing policy homes: docs-policy / testing-policy / notes-readme
@@ -261,7 +280,7 @@ function collect(rootDir) {
     const doc = read(rel)
     for (const heading of sections) {
       if (!doc.includes(heading)) errors.push(`${gate}: ${rel} missing ${heading}`)
-      else if (!sectionHasBullet(doc, heading) && !['docs/documentation.md', 'docs/testing.md', '.agents/notes/README.md'].includes(rel)) errors.push(`${gate}: ${rel} section is empty: ${heading}`)
+      else if (!sectionHasBody(doc, heading) && !['docs/documentation.md', 'docs/testing.md', '.agents/notes/README.md'].includes(rel)) errors.push(`${gate}: ${rel} section is empty: ${heading}`)
     }
   }
 
@@ -321,6 +340,30 @@ function selfTest() {
     {
       name: 'budget over line ceiling',
       fail: () => 4 > 2,
+    },
+    {
+      name: 'implemented record without alternatives',
+      fail: () => noteErrors(
+        '.agents/notes/implemented/architecture/2026-01-01-x.md',
+        '# Decision: x\n\nStatus: implemented\nDate: 2026-01-01\nClass: architecture\n\n## Problem\n\np\n\n## Decision\n\nd\n\n## Consequences\n\nc\n\n## Testing\n\n- [A1] x — `source`\n',
+        new Set(['source']),
+      ).some((error) => error.includes('Alternatives considered')),
+    },
+    {
+      name: 'implemented record keeps a proposal-era heading',
+      fail: () => noteErrors(
+        '.agents/notes/implemented/architecture/2026-01-01-x.md',
+        '# Decision: x\n\nStatus: implemented\nDate: 2026-01-01\nClass: architecture\n\n## Problem\n\np\n\n## Decision\n\nd\n\n## Alternatives considered\n\na\n\n## Consequences\n\nc\n\n## Testing\n\n- [A1] x — `source`\n\n## Acceptance criteria\n\n- [A2] y — `source`\n',
+        new Set(['source']),
+      ).some((error) => error.includes('proposal-era')),
+    },
+    {
+      name: 'criterion without a declared surface',
+      fail: () => noteErrors(
+        '.agents/notes/implemented/architecture/2026-01-01-x.md',
+        '# Decision: x\n\nStatus: implemented\nDate: 2026-01-01\nClass: architecture\n\n## Problem\n\np\n\n## Decision\n\nd\n\n## Alternatives considered\n\na\n\n## Consequences\n\nc\n\n## Testing\n\n- [A1] no owner here\n',
+        new Set(['source']),
+      ).some((error) => error.includes('declared surface')),
     },
     {
       name: 'fixed wait in test',

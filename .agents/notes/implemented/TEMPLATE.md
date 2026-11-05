@@ -1,28 +1,41 @@
-# <title>
+# Decision: <one-line title>
 
-- Class: feature | bug-fix | simplification | architecture | process | testing
-- Date: YYYY-MM-DD
-- Status: implemented
+Status: implemented
+Date: <yyyy-mm-dd, the day the topic was first proposed>
+Class: feature | bug-fix | simplification | architecture | process | testing
+
+## Problem
+
+<The motivation, kept from the proposal. It must still stand without the solution.>
 
 ## Decision
 
-Present-tense statement of what landed and why.
+<What is now true, in the present tense. Name the exact files, keys, defaults, events, or commands that carry the decision, so a reader can check every sentence against the code. Keep this record current with what actually shipped: when a path, symbol, or default changes, update it here.>
 
-- 已落地：<接口、数据格式、行为>
-- 理由：<为什么选它而不是 Alternatives 里被否决的方案>
+## Alternatives considered
+
+<Mandatory, and it may not be empty. Kept from the proposal, with what was learned since. One bold-led paragraph per real alternative and why it lost.>
+
+**<Alternative A>.** <Why it lost.>
+
+**<Alternative B>.** <Why it lost.>
 
 ## Consequences
 
-What the code and the workflow now require; which previous state this replaced.
-
-- 新增约束：<后续开发者必须遵守的规则或路径>
-- 替代关系：<这个决策取代了哪个旧方案/旧文件>
-- 移除或迁移：<是否有旧记录、旧字段需要迁移>
+<What the decision bought and what it cost. The proposal's acceptance criteria and risks are folded in here as present-tense fact: what is now impossible, unsupported, or deliberately left out, plus the condition under which this decision should be revisited.>
 
 ## Testing
 
-What was verified, keeping the original acceptance-criterion ids (`AC-1`, …), and what was not verified.
+<What now proves the behaviour, by exact file or command, in the present tense. Keep the ids from the proposal and keep each one next to the surface that would go red for it; a criterion that lost its id lost its proof. If nothing pins a criterion, write "unpinned" and say why that is acceptable. The two below trace to real surfaces in tools/workflow.json; replace them.>
 
-- AC-1: 已验证 — 证据命令 `npm test`，对应 surface：`tests`。结果：<pass/fail + 关键证据>
-- AC-2: 未验证 — 原因：<依赖未构建 / 需要真实 DSH 会话 / 外部环境缺失>；对应 surface：`source`
-- 未运行项：<列出没有跑的东西，不要写“都通过了”>
+- [A1] <a statement that pins behaviour> — `source`
+- [A2] <a statement that pins the workflow evidence> — `tests`
+
+---
+
+<!-- Moving a record from proposed/ to implemented/ is not a rename.
+     The skeleton changes: ## Proposal becomes ## Decision, and
+     ## Acceptance criteria plus ## Risks fold into ## Consequences.
+     A record that still carries proposal-era headings fails decision-implemented.
+     Facts may be corrected in place; the decision itself may not be rewritten.
+     To reverse a decision, write a new record and cross-link both. -->
