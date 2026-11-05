@@ -15,6 +15,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | M1 S0 探针证明了什么（preset 组合、调用者身份） | [M1_S0_RESULT.md](M1_S0_RESULT.md) |
 | M1 交付了什么、A1–A8 的原始证据与限制在哪 | [M1_RESULT.md](M1_RESULT.md) |
 | 工程规则与命令 | [AGENTS.md](../AGENTS.md) |
+| M2（记忆 + worktree）从哪开始、先验证什么、怎样算完成 | [M2_HANDOFF.md](M2_HANDOFF.md) |
 | 哪个文件可以发布 | [publish.json](publish.json) |
 | 决策记录怎么写、为什么写 | [.agents/notes/README.md](../.agents/notes/README.md) |
 | 一个改动欠哪些证据 | [tools/workflow.json](../tools/workflow.json) |
@@ -32,6 +33,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/plain-language.md` | reference | 面向人的说法替换 |
 | `docs/M1_HANDOFF.md` | guide | M1 实施入口：读什么、先验证什么、完成定义 |
 | `docs/M1_RESULT.md` | record | M1 交付面、A1–A8 证据、限制与回滚 |
+| `docs/M2_HANDOFF.md` | guide | M2 实施入口：先验证什么、阶段顺序、完成定义 |
 | `docs/publish.json` | switch | 唯一发布开关 |
 | `tools/workflow.json` | machinery | surface 与证据命令 |
 | `.agents/notes/` | records | 决策记录与模板 |

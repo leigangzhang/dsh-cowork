@@ -2,6 +2,7 @@
 
 - 适用：在全新会话/上下文中独立实现 M1 的 agent 或人。
 - 状态：M0 已完成并验证；M1 已完成（S1–S6 已交付，结果与证据见 [M1 结果](M1_RESULT.md)）。
+- 下一步：M2 的实施入口见 [M2 交接](M2_HANDOFF.md)。
 - 事实源：[PLAN](../docs/PLAN.md) 拥有范围与里程碑；[M0 结果](../docs/M0_PROBE_RESULT.md) 拥有五项 API 证据；[M1 决策](../.agents/notes/implemented/feature/2026-11-05-m1-master-thread-loop.md) 拥有 M1 契约；本文件只拥有“怎么开始、先验证什么、怎样算完成”。
 
 ## 先读什么

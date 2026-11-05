@@ -36,6 +36,10 @@
     {
       "pattern": "docs/M1_RESULT.md",
       "reason": "M1 delivered surface and real-host E2E evidence (A1–A8), with limitations and rollback: environment-bound raw output for contributors, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M2_HANDOFF.md",
+      "reason": "handoff for the next implementation session: read order, the four M2-P0 probe questions, stage order, traps, and the completion gate; internal because it is session-specific operational guidance, not a user guide"
     }
   ]
 }
