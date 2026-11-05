@@ -26,6 +26,7 @@
   },
   "scripts": {
     "build": "bash scripts/build.sh",
+    "build:client": "node scripts/build-client.mjs",
     "typecheck": "bash scripts/build.sh --no-emit",
     "check": "node tools/check-invariants.mjs",
     "check:self-test": "node tools/check-invariants.mjs --self-test",
@@ -36,6 +37,19 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": {
+      "default": "./lib/client.js"
+    }
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "external": []
+    }
   }
 }
