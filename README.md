@@ -5,6 +5,7 @@ DSH 项目式主从协作插件：在一个 profile 内提供「master 主会话
 - 完整产品与实现方案：[docs/PLAN.md](docs/PLAN.md)
 - 工程规则：[AGENTS.md](AGENTS.md)；测试策略：[docs/testing.md](docs/testing.md)
 - 目标：单插件安装，单 profile 生效，本地优先，无云上传。
+- 许可：MIT（与 DeepSeek Harness 官方一致）
 - 状态：方案已冻结；仓库已生成 hybrid 插件骨架，`src/` 为占位实现，开发按 PLAN.md 的 M0 起步。
 
 ## 本地检查
