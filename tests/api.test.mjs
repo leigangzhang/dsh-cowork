@@ -284,8 +284,9 @@ function fakeConnection() {
 /** Route-facing ports with a read-only store whose calls are recorded. */
 function fakePorts(options = {}) {
   const storeCalls = []
-  const inspected = []
   const roots = []
+  const counters = { listCalls: 0 }
+  const sessions = options.sessions ?? [{ sessionId: 'session-1', cwd: '/repo' }]
   const storePort = {
     async hasIndex() {
       storeCalls.push('hasIndex')
@@ -303,10 +304,13 @@ function fakePorts(options = {}) {
     },
   }
   const ports = {
-    async inspectSession(sessionId) {
-      inspected.push(sessionId)
-      if (options.inspectError !== undefined) throw options.inspectError
-      return { meta: { id: sessionId, ...(options.meta ?? { cwd: '/repo' }) } }
+    // Deliberately no `inspectSession`: the routes must resolve the cwd from
+    // session metadata, so any regression back to `inspect` fails the test with
+    // a TypeError instead of quietly passing.
+    async listSessions() {
+      counters.listCalls += 1
+      if (options.listError !== undefined) throw options.listError
+      return { items: sessions }
     },
     async findProjectRoot(startPath) {
       roots.push(startPath)
@@ -317,7 +321,7 @@ function fakePorts(options = {}) {
       return storePort
     },
   }
-  return { ports, storeCalls, inspected, roots }
+  return { ports, storeCalls, roots, counters }
 }
 
 async function registerRoutes(portBag) {
@@ -389,7 +393,7 @@ test('overview route serves the panel body with no-store headers', async () => {
   assert.deepEqual(body.threads.map((row) => row.threadId), ['t1'])
   assert.deepEqual(body.counts, { new: 0, active: 0, awaiting_review: 1, blocked: 0, done: 0 })
   assert.equal(body.project.repoPath, '/repo')
-  assert.deepEqual(portBag.inspected, ['session-1'])
+  assert.equal(portBag.counters.listCalls, 1, 'the cwd comes from one metadata listing')
   assert.deepEqual(portBag.roots, ['/repo', 'store:/repo'])
 })
 
@@ -414,11 +418,39 @@ test('overview route rejects a missing session id before touching the store', as
       error: { code: 'request/session-required', message: 'query parameter sessionId is required' },
     })
   }
-  assert.deepEqual(portBag.inspected, [])
+  assert.equal(portBag.counters.listCalls, 0)
+})
+
+test('the session cwd is looked up by id in the metadata listing', async () => {
+  const portBag = fakePorts({
+    sessions: [
+      { sessionId: 'other-session', cwd: '/elsewhere' },
+      { sessionId: 'session-1', cwd: '/repo' },
+    ],
+  })
+  const { routes } = await registerRoutes(portBag)
+  const response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).project.repoPath, '/repo')
+  assert.equal(portBag.counters.listCalls, 1)
+  assert.deepEqual(portBag.roots, ['/repo', 'store:/repo'], 'only the matching session cwd is used')
+})
+
+test('the routes never call inspectSession, only the metadata listing', async () => {
+  const portBag = fakePorts()
+  assert.equal('inspectSession' in portBag.ports, false, 'fake ports expose listSessions only')
+  const { routes } = await registerRoutes(portBag)
+  const response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  // A thread without handoffs still proves the session lookup ran: it reaches
+  // handoff/not-found instead of failing on a missing inspectSession.
+  assert.equal(response.status, 404)
+  assert.equal((await response.json()).error.code, 'handoff/not-found')
+  assert.equal(portBag.counters.listCalls, 1)
 })
 
 test('overview route maps session failures to the shared envelope', async () => {
-  const unknown = fakePorts({ inspectError: new Error('no such session') })
+  const unknown = fakePorts({ sessions: [{ sessionId: 'someone-else', cwd: '/repo' }] })
   let { routes } = await registerRoutes(unknown)
   let response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=ghost'))
   assert.equal(response.status, 400)
@@ -426,14 +458,26 @@ test('overview route maps session failures to the shared envelope', async () => 
     ok: false,
     error: { code: 'session/unknown', message: 'unknown session: ghost' },
   })
+  assert.equal(unknown.counters.listCalls, 1)
 
-  const noCwd = fakePorts({ meta: {} })
+  const noCwd = fakePorts({ sessions: [{ sessionId: 'session-1' }] })
   ;({ routes } = await registerRoutes(noCwd))
   response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
   assert.equal(response.status, 400)
   assert.deepEqual(await response.json(), {
     ok: false,
     error: { code: 'session/cwd-unavailable', message: 'session has no working directory: session-1' },
+  })
+})
+
+test('a failing metadata listing is a host failure, not an unknown session', async () => {
+  const portBag = fakePorts({ listError: new Error('session store unavailable') })
+  const { routes } = await registerRoutes(portBag)
+  const response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
+  assert.equal(response.status, 500)
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    error: { code: 'internal', message: 'session store unavailable' },
   })
 })
 
@@ -496,7 +540,7 @@ test('handoff route requires both ids in order', async () => {
     ok: false,
     error: { code: 'request/thread-required', message: 'query parameter threadId is required' },
   })
-  assert.deepEqual(portBag.inspected, [], 'ids are validated before any host call')
+  assert.equal(portBag.counters.listCalls, 0, 'ids are validated before any host call')
 })
 
 test('handoff route serves the latest handoff of the requested thread', async () => {

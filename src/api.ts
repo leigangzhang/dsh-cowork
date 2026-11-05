@@ -32,9 +32,9 @@ import { formatMasterMessage } from './handoff.js'
 import type { HandoffFile, ProjectIndex, ThreadRecord } from './store.js'
 import { StoreError } from './store.js'
 
-/** Session identity the panel needs; `sessionController.inspect` supplies it. */
-export interface PanelSessionMeta {
-  readonly id: string
+/** One metadata row of the host's session listing; only id and cwd matter here. */
+export interface PanelSessionRow {
+  readonly sessionId: string
   /** The session's working directory; the only accepted start for project discovery. */
   readonly cwd?: string
 }
@@ -48,7 +48,13 @@ export interface CoworkStorePort {
 
 /** The host facts a route needs, injected so tests can stand in for the host. */
 export interface CoworkApiPorts {
-  inspectSession(sessionId: string): Promise<{ readonly meta?: PanelSessionMeta }>
+  /**
+   * Session metadata, deliberately `list` and not `inspect`: on a live host
+   * `inspect` waits for the session's event log (the panel request hung on
+   * running or large sessions), while the listing is a cheap summary read that
+   * already carries `cwd`.
+   */
+  listSessions(): Promise<{ readonly items: readonly PanelSessionRow[] }>
   findProjectRoot(startPath: string): Promise<string | null>
   createStore(repoPath: string): CoworkStorePort
 }
@@ -166,20 +172,18 @@ function queryParam(request: Request, name: string): string | null {
  * Resolve the project root for a session. The browser only ever sends a
  * session id: the cwd comes from the host, so a crafted `path` parameter can
  * never read a repository the caller's session does not belong to.
+ *
+ * The cwd is read from session metadata (`listSessions`). A failure of that
+ * listing is a host failure and falls through to `internal`; only a listing
+ * that does not contain the id is reported as an unknown session.
  */
 async function resolveProjectRoot(ports: CoworkApiPorts, sessionId: string): Promise<string> {
-  let inspected: { readonly meta?: PanelSessionMeta } | undefined
-  try {
-    inspected = await ports.inspectSession(sessionId)
-  } catch {
-    // The host throws for an id it does not know; the panel must not care why.
+  const { items } = await ports.listSessions()
+  const row = items.find((item) => item.sessionId === sessionId)
+  if (row === undefined) {
     throw new PanelApiError('session/unknown', `unknown session: ${sessionId}`)
   }
-  const meta = inspected?.meta
-  if (meta === undefined) {
-    throw new PanelApiError('session/unknown', `unknown session: ${sessionId}`)
-  }
-  const cwd = meta.cwd
+  const cwd = row.cwd
   if (cwd === undefined || cwd.trim() === '') {
     throw new PanelApiError('session/cwd-unavailable', `session has no working directory: ${sessionId}`)
   }

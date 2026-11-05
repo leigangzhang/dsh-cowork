@@ -118,6 +118,18 @@ interface CoworkAssemblyHost {
   agentPresets: CoworkToolDeps['agentPresets']
 }
 
+/**
+ * One row of the host's session listing as it exists at runtime. The shared
+ * `SessionSlicePorts['sessions'].list` type models rows as `{ sessionId,
+ * running }` only; the real summary also carries `cwd` (SessionSummary in the
+ * host API catalog). Declared locally instead of widening the shared slice,
+ * which other tools depend on.
+ */
+interface HostSessionListRow {
+  sessionId: string
+  cwd?: string
+}
+
 /** Register the probe preset, tool, routes, and event feed; clean all of them up on dispose. */
 export function apply(ctx: Context, config: Config): void {
   const host = ctx as unknown as ProbeHost
@@ -146,7 +158,11 @@ export function apply(ctx: Context, config: Config): void {
   // M2 panel: read-only HTTP routes over the host connection service. The
   // project root is derived from the session's own cwd, never from the request.
   const panelPorts: CoworkApiPorts = {
-    inspectSession: (sessionId) => assembly.sessionController.inspect(sessionId),
+    // Metadata only: `inspect` also reads the session event log and hung the
+    // panel requests on running or large sessions.
+    listSessions: () => assembly.sessionController.list() as Promise<{
+      items: readonly HostSessionListRow[]
+    }>,
     findProjectRoot,
     createStore: (repoPath) => new ProjectStore({ repoPath }),
   }
