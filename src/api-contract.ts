@@ -20,9 +20,6 @@ export const HANDOFF_FORMATTER_VERSION = 'cowork/handoff-message@1'
 /** Upper bound on threads returned by one overview response. */
 export const MAX_PANEL_THREADS = 500
 
-/** Upper bound on `masterMessage` characters returned by one handoff response. */
-export const MAX_MASTER_MESSAGE_CHARS = 262_144
-
 /** Thread lifecycle the panel lists. `archived` threads are never returned. */
 export type PanelThreadStatus = 'new' | 'active' | 'awaiting_review' | 'done' | 'blocked'
 
@@ -103,7 +100,12 @@ export interface HandoffPayload {
   readonly record: PanelHandoffRecord
   /** Absolute path of the handoff JSON file. */
   readonly filePath: string
-  /** The exact text the host delivered to the master, re-rendered on read. */
+  /**
+   * The exact text the host delivered to the master, re-rendered on read and
+   * returned verbatim. Its size is bounded by the handoff file this plugin
+   * wrote, not by a separate wire cap: truncating would break the "what the
+   * master saw" evidence the panel exists to show.
+   */
   readonly masterMessage: string
   readonly formatterVersion: string
 }
