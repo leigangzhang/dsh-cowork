@@ -1,8 +1,8 @@
 # Cowork 面板交接文档（M3 前端）
 
 - 适用：在全新会话/上下文中实现 Cowork 右侧栏只读面板的 agent 或人。
-- 状态：设计已拍板（648 分栏 / 480 钻取 / 底栏 “Cowork” 入口 / v0 只读）；契约见 [面板提案](../.agents/notes/proposed/feature/2026-11-05-cowork-panel.md)；M1 后端已交付（[M1 结果](M1_RESULT.md)）。
-- 事实源：[PANEL_RECON](PANEL_RECON.md) 拥有宿主 slot/宽度/token/打包事实；[面板提案](../.agents/notes/proposed/feature/2026-11-05-cowork-panel.md) 拥有布局、数据契约、验收；本文件只拥有“怎么开始、先验证什么、怎样算完成”。
+- 状态：**已交付**（2026-11-05）。交付面、真实宿主证据、未验证项与合并注意见 [PANEL_RESULT](PANEL_RESULT.md)；决策记录见 [implemented 提案](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)。本文件保留为实施入口与陷阱清单。
+- 事实源：[PANEL_RECON](PANEL_RECON.md) 拥有宿主 slot/宽度/token/打包事实；[implemented 提案](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md) 拥有布局、数据契约、验收；[PANEL_RESULT](PANEL_RESULT.md) 拥有交付证据；本文件只拥有“怎么开始、先验证什么、怎样算完成”。
 
 ## 先读什么
 

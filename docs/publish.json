@@ -48,6 +48,10 @@
     {
       "pattern": "docs/PANEL_HANDOFF.md",
       "reason": "implementation handoff for the read-only Cowork right-sidebar panel: signed-off design, client capability probe, API contract, traps, and completion gate; internal operational guidance"
+    },
+    {
+      "pattern": "docs/PANEL_RESULT.md",
+      "reason": "delivered Cowork panel surface and real-host evidence: what shipped, the wire contract, the client build chain, verified states, unverified items, and the M2 merge note; environment-bound evidence for contributors, not a user guide"
     }
   ]
 }

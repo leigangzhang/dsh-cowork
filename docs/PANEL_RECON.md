@@ -44,6 +44,7 @@
 - 外部插件客户端约定：`exports["./client"]` + `package.json` 的 `dsh.client = { platform: 'web', inject: [<client 插件包>], external: ['@deepseek-ai/dsh-client-ui-primitives'] }`（见已装的 browser-skill、agent-teams 包）。client 半边预构建成一个文件，由宿主 client module 加载。
 - 仓库当前**没有 client 构建**：M0 删除了 `src/client/` 与 `tsdown.config.ts`，`scripts/build.sh` 只编译 host；`npm run build` 不会产出 client。客户端能力探针必须同时证明 ①slot 挂载 ②client bundle 构建/被加载 ③主题 token 生效；失败就降级（先只做 host 只读 API + 文档）。
 - 热更新：client 改动只有在 DSH checkout 里跑着 `pnpm run dev:web` 时才免刷新重建；否则需要重新构建 client + 刷新页面。正式交付路径是 `dsh plugin add` 后重启。
+- 客户端构建链的实测结论（esbuild 闭包产物、`__ModuleLoader__` 契约、同名换包缓存限制）由 [PANEL_RESULT](PANEL_RESULT.md) 拥有。
 
 ## 约束与未验证
 
