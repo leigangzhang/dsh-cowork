@@ -30,7 +30,7 @@ M1 的完成定义由 [PLAN §6](../../../docs/PLAN.md) 固定：初始化项目
 - `<repo>/.dsh-cowork/handoffs/<threadId>-<timestamp>.json`：PLAN §4.3 的 handoff 字段，另加 `version`、`createdAt`（ISO 8601 UTC）与 `deliveredAt`（成功投递后写）。文件名只保证唯一性，排序/比较一律用 `createdAt` 的 epoch；`deliveredAt` 缺省表示待投递，`cowork_project_status` 负责重放。
 - `projectId`：优先规范化 `git remote get-url origin`（如 `github.com-owner-repo`）；没有 remote 时用 `sha256(realpath(repoPath))` 前 12 位。所有时间用 ISO 8601 UTC；handoff 文件名用 `YYYYMMDDTHHmmssSSSZ`。
 - 状态推进：`new → active`（首次 prompt 成功）；handoff 按自身 `status` 写 `awaiting_review|blocked|done`；`archived` 只由用户操作；route 排除 `done|archived`。
-- 原子写：宿主 `@deepseek-ai/dsh-atomic-write` 的 `withFileLock` + `writeFileAtomic`（M0 已用；它不 fsync，目录 fsync 由 store 补）。锁文件固定为 `.dsh-cowork/.write.lock`，同一时刻只允许一个写者；索引与单个 handoff 分开写，不整项目重写。
+- 原子写：宿主 `@deepseek-ai/dsh-atomic-write` 的 `withFileLock` + `writeFileAtomic`（M0 已用；它不 fsync，目录 fsync 由 store 补）。锁 target 固定为 `.dsh-cowork/.write.lock`；`withFileLock` 在 target 旁以 `<target>.lock` 创建互斥文件，因此实际磁盘锁是 `.write.lock.lock`（S1 实测，保留该命名不改）。同一时刻只允许一个写者；索引与单个 handoff 分开写，不整项目重写。
 - 所有 JSON 写入前校验，读取后校验；损坏的文件返回带路径的可读错误，不静默重建。
 
 **项目发现与调用者身份**
@@ -64,7 +64,7 @@ M1 的完成定义由 [PLAN §6](../../../docs/PLAN.md) 固定：初始化项目
 - 校验失败返回 `handoff/invalid` 与逐字段原因，不写文件。
 - `status` 只接受 `awaiting_review|blocked|done`（`new/active` 不是 handoff 状态）。
 - 写入顺序固定：handoff 文件（唯一事实源，原子写）→ 更新索引 → 投递 master。若进程在两步之间崩溃，索引可能落后于文件；`cowork_project_init` 与 `cowork_project_status` 在读索引前先扫描 `handoffs/`，把 `Date.parse(createdAt)` 晚于 `Date.parse(lastHandoffAt)` 的文件按 status 回填索引（epoch 比较，不做文件名字符串比较），幂等。
-- 投递失败仍保留文件与索引，返回 `delivered:false` 与可重放的提示；`cowork_project_status` 扫描 `deliveredAt` 为空的 handoff 重投，重投成功只补写该字段。
+- 投递失败仍保留文件与索引，返回 `delivered:false` 与可重放的提示；`cowork_project_status` 扫描 `deliveredAt` 为空的 handoff 重投，重投成功只补写该字段。若 master prompt 成功但随后写 `deliveredAt` 失败，返回 `delivered:true` 并附 `deliveryError`：投递已发生，标记可由下次 status 补写。
 - master 收到的消息是文本摘要（主题、status、summary、verification、changedPaths、handoff 文件路径），不把整个 JSON 塞进 prompt。
 
 **presets（S0 已回答）**
