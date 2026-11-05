@@ -93,6 +93,27 @@ test('publish.json classifies every Markdown file exactly once', () => {
   }
 })
 
+test('standing policy homes keep their required sections', () => {
+  const homes = [
+    ['docs/documentation.md', ['## Document kinds', '## One home per fact', '## Publication']],
+    ['docs/testing.md', ['## Tiers', '## Determinism', '## Flake policy']],
+    ['.agents/notes/README.md', ['## When to write one', '## Classes', '## Flow']],
+  ]
+  for (const [rel, sections] of homes) {
+    const doc = read(rel)
+    for (const section of sections) assert.ok(doc.includes(section), `${rel} missing ${section}`)
+  }
+})
+
+test('record templates cite declared surfaces in criteria', () => {
+  const proposed = read('.agents/notes/proposed/TEMPLATE.md')
+  const implemented = read('.agents/notes/implemented/TEMPLATE.md')
+  for (const surface of ['tests', 'source', 'packaging']) {
+    assert.ok(proposed.includes(`\`${surface}\``), `proposed TEMPLATE should cite surface ${surface}`)
+  }
+  assert.ok(implemented.includes('`tests`'))
+})
+
 test('README links the product plan', () => {
   const readme = read('README.md')
   assert.ok(readme.includes('docs/PLAN.md'))

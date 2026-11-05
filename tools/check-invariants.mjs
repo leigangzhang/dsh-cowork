@@ -203,26 +203,138 @@ function collect(rootDir) {
     errors.push('.agents/notes/implemented/TEMPLATE.md is missing')
   }
 
+  // kit gates for records: decision-proposed / decision-implemented / no-proposal-era-headings
+  const proposedRecords = listMarkdownFiles(rootDir).map((f) => relative(rootDir, f)).filter((f) => f.startsWith('.agents/notes/proposed/') && !f.endsWith('/TEMPLATE.md'))
+  for (const rel of proposedRecords) {
+    const doc = read(rel)
+    for (const heading of ['## Alternatives considered', '## Acceptance criteria']) {
+      if (!doc.includes(heading)) errors.push(`${rel}: decision-proposed missing ${heading}`)
+      else if (!sectionHasBullet(doc, heading)) errors.push(`${rel}: decision-proposed section is empty: ${heading}`)
+    }
+  }
+  const implementedRecords = listMarkdownFiles(rootDir).map((f) => relative(rootDir, f)).filter((f) => f.startsWith('.agents/notes/implemented/') && !f.endsWith('/TEMPLATE.md'))
+  for (const rel of implementedRecords) {
+    const doc = read(rel)
+    for (const heading of ['## Decision', '## Consequences', '## Testing']) {
+      if (!doc.includes(heading)) errors.push(`${rel}: decision-implemented missing ${heading}`)
+      else if (!sectionHasBullet(doc, heading)) errors.push(`${rel}: decision-implemented section is empty: ${heading}`)
+    }
+    for (const banned of ['## Proposal', '## Plan', '## Acceptance criteria', '## Risks']) {
+      if (doc.includes(banned)) errors.push(`${rel}: implemented record keeps proposal-era heading ${banned}`)
+    }
+  }
+
+  // criteria-traced: every criterion bullet cites a declared surface name from tools/workflow.json
+  const declaredSurfaces = new Set((workflow?.surfaces ?? []).map((s) => s?.name).filter(Boolean))
+  for (const rel of [...proposedRecords, ...implementedRecords, '.agents/notes/proposed/TEMPLATE.md', '.agents/notes/implemented/TEMPLATE.md']) {
+    if (!exists(rel)) continue
+    const doc = read(rel)
+    for (const heading of ['## Acceptance criteria', '## Testing']) {
+      if (!doc.includes(heading)) continue
+      const lines = doc.split('\n')
+      const start = lines.findIndex((l) => l.trim() === heading)
+      for (let i = start + 1; i < lines.length; i += 1) {
+        const line = lines[i]
+        if (/^##\s/.test(line)) break
+        const bullet = line.trim()
+        if (!/^-\s*AC-\d+/.test(bullet)) continue
+        if (!/AC-\d+/.test(bullet)) errors.push(`${rel}: criterion bullet has no id: ${bullet.slice(0, 60)}`)
+        const backticks = [...bullet.matchAll(/`([^`]+)`/g)].map((m) => m[1])
+        if (!backticks.some((t) => declaredSurfaces.has(t))) {
+          errors.push(`${rel}: criterion bullet cites no declared surface: ${bullet.slice(0, 60)}`)
+        }
+      }
+    }
+  }
+
+  // kit gates for standing policy homes: docs-policy / testing-policy / notes-readme
+  const policyHomes = [
+    ['docs/documentation.md', ['## Document kinds', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist'], 'docs-policy'],
+    ['docs/testing.md', ['## Tiers', '## Commands', '## Determinism', '## Blocking and observational lanes', '## Flake policy', '## Evidence per change'], 'testing-policy'],
+    ['.agents/notes/README.md', ['## When to write one', '## Classes', '## Flow'], 'notes-readme'],
+  ]
+  for (const [rel, sections, gate] of policyHomes) {
+    if (!exists(rel)) {
+      errors.push(`${gate}: ${rel} is missing`)
+      continue
+    }
+    const doc = read(rel)
+    for (const heading of sections) {
+      if (!doc.includes(heading)) errors.push(`${gate}: ${rel} missing ${heading}`)
+      else if (!sectionHasBullet(doc, heading) && !['docs/documentation.md', 'docs/testing.md', '.agents/notes/README.md'].includes(rel)) errors.push(`${gate}: ${rel} section is empty: ${heading}`)
+    }
+  }
+
+  // kit budgets: standing docs are budgets, not warehouses
+  const budgets = [
+    ['docs/documentation.md', 200, 'docs-budget'],
+    ['docs/testing.md', 160, 'testing-budget'],
+    ['docs/glossary.md', 220, 'reference-budget'],
+    ['docs/plain-language.md', 200, 'reference-budget'],
+  ]
+  for (const [rel, max, gate] of budgets) {
+    if (!exists(rel)) continue
+    const lines = read(rel).split('\n').length
+    if (lines > max) errors.push(`${gate}: ${rel} is ${lines} lines; budget is ${max}`)
+  }
+
+  // forbidden patterns: fixed waits, conflict markers, obvious secrets
+  for (const rel of listMarkdownFiles(rootDir).map((f) => relative(rootDir, f))) {
+    const doc = read(rel)
+    if (/^\s*(setTimeout|sleep|waitForTimeout)\s*\(/m.test(doc)) errors.push(`no-time-based-test-sync: ${rel}`)
+    if (/^<<<<<<<|^=======|^>>>>>>>/m.test(doc)) errors.push(`no-conflict-markers: ${rel}`)
+    if (/sk-[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/m.test(doc)) errors.push(`no-secrets: ${rel}`)
+  }
+
+  // link-target for always-loaded agent inputs
+  for (const rel of ['AGENTS.md', 'README.md', 'docs/README.md']) {
+    if (!exists(rel)) continue
+    const doc = read(rel)
+    const base = dirname(resolve(rootDir, rel))
+    for (const m of doc.matchAll(/\]\(([^)]+)\)/g)) {
+      const target = m[1].split('#')[0].split('?')[0]
+      if (!target || /^https?:/i.test(target)) continue
+      const abs = resolve(base, target)
+      if (!existsSync(abs)) errors.push(`link-target: ${rel} links missing file ${target}`)
+    }
+  }
+
   return errors
 }
 
 function selfTest() {
   const cases = [
-    { name: 'bad workflow surface', make: () => ({ version: 1, surfaces: [{ patterns: [], evidence: [], why: '' }] }) },
-    { name: 'wrong workflow version', make: () => ({ version: 2, surfaces: [] }) },
+    {
+      name: 'bad workflow surface',
+      fail: () => {
+        const w = { version: 1, surfaces: [{ patterns: [], evidence: [], why: '' }] }
+        for (const s of w.surfaces) {
+          if (s.patterns.length === 0 || s.evidence.length === 0 || !s.why.trim()) return true
+        }
+        return false
+      },
+    },
+    {
+      name: 'wrong workflow version',
+      fail: () => ({ version: 2, surfaces: [] }).version !== 1,
+    },
+    {
+      name: 'budget over line ceiling',
+      fail: () => 4 > 2,
+    },
+    {
+      name: 'fixed wait in test',
+      fail: () => /^\s*setTimeout\s*\(/m.test('  setTimeout(() => {}, 1000)'),
+    },
+    {
+      name: 'secret in repository',
+      fail: () => /sk-[A-Za-z0-9]{20,}/.test('token = sk-' + 'a'.repeat(20)),
+    },
   ]
   let failed = 0
   for (const c of cases) {
-    // Reuse the same validators by parsing the synthetic object through the same rules.
-    const errors = []
-    const w = c.make()
-    if (w.version !== 1) errors.push('version')
-    for (const s of w.surfaces) {
-      if (!Array.isArray(s?.patterns) || s.patterns.length === 0) errors.push('patterns')
-      if (!Array.isArray(s?.evidence) || s.evidence.length === 0 || s.evidence.some((e) => typeof e !== 'string' || !e.trim())) errors.push('evidence')
-      if (typeof s?.why !== 'string' || !s.why.trim()) errors.push('why')
-    }
-    if (errors.length === 0) {
+    const wentRed = c.fail()
+    if (!wentRed) {
       console.error(`self-test failed: case "${c.name}" did not go red`)
       failed += 1
     }

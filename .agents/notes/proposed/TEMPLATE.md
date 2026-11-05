@@ -23,9 +23,9 @@ What was rejected and why. This section may not be empty.
 
 Each criterion carries a stable id (`AC-1`) and names, inside backticks, the check or surface in `tools/workflow.json` that will go red when it breaks.
 
-- AC-1: <criterion> — `npm test`
-- AC-2: <criterion> — `npm run typecheck`
-- AC-3: <criterion> — `npm run build`
+- AC-1: <criterion> — `tests`
+- AC-2: <criterion> — `source`
+- AC-3: <criterion> — `packaging`
 
 ## Risks
 
