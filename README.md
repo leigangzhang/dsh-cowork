@@ -61,10 +61,10 @@ npm run check              # 可执行约定（AGENTS 预算 / workflow.json / �
 npm run check:self-test    # 证明守卫能变红
 npm test                   # 仓库自身契约测试
 npm run typecheck          # TypeScript 检查（依赖安装后）
-npm run build              # host + client 构建（DSH checkout 已构建后）
+npm run build              # host 构建（类型取自 DSH 源码 checkout，运行时链接已安装 app，无需设置 DSH_CHECKOUT）
 ```
 
-`npm run build` 在 M0 探针替换 `src/` 与 DSH checkout 构建完成之前会失败；这是预期，不是产品代码失败。
+`npm run build` 现在可直接运行（M0 已完成）：类型来自 DSH 源码 checkout、运行时链接已安装 app，脚本自动探测；client 半边在 M0 移除、M3 恢复。
 
 ## 安装
 

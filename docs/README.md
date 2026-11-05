@@ -10,6 +10,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 这个词在这个仓库里是什么意思 | [glossary.md](glossary.md) |
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |
 | 怎样才算“验证过” | [testing.md](testing.md) |
+| M0 五项 API 风险证明了什么、原始证据在哪 | [M0_PROBE_RESULT.md](M0_PROBE_RESULT.md) |
 | 工程规则与命令 | [AGENTS.md](../AGENTS.md) |
 | 哪个文件可以发布 | [publish.json](publish.json) |
 | 决策记录怎么写、为什么写 | [.agents/notes/README.md](../.agents/notes/README.md) |

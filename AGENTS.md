@@ -36,7 +36,7 @@ npm run check              # executable conventions (workflow.json, templates, A
 npm run check:self-test    # prove the guards can fail
 npm test                   # contract tests for the repository's own rules
 npm run typecheck          # TypeScript check (requires deps installed)
-npm run build              # host + client build (requires DSH_CHECKOUT with built lib)
+npm run build              # host build (auto-detects a DSH source checkout for types and the installed app for runtime)
 ```
 
-Build note: `npm run build` is expected to fail until the DSH checkout is built and `src/` is replaced by the M0 probe; do not treat that failure as product code failure.
+Build note: `npm run build` runs now that M0 landed. Types come from a DSH source checkout and runtime links from the installed app, both auto-detected; the client half is removed for M0 and returns in M3.

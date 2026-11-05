@@ -1,102 +1,196 @@
 /**
- * @dsh-external/dsh-cowork — 守护循环形态（由 dev_scaffold_plugin 生成）。
- * 小 agent loop：timer 驱动自主循环 → 观察 → LLM 决策 → 行动 → 再睡。
- * 插件自身的提示词/循环参数皆可自我优化（改 → build → dev_reload_package）。
+ * @dsh-external/dsh-cowork — M0 probe host plugin.
+ *
+ * The plugin exists to prove the five API risks in docs/PLAN.md §3.2 against
+ * the live host: a runtime agent preset, two queued wake turns, session and
+ * workspace visibility, an atomic cross-session store, a worktree-backed
+ * session, and the patchReload facts. It registers one read-only tool and
+ * three loopback-only routes; probe runs are started and polled over HTTP.
  */
+import { readFileSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import type LlmService from '@deepseek-ai/dsh-llm'
-import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { appendFileSync, mkdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { homedir } from 'node:os'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import z from '@deepseek-ai/schemastery'
+import type { HealthView, ProbeConfig, ProbeHost } from './probe-engine.js'
+import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
+import { isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 
-type AppContext = Context & {
-  llm: LlmService
-  setInterval(fn: () => void, ms: number): any
-}
+const packageJson = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+) as { name: string; version: string }
 
-export const name = "@dsh-external/dsh-cowork"
-export const inject = ['timer', 'llm']
+const PLUGIN_NAME = packageJson.name
+const PLUGIN_VERSION = packageJson.version
 
+/** Health route: liveness, plugin identity, and preset registration state. */
+const HEALTH_PATH = '/dsh-cowork/probe/health'
+/** Run route: start one probe run and return its id immediately. */
+const RUN_PATH = '/dsh-cowork/probe/run'
+/** Status route: poll one run's phases, evidence, sessions, and error. */
+const STATUS_PATH = '/dsh-cowork/probe/status'
+
+/** Lossless JSON value accepted by the tool result boundary. */
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+
+/** Plugin configuration; every field has a working default. */
 export interface Config {
-  intervalMs: number
-  logFile: string
-  watchFile: string
+  /** Repository the probe writes under; defaults to this plugin's package root. */
+  repoPath: string
+  /** Upper bound for one prompt's turn and for any bounded wait; M0 pins 120s. */
+  promptTimeoutMs: number
+  /** Probe store path, relative to `repoPath`. */
+  storeRelativePath: string
+  /** Probe worktree path, relative to `repoPath`. */
+  worktreeRelativePath: string
 }
 
-export const Config = z.object({
-  intervalMs: z.number().min(5000).default(60000),
-  logFile: z.string().default(''),
-  watchFile: z.string().default(''),
+export const Config: z<Config> = z.object({
+  repoPath: z.string().default(''),
+  promptTimeoutMs: z.number().min(30_000).max(600_000).default(120_000),
+  storeRelativePath: z.string().default('.dsh-cowork/probe/store.json'),
+  worktreeRelativePath: z.string().default('.dsh-cowork/worktrees/probe'),
 })
 
-export function apply(ctx: AppContext, config: Config): void {
-  // 短名（去 scope）：日志文件名不能含 '/'（会变成子路径）
-  const SHORT = "dsh-cowork"
-  // DSH_HOME 优先：web 进程 homedir 可能与 DSH_HOME 不一致（部署常见），homedir() 推导会错位
-  const dshHome = process.env.DSH_HOME || join(homedir(), '.dsh')
-  const logFile = config.logFile || join(dshHome, 'super-injector', SHORT + '.log')
-  const watchFile = config.watchFile || join(dshHome, 'super-injector', 'self-heal.log')
-  let cycles = 0
-  let llmCalls = 0
-  let lastRoute: { provider: string; model: string } | null = null
+/** Host services this plugin cannot activate without. */
+export const inject = ['webServer', 'tools', 'agentPresets', 'sessionController', 'workspaceRegistry']
 
-  const log = (msg: string): void => {
-    try {
-      mkdirSync(dirname(logFile), { recursive: true })
-      appendFileSync(logFile, '[' + new Date().toISOString() + '] ' + msg + '\n')
-    } catch { /* 日志失败静默 */ }
-  }
-
-  // 观察面：捕获主模型路由（waterfall 必须 next() 委托）
-  ctx.on('llm/stream', (options, next) => {
-    lastRoute = { provider: options.provider, model: options.model }
-    return next()
+function sendJson(response: ServerResponse, status: number, payload: unknown): void {
+  const body = JSON.stringify(payload)
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(body),
   })
+  response.end(body)
+}
 
-  async function decideWithLlm(tail: string): Promise<string> {
-    if (!lastRoute) return '无可用 LLM 路由（未捕获到主模型调用），跳过决策'
-    llmCalls += 1
-    try {
-      let text = ''
-      const stream = ctx.llm.stream({
-        provider: lastRoute.provider,
-        model: lastRoute.model,
-        system: '你是守护 agent。分析给定日志尾部，判断是否需要人工介入。直接输出结论：需介入（10 字内原因）/ OK。',
-        messages: [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: tail.slice(0, 800) }] })],
-        temperature: 0,
-        reasoningEffort: ReasoningEffortId('off'),
-        maxTokens: 200,
-      })
-      for await (const chunk of stream) {
-        if (chunk.type === 'text-delta') text += chunk.text
-      }
-      return text.trim().slice(0, 60) || 'LLM 无输出'
-    } catch (e) {
-      return 'LLM 调用失败: ' + String(e).slice(0, 40)
-    }
+function loopbackOnly(request: IncomingMessage): boolean {
+  return isLoopbackAddress(request.socket.remoteAddress)
+    && isLoopbackHost(request.headers.host)
+}
+
+function sendMethodNotAllowed(response: ServerResponse, allow: string): void {
+  response.setHeader('allow', allow)
+  sendJson(response, 405, { ok: false, error: 'method not allowed' })
+}
+
+function guard(request: IncomingMessage, response: ServerResponse, allow: string): boolean {
+  if (!loopbackOnly(request)) {
+    sendJson(response, 403, { ok: false, error: 'loopback requests only' })
+    return false
+  }
+  if (request.method !== allow) {
+    sendMethodNotAllowed(response, allow)
+    return false
+  }
+  return true
+}
+
+/** The plugin root (the directory holding package.json), used as the default repo. */
+function defaultRepoPath(): string {
+  return resolve(fileURLToPath(new URL('..', import.meta.url)))
+}
+
+/** Register the probe preset, tool, routes, and event feed; clean all of them up on dispose. */
+export function apply(ctx: Context, config: Config): void {
+  const host = ctx as unknown as ProbeHost
+  const probeConfig: ProbeConfig = {
+    repoPath: config.repoPath === '' ? defaultRepoPath() : resolve(config.repoPath),
+    promptTimeoutMs: config.promptTimeoutMs,
+    storeRelativePath: config.storeRelativePath,
+    worktreeRelativePath: config.worktreeRelativePath,
+  }
+  const runner = new ProbeRunner(host, probeConfig, PLUGIN_NAME, PLUGIN_VERSION)
+
+  // Risk 3: a preset registered at runtime, owned by this fiber's lifetime.
+  ctx.effect(() => {
+    const registration = host.agentPresets.register({
+      id: PROBE_PRESET_ID,
+      name: 'cowork probe',
+      description: 'M0 probe preset: registered at runtime, mounts no extra plugins.',
+      plugins: [],
+    })
+    void registration.then(
+      () => runner.markPresetRegistered(),
+      () => { /* registration failure surfaces through health and the preset phase */ },
+    )
+    return registration
+  }, 'dsh-cowork: runtime agent preset')
+
+  // One read-only tool: health plus the last run summary.
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'cowork_probe',
+    description: 'Read the dsh-cowork M0 probe health and the last run summary. Starts no work.',
+    parameters: {},
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute: async (): Promise<JsonValue> => {
+      const payload = { health: runner.health(), lastRun: runner.lastRun() ?? null }
+      return JSON.parse(JSON.stringify(payload)) as JsonValue
+    },
+  })), 'dsh-cowork: cowork_probe tool')
+
+  const routes: WebRoute[] = [
+    {
+      kind: 'exact',
+      path: HEALTH_PATH,
+      handler: (request, response) => {
+        if (!guard(request, response, 'GET')) return
+        sendJson(response, 200, runner.health())
+      },
+    },
+    {
+      kind: 'exact',
+      path: RUN_PATH,
+      handler: (request, response) => {
+        if (!guard(request, response, 'POST')) return
+        request.resume()
+        try {
+          const run = runner.start()
+          sendJson(response, 200, { runId: run.runId, state: run.state })
+        } catch (error) {
+          sendJson(response, 409, {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+            lastRunId: runner.lastRun()?.runId ?? null,
+          })
+        }
+      },
+    },
+    {
+      kind: 'exact',
+      path: STATUS_PATH,
+      handler: async (request, response) => {
+        if (!guard(request, response, 'GET')) return
+        let runId: string
+        try {
+          runId = requireRunId(readQuery(request.url, 'runId'))
+        } catch (error) {
+          sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+          return
+        }
+        const run = await runner.resolve(runId)
+        if (run === undefined) {
+          sendJson(response, 404, { ok: false, error: `unknown runId: ${runId}` })
+          return
+        }
+        sendJson(response, 200, run)
+      },
+    },
+  ]
+
+  for (const route of routes) {
+    ctx.effect(() => ctx.webServer.register(route), `dsh-cowork: route ${readPath(route.path)}`)
   }
 
-  // ═══ 小 agent loop：每 intervalMs 醒来 → 观察 → 决策 → 行动 → 再睡 ═══
-  ctx.setInterval(() => {
-    void (async () => {
-      cycles += 1
-      let tail = ''
-      try {
-        const { readFileSync } = await import('node:fs')
-        const t = readFileSync(watchFile, 'utf8').trim().split('\n')
-        tail = t.slice(-3).join('\n')
-      } catch { /* 无观察源 */ }
-      let decision: string
-      if (tail.includes('heal-failed') || tail.includes('reboot-failed')) {
-        decision = await decideWithLlm(tail)
-      } else {
-        decision = 'OK（无异常，LLM 未唤醒）'
-      }
-      log('cycle=' + cycles + ' llmCalls=' + llmCalls + ' decision=' + decision)
-    })().catch((e) => log('loop error: ' + String(e)))
-  }, config.intervalMs)
+  ctx.effect(() => runner.attachEvents(), 'dsh-cowork: session event feed')
+  ctx.effect(() => () => runner.dispose(), 'dsh-cowork: probe runner')
 
-  ctx.logger?.info?.('[' + "@dsh-external/dsh-cowork" + '] 守护循环启动（每 ' + config.intervalMs + 'ms 一轮）')
+  ctx.logger?.info?.(`[${PLUGIN_NAME}] M0 probe ready at ${HEALTH_PATH} (repo ${probeConfig.repoPath})`)
 }

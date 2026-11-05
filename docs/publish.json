@@ -20,6 +20,10 @@
     {
       "pattern": ".agents/notes/*",
       "reason": "decision records and their templates; internal history, not a guide"
+    },
+    {
+      "pattern": "docs/M0_PROBE_RESULT.md",
+      "reason": "M0 decision-gate evidence for the five PLAN §3.2 API risks: environment- and version-bound raw output for contributors, not a user-facing guide"
     }
   ]
 }

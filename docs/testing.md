@@ -20,10 +20,10 @@ npm run check              # executable conventions
 npm run check:self-test    # prove the guards can fail
 npm test                   # node:test contract tests for this repository's rules
 npm run typecheck          # TypeScript, when dependencies are installed
-npm run build              # host + client build, when DSH_CHECKOUT is built
+npm run build              # host build (types from a DSH source checkout, runtime from the installed app; no DSH_CHECKOUT needed)
 ```
 
-`npm run build` is expected to fail before the M0 probe replaces the scaffold and the DSH checkout is built. Do not report it as a product failure; report which step failed and why.
+`npm run build` builds the host half only: the client half is removed for M0 and returns in M3. The script probes a DSH source checkout for types and the installed DSH app for runtime links, so callers do not set `DSH_CHECKOUT`.
 
 ## Determinism
 
