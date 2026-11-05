@@ -40,6 +40,10 @@
     {
       "pattern": "docs/M2_HANDOFF.md",
       "reason": "handoff for the next implementation session: read order, the four M2-P0 probe questions, stage order, traps, and the completion gate; internal because it is session-specific operational guidance, not a user guide"
+    },
+    {
+      "pattern": "docs/PANEL_RECON.md",
+      "reason": "reconnaissance for the Cowork panel: host slot/token/packaging facts read from cordis_inspect and the DSH checkout, environment-bound evidence for contributors"
     }
   ]
 }
