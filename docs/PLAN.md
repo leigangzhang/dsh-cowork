@@ -30,7 +30,7 @@ DSH 单会话长跑会出现：任务失焦、上下文退化导致推理质量�
 3. 项目级记忆，物理隔离，不全局串；
 4. master 把需求路由到最相关 thread，或新建 thread；
 5. thread 完成/调整后向 master 结构化汇报；
-6. thread 可落到独立 git worktree；
+6. thread 可落到独立的隔离 checkout（每 thread 一个本地 clone）；
 7. 输出契约 + 独立 review 门禁；
 8. 两个 agent preset（`cowork-master` / `cowork-thread`）；
 9. 本地优先，不把项目上传到云。
@@ -70,7 +70,7 @@ DSH 单会话长跑会出现：任务失焦、上下文退化导致推理质量�
 2. master 调用 `cowork_route(intent)`；
 3. 插件读取项目索引 + 每个 thread 的 handoff 摘要，先做本地关键词打分，再让 master 模型在低置信时二次判断；
 4. 命中：用 `sessionController.prompt` 把需求投递给该 thread；
-5. 未命中：`sessionController.create({ cwd: <repo 或 worktree>, agentPreset: 'cowork-thread' })` 新建 thread，写索引，注入初始 brief。
+5. 未命中：`sessionController.create({ workspaceId | cwd, sessionId?, agentPreset: 'cowork-thread' })` 新建 thread；`isolated` 时先 clone 再以 clone 建会话，写索引，注入初始 brief。
 
 #### thread 工作与 handoff
 
@@ -119,7 +119,7 @@ new → active → awaiting_review → done
 1. `session.prompt` 是否真的唤醒 idle 会话并跑一轮；
 2. `session.create` 出的会话是否立即出现在侧栏并挂到 workspace；
 3. preset 注册后，新建会话是否可选且 `agentPreset` 是否生效；
-4. worktree 路径是否在 DSH 允许根内（`allowedRoots` 目前是 `/Users/ray/Workspace`，本仓库在该根下，预计可覆盖）；
+4. worktree 路径是否在 DSH 允许根内（M0 实测：宿主没有 `allowedRoots`，可写根是会话 cwd + 临时目录；见 [M0 结果](M0_PROBE_RESULT.md) §4）；
 5. web profile `patchReload=None` 的热重载限制。
 
 ### 3.3 现有插件调研结论（摘要）
@@ -135,7 +135,7 @@ new → active → awaiting_review → done
 | `jax629321/dsh-agent-hub` | 群聊式决策/验收/群记忆 | 自带 Python 后端，成员不是 DSH 原生会话 |
 | `zenghaili0901/dsh-bot-mode` | Bot 浮窗直接对话 | 验证性项目，无任务板/项目记忆/路由 |
 
-结论：**只取“已验证的 API 用法和工程模式”，不把任何第三方协作插件作为运行时依赖**。记忆与 worktree 以“适配器接口”预留，默认用自研轻量实现。
+结论：**只取“已验证的 API 用法和工程模式”，不把任何第三方协作插件作为运行时依赖**。记忆以“适配器接口”预留，checkout 用自研轻量实现。
 
 ---
 
@@ -165,7 +165,8 @@ dsh-cowork/
 │   ├── router.ts           # 关键词打分 + 模型辅助路由
 │   ├── handoff.ts          # handoff 结构校验与投递
 │   ├── memory.ts           # 项目记忆读写（默认 markdown 文件）
-│   ├── worktree.ts         # git CLI worktree 适配器
+│   ├── memory-prompt.ts    # 记忆块注入 agent 作用域的 system prompt
+│   ├── checkout.ts         # git CLI thread checkout 适配器（本地 clone）
 │   ├── review.ts           # review 会话生命周期
 │   ├── tools.ts            # cowork_* 工具定义
 │   ├── routes.ts           # loopback HTTP API（/dsh-cowork/*）
@@ -195,7 +196,7 @@ dsh-cowork/
       "subject": "下载队列重构",
       "status": "active",
       "cwd": "/Users/ray/Workspace/dsh-cowork",
-      "worktreePath": null,
+      "checkoutPath": null,
       "createdAt": "2026-11-04T00:00:00Z",
       "updatedAt": "2026-11-04T00:00:00Z",
       "lastHandoffAt": "2026-11-04T00:00:00Z"
@@ -278,20 +279,24 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 ### 5.5 memory
 
-- 默认文件实现：按项目目录读 `memory/*.md`，注入到 master 与 thread 的 system prompt；
-- 只注入预算内内容（默认 3000 token），提供 `cowork_memory_search` / `cowork_memory_write`；
-- 适配器接口：`recall(projectId, query, budget) / save(projectId, entry)`；
-- 后续适配器：`dsh-project-memory`、`dsh-engram`、OpenViking peer。
+- 文件实现：`<repo>/.dsh-cowork/memory/{constraints,decisions,facts}.md`，每条一个 `## ` 块，正文后接 `(来源: …; ISO 时间)`。
+- 注入机制：插件在 agent 作用域注册 system prompt 段落 `cowork:memory`（order 900、`interpolate:false`）；`text` 是函数，每次 prompt assembly 重新读取三个文件。只对 `agentPreset` 为 `cowork-master` / `cowork-thread`、且 cwd 向上能找到 `.dsh-cowork/index.json` 的 agent 注册；段落只在该 agent 的 assembly 可见。
+- 预算：默认 3000 tokens（`ceil(chars/4)` 估算），按 constraints → decisions → facts 整条拼接，超出即停止并追加 `[memory truncated]`。digest 不变时复用上次文本，写入新记忆后下一次 assembly 即重新求值读取。
+- 写入与检索：`cowork_memory_write` 追加一条带来源的记忆（单条正文 ≤8000 字符，目录锁 + 原子替换，损坏文件带行号报错且不改写）；`cowork_memory_search` 用与 router 相同的 `tokenize`（ASCII 词 + CJK bigram）打分，limit 默认 5、上限 20。
+- 生命周期：agent 创建时注册、插件卸载时释放 section disposer；同名重复注册只计数并记录，不影响其他 agent。
+- 适配器接口：`recall(projectId, query, budget) / save(projectId, entry)`；后续适配器：`dsh-project-memory`、`dsh-engram`、OpenViking peer。
 
-### 5.6 worktree
+### 5.6 thread checkout（每 thread 本地 clone）
 
-MVP 直接用 `git` CLI 实现，不依赖第三方 worktree 插件：
+隔离实现采用 **F 方案：每个 thread 一个本地 clone**，经用户确认；不用 `git worktree`。MVP 直接用 `git` CLI，不依赖第三方 worktree 插件：
 
-- `cowork_worktree_create(threadId, baseRef?)`：`git worktree add -b cowork/<threadId> <path> <baseRef>`；
-- `<path>` 默认 `<repo>/.dsh-cowork/worktrees/<threadId>`；
-- thread 的 cwd 设为 worktree 路径；
-- master 独占合并：`git merge --no-ff cowork/<threadId>`，成功后 `git worktree remove`；
-- 冲突时保留 worktree，标记 thread `blocked`，等人工解决。
+- 路径 `<repo>/.dsh-cowork/threads/<threadId>`，分支 `cowork/<threadId>`；`cowork_route` / `cowork_thread_create` 传 `isolated: true` 时才创建，M1 行为保持。
+- 创建顺序：生成 `threadId` → `git clone --local <repo> <clone>` → `git checkout -b cowork/<threadId>` → `workspace.create(clone)` → `session.create({sessionId, workspaceId, agentPreset})`；thread 会话 cwd 就是 clone 路径，因此 `.git` 在会话沙箱根内，thread 可以自己 `git add/commit`。
+- 索引：thread 记录字段 `checkoutPath` 是唯一事实源，存宿主规范化后的 clone 路径；任一步失败补偿删除索引记录、clone 与本次创建的 workspace。
+- master 独占合并 `cowork_checkout_merge`：前置 thread 状态 ∈ `{awaiting_review, done}` 且 clone `git status --porcelain` 为空（含 untracked）；执行 `git fetch <clone> +refs/heads/cowork/<id>:refs/heads/cowork/<id>`，再 `git merge --no-ff`。
+- 成功：删 clone 与分支、删 workspace、归档会话，索引 `checkoutPath=null`、`status='done'`；失败保留现场并返回稳定错误码。
+- 冲突：`git merge --abort`、保留 clone 与分支、索引置 `blocked` 并返回冲突文件；thread 在 clone 内 fetch 主分支、解决并提交后重新 handoff，master 重试成功。
+- 为什么不是 `git worktree`：linked worktree 的 git 元数据在 `<repo>/.git/worktrees/`，位于 thread 会话 cwd 之外；workspace-write 策略下 thread 侧 `git add/commit` 被沙箱拒绝（`index.lock: Operation not permitted`，exitCode 128）。workspace-write 是插件必须支持的最小权限，`danger-full-access` 下 worktree 也许可用，但 F 不依赖全权限（[M2-P0 结果](M2_PROBE_RESULT.md) §4–§5）。
 
 ### 5.7 review
 
@@ -306,16 +311,16 @@ MVP 直接用 `git` CLI 实现，不依赖第三方 worktree 插件：
 | 工具 | 谁可用 | 作用 |
 |---|---|---|
 | `cowork_project_init` | master | 初始化项目索引 |
-| `cowork_project_status` | master/thread | 项目与线程概览 |
-| `cowork_route` | master | 路由需求到 thread |
-| `cowork_thread_create` | master | 显式新建 thread |
+| `cowork_project_status` | master/thread | 项目与线程概览，含各 thread checkout 摘要 |
+| `cowork_route` | master | 路由需求到 thread；`isolated: true` 时建 clone |
+| `cowork_thread_create` | master | 显式新建 thread；`isolated: true` 时建 clone |
 | `cowork_thread_list` | master/thread | 列出 thread |
 | `cowork_handoff` | thread | 结构化汇报 |
 | `cowork_memory_search` | master/thread | 搜索项目记忆 |
 | `cowork_memory_write` | master/thread | 写项目记忆 |
-| `cowork_worktree_create` | master | 为 thread 建 worktree |
-| `cowork_worktree_merge` | master | 合并 worktree |
-| `cowork_review_request` | master/thread | 请求独立 review |
+| `cowork_checkout_merge` | master | 合并 thread 分支并清理 clone/workspace/会话 |
+
+`cowork_review_request` 仍未实现，属 M3。
 
 ### 5.9 presets
 
@@ -350,14 +355,14 @@ MVP 直接用 `git` CLI 实现，不依赖第三方 worktree 插件：
 - thread 调 `cowork_handoff` → master 收到结构化 handoff；
 - 无第三方协作插件参与。
 
-### M2：项目记忆 + worktree
+### M2：项目记忆 + thread checkout（F 方案经用户确认）
 
 验收：
 
-- `cowork_memory_write/search` 跨 thread 生效；
-- 新 thread 能读到项目约束；
-- thread 落到 worktree，合并不污染主工作区；
-- 冲突场景保留 worktree 且索引状态正确。
+- `cowork_memory_write/search` 跨 thread 生效；新建与已存在的 cowork agent 在其 system prompt 中看到预算内记忆块；
+- `isolated: true` 的 thread 落到 `<repo>/.dsh-cowork/threads/<threadId>`、分支 `cowork/<threadId>`，索引记录 `checkoutPath`，thread 能在 clone 内提交；
+- master 合并 thread 分支后主工作区没有该 thread 的未提交改动，clone 与分支被清理、索引 `checkoutPath=null`；
+- 冲突场景保留 clone 与分支、索引状态为 `blocked`，解决后重试合并成功；脏 clone 被拒绝。
 
 ### M3：review 门禁 + 客户端面板
 
@@ -393,7 +398,7 @@ MVP 直接用 `git` CLI 实现，不依赖第三方 worktree 插件：
 |---|---|---|
 | `session.prompt` 不唤醒 idle 会话 | 高 | M0 最先验证；失败则 handoff 退化为「投递 + UI 红点 + 用户点开」 |
 | preset 包内动态注册不可用 | 中 | 回退 profile patch 声明行 |
-| worktree 路径不在 allowedRoots | 低 | 本仓库位于 `/Users/ray/Workspace` 已覆盖；其他机器文档说明 |
+| worktree 路径不在可写根 | 低 | M0 实测无 `allowedRoots`，可写根 = 会话 cwd + 临时目录；linked worktree 的 git 元数据在 cwd 外，thread 侧 git 写被拒（M2-P0）。隔离改用每 thread 本地 clone，见 §5.6 |
 | 与 OpenViking 记忆双写 | 中 | dsh-cowork 默认只读自己的 `.dsh-cowork`，不接 OpenViking |
 | 与 AgentTeams 并存 | 低 | dsh-cowork 不使用 AgentTeams 运行时；review 只借其语义 |
 | 多项目共享一个 master | 高 | MVP 一项目一 master；多项目各自索引 |

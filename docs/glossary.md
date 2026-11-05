@@ -54,7 +54,7 @@ The state of a check whose patterns match no file. It is a violation, never a pa
 
 ### seam
 
-A swappable capability with three roles: a service definition, one or more providers, and one or more consumers. dsh-cowork's `memory` and `worktree` adapters are intended seams; do not call them seams until all three roles exist.
+A swappable capability with three roles: a service definition, one or more providers, and one or more consumers. dsh-cowork's `memory` adapter is an intended seam; do not call it a seam until all three roles exist.
 
 ### provider
 
@@ -68,9 +68,9 @@ The code that uses a seam through its definition, never through a provider's pri
 
 A small state file beside the main artifact, e.g. `index.json` beside the repository. Write `sidecar`; do not use it for generated session logs.
 
-### worktree
+### thread checkout
 
-An isolated git working tree under `<repo>/.dsh-cowork/worktrees/<threadId>`, owned by one thread and merged by master.
+An isolated local clone at `<repo>/.dsh-cowork/threads/<threadId>` with branch `cowork/<threadId>`, owned by one thread and merged by master. Write `thread checkout` (or `checkout` when the thread is clear); the implementation is a `git clone --local`, not a `git worktree`.
 
 ### record
 

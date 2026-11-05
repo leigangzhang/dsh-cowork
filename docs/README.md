@@ -15,7 +15,9 @@ What the documents are, and what each one answers. This page only routes: the ru
 | M1 S0 探针证明了什么（preset 组合、调用者身份） | [M1_S0_RESULT.md](M1_S0_RESULT.md) |
 | M1 交付了什么、A1–A8 的原始证据与限制在哪 | [M1_RESULT.md](M1_RESULT.md) |
 | 工程规则与命令 | [AGENTS.md](../AGENTS.md) |
-| M2（记忆 + worktree）从哪开始、先验证什么、怎样算完成 | [M2_HANDOFF.md](M2_HANDOFF.md) |
+| M2-P0 证明了什么：会话绑定、记忆注入、worktree/EPERM、clone 方案 | [M2_PROBE_RESULT.md](M2_PROBE_RESULT.md) |
+| M2 交付了什么、M2A1–M2A8 的原始证据与限制在哪 | [M2_RESULT.md](M2_RESULT.md) |
+| M2 后来的人从哪接手、已决问题与陷阱 | [M2_HANDOFF.md](M2_HANDOFF.md) |
 | Cowork 面板能挂在右侧栏的哪个 slot、多宽、用哪些 token | [PANEL_RECON.md](PANEL_RECON.md) |
 | Cowork 右侧栏面板怎么实现、先验证什么 | [PANEL_HANDOFF.md](PANEL_HANDOFF.md) |
 | 哪个文件可以发布 | [publish.json](publish.json) |
@@ -35,7 +37,9 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/plain-language.md` | reference | 面向人的说法替换 |
 | `docs/M1_HANDOFF.md` | guide | M1 实施入口：读什么、先验证什么、完成定义 |
 | `docs/M1_RESULT.md` | record | M1 交付面、A1–A8 证据、限制与回滚 |
-| `docs/M2_HANDOFF.md` | guide | M2 实施入口：先验证什么、阶段顺序、完成定义 |
+| `docs/M2_PROBE_RESULT.md` | record | M2-P0 环境事实、原始输出与 F 方案依据 |
+| `docs/M2_RESULT.md` | record | M2 交付面、M2A1–M2A8 证据、限制与回滚 |
+| `docs/M2_HANDOFF.md` | guide | M2 交接：已决问题、陷阱、验证与回滚 |
 | `docs/PANEL_RECON.md` | record | 面板落点、宽度、主题 token、打包与热更新事实 |
 | `docs/PANEL_HANDOFF.md` | guide | 面板实施入口：客户端探针、API 契约、验收 |
 | `docs/publish.json` | switch | 唯一发布开关 |

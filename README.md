@@ -1,6 +1,6 @@
 # @dsh-external/dsh-cowork
 
-DSH 项目式主从协作插件：在一个 profile 内提供「master 主会话 + 可直接对话的 thread 会话 + 项目记忆 + worktree 隔离 + 路由 + handoff + review」的 Cloud Cowork 式协作模式。
+DSH 项目式主从协作插件：在一个 profile 内提供「master 主会话 + 可直接对话的 thread 会话 + 项目记忆 + thread checkout 隔离（每 thread 本地 clone） + 路由 + handoff + review」的 Cloud Cowork 式协作模式。
 
 ## 它解决什么
 
@@ -10,7 +10,7 @@ DSH 项目式主从协作插件：在一个 profile 内提供「master 主会话
 - **thread**：每个 Future/特性一个普通 DSH 会话，用户可以直接打开、继续对话；
 - **project memory**：项目级记忆，物理隔离在 `<repo>/.dsh-cowork/`，不全局串；
 - **handoff**：thread 完成/阻塞后写结构化交接单，并唤醒 master；
-- **worktree**：每个写代码的 thread 可落到独立 git worktree，master 独占合并；
+- **thread checkout**：每个写代码的 thread 可落到独立本地 clone，master 独占合并；
 - **review**：独立 review 会话复核产物与证据，实现者不自审。
 
 ## 架构
@@ -27,12 +27,13 @@ dsh-cowork/
 │   ├── router.ts           # 关键词打分 + 模型辅助路由
 │   ├── handoff.ts          # 结构化 handoff 与投递
 │   ├── memory.ts           # 项目记忆（默认文件，可换适配器）
-│   ├── worktree.ts         # git CLI worktree 适配器
+│   ├── memory-prompt.ts    # 记忆块注入 agent 的 system prompt
+│   ├── checkout.ts         # git CLI thread checkout 适配器（本地 clone）
 │   ├── review.ts           # review 会话生命周期
 │   ├── tools.ts            # cowork_* 工具
 │   ├── routes.ts           # loopback HTTP API
 │   └── client.ts           # 客户端项目面板
-├── test/                   # store / router / handoff 单元与契约测试
+├── tests/                  # 纯模块与仓库契约测试
 ├── tools/                  # 可执行约定（workflow.json + check-invariants.mjs）
 ├── docs/                   # 产品方案与文档规范
 └── .agents/notes/          # 决策记录

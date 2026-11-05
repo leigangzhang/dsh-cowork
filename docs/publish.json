@@ -39,7 +39,15 @@
     },
     {
       "pattern": "docs/M2_HANDOFF.md",
-      "reason": "handoff for the next implementation session: read order, the four M2-P0 probe questions, stage order, traps, and the completion gate; internal because it is session-specific operational guidance, not a user guide"
+      "reason": "M2 delivery handoff for the next session: read order, resolved design questions, implementation traps, verification, and rollback; internal because it is session-specific operational guidance, not a user guide"
+    },
+    {
+      "pattern": "docs/M2_PROBE_RESULT.md",
+      "reason": "M2-P0 probe evidence for session binding, the memory prompt seam, worktree/EPERM, and the chosen per-thread clone: environment-bound raw output for contributors, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M2_RESULT.md",
+      "reason": "M2 delivered surface and real-host E2E evidence (M2A1-M2A8), with limitations and rollback: environment-bound raw output for contributors, not a user-facing guide"
     },
     {
       "pattern": "docs/PANEL_RECON.md",
