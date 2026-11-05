@@ -14,8 +14,8 @@
  *   node tools/check-invariants.mjs --self-test  prove the guards can fail
  */
 
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { resolve, dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -36,6 +36,88 @@ function sectionHasBullet(doc, heading) {
   return false
 }
 
+const IGNORED_DIRS = new Set(['.git', 'node_modules', 'lib', 'dist'])
+
+function listMarkdownFiles(dir) {
+  const out = []
+  for (const name of readdirSync(dir)) {
+    if (IGNORED_DIRS.has(name)) continue
+    const full = join(dir, name)
+    if (statSync(full).isDirectory()) out.push(...listMarkdownFiles(full))
+    else if (name.endsWith('.md')) out.push(full)
+  }
+  return out
+}
+
+function globToRegex(pattern) {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
+  return new RegExp(`^${escaped}$`)
+}
+
+function patternMatches(pattern, rel) {
+  return globToRegex(pattern).test(rel)
+}
+
+function publicationErrors(rootDir, errors) {
+  const manifestPath = 'docs/publish.json'
+  if (!exists(manifestPath)) {
+    errors.push('docs/publish.json is missing')
+    return
+  }
+  let manifest
+  try {
+    manifest = JSON.parse(read(manifestPath))
+  } catch (e) {
+    errors.push(`docs/publish.json is not valid JSON: ${e.message}`)
+    return
+  }
+  if (!Array.isArray(manifest.public)) errors.push('docs/publish.json must have a public array')
+  if (!Array.isArray(manifest.internal)) errors.push('docs/publish.json must have an internal array')
+
+  const publicEntries = Array.isArray(manifest.public) ? manifest.public : []
+  const internalEntries = Array.isArray(manifest.internal) ? manifest.internal : []
+
+  // public promises must name real files
+  for (const entry of publicEntries) {
+    if (typeof entry !== 'string' || !entry.trim()) {
+      errors.push('docs/publish.json public entry must be a non-empty file path')
+      continue
+    }
+    if (entry.includes('*')) errors.push(`docs/publish.json public entry may not use a glob: ${entry}`)
+    else if (!exists(entry)) errors.push(`docs/publish.json public entry has no file behind it: ${entry}`)
+  }
+
+  // internal entries must state a reason
+  for (const entry of internalEntries) {
+    if (typeof entry?.pattern !== 'string' || !entry.pattern.trim()) {
+      errors.push('docs/publish.json internal entry must have a pattern')
+    }
+    if (typeof entry?.reason !== 'string' || !entry.reason.trim()) {
+      errors.push(`docs/publish.json internal entry has no reason: ${entry?.pattern ?? '(unnamed)'}`)
+    }
+  }
+
+  // every Markdown file must match exactly one declaration
+  const files = listMarkdownFiles(rootDir).map((f) => relative(rootDir, f))
+  for (const rel of files) {
+    let matches = 0
+    for (const entry of publicEntries) if (typeof entry === 'string' && patternMatches(entry, rel)) matches += 1
+    for (const entry of internalEntries) if (typeof entry?.pattern === 'string' && patternMatches(entry.pattern, rel)) matches += 1
+    if (matches === 0) errors.push(`publish-manifest: ${rel} is not classified in docs/publish.json`)
+    else if (matches > 1) errors.push(`publish-manifest: ${rel} matches ${matches} declarations`)
+  }
+
+  // documentation index must route to the standing documents
+  if (exists('docs/README.md')) {
+    const index = read('docs/README.md')
+    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/testing.md', 'docs/publish.json']) {
+      if (!index.includes(token)) errors.push(`docs/README.md is missing pointer: ${token}`)
+    }
+  } else {
+    errors.push('docs/README.md is missing')
+  }
+}
+
 function collect(rootDir) {
   const errors = []
 
@@ -51,13 +133,17 @@ function collect(rootDir) {
     errors.push('AGENTS.md is missing')
   }
 
-  // README must point at the plan
+  // README must point at the plan and the documentation standard
   if (exists('README.md')) {
     const readme = read('README.md')
-    if (!readme.includes('docs/PLAN.md')) errors.push('README.md does not link docs/PLAN.md')
+    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/README.md']) {
+      if (!readme.includes(token)) errors.push(`README.md is missing pointer: ${token}`)
+    }
   } else {
     errors.push('README.md is missing')
   }
+
+  publicationErrors(rootDir, errors)
 
   // workflow.json shape
   let workflow = null

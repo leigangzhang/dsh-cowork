@@ -1,12 +1,29 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { resolve, dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
+const IGNORED_DIRS = new Set(['.git', 'node_modules', 'lib', 'dist'])
+
+function listMarkdownFiles(dir) {
+  const out = []
+  for (const name of readdirSync(dir)) {
+    if (IGNORED_DIRS.has(name)) continue
+    const full = join(dir, name)
+    if (statSync(full).isDirectory()) out.push(...listMarkdownFiles(full))
+    else if (name.endsWith('.md')) out.push(full)
+  }
+  return out
+}
+
+function patternMatches(pattern, rel) {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
+  return new RegExp(`^${escaped}$`).test(rel)
+}
 
 function sectionHasBullet(doc, heading) {
   const lines = doc.split('\n')
@@ -51,6 +68,28 @@ test('decision templates carry non-empty lifecycle sections', () => {
   }
   for (const heading of ['## Decision', '## Consequences', '## Testing']) {
     assert.ok(sectionHasBullet(implemented, heading), `implemented TEMPLATE ${heading} is empty`)
+  }
+})
+
+test('publish.json classifies every Markdown file exactly once', () => {
+  const manifest = JSON.parse(read('docs/publish.json'))
+  assert.ok(Array.isArray(manifest.public), 'public must be an array')
+  assert.ok(Array.isArray(manifest.internal), 'internal must be an array')
+  for (const entry of manifest.public) {
+    assert.equal(typeof entry, 'string')
+    assert.ok(!entry.includes('*'), `public entry may not use a glob: ${entry}`)
+    assert.ok(existsSync(resolve(root, entry)), `public entry has no file: ${entry}`)
+  }
+  for (const entry of manifest.internal) {
+    assert.ok(entry.pattern, 'internal entry needs pattern')
+    assert.ok(entry.reason, `internal entry needs reason: ${entry.pattern}`)
+  }
+  const files = listMarkdownFiles(root).map((f) => relative(root, f))
+  for (const rel of files) {
+    let matches = 0
+    for (const entry of manifest.public) if (patternMatches(entry, rel)) matches += 1
+    for (const entry of manifest.internal) if (patternMatches(entry.pattern, rel)) matches += 1
+    assert.equal(matches, 1, `${rel} must match exactly one publication declaration`)
   }
 })
 

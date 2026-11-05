@@ -6,6 +6,8 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 
 - Read [docs/PLAN.md](docs/PLAN.md) before touching `src/`, `presets/`, or the data model. It owns the product scope, architecture, and milestones.
 - Read [.agents/notes/README.md](.agents/notes/README.md) before writing a decision record. It owns when to write one and what class to use.
+- Read [docs/documentation.md](docs/documentation.md) before adding, renaming, or reclassifying a document. It owns kinds, one-home-per-fact, budgets, and the publication switch.
+- Read [docs/glossary.md](docs/glossary.md) before naming a new concept. One concept, one word; link the term instead of restating it.
 - Read [tools/workflow.json](tools/workflow.json) before adding a rule, a file kind, or a check. A convention without an executable check is prose, not policy.
 
 ## Working rules
@@ -14,6 +16,7 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 - **Design before build.** A non-trivial capability starts as a proposal in `.agents/notes/proposed/` with `Alternatives considered` and acceptance criteria that name the check that will go red. Implementation follows.
 - **A decision is not editable in place.** Move the proposal to `.agents/notes/implemented/` in the same delivery that lands the work and rewrite it in the present tense; overturning it means a new record.
 - **One home per fact.** The plan owns scope and architecture; AGENTS.md owns pointers; tests and evidence own verification. Do not copy a fact into two files.
+- **Docs are code.** Every Markdown file is classified exactly once in `docs/publish.json`; publication is a per-file promise, not a directory guess. No hand-copied interfaces or generated pages.
 - **Thread = native DSH session.** The only supported way to create a thread is `sessionController.create`; never use a spawn/fork subagent as a user-openable thread.
 - **No multi-orchestrator.** Do not add `dsh-agent-hub`, `dsh-forge`, `dsh-team-conductor`, or AgentTeams runtime as dependencies. Review may borrow their semantics, not their packages.
 - **Local only.** No cloud upload, no reading or writing `viking://` from plugin code, no secrets in files or logs.

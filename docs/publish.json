@@ -1,0 +1,25 @@
+{
+  "comment": "The only publication switch. Every Markdown file in the repository must match exactly one declaration. public entries name one file each, never a glob; internal entries may name a home and must state why the file stays in the repository.",
+  "public": [
+    "README.md",
+    "docs/README.md",
+    "docs/documentation.md",
+    "docs/glossary.md",
+    "docs/plain-language.md",
+    "docs/testing.md"
+  ],
+  "internal": [
+    {
+      "pattern": "AGENTS.md",
+      "reason": "standing orders for an agent editing this repository; the reader-facing rules live in README.md and docs/"
+    },
+    {
+      "pattern": "docs/PLAN.md",
+      "reason": "product development plan: scope, architecture, milestones, and acceptance for contributors, not a user-facing guide"
+    },
+    {
+      "pattern": ".agents/notes/*",
+      "reason": "decision records and their templates; internal history, not a guide"
+    }
+  ]
+}

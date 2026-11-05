@@ -76,6 +76,19 @@
       "why": "Manifests and lockfiles change the shipped artifact, not just the source."
     },
     {
+      "name": "publication",
+      "patterns": [
+        "docs/publish.json",
+        "docs/*.md",
+        "README.md"
+      ],
+      "evidence": [
+        "npm run check",
+        "read the changed document as its reader: does its kind, budget, and publication class still match its content?"
+      ],
+      "why": "A file existing is not a file shipping. Every Markdown file must be classified exactly once in docs/publish.json; documentation edits are behaviour changes for the next reader and the next agent."
+    },
+    {
       "name": "workflow",
       "patterns": [
         "tools/workflow.json",
