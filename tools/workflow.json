@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "surfaces": [
+    {
+      "name": "context-rules",
+      "patterns": [
+        "AGENTS.md"
+      ],
+      "evidence": [
+        "npm run check"
+      ],
+      "why": "Always-loaded rules are a budget; they must stay short and every rule must link the file that owns the detail."
+    },
+    {
+      "name": "plan-docs",
+      "patterns": [
+        "README.md",
+        "docs/*.md"
+      ],
+      "evidence": [
+        "npm run check",
+        "read the changed section as its reader: does it still state current behaviour, and does its scope still match PLAN.md?"
+      ],
+      "why": "The plan is the single source of product scope and architecture; documentation edits are behaviour changes for the next agent."
+    },
+    {
+      "name": "decisions",
+      "patterns": [
+        ".agents/notes/*.md"
+      ],
+      "evidence": [
+        "npm run check",
+        "read Alternatives considered yourself; a gate cannot judge it"
+      ],
+      "why": "A decision without what it rejected invites re-litigation."
+    },
+    {
+      "name": "source",
+      "patterns": [
+        "src/**/*.ts",
+        "presets/**/*",
+        "scripts/**/*"
+      ],
+      "evidence": [
+        "npm run typecheck",
+        "npm run build"
+      ],
+      "why": "Behaviour changes need the narrowest owning check; for dsh-cowork that is typecheck plus build until the M0 probe establishes real E2E lanes."
+    },
+    {
+      "name": "tests",
+      "patterns": [
+        "tests/**/*",
+        "**/*.test.ts",
+        "**/*.test.mjs"
+      ],
+      "evidence": [
+        "npm test",
+        "watch the owning test fail for the regression it pins"
+      ],
+      "why": "A test is evidence only when its command and its failure mode are named."
+    },
+    {
+      "name": "packaging",
+      "patterns": [
+        "package.json",
+        "tsconfig.json",
+        "tsdown.config.ts",
+        "package-lock.json",
+        "pnpm-lock.yaml"
+      ],
+      "evidence": [
+        "npm run check",
+        "npm run typecheck"
+      ],
+      "why": "Manifests and lockfiles change the shipped artifact, not just the source."
+    },
+    {
+      "name": "workflow",
+      "patterns": [
+        "tools/workflow.json",
+        "tools/check-invariants.mjs",
+        ".gitignore"
+      ],
+      "evidence": [
+        "npm run check:self-test"
+      ],
+      "why": "A guard is only real if a violation makes it red; the workflow surface proves the guards can fail."
+    }
+  ]
+}

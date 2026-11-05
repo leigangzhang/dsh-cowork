@@ -4,6 +4,9 @@
   "description": "DSH 项目式主从协作插件：master 主会话 + 可对话 thread + 项目记忆 + worktree + handoff + review",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "main": "./lib/index.js",
   "types": "./lib/types/index.d.ts",
   "files": [
@@ -25,7 +28,10 @@
   "scripts": {
     "build": "bash scripts/build.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build:client": "tsdown"
+    "build:client": "tsdown",
+    "check": "node tools/check-invariants.mjs",
+    "check:self-test": "node tools/check-invariants.mjs --self-test",
+    "test": "node --test tests/*.mjs"
   },
   "exports": {
     ".": {
