@@ -22,6 +22,8 @@ import { MEMORY_FILES, MEMORY_KINDS, memoryFilePath, parseMemoryFile, renderMemo
 import type { MemoryInjectInput } from './memory.js'
 import { registerMemoryPrompt } from './memory-prompt.js'
 import type { MemoryPromptAgent, MemoryPromptDeps, MemoryPromptHost, MemoryRender } from './memory-prompt.js'
+import { M2E2ERunner } from './m2-e2e.js'
+import type { M2E2EHost } from './m2-e2e.js'
 import { isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
@@ -47,6 +49,10 @@ const STATUS_PATH = '/dsh-cowork/probe/status'
 const S0_RUN_PATH = '/dsh-cowork/probe/s0'
 /** S0 status route: poll one S0 run. */
 const S0_STATUS_PATH = '/dsh-cowork/probe/s0-status'
+/** M2 E2E run route: start one real-host run and return its id immediately. */
+const M2_E2E_RUN_PATH = '/dsh-cowork/e2e/m2/run'
+/** M2 E2E status route: poll one run's steps, evidence, and error. */
+const M2_E2E_STATUS_PATH = '/dsh-cowork/e2e/m2/status'
 
 /** Lossless JSON value accepted by the tool result boundary. */
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
@@ -163,6 +169,14 @@ export function apply(ctx: Context, config: Config): void {
   const s0 = new S0Runner(ctx as unknown as S0Host, {
     repoPath: probeConfig.repoPath,
     promptTimeoutMs: probeConfig.promptTimeoutMs,
+  })
+  // M2 real-host E2E: loopback-only start/status routes, evidence under .dsh-cowork/e2e/.
+  const m2e2e = new M2E2ERunner(ctx as unknown as M2E2EHost, {
+    repoPath: probeConfig.repoPath,
+    promptTimeoutMs: probeConfig.promptTimeoutMs,
+    pluginName: PLUGIN_NAME,
+    pluginVersion: PLUGIN_VERSION,
+    log: (message) => ctx.logger?.info?.(`[${PLUGIN_NAME}] ${message}`),
   })
 
   // M1 assembly services: one dependency bag for the presets and the six tools.
@@ -337,6 +351,50 @@ export function apply(ctx: Context, config: Config): void {
       }
       sendJson(response, 200, run)
     },
+  }, {
+    kind: 'exact',
+    path: M2_E2E_RUN_PATH,
+    handler: (request, response) => {
+      if (!guard(request, response, 'POST')) return
+      request.resume()
+      try {
+        const run = m2e2e.start()
+        sendJson(response, 200, { ok: true, runId: run.runId })
+      } catch (error) {
+        sendJson(response, 409, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    },
+  }, {
+    kind: 'exact',
+    path: M2_E2E_STATUS_PATH,
+    handler: async (request, response) => {
+      if (!guard(request, response, 'GET')) return
+      let runId: string
+      try {
+        runId = requireRunId(readQuery(request.url, 'runId'))
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        return
+      }
+      const run = await m2e2e.resolve(runId)
+      if (run === undefined) {
+        sendJson(response, 404, { ok: false, error: `unknown M2 E2E runId: ${runId}` })
+        return
+      }
+      sendJson(response, 200, {
+        ok: true,
+        runId: run.runId,
+        state: run.state,
+        startedAt: run.startedAt,
+        ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
+        steps: run.steps,
+        evidenceFile: run.evidenceFile,
+        ...(run.error === undefined ? {} : { error: run.error }),
+      })
+    },
   })
 
   for (const route of routes) {
@@ -345,9 +403,11 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.effect(() => runner.attachEvents(), 'dsh-cowork: session event feed')
   ctx.effect(() => s0.attachEvents(), 'dsh-cowork: S0 session event feed')
+  ctx.effect(() => m2e2e.attachEvents(), 'dsh-cowork: M2 E2E session event feed')
   ctx.effect(() => () => {
     runner.dispose()
     s0.dispose()
+    m2e2e.dispose()
   }, 'dsh-cowork: probe runners')
 
   // M1: the two runtime presets and the six cowork tools, owned by this fiber.
