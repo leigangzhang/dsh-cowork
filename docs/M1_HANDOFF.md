@@ -1,15 +1,15 @@
 # M1 交接文档
 
 - 适用：在全新会话/上下文中独立实现 M1 的 agent 或人。
-- 状态：M0 已完成并验证；S0 已完成（结论见 [M1 S0 结果](M1_S0_RESULT.md)）；M1 的 S1–S6 待实现。
-- 事实源：[PLAN](../docs/PLAN.md) 拥有范围与里程碑；[M0 结果](../docs/M0_PROBE_RESULT.md) 拥有五项 API 证据；[M1 提案](../.agents/notes/proposed/feature/2026-11-05-m1-master-thread-loop.md) 拥有 M1 契约；本文件只拥有“怎么开始、先验证什么、怎样算完成”。
+- 状态：M0 已完成并验证；M1 已完成（S1–S6 已交付，结果与证据见 [M1 结果](M1_RESULT.md)）。
+- 事实源：[PLAN](../docs/PLAN.md) 拥有范围与里程碑；[M0 结果](../docs/M0_PROBE_RESULT.md) 拥有五项 API 证据；[M1 决策](../.agents/notes/implemented/feature/2026-11-05-m1-master-thread-loop.md) 拥有 M1 契约；本文件只拥有“怎么开始、先验证什么、怎样算完成”。
 
 ## 先读什么
 
 1. [AGENTS.md](../AGENTS.md) 的 M0/M1 纪律、命令、no-multi-orchestrator。
 2. [docs/PLAN.md](../docs/PLAN.md) 的 §2.2 流程、§4.3 数据模型、§5.1–5.9、§6 M1 验收。
 3. [docs/M0_PROBE_RESULT.md](../docs/M0_PROBE_RESULT.md) 的五项风险结论与限制。
-4. [M1 提案](../.agents/notes/proposed/feature/2026-11-05-m1-master-thread-loop.md)：模块、数据模型、路由、handoff、preset 策略、验收标准。
+4. [M1 决策](../.agents/notes/implemented/feature/2026-11-05-m1-master-thread-loop.md)：模块、数据模型、路由、handoff、preset 策略、验收证据。
 5. [.agents/notes/README.md](../.agents/notes/README.md)：决策记录的骨架与迁移规则（模板已对齐 kit）。
 
 ## 现在的事实
@@ -24,7 +24,7 @@
 
 ## M1 目标与非目标
 
-**目标**：按提案落地 M1 §6 闭环——`cowork_project_init` 建索引并登记 master；master 调 `cowork_route` 命中或新建 thread；thread 调 `cowork_handoff` 让 master 收到结构化消息；两个 preset 可用；纯模块有单测；真实 DSH E2E。完成定义与验收编号见提案的 `## Acceptance criteria`。
+**目标**：按提案落地 M1 §6 闭环——`cowork_project_init` 建索引并登记 master；master 调 `cowork_route` 命中或新建 thread；thread 调 `cowork_handoff` 让 master 收到结构化消息；两个 preset 可用；纯模块有单测；真实 DSH E2E。完成定义与验收编号见 [M1 结果](M1_RESULT.md) 的 A1–A8 与 [M1 决策](../.agents/notes/implemented/feature/2026-11-05-m1-master-thread-loop.md) 的 Testing。
 
 **非目标**：项目记忆、worktree、独立 review、客户端面板、desktop profile、bundle 持久化、模型辅助路由、定时任务；不引入 AgentTeams 或其他协作运行时。
 
@@ -57,7 +57,7 @@ M1 的最大未知是 preset 组合；不要跳过它直接写 `cowork-thread`�
 2. **能否克隆 standard**：在探针里输出 `ctx.get('agentPresets').resolve('standard')` 的可枚举结构（尤其是 `plugins` 是否为数组、是否含 `!!js` 表达式）以及 `list()` 中每个 preset 的形状。若可拿到 `plugins`，`cowork-master`/`cowork-thread` 用克隆 + persona 覆盖；若拿不到，退回 bundle patch 声明完整 preset 行，并记录代价。
 3. **调用者身份**：注册一个临时工具，返回 `exec.agent?.id`、`exec.agent?.session?.header?.cwd`、`Object.keys(exec)`，从 master 与 thread 各调一次。M1 的项目发现与角色校验依赖这个结果；拿不到就 fail closed，不猜项目。
 
-S0 的结论写进提案（若与假设冲突，更新提案；提案尚未落地，允许改）和 M0/M1 证据文档；把探针代码的临时改动放在独立提交或 worktree，别混进 store/router/handoff 的实现。
+S0 的结论已并入 [M1 决策](../.agents/notes/implemented/feature/2026-11-05-m1-master-thread-loop.md)（preset 策略与 Testing）和 M0/M1 证据文档；探针代码的临时改动已独立提交。
 
 ## 实施顺序
 
@@ -103,9 +103,9 @@ S0 的结论写进提案（若与假设冲突，更新提案；提案尚未落�
 
 ## 完成定义
 
-- 提案 A1–A8 全部有真实证据；PLAN §6 的五条 E2E 全过。
+- [M1 结果](M1_RESULT.md) 的 A1–A8 全部有真实证据；PLAN §6 的五条 E2E 全过。
 - `npm run check` / `test` / `typecheck` / `build` / `check:self-test` 全绿。
-- M1 结果与限制写入 docs；提案迁移到 `implemented/` 并保持 current。
+- M1 结果与限制写入 docs；决策记录已迁移到 `implemented/` 并保持 current。
 - 不进入 M2；不引入第三方协作运行时；不修改 `docs/PLAN.md`。
 
 ## 清理与回滚

@@ -32,6 +32,10 @@
     {
       "pattern": "docs/M1_S0_RESULT.md",
       "reason": "M1 S0 probe evidence for the preset surface and caller identity: environment-bound raw output for contributors, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M1_RESULT.md",
+      "reason": "M1 delivered surface and real-host E2E evidence (A1–A8), with limitations and rollback: environment-bound raw output for contributors, not a user-facing guide"
     }
   ]
 }
