@@ -2,7 +2,7 @@
 
 - 文档状态：已冻结，用于交接 DSH 创造模式开发
 - 更新日期：2026-11-04
-- 仓库：`/Users/ray/Workspace/dsh-project`
+- 仓库：`/Users/ray/Workspace/dsh-cowork`
 - 目标宿主：DeepSeek Harness `0.2.x`（本机 DSH Desktop 2.0.13，核心包以桌面端实际安装为准）
 - 目标 profile：先 `web` 验证，再适配 `desktop`
 
@@ -186,7 +186,7 @@ dsh-cowork/
 ```json
 {
   "version": 1,
-  "projectId": "github.com-leigangzhang-dsh-project",
+  "projectId": "github.com-leigangzhang-dsh-cowork",
   "masterSessionId": "session-...",
   "createdAt": "2026-11-04T00:00:00Z",
   "threads": [
@@ -194,7 +194,7 @@ dsh-cowork/
       "threadId": "session-...",
       "subject": "下载队列重构",
       "status": "active",
-      "cwd": "/Users/ray/Workspace/dsh-project",
+      "cwd": "/Users/ray/Workspace/dsh-cowork",
       "worktreePath": null,
       "createdAt": "2026-11-04T00:00:00Z",
       "updatedAt": "2026-11-04T00:00:00Z",
@@ -415,7 +415,7 @@ MVP 直接用 `git` CLI 实现，不依赖第三方 worktree 插件：
 
 ## 10. 交接给 DSH 创造模式的说明
 
-1. 工作目录固定为 `/Users/ray/Workspace/dsh-project`；
+1. 工作目录固定为 `/Users/ray/Workspace/dsh-cowork`；
 2. 先读本文件与 `README.md`；
 3. 从 M0 探针开始，不要跳步；
 4. 每个里程碑完成后运行 E2E 并写 `docs/VERIFICATION.md`；
