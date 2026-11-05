@@ -1,0 +1,257 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { SessionSlice, THREAD_TITLE_PREFIX } from '../src/session-slice.ts'
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Recording fake for the two host services. Every port call is appended to
+ * `calls`, so assertions can check both the arguments and whether a call was
+ * made at all (for example: no workspace create on a resolve hit).
+ */
+function fakePorts(overrides = {}) {
+  const calls = {
+    resolveByPath: [],
+    createWorkspace: [],
+    createSession: [],
+    rename: [],
+    prompt: [],
+    list: [],
+    inspect: [],
+  }
+  const ports = {
+    sessions: {
+      async create(request) {
+        calls.createSession.push(request)
+        return overrides.createResult ?? { sessionId: 'session-1', agentPreset: request.agentPreset }
+      },
+      async rename(request) {
+        calls.rename.push(request)
+        return overrides.renameResult ?? { title: request.title, seq: calls.rename.length }
+      },
+      async prompt(request, signal) {
+        calls.prompt.push({ request, signal })
+        return overrides.promptResult ?? { accepted: true }
+      },
+      async list(request, signal) {
+        calls.list.push({ request, signal })
+        return overrides.listResult ?? { items: [] }
+      },
+      async inspect(sessionId, signal) {
+        calls.inspect.push({ sessionId, signal })
+        return overrides.inspectResult ?? { meta: { id: sessionId } }
+      },
+    },
+    workspaces: {
+      async resolveByPath(path) {
+        calls.resolveByPath.push(path)
+        return overrides.resolvedWorkspace
+      },
+      async create(...args) {
+        calls.createWorkspace.push(args)
+        return overrides.createdWorkspace ?? { id: 'workspace-new', path: args[0] }
+      },
+    },
+  }
+  return { ports, calls }
+}
+
+test('resolveWorkspaceId returns the existing workspace id without creating one', async () => {
+  const { ports, calls } = fakePorts({
+    resolvedWorkspace: { id: 'workspace-existing', path: '/repo' },
+  })
+  const slice = new SessionSlice(ports)
+
+  assert.equal(await slice.resolveWorkspaceId('/repo'), 'workspace-existing')
+  assert.deepEqual(calls.resolveByPath, ['/repo'])
+  assert.deepEqual(calls.createWorkspace, [])
+})
+
+test('resolveWorkspaceId creates a workspace without a title only when unresolved', async () => {
+  const { ports, calls } = fakePorts({ createdWorkspace: { id: 'workspace-new', path: '/repo' } })
+  const slice = new SessionSlice(ports)
+
+  assert.equal(await slice.resolveWorkspaceId('/repo'), 'workspace-new')
+  // Exactly one positional argument: the host derives the title from the last
+  // path segment, so passing one would pin a stale label.
+  assert.deepEqual(calls.createWorkspace, [['/repo']])
+})
+
+test('resolveWorkspaceId does not cache: a second call asks the registry again', async () => {
+  const { ports, calls } = fakePorts({ resolvedWorkspace: undefined, createdWorkspace: { id: 'ws', path: '/repo' } })
+  const slice = new SessionSlice(ports)
+
+  await slice.resolveWorkspaceId('/repo')
+  await slice.resolveWorkspaceId('/repo')
+  assert.equal(calls.resolveByPath.length, 2)
+  assert.equal(calls.createWorkspace.length, 2)
+})
+
+test('createThread creates the session with the resolved workspace and preset, then renames it', async () => {
+  const { ports, calls } = fakePorts({
+    resolvedWorkspace: { id: 'workspace-existing', path: '/repo' },
+    createResult: { sessionId: 'session-9', agentPreset: 'cowork-thread' },
+  })
+  const slice = new SessionSlice(ports)
+
+  const result = await slice.createThread({
+    repoPath: '/repo',
+    subject: 'Sub 2',
+    presetId: 'cowork-thread',
+  })
+
+  assert.deepEqual(result, { sessionId: 'session-9', workspaceId: 'workspace-existing', title: 'cowork: Sub 2' })
+  assert.deepEqual(calls.createSession, [{ workspaceId: 'workspace-existing', agentPreset: 'cowork-thread' }])
+  assert.deepEqual(calls.rename, [{ sessionId: 'session-9', title: 'cowork: Sub 2' }])
+  assert.equal(THREAD_TITLE_PREFIX, 'cowork: ')
+  assert.equal(calls.list.length, 0, 'createThread must not write the index or list sessions')
+})
+
+test('createThread uses the title returned by the host, not the requested one', async () => {
+  const { ports } = fakePorts({
+    resolvedWorkspace: { id: 'ws', path: '/repo' },
+    createResult: { sessionId: 'session-9', agentPreset: 'cowork-thread' },
+    renameResult: { title: 'cowork: Sub 2 (2)', seq: 1 },
+  })
+  const slice = new SessionSlice(ports)
+
+  const result = await slice.createThread({ repoPath: '/repo', subject: 'Sub 2', presetId: 'cowork-thread' })
+  assert.equal(result.title, 'cowork: Sub 2 (2)')
+})
+
+test('createThread fails closed when the created session did not mount the preset', async () => {
+  for (const returned of [undefined, 'standard']) {
+    const { ports, calls } = fakePorts({
+      resolvedWorkspace: { id: 'ws', path: '/repo' },
+      createResult: { sessionId: 'session-bad', agentPreset: returned },
+    })
+    const slice = new SessionSlice(ports)
+
+    await assert.rejects(
+      slice.createThread({ repoPath: '/repo', subject: 'Sub', presetId: 'cowork-thread' }),
+      { message: /^session\/create-preset-mismatch:/ },
+      `preset ${String(returned)} must not be accepted`,
+    )
+    assert.equal(calls.rename.length, 0, 'a mismatched session must not be renamed')
+  }
+})
+
+test('createThread creates the workspace when the path is unknown and then uses its id', async () => {
+  const { ports, calls } = fakePorts({
+    createdWorkspace: { id: 'workspace-created', path: '/repo' },
+    createResult: { sessionId: 'session-3', agentPreset: 'cowork-thread' },
+  })
+  const slice = new SessionSlice(ports)
+
+  const result = await slice.createThread({ repoPath: '/repo', subject: 'S', presetId: 'cowork-thread' })
+  assert.equal(result.workspaceId, 'workspace-created')
+  assert.deepEqual(calls.createSession, [{ workspaceId: 'workspace-created', agentPreset: 'cowork-thread' }])
+})
+
+test('promptSession queues text with the injected request id and a bounded signal', async () => {
+  const { ports, calls } = fakePorts()
+  const slice = new SessionSlice(ports, { requestId: () => 'req-fixed' })
+
+  const result = await slice.promptSession('session-1', 'please continue')
+  assert.deepEqual(result, { accepted: true, requestId: 'req-fixed' })
+  assert.equal(calls.prompt.length, 1)
+  const [{ request, signal }] = calls.prompt
+
+  assert.deepEqual(request, {
+    requestId: 'req-fixed',
+    sessionId: 'session-1',
+    mode: 'queue',
+    content: [{ type: 'text', text: 'please continue' }],
+  })
+  assert.deepEqual(Object.keys(request).sort(), ['content', 'mode', 'requestId', 'sessionId'])
+  assert.ok(signal instanceof AbortSignal, 'prompt must receive an AbortSignal')
+  assert.equal(signal.aborted, false, 'the signal must not be aborted before the host answers')
+})
+
+test('promptSession keeps the request id stable only through the injected generator', async () => {
+  const { ports, calls } = fakePorts()
+
+  const injected = new SessionSlice(ports, { requestId: () => 'req-fixed' })
+  await injected.promptSession('s', 'one')
+  await injected.promptSession('s', 'two')
+  assert.deepEqual(calls.prompt.map((entry) => entry.request.requestId), ['req-fixed', 'req-fixed'])
+
+  const generated = new SessionSlice(ports)
+  const first = await generated.promptSession('s', 'one')
+  const second = await generated.promptSession('s', 'two')
+  assert.match(first.requestId, UUID)
+  assert.match(second.requestId, UUID)
+  assert.notEqual(first.requestId, second.requestId, 'uninjected calls must mint distinct ids')
+})
+
+test('promptSession bounds the prompt with promptTimeoutMs', async () => {
+  const { ports, calls } = fakePorts()
+  const slice = new SessionSlice(ports, { promptTimeoutMs: 5 })
+
+  await slice.promptSession('session-1', 'text')
+  const { signal } = calls.prompt[0]
+  assert.ok(signal instanceof AbortSignal)
+
+  // Await the real abort event rather than sleeping: the only deterministic
+  // proof that the timeout is wired through is that the signal aborts.
+  await new Promise((resolve, reject) => {
+    const guard = setTimeout(() => reject(new Error('prompt signal did not abort')), 2_000)
+    signal.addEventListener('abort', () => {
+      clearTimeout(guard)
+      resolve()
+    })
+  })
+  assert.equal(signal.aborted, true)
+})
+
+test('promptSession returns accepted:false without throwing', async () => {
+  const { ports } = fakePorts({ promptResult: { accepted: false } })
+  const slice = new SessionSlice(ports)
+
+  const result = await slice.promptSession('session-1', 'text')
+  assert.equal(result.accepted, false)
+  assert.match(result.requestId, UUID)
+})
+
+test('ensureSession reports true only when the list contains the session', async () => {
+  const present = fakePorts({
+    listResult: { items: [{ sessionId: 'session-1', running: false }, { sessionId: 'session-2', running: true }] },
+  })
+  const slice = new SessionSlice(present.ports)
+  assert.equal(await slice.ensureSession('session-1'), true)
+  assert.deepEqual(present.calls.list, [{ request: {}, signal: undefined }])
+
+  const absent = fakePorts({ listResult: { items: [{ sessionId: 'session-2', running: true }] } })
+  const slice2 = new SessionSlice(absent.ports)
+  assert.equal(await slice2.ensureSession('session-1'), false)
+  assert.equal(absent.calls.createSession.length, 0, 'ensureSession must never recreate a missing session')
+  assert.equal(absent.calls.inspect.length, 0, 'ensureSession must not fall back to inspect')
+})
+
+test('ensureSession does not consult inspect when list is empty', async () => {
+  const { ports, calls } = fakePorts({
+    listResult: { items: [] },
+    inspectResult: { meta: { id: 'session-1' } },
+  })
+  const slice = new SessionSlice(ports)
+
+  assert.equal(await slice.ensureSession('session-1'), false)
+  assert.equal(calls.inspect.length, 0)
+})
+
+test('renameSession awaits the rename and propagates failures', async () => {
+  const { ports, calls } = fakePorts()
+  const slice = new SessionSlice(ports)
+
+  await slice.renameSession('session-1', 'cowork: renamed')
+  assert.deepEqual(calls.rename, [{ sessionId: 'session-1', title: 'cowork: renamed' }])
+
+  const failure = new Error('rename failed: session not found')
+  const failing = fakePorts()
+  failing.ports.sessions.rename = async (request) => {
+    failing.calls.rename.push(request)
+    throw failure
+  }
+  await assert.rejects(new SessionSlice(failing.ports).renameSession('session-1', 'x'), failure)
+  assert.deepEqual(failing.calls.rename, [{ sessionId: 'session-1', title: 'x' }])
+})
