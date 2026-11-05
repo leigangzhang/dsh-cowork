@@ -12,6 +12,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 怎样才算“验证过” | [testing.md](testing.md) |
 | M0 五项 API 风险证明了什么、原始证据在哪 | [M0_PROBE_RESULT.md](M0_PROBE_RESULT.md) |
 | M1 从哪开始、先验证什么、怎样算完成 | [M1_HANDOFF.md](M1_HANDOFF.md) |
+| M1 S0 探针证明了什么（preset 组合、调用者身份） | [M1_S0_RESULT.md](M1_S0_RESULT.md) |
 | 工程规则与命令 | [AGENTS.md](../AGENTS.md) |
 | 哪个文件可以发布 | [publish.json](publish.json) |
 | 决策记录怎么写、为什么写 | [.agents/notes/README.md](../.agents/notes/README.md) |

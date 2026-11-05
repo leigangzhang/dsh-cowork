@@ -28,6 +28,10 @@
     {
       "pattern": "docs/M1_HANDOFF.md",
       "reason": "handoff for the next implementation session: read order, the first preset/tool probe, and the completion gate; internal because it is session-specific operational guidance, not a user guide"
+    },
+    {
+      "pattern": "docs/M1_S0_RESULT.md",
+      "reason": "M1 S0 probe evidence for the preset surface and caller identity: environment-bound raw output for contributors, not a user-facing guide"
     }
   ]
 }

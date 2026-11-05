@@ -1,7 +1,7 @@
 # M1 交接文档
 
 - 适用：在全新会话/上下文中独立实现 M1 的 agent 或人。
-- 状态：M0 已完成并验证；M1 尚未开始。
+- 状态：M0 已完成并验证；S0 已完成（结论见 [M1 S0 结果](M1_S0_RESULT.md)）；M1 的 S1–S6 待实现。
 - 事实源：[PLAN](../docs/PLAN.md) 拥有范围与里程碑；[M0 结果](../docs/M0_PROBE_RESULT.md) 拥有五项 API 证据；[M1 提案](../.agents/notes/proposed/feature/2026-11-05-m1-master-thread-loop.md) 拥有 M1 契约；本文件只拥有“怎么开始、先验证什么、怎样算完成”。
 
 ## 先读什么
@@ -47,7 +47,9 @@ dev_uninject_plugin dsh-cowork
 
 本部署的工具挂在 preset 的 `plugins` 列表里（`/Applications/DSH Desktop 2.app/Contents/Resources/app/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml`）；读这一份清单再决定 `cowork-master`/`cowork-thread` 的组合。不要手改 `/Users/ray/.dsh/profiles/web/package.json` 或 `cordis.patch.yml`。
 
-## 第一步：S0 探针（必须先做）
+## 第一步：S0 探针（已完成）
+
+结论见 [M1 S0 结果](M1_S0_RESULT.md)：空 `plugins` preset 能跑一轮但只有全局工具；`standard` 的结构化 `plugins` 不可得，只有 YAML 文本；`exec.agent` 在 standard 与空 preset 下都可用。下面的原始步骤保留为复跑说明。
 
 M1 的最大未知是 preset 组合；不要跳过它直接写 `cowork-thread`。
 

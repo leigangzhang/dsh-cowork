@@ -21,7 +21,7 @@ M1 的完成定义由 [PLAN §6](../../../docs/PLAN.md) 固定：初始化项目
 - `src/router.ts`：本地关键词打分；纯函数，输入索引摘要与 intent，输出决策。
 - `src/handoff.ts`：handoff 结构校验、落盘、投递 master、未投递重放。
 - `src/tools.ts`：六个 `cowork_*` 工具与错误码。
-- `src/presets.ts`：注册 `cowork-master` / `cowork-thread`；组合策略由 S0 决定。
+- `src/presets.ts`：注册 `cowork-master` / `cowork-thread`；两者都用 S0 定下的显式行（persona 覆盖 + 最小工具集）。
 - `src/index.ts`：装配 service、工具、preset、事件；M0 探针的路由与工具在 M1 保留还是移除由 S0 后的实现决定，但不能与正式 API 冲突。
 
 **数据模型（v1）**
@@ -67,14 +67,12 @@ M1 的完成定义由 [PLAN §6](../../../docs/PLAN.md) 固定：初始化项目
 - 投递失败仍保留文件与索引，返回 `delivered:false` 与可重放的提示；`cowork_project_status` 扫描 `deliveredAt` 为空的 handoff 重投，重投成功只补写该字段。
 - master 收到的消息是文本摘要（主题、status、summary、verification、changedPaths、handoff 文件路径），不把整个 JSON 塞进 prompt。
 
-**presets（S0 先回答）**
+**presets（S0 已回答）**
 
-- S0 必须分别回答两件事，不能合并：(a) 空 `plugins` preset 能否完成一轮；(b) 它能看到哪些工具。本部署的 bash/fs 等工具挂在 preset 的 `plugins` 里，全局只有本插件注册的 `cowork_*` 工具；因此“能跑一轮”不等于“thread 有工具”。
-- 若 (a) 与 (b) 都满足：M1 只注册 persona 覆盖（`@deepseek-ai/dsh-persona` 的 prefix）。
-- 若 (a) 成立但 (b) 不成立（预期情形）：空 preset 不可用于 thread；优先克隆 resolved `standard` 的 `plugins`（含 tool-bash/tool-fs 等行）并替换 persona；拿不到列表时，退回在 bundle patch 中声明完整的 preset 行（M4 路径），M1 的 E2E 用 `dev_install_package` 或临时 profile 验证。
-- `exec.agent` 的会话/cwd 字段路径、`agentPresets.resolve('standard')` 是否暴露 `plugins`、`workspaceRegistry.create` 的可用性都属于 S0 待核实项，不能当成事实写进实现。
-- `cowork-master` 的 persona：路由、记录决策、验收，不直接改实现文件。`cowork-thread`：只做本 thread，先读 handoff/索引，完成必须 handoff。M1 的角色边界以工具角色校验为主、prompt 为辅；如果 S0 证明 preset scope 内可以 `ctx.tools.restrict`，master 再加硬性写工具限制，否则在文档里如实写“未硬限制”。
-- M1 的 preset 走运行时注册；重启后的持久化留给 M4 的 bundle patch。
+- S0 实测（[结果](../../../docs/M1_S0_RESULT.md)）：空 `plugins` preset 能完成一轮，但只看到 46 个 profile 级全局工具，没有 bash/fs/read/write 等 preset-scoped 工具；`agentPresets.resolve('standard')` 只返回 `{id}`，`readDocument('standard')` 只返回含 `!!js` 的 YAML 文本，`compositionInventory()` 只给模块名。结构化 `plugins` 不可得，空 preset 不可用于 thread。
+- 因此 `cowork-master` / `cowork-thread` 在运行时注册**显式行**：persona 覆盖 + 从 standard 同源挑选的最小工具集；M1 不解析 YAML、不写 profile patch，M4 再把同一份行迁到 bundle patch（M1 的 preset 仍随重启消失，如实记录）。
+- `exec.agent` 在 standard 与空 preset 两种组合下都已实测可用：`exec.agent.id` 与会话 id 一致，`exec.agent.session.header.cwd` 等于 workspace path；缺失时 fail closed。
+- `cowork-master` 的 persona：路由、记录决策、验收，不直接改实现文件。`cowork-thread`：只做本 thread，先读 handoff/索引，完成必须 handoff。`ctx.tools.restrict` 只在 `agent.ctx` 上可用，M1 没有 preset-scoped 插件模块去调用它，因此**不硬限制 master 的写工具**，文档写明“prompt + 工具角色校验，未硬限制”。
 
 **工具面（M1）**
 
@@ -120,17 +118,17 @@ M1 的完成定义由 [PLAN §6](../../../docs/PLAN.md) 固定：初始化项目
 
 ## Risks
 
-- preset 组合未知（空 `plugins` 可能没有工具）→ 先做 S0 探针；失败则改用克隆 standard 或 bundle 声明；重审条件：宿主 preset 机制变化。
+- preset 结构化 `plugins` 不可得（S0 实测）→ 改用显式行；代价是行清单可能随宿主版本漂移，靠 `compositionInventory()` 对照。重审条件：宿主暴露结构化 preset 定义，或 standard 行变化。
 - 中文关键词路由误判 → 保守阈值、返回 `needs_subject`/候选，master 可显式建房；重审条件：真实需求样本出现系统性误判。
 - master 模型收到 handoff 后不行动 → M1 只验收“投递成功”，不验收“自动修复”；重审条件：M3 review 闭环。
 - 并发写索引 → 项目级锁 + 原子替换；单测覆盖并发写与半写恢复；重审条件：出现跨进程写者。
 - `exec.agent` 在 PTC 路径不可用 → 工具 fail closed；重审条件：宿主工具执行面变化。
 - 运行时 preset 重启消失 → M1 如实记录，M4 bundle patch 解决；重审条件：M4 提前。
-- 角色只做工具层校验、未硬限制 master 写文件 → 文档写明；重审条件：S0 证明 preset scope 可 `restrict`。
+- 角色只做工具层校验、未硬限制 master 写文件 → 文档写明；重审条件：出现 preset-scoped 插件模块可调用 `ctx.tools.restrict`。
 
 ## Delivery stages
 
-1. S0 preset 组合与调用者身份探针 — 证明或推翻“空 preset 可用/可克隆 standard”，记录证据。
+1. S0 preset 组合与调用者身份探针 — 已完成：空 preset 只有全局工具，`standard` 只有 YAML 文本，`exec.agent` 可用；证据见 [S0 结果](../../../docs/M1_S0_RESULT.md)。
 2. S1 store + 单测 — 索引/handoff 原子写与锁可用。
 3. S2 session-slice + workspace 解析 — create/prompt/rename/list 封装可用。
 4. S3 router + 单测 — 打分与阈值可复现。

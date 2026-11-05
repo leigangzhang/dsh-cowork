@@ -18,6 +18,8 @@ import z from '@deepseek-ai/schemastery'
 import type { HealthView, ProbeConfig, ProbeHost } from './probe-engine.js'
 import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
 import { isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
+import type { S0Host, S0Identity } from './s0-probe.js'
+import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
 
 const packageJson = JSON.parse(
   readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
@@ -32,6 +34,10 @@ const HEALTH_PATH = '/dsh-cowork/probe/health'
 const RUN_PATH = '/dsh-cowork/probe/run'
 /** Status route: poll one run's phases, evidence, sessions, and error. */
 const STATUS_PATH = '/dsh-cowork/probe/status'
+/** S0 run route: start one M1 S0 probe run and return its id immediately. */
+const S0_RUN_PATH = '/dsh-cowork/probe/s0'
+/** S0 status route: poll one S0 run. */
+const S0_STATUS_PATH = '/dsh-cowork/probe/s0-status'
 
 /** Lossless JSON value accepted by the tool result boundary. */
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
@@ -105,6 +111,10 @@ export function apply(ctx: Context, config: Config): void {
     worktreeRelativePath: config.worktreeRelativePath,
   }
   const runner = new ProbeRunner(host, probeConfig, PLUGIN_NAME, PLUGIN_VERSION)
+  const s0 = new S0Runner(ctx as unknown as S0Host, {
+    repoPath: probeConfig.repoPath,
+    promptTimeoutMs: probeConfig.promptTimeoutMs,
+  })
 
   // Risk 3: a preset registered at runtime, owned by this fiber's lifetime.
   ctx.effect(() => {
@@ -120,6 +130,55 @@ export function apply(ctx: Context, config: Config): void {
     )
     return registration
   }, 'dsh-cowork: runtime agent preset')
+
+  // S0: explicit plugin rows prove whether a cowork-thread preset can carry tools.
+  ctx.effect(() => host.agentPresets.register({
+    id: THREAD_SMOKE_PRESET_ID,
+    name: 'cowork thread s0',
+    description: 'M1 S0 probe preset: persona plus explicit tool rows.',
+    plugins: [
+      {
+        id: 'persona',
+        name: '@deepseek-ai/dsh-persona',
+        config: { prefix: 'You are a cowork thread probe. Use your tools to inspect the repository when asked.' },
+      },
+      { id: 'agent-instructions', name: '@deepseek-ai/dsh-agent-instructions', config: { maxBytes: 65536 } },
+      { id: 'tool-bash', name: '@deepseek-ai/dsh-tool-bash' },
+      { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' },
+      { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search', config: { sampleOverCapGlobResults: false } },
+    ],
+  }), 'dsh-cowork: S0 thread preset')
+
+  // S0: report the calling session identity to answer whether `exec.agent` exists.
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'cowork_identity_probe',
+    description: 'Temporary M1 S0 probe: report the calling session id, cwd, preset, and execution keys. Read-only.',
+    parameters: {
+      token: { type: 'string', required: true, description: 'Evidence label, e.g. "master" or "thread".' },
+    },
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute: async (args: { token: string }, exec): Promise<JsonValue> => {
+      const caller = exec as unknown as {
+        agent?: {
+          id?: string
+          session?: { header?: { cwd?: string; agentPreset?: string } }
+        }
+      }
+      const identity: S0Identity = {
+        token: args.token,
+        agentId: caller.agent?.id ?? null,
+        cwd: caller.agent?.session?.header?.cwd ?? null,
+        agentPreset: caller.agent?.session?.header?.agentPreset ?? null,
+        execKeys: Object.keys(exec).sort(),
+        hasAgent: caller.agent !== undefined,
+      }
+      s0.recordIdentity(identity)
+      return JSON.parse(JSON.stringify(identity)) as JsonValue
+    },
+  })), 'dsh-cowork: S0 identity probe tool')
 
   // One read-only tool: health plus the last run summary.
   ctx.effect(() => ctx.tools.register(defineTool({
@@ -184,13 +243,54 @@ export function apply(ctx: Context, config: Config): void {
       },
     },
   ]
+  routes.push({
+    kind: 'exact',
+    path: S0_RUN_PATH,
+    handler: (request, response) => {
+      if (!guard(request, response, 'POST')) return
+      request.resume()
+      try {
+        const run = s0.start()
+        sendJson(response, 200, { runId: run.runId, state: run.state })
+      } catch (error) {
+        sendJson(response, 409, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    },
+  }, {
+    kind: 'exact',
+    path: S0_STATUS_PATH,
+    handler: async (request, response) => {
+      if (!guard(request, response, 'GET')) return
+      let runId: string
+      try {
+        runId = requireRunId(readQuery(request.url, 'runId'))
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        return
+      }
+      const run = await s0.resolve(runId)
+      if (run === undefined) {
+        sendJson(response, 404, { ok: false, error: `unknown S0 runId: ${runId}` })
+        return
+      }
+      sendJson(response, 200, run)
+    },
+  })
 
   for (const route of routes) {
     ctx.effect(() => ctx.webServer.register(route), `dsh-cowork: route ${readPath(route.path)}`)
   }
 
   ctx.effect(() => runner.attachEvents(), 'dsh-cowork: session event feed')
-  ctx.effect(() => () => runner.dispose(), 'dsh-cowork: probe runner')
+  ctx.effect(() => s0.attachEvents(), 'dsh-cowork: S0 session event feed')
+  ctx.effect(() => () => {
+    runner.dispose()
+    s0.dispose()
+  }, 'dsh-cowork: probe runners')
 
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M0 probe ready at ${HEALTH_PATH} (repo ${probeConfig.repoPath})`)
+  ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 S0 probe ready at ${S0_RUN_PATH}`)
 }
