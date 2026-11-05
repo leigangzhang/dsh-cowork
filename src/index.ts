@@ -15,12 +15,15 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import z from '@deepseek-ai/schemastery'
+import type { CoworkApiHost, CoworkApiPorts } from './api.js'
+import { registerCoworkApi } from './api.js'
 import type { HealthView, ProbeConfig, ProbeHost } from './probe-engine.js'
 import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
 import { isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
+import { ProjectStore, findProjectRoot } from './store.js'
 import type { CoworkToolDeps } from './tools.js'
 import { registerCoworkTools } from './tools.js'
 
@@ -139,6 +142,15 @@ export function apply(ctx: Context, config: Config): void {
     clock: () => new Date(),
     resolveRepoPath: () => probeConfig.repoPath,
   }
+
+  // M2 panel: read-only HTTP routes over the host connection service. The
+  // project root is derived from the session's own cwd, never from the request.
+  const panelPorts: CoworkApiPorts = {
+    inspectSession: (sessionId) => assembly.sessionController.inspect(sessionId),
+    findProjectRoot,
+    createStore: (repoPath) => new ProjectStore({ repoPath }),
+  }
+  registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
 
   // Risk 3: a preset registered at runtime, owned by this fiber's lifetime.
   ctx.effect(() => {
