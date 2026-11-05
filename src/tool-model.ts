@@ -17,6 +17,19 @@ export const ERROR_CODES = {
   intentRequired: 'route/intent-required',
   sessionMissing: 'thread/session-missing',
   storeCorrupt: 'store/corrupt',
+  memoryInvalid: 'memory/invalid',
+  memoryWriteFailed: 'memory/write-failed',
+  threadNotFound: 'thread/not-found',
+  checkoutNotFound: 'checkout/not-found',
+  checkoutAlreadyExists: 'checkout/already-exists',
+  checkoutCreateFailed: 'checkout/create-failed',
+  checkoutInvalidBaseRef: 'checkout/invalid-base-ref',
+  checkoutPathGuard: 'checkout/path-guard',
+  checkoutDirty: 'checkout/dirty',
+  checkoutMergeConflict: 'checkout/merge-conflict',
+  checkoutMergeFailed: 'checkout/merge-failed',
+  checkoutGitFailed: 'checkout/git-failed',
+  checkoutNotReady: 'checkout/not-ready',
 } as const
 
 /** The one failure envelope every tool returns instead of throwing. */
@@ -105,14 +118,22 @@ export function checkRole(
 }
 
 /**
+ * Branch prefix of a thread's private commits. Mirrors `CHECKOUT_BRANCH_PREFIX`
+ * in src/checkout.ts; kept as a literal because this module imports nothing.
+ */
+const THREAD_BRANCH_PREFIX = 'cowork/'
+
+/**
  * The opener a new thread receives: where the project is, which thread it owns,
- * what it must not touch, and the handoff contract it cannot skip.
+ * what it must not touch, and the handoff contract it cannot skip. An isolated
+ * thread also learns its clone path and the branch the master will merge.
  */
 export function buildThreadBrief(input: {
   repoPath: string
   subject: string
   threadId: string
   intent?: string
+  checkoutPath?: string | null
 }): string {
   const lines = [
     `You are cowork thread ${input.threadId} in project ${input.repoPath}.`,
@@ -120,6 +141,12 @@ export function buildThreadBrief(input: {
   ]
   const intent = input.intent?.trim() ?? ''
   if (intent !== '') lines.push(`User intent: ${intent}`)
+  const checkoutPath = input.checkoutPath?.trim() ?? ''
+  if (checkoutPath !== '') {
+    lines.push(
+      `Your isolated work area is ${checkoutPath} — a local git clone of the project, branch ${THREAD_BRANCH_PREFIX}${input.threadId}. Make all edits and commits there; do not modify the main repository. The master merges your branch after your handoff.`,
+    )
+  }
   lines.push(
     'Scope: work only inside this thread. Do not modify files owned by other threads, and do not change the project index by hand — the cowork tools write it.',
     'Read the project index and the latest handoff with cowork_project_status before you start.',

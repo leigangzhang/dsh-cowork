@@ -16,6 +16,7 @@
  */
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { existsSync, statSync } from 'node:fs'
 import { mkdir, open, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -53,7 +54,13 @@ export interface ThreadRecord {
   subject: string
   status: ThreadStatus
   cwd: string
-  worktreePath: string | null
+  /**
+   * Thread's isolated clone (`<repo>/.dsh-cowork/threads/<threadId>`), or null
+   * for a thread that works in the shared repository. Indexes written before
+   * M2 named this field `worktreePath`; {@link normalizeThreadDocument} reads
+   * that legacy name and every write emits `checkoutPath` only.
+   */
+  checkoutPath: string | null
   createdAt: string
   updatedAt: string
   lastHandoffAt: string | null
@@ -167,8 +174,8 @@ function threadProblems(thread: unknown, where: string): string[] {
     problems.push(`${where}.status must be one of ${THREAD_STATUSES.join('|')}`)
   }
   if (!isNonEmptyString(thread.cwd)) problems.push(`${where}.cwd must be a non-empty string`)
-  if (thread.worktreePath !== null && typeof thread.worktreePath !== 'string') {
-    problems.push(`${where}.worktreePath must be a string or null`)
+  if (thread.checkoutPath !== null && typeof thread.checkoutPath !== 'string') {
+    problems.push(`${where}.checkoutPath must be a string or null`)
   }
   if (!isIsoDate(thread.createdAt)) problems.push(`${where}.createdAt must be an ISO 8601 timestamp`)
   if (!isIsoDate(thread.updatedAt)) problems.push(`${where}.updatedAt must be an ISO 8601 timestamp`)
@@ -176,6 +183,25 @@ function threadProblems(thread: unknown, where: string): string[] {
     problems.push(`${where}.lastHandoffAt must be an ISO 8601 timestamp or null`)
   }
   return problems
+}
+
+/**
+ * Read one thread record into the current shape: M2 renamed `worktreePath` to
+ * `checkoutPath`, and an index written before that rename must still load. The
+ * legacy key is consumed here (never copied forward), so a validated record and
+ * every rewrite carry `checkoutPath` only.
+ */
+function normalizeThreadDocument(thread: unknown): unknown {
+  if (!isRecord(thread)) return thread
+  const { worktreePath, checkoutPath, ...rest } = thread
+  const adopted = checkoutPath === undefined ? worktreePath : checkoutPath
+  return { ...rest, checkoutPath: adopted === undefined ? null : adopted }
+}
+
+/** Normalize every thread of a raw index document; other fields pass through. */
+function normalizeIndexDocument(index: unknown): unknown {
+  if (!isRecord(index) || !Array.isArray(index.threads)) return index
+  return { ...index, threads: index.threads.map(normalizeThreadDocument) }
 }
 
 /** Schema problems of a project index document. */
@@ -355,7 +381,8 @@ export class ProjectStore {
         this.indexFile,
       )
     }
-    const problems = indexProblems(parsed)
+    const normalized = normalizeIndexDocument(parsed)
+    const problems = indexProblems(normalized)
     if (problems.length > 0) {
       throw new StoreError(
         'store/corrupt',
@@ -363,7 +390,7 @@ export class ProjectStore {
         this.indexFile,
       )
     }
-    return parsed as ProjectIndex
+    return normalized as ProjectIndex
   }
 
   /**
@@ -437,7 +464,7 @@ export class ProjectStore {
   async updateThread(
     threadId: string,
     patch: Partial<
-      Pick<ThreadRecord, 'subject' | 'status' | 'cwd' | 'worktreePath' | 'updatedAt' | 'lastHandoffAt'>
+      Pick<ThreadRecord, 'subject' | 'status' | 'cwd' | 'checkoutPath' | 'updatedAt' | 'lastHandoffAt'>
     >,
   ): Promise<ProjectIndex> {
     return this.mutateIndex((index) => {
@@ -456,7 +483,7 @@ export class ProjectStore {
         subject: patch.subject ?? current.subject,
         status: patch.status ?? current.status,
         cwd: patch.cwd ?? current.cwd,
-        worktreePath: patch.worktreePath === undefined ? current.worktreePath : patch.worktreePath,
+        checkoutPath: patch.checkoutPath === undefined ? current.checkoutPath : patch.checkoutPath,
         createdAt: current.createdAt,
         updatedAt: patch.updatedAt ?? this.now().toISOString(),
         lastHandoffAt: patch.lastHandoffAt === undefined ? current.lastHandoffAt : patch.lastHandoffAt,
@@ -464,6 +491,36 @@ export class ProjectStore {
       const threads = index.threads.map((thread, at) => (at === position ? merged : thread))
       return { ...index, threads }
     })
+  }
+
+  /**
+   * Read arbitrary text this project owns (the memory files). A missing file is
+   * `null`; every other failure propagates, because an append must not treat an
+   * unreadable file as empty and overwrite it.
+   */
+  async readText(absPath: string): Promise<string | null> {
+    const text = await readTextIfPresent(absPath)
+    return text === undefined ? null : text
+  }
+
+  /**
+   * Write arbitrary text (the memory files) through the same atomic path as the
+   * index: exclusive-create temp sibling, rename, then fsync the parent.
+   * The caller holds {@link withWriteLock} across its read-modify-write cycle;
+   * this method never takes the lock itself, so nesting cannot deadlock.
+   */
+  async writeTextAtomic(absPath: string, content: string): Promise<void> {
+    await mkdir(dirname(absPath), { recursive: true, mode: DIR_MODE })
+    await writeFileAtomic(absPath, content, { mode: FILE_MODE, dirMode: DIR_MODE })
+    await fsyncDirectory(dirname(absPath))
+  }
+
+  /**
+   * Run an arbitrary read-modify-write cycle under the project write lock, the
+   * same serialization every index and handoff writer uses.
+   */
+  async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    return this.withLock(operation)
   }
 
   /** Every handoff file, ordered by `createdAt` epoch (then by file name). */
@@ -670,6 +727,27 @@ export async function findProjectRoot(startPath: string): Promise<string | null>
     if ((await readTextIfPresent(join(current, PROJECT_DIR_NAME, INDEX_FILE_NAME))) !== undefined) {
       return current
     }
+    const parent = dirname(current)
+    if (parent === current) return null
+    current = parent
+  }
+}
+
+/**
+ * Synchronous {@link findProjectRoot}: walk up from `startPath` to the nearest
+ * directory holding `.dsh-cowork/index.json`. The system-prompt section asks
+ * this on every prompt assembly, where an async lookup is not available.
+ */
+export function findProjectRootSync(startPath: string): string | null {
+  let current = resolve(startPath)
+  try {
+    if (statSync(current).isFile()) current = dirname(current)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error
+  }
+  for (;;) {
+    if (existsSync(join(current, PROJECT_DIR_NAME, INDEX_FILE_NAME))) return current
     const parent = dirname(current)
     if (parent === current) return null
     current = parent

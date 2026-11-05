@@ -18,6 +18,8 @@ function fakePorts(overrides = {}) {
     prompt: [],
     list: [],
     inspect: [],
+    deleteWorkspace: [],
+    archiveSession: [],
   }
   const ports = {
     sessions: {
@@ -50,6 +52,13 @@ function fakePorts(overrides = {}) {
       async create(...args) {
         calls.createWorkspace.push(args)
         return overrides.createdWorkspace ?? { id: 'workspace-new', path: args[0] }
+      },
+      async delete(id) {
+        calls.deleteWorkspace.push(id)
+        return overrides.deleteResult ?? true
+      },
+      async archiveSession(sessionId) {
+        calls.archiveSession.push(sessionId)
       },
     },
   }
@@ -146,6 +155,76 @@ test('createThread creates the workspace when the path is unknown and then uses 
   const result = await slice.createThread({ repoPath: '/repo', subject: 'S', presetId: 'cowork-thread' })
   assert.equal(result.workspaceId, 'workspace-created')
   assert.deepEqual(calls.createSession, [{ workspaceId: 'workspace-created', agentPreset: 'cowork-thread' }])
+})
+
+test('createCheckoutThread creates the workspace on the clone, then the explicit session, then renames', async () => {
+  const checkoutPath = '/repo/.dsh-cowork/threads/session-x'
+  const { ports, calls } = fakePorts({
+    createdWorkspace: { id: 'workspace-clone', path: checkoutPath },
+    createResult: { sessionId: 'session-x', agentPreset: 'cowork-thread' },
+  })
+  const slice = new SessionSlice(ports)
+
+  const result = await slice.createCheckoutThread({
+    repoPath: '/repo',
+    checkoutPath,
+    threadId: 'session-x',
+    subject: 'isolated work',
+    presetId: 'cowork-thread',
+  })
+
+  assert.deepEqual(result, {
+    sessionId: 'session-x',
+    workspaceId: 'workspace-clone',
+    title: 'cowork: isolated work',
+  })
+  // The workspace sits on the clone, and the title is passed with it.
+  assert.deepEqual(calls.createWorkspace, [[checkoutPath, 'cowork: isolated work']])
+  // The caller's thread id is the session id: it names the clone and the branch.
+  assert.deepEqual(calls.createSession, [{
+    sessionId: 'session-x',
+    workspaceId: 'workspace-clone',
+    agentPreset: 'cowork-thread',
+  }])
+  assert.deepEqual(calls.rename, [{ sessionId: 'session-x', title: 'cowork: isolated work' }])
+  assert.deepEqual(calls.resolveByPath, [], 'the checkout flow must not reuse the project workspace')
+})
+
+test('createCheckoutThread fails closed when the session did not mount the preset', async () => {
+  const { ports, calls } = fakePorts({
+    createdWorkspace: { id: 'workspace-clone', path: '/repo/.dsh-cowork/threads/session-x' },
+    createResult: { sessionId: 'session-x', agentPreset: 'standard' },
+  })
+  const slice = new SessionSlice(ports)
+
+  await assert.rejects(
+    slice.createCheckoutThread({
+      repoPath: '/repo',
+      checkoutPath: '/repo/.dsh-cowork/threads/session-x',
+      threadId: 'session-x',
+      subject: 'isolated',
+      presetId: 'cowork-thread',
+    }),
+    { message: /^session\/create-preset-mismatch:/ },
+  )
+  assert.equal(calls.rename.length, 0, 'a mismatched session must not be renamed')
+})
+
+test('deleteWorkspace and archiveSession delegate to the workspace registry', async () => {
+  const { ports, calls } = fakePorts({ deleteResult: false })
+  const slice = new SessionSlice(ports)
+
+  assert.equal(await slice.deleteWorkspace('workspace-1'), false)
+  await slice.archiveSession('session-x')
+  assert.deepEqual(calls.deleteWorkspace, ['workspace-1'])
+  assert.deepEqual(calls.archiveSession, ['session-x'])
+
+  const failing = fakePorts()
+  failing.ports.workspaces.archiveSession = async (sessionId) => {
+    failing.calls.archiveSession.push(sessionId)
+    throw new Error('session is busy')
+  }
+  await assert.rejects(new SessionSlice(failing.ports).archiveSession('session-busy'), /session is busy/)
 })
 
 test('promptSession queues text with the injected request id and a bounded signal', async () => {

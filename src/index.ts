@@ -7,6 +7,7 @@
  * session, and the patchReload facts. It registers one read-only tool and
  * three loopback-only routes; probe runs are started and polled over HTTP.
  */
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
@@ -17,10 +18,15 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import z from '@deepseek-ai/schemastery'
 import type { HealthView, ProbeConfig, ProbeHost } from './probe-engine.js'
 import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
+import { MEMORY_FILES, MEMORY_KINDS, memoryFilePath, parseMemoryFile, renderMemoryBlock } from './memory.js'
+import type { MemoryInjectInput } from './memory.js'
+import { registerMemoryPrompt } from './memory-prompt.js'
+import type { MemoryPromptAgent, MemoryPromptDeps, MemoryPromptHost, MemoryRender } from './memory-prompt.js'
 import { isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
+import { findProjectRootSync } from './store.js'
 import type { CoworkToolDeps } from './tools.js'
 import { registerCoworkTools } from './tools.js'
 
@@ -65,7 +71,7 @@ export const Config: z<Config> = z.object({
 })
 
 /** Host services this plugin cannot activate without. */
-export const inject = ['webServer', 'tools', 'agentPresets', 'sessionController', 'workspaceRegistry']
+export const inject = ['webServer', 'tools', 'agentPresets', 'sessionController', 'workspaceRegistry', 'agents']
 
 function sendJson(response: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload)
@@ -113,6 +119,35 @@ interface CoworkAssemblyHost {
   sessionController: CoworkToolDeps['sessionController']
   workspaceRegistry: CoworkToolDeps['workspaceRegistry']
   agentPresets: CoworkToolDeps['agentPresets']
+  /** The live agent registry, read to attach the memory section to existing agents. */
+  agents: { list(): readonly MemoryPromptAgent[] }
+}
+
+/**
+ * Render the project memory block for one repository.
+ *
+ * Synchronous by contract: the system-prompt provider is synchronous, so the
+ * three files are read with `readFileSync`. A missing file is empty memory; any
+ * other read failure disables injection for this prompt rather than quoting a
+ * half-read file. The digest is the sha1 of the rendered text, which is what
+ * lets the section cache its output until the memory actually changes.
+ */
+function renderProjectMemory(repoPath: string): MemoryRender | null {
+  const inputs: MemoryInjectInput[] = []
+  for (const kind of MEMORY_KINDS) {
+    let content = ''
+    try {
+      content = readFileSync(memoryFilePath(repoPath, kind), 'utf8')
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return null
+    }
+    inputs.push({ kind, entries: parseMemoryFile(kind, MEMORY_FILES[kind], content).entries })
+  }
+  const block = renderMemoryBlock(inputs)
+  if (block.text === '') return null
+  const text = `Project memory for ${repoPath}:\n\n${block.text}`
+  return { text, digest: createHash('sha1').update(text).digest('hex') }
 }
 
 /** Register the probe preset, tool, routes, and event feed; clean all of them up on dispose. */
@@ -326,6 +361,36 @@ export function apply(ctx: Context, config: Config): void {
       for (const dispose of disposers) dispose()
     }
   }, 'dsh-cowork: cowork tools')
+
+  // M2: project memory rides in the system prompt of every cowork agent. The
+  // section is registered per agent (current and future) and released when the
+  // plugin unloads, so a hot reload does not leave a stale provider behind.
+  const memoryHost: MemoryPromptHost = {
+    onAgentCreated: (listener) => {
+      const events = ctx as unknown as {
+        on(
+          name: string,
+          handler: (payload: { agent: MemoryPromptAgent; source?: string }) => void,
+        ): () => void
+      }
+      return events.on('agent/created', (payload) => listener(payload))
+    },
+    listAgents: () => assembly.agents.list(),
+  }
+  const memoryDeps: MemoryPromptDeps = {
+    resolveProjectRoot: (cwd) => findProjectRootSync(cwd),
+    renderMemory: (repoPath) => renderProjectMemory(repoPath),
+    log: (message) => ctx.logger?.warn?.(message),
+  }
+  ctx.effect(() => {
+    const registration = registerMemoryPrompt(memoryHost, memoryDeps)
+    if (registration.duplicateSkipped() > 0) {
+      ctx.logger?.warn?.(
+        `[${PLUGIN_NAME}] ${registration.duplicateSkipped()} cowork memory section(s) already registered; skipped`,
+      )
+    }
+    return () => registration.dispose()
+  }, 'dsh-cowork: project memory prompt')
 
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M0 probe ready at ${HEALTH_PATH} (repo ${probeConfig.repoPath})`)
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 S0 probe ready at ${S0_RUN_PATH}`)

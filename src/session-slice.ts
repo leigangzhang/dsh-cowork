@@ -16,6 +16,12 @@ const DEFAULT_PROMPT_TIMEOUT_MS = 120_000
 export interface SessionCreateRequest {
   workspaceId?: string
   cwd?: string
+  /**
+   * Explicit session id. The checkout flow mints `session-<uuid>` first because
+   * the thread id names the clone directory and the `cowork/<id>` branch, so it
+   * has to exist before the session does.
+   */
+  sessionId?: string
   agentPreset?: string
 }
 
@@ -53,6 +59,10 @@ export interface SessionSlicePorts {
   workspaces: {
     resolveByPath(path: string): Promise<{ id: string; path: string } | undefined>
     create(path: string, title?: string): Promise<{ id: string; path: string }>
+    /** Remove a workspace; `false` means it was already gone. */
+    delete(id: string): Promise<boolean>
+    /** Archive a session that lived in a workspace this flow is about to remove. */
+    archiveSession(sessionId: string): Promise<void>
   }
 }
 
@@ -111,6 +121,63 @@ export class SessionSlice {
       title: THREAD_TITLE_PREFIX + subject,
     })
     return { sessionId: created.sessionId, workspaceId, title: renamed.title }
+  }
+
+  /**
+   * Create a thread whose workspace *is* its checkout clone.
+   *
+   * Order is load-bearing: the workspace is created on `checkoutPath` first (so
+   * the session mounts inside the clone), the session is created with the
+   * explicit `sessionId` the caller already used for the clone directory and
+   * branch, and only then is it renamed. A session that did not mount the
+   * requested preset fails closed before anything else is named.
+   */
+  async createCheckoutThread(options: {
+    repoPath: string
+    checkoutPath: string
+    threadId: string
+    subject: string
+    presetId: string
+  }): Promise<{ sessionId: string; workspaceId: string; title: string }> {
+    // `repoPath` is accepted for symmetry with createThread, but the workspace
+    // is created on the checkout path: the thread works inside its clone.
+    const { checkoutPath, threadId, subject, presetId } = options
+    const title = THREAD_TITLE_PREFIX + subject
+    const workspace = await this.#ports.workspaces.create(checkoutPath, title)
+    const created = await this.#ports.sessions.create({
+      sessionId: threadId,
+      workspaceId: workspace.id,
+      agentPreset: presetId,
+    })
+
+    if (created.agentPreset !== presetId) {
+      throw new Error(
+        `${PRESET_MISMATCH_PREFIX} expected ${JSON.stringify(presetId)}, ` +
+          `got ${JSON.stringify(created.agentPreset)} for session ${created.sessionId}`,
+      )
+    }
+
+    const renamed = await this.#ports.sessions.rename({
+      sessionId: created.sessionId,
+      title,
+    })
+    return { sessionId: created.sessionId, workspaceId: workspace.id, title: renamed.title }
+  }
+
+  /**
+   * Remove a workspace from the registry. `false` means it was already gone and
+   * is not an error: checkout teardown must stay idempotent.
+   */
+  async deleteWorkspace(workspaceId: string): Promise<boolean> {
+    return this.#ports.workspaces.delete(workspaceId)
+  }
+
+  /**
+   * Archive a session through the workspace registry (the host's owner of that
+   * operation); failures propagate so teardown can report them.
+   */
+  async archiveSession(sessionId: string): Promise<void> {
+    await this.#ports.workspaces.archiveSession(sessionId)
   }
 
   /**

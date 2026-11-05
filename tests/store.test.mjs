@@ -4,12 +4,13 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import {
   ProjectStore,
   StoreError,
   findProjectRoot,
+  findProjectRootSync,
   handoffFileName,
   projectIdFor,
 } from '../src/store.ts'
@@ -37,7 +38,7 @@ const thread = (overrides = {}) => ({
   subject: 'wire the store',
   status: 'new',
   cwd: '/repo',
-  worktreePath: null,
+  checkoutPath: null,
   createdAt: CREATED_AT,
   updatedAt: CREATED_AT,
   lastHandoffAt: null,
@@ -219,11 +220,13 @@ test('addThread rejects duplicates and updateThread rejects unknown threads', as
 
     now = '2026-11-05T05:00:00.000Z'
     const stamped = await store.updateThread('session-a', {
-      worktreePath: '/tmp/wt',
+      checkoutPath: '/repo/.dsh-cowork/threads/session-a',
       lastHandoffAt: '2026-11-05T04:30:00.000Z',
     })
     assert.equal(stamped.threads[0].updatedAt, now)
-    assert.equal(stamped.threads[0].worktreePath, '/tmp/wt')
+    assert.equal(stamped.threads[0].checkoutPath, '/repo/.dsh-cowork/threads/session-a')
+    // The legacy name is gone from the record, so a rewrite cannot resurrect it.
+    assert.equal('worktreePath' in stamped.threads[0], false)
     assert.equal(stamped.threads[0].lastHandoffAt, '2026-11-05T04:30:00.000Z')
     // Untouched fields survive the merge.
     assert.equal(stamped.threads[0].subject, 'renamed')
@@ -381,6 +384,96 @@ test('findProjectRoot walks up to the directory holding the index', async () => 
     const outside = await mkdtemp(join(tmpdir(), 'dsh-cowork-outside-'))
     try {
       assert.equal(await findProjectRoot(outside), null)
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
+})
+
+test('readIndex reads a pre-M2 index that still says worktreePath', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    await mkdir(store.projectDir, { recursive: true })
+    const legacyThread = {
+      threadId: 'session-old',
+      subject: 'before the rename',
+      status: 'new',
+      cwd: '/repo',
+      worktreePath: '/legacy/wt',
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+      lastHandoffAt: null,
+    }
+    const indexFile = (threads) => JSON.stringify({
+      version: 1,
+      projectId: 'p',
+      masterSessionId: 'm',
+      createdAt: CREATED_AT,
+      threads,
+    })
+
+    await writeFile(store.indexFile, indexFile([legacyThread]), 'utf8')
+    const index = await store.readIndex()
+    assert.equal(index.threads[0].checkoutPath, '/legacy/wt')
+    assert.equal('worktreePath' in index.threads[0], false)
+
+    // Neither field means "no checkout", not a corrupt index.
+    const plain = { ...legacyThread, threadId: 'session-plain' }
+    delete plain.worktreePath
+    await writeFile(store.indexFile, indexFile([plain]), 'utf8')
+    assert.equal((await store.readIndex()).threads[0].checkoutPath, null)
+
+    // A rewrite emits checkoutPath only; the legacy name never comes back.
+    await writeFile(store.indexFile, indexFile([legacyThread]), 'utf8')
+    await store.updateThread('session-old', { status: 'active' })
+    const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
+    assert.equal(onDisk.threads[0].checkoutPath, '/legacy/wt')
+    assert.equal('worktreePath' in onDisk.threads[0], false)
+  })
+})
+
+test('readText and writeTextAtomic give the memory files the atomic path and the store lock', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const memoryFile = join(store.projectDir, 'memory', 'facts.md')
+    assert.equal(await store.readText(memoryFile), null)
+
+    const content = '## a\n\nb\n\n(来源: s; 2026-11-05T00:00:00.000Z)\n'
+    await store.writeTextAtomic(memoryFile, content)
+    assert.equal(await store.readText(memoryFile), content)
+    assert.equal(await modeOf(memoryFile), 0o600)
+    assert.equal(await modeOf(dirname(memoryFile)), 0o700)
+    assert.deepEqual(residue(await readdir(dirname(memoryFile))), [])
+
+    // A caller-side read-modify-write cycle serializes through the same lock.
+    let running = 0
+    let peak = 0
+    await Promise.all([1, 2, 3].map(() => store.withWriteLock(async () => {
+      running += 1
+      peak = Math.max(peak, running)
+      await new Promise((resolveWait) => setTimeout(resolveWait, 5))
+      running -= 1
+    })))
+    assert.equal(peak, 1, 'withWriteLock must serialize its operations')
+  })
+})
+
+test('findProjectRootSync matches the async walk-up', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    assert.equal(findProjectRootSync(repoPath), null)
+    assert.equal(await findProjectRoot(repoPath), null)
+
+    await store.initIndex('session-master')
+    const nested = join(repoPath, 'src', 'deep')
+    await mkdir(nested, { recursive: true })
+    assert.equal(findProjectRootSync(nested), repoPath)
+    assert.equal(findProjectRootSync(join(nested, 'not-created.txt')), repoPath)
+    assert.equal(findProjectRootSync(nested), await findProjectRoot(nested))
+
+    const outside = await mkdtemp(join(tmpdir(), 'dsh-cowork-outside-'))
+    try {
+      assert.equal(findProjectRootSync(outside), null)
     } finally {
       await rm(outside, { recursive: true, force: true })
     }

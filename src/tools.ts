@@ -12,12 +12,24 @@
  * pure modules; all host services arrive through {@link CoworkToolDeps}, so the
  * assembly can be wired and inspected without a running host.
  */
+import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { CHECKOUT_ERROR, createCheckout, inspectCheckout, mergeCheckout, removeCheckout } from './checkout.js'
+import type { CheckoutDeps, CheckoutStatus, GitResult, GitRunner } from './checkout.js'
 import { replayPendingHandoffs, submitHandoff } from './handoff.js'
+import {
+  MemoryCorruptError,
+  appendMemoryEntry,
+  loadMemory,
+  searchMemory,
+  validateMemoryEntry,
+} from './memory.js'
+import type { MemoryIo } from './memory.js'
 import { THREAD_PRESET_ID } from './presets.js'
 import type { PresetRegistryPort } from './presets.js'
-import { decideRoute } from './router.js'
+import { decideRoute, tokenize } from './router.js'
 import type { RoutableThread } from './router.js'
 import { SessionSlice } from './session-slice.js'
 import type { SessionSlicePorts } from './session-slice.js'
@@ -83,6 +95,59 @@ function nowOf(deps: CoworkToolDeps): Date {
 /** Build the session adapter over the injected host services. */
 function makeSlice(deps: CoworkToolDeps): SessionSlice {
   return new SessionSlice({ sessions: deps.sessionController, workspaces: deps.workspaceRegistry })
+}
+
+/** Timeout for one git invocation; no git call is retried automatically. */
+const GIT_TIMEOUT_MS = 30_000
+
+/** Upper bound on captured git output; a runaway diff should fail, not OOM. */
+const GIT_MAX_BUFFER = 8 * 1024 * 1024
+
+/** One non-zero exit code returned by a failed spawn (git never ran). */
+const SPAWN_FAILED_EXIT = 1
+
+/**
+ * Git runner for the checkout module: argument array, explicit cwd, a
+ * 30-second timeout, and no shell, so a thread id or repository path can never
+ * become part of a command. A non-zero exit is a value, never an exception.
+ */
+const runGit: GitRunner = (args, cwd) =>
+  new Promise<GitResult>((settle) => {
+    execFile(
+      'git',
+      [...args],
+      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf8' },
+      (error, stdout, stderr) => {
+        if (error === null) {
+          settle({ code: 0, stdout: stdout ?? '', stderr: stderr ?? '' })
+          return
+        }
+        const exit = (error as { code?: unknown }).code
+        settle({
+          code: typeof exit === 'number' ? exit : SPAWN_FAILED_EXIT,
+          stdout: typeof stdout === 'string' ? stdout : '',
+          stderr:
+            typeof stderr === 'string' && stderr.length > 0 ? stderr : (error as Error).message,
+        })
+      },
+    )
+  })
+
+/** The checkout module's only dependency is the git runner. */
+const checkoutDeps: CheckoutDeps = { runGit }
+
+/** The memory module's IO port, backed by the project store's lock and atomic write. */
+function memoryIo(store: ProjectStore): MemoryIo {
+  return {
+    readText: (path) => store.readText(path),
+    writeText: (path, content) => store.writeTextAtomic(path, content),
+    withLock: (operation) => store.withWriteLock(operation),
+  }
+}
+
+/** Error text for a caught value. */
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function isFailure(value: unknown): value is ToolFailure {
@@ -171,6 +236,7 @@ function threadView(thread: ThreadRecord): {
   subject: string
   status: ThreadRecord['status']
   cwd: string
+  checkoutPath: string | null
   updatedAt: string
   lastHandoffAt: string | null
 } {
@@ -179,6 +245,7 @@ function threadView(thread: ThreadRecord): {
     subject: thread.subject,
     status: thread.status,
     cwd: thread.cwd,
+    checkoutPath: thread.checkoutPath,
     updatedAt: thread.updatedAt,
     lastHandoffAt: thread.lastHandoffAt,
   }
@@ -198,6 +265,7 @@ function newThreadRecord(
   subject: string,
   repoPath: string,
   createdAt: Date,
+  checkoutPath: string | null = null,
 ): ThreadRecord {
   const stamp = createdAt.toISOString()
   return {
@@ -205,15 +273,185 @@ function newThreadRecord(
     subject,
     status: 'new',
     cwd: repoPath,
-    worktreePath: null,
+    checkoutPath,
     createdAt: stamp,
     updatedAt: stamp,
     lastHandoffAt: null,
   }
 }
 
+/** What one successful isolated creation produced. */
+interface IsolatedThread {
+  thread: ThreadRecord
+  threadId: string
+  title: string
+  prompted: boolean
+  checkoutPath: string
+}
+
+/** One checkout row of the project status view. */
+interface CheckoutRow {
+  threadId: string
+  path: string
+  exists: boolean
+  dirty: boolean
+  branch: string | null
+  head: string | null
+}
+
 /**
- * Register the six cowork tools and return their disposers. The caller owns the
+ * Create a thread that works in its own clone.
+ *
+ * Fixed order: mint the id → clone (`createCheckout`) → workspace + session on
+ * the clone (`createCheckoutThread`) → index record → brief. A failure after
+ * the clone compensates: the index entry (if written), the clone, and the
+ * workspace this call created are all removed, so a failed creation leaves no
+ * half thread behind. Cleanup problems are reported in the failure details
+ * instead of masking the original error.
+ */
+async function createIsolatedThread(
+  runtime: ProjectRuntime,
+  input: { subject: string; intent?: string; brief?: string },
+  deps: CoworkToolDeps,
+): Promise<IsolatedThread | ToolFailure> {
+  const threadId = `session-${randomUUID()}`
+  const created = await createCheckout(checkoutDeps, { repoPath: runtime.repoPath, threadId })
+  if (!created.ok) {
+    // createCheckout already removed anything it created; the index was never touched.
+    return failure(created.code, created.message, created.details)
+  }
+
+  let workspaceId: string | null = null
+  let recordWritten = false
+  const cleanupErrors: string[] = []
+  try {
+    const session = await runtime.slice.createCheckoutThread({
+      repoPath: runtime.repoPath,
+      checkoutPath: created.path,
+      threadId,
+      subject: input.subject,
+      presetId: THREAD_PRESET_ID,
+    })
+    workspaceId = session.workspaceId
+
+    const record = newThreadRecord(
+      session.sessionId,
+      input.subject,
+      runtime.repoPath,
+      nowOf(deps),
+      created.path,
+    )
+    await runtime.store.addThread(record)
+    recordWritten = true
+
+    const brief = buildThreadBrief({
+      repoPath: runtime.repoPath,
+      subject: input.subject,
+      threadId: session.sessionId,
+      intent: input.intent,
+      checkoutPath: created.path,
+    })
+    const extra = input.brief?.trim() ?? ''
+    const prompted = await runtime.slice.promptSession(
+      session.sessionId,
+      extra === '' ? brief : `${brief}\n\n${extra}`,
+    )
+    let thread = record
+    if (prompted.accepted) {
+      const updated = await runtime.store.updateThread(session.sessionId, { status: 'active' })
+      thread = updated.threads.find((entry) => entry.threadId === session.sessionId) ?? record
+    }
+    return {
+      thread,
+      threadId: session.sessionId,
+      title: session.title,
+      prompted: prompted.accepted,
+      checkoutPath: created.path,
+    }
+  } catch (error) {
+    if (recordWritten) {
+      try {
+        await runtime.store.mutateIndex((index) => ({
+          ...index,
+          threads: index.threads.filter((entry) => entry.threadId !== threadId),
+        }))
+      } catch (cleanupError) {
+        cleanupErrors.push(`index: ${describeError(cleanupError)}`)
+      }
+    }
+
+    // A workspace is created before the session, so a failure between them
+    // leaves one that the thrown path never learned the id of; resolve by path.
+    // The host canonicalises the path with realpath, so resolve while the clone
+    // still exists.
+    let resolvedWorkspaceId = workspaceId
+    if (resolvedWorkspaceId === null) {
+      try {
+        const existing = await deps.workspaceRegistry.resolveByPath(created.path)
+        resolvedWorkspaceId = existing === undefined ? null : existing.id
+      } catch (cleanupError) {
+        cleanupErrors.push(`workspace lookup: ${describeError(cleanupError)}`)
+      }
+    }
+
+    const removed = await removeCheckout(checkoutDeps, { repoPath: runtime.repoPath, threadId })
+    if (!removed.ok) cleanupErrors.push(`checkout: ${removed.message}`)
+
+    let workspaceDeleted = false
+    if (resolvedWorkspaceId !== null) {
+      try {
+        workspaceDeleted = await deps.workspaceRegistry.delete(resolvedWorkspaceId)
+      } catch (cleanupError) {
+        cleanupErrors.push(`workspace delete: ${describeError(cleanupError)}`)
+      }
+    }
+
+    const mapped = mapError(error)
+    return failure(mapped.error.code, mapped.error.message, {
+      ...(typeof mapped.error.details === 'object' && mapped.error.details !== null
+        ? (mapped.error.details as Record<string, unknown>)
+        : {}),
+      threadId,
+      cleanup: {
+        indexRolledBack: recordWritten,
+        checkoutRemoved: removed.ok ? removed.removed : false,
+        workspaceDeleted,
+        errors: cleanupErrors,
+      },
+    })
+  }
+}
+
+/**
+ * Read-only checkout summary for every isolated thread. `inspectCheckout` can
+ * throw only for an invalid thread id; one bad record must not fail the whole
+ * status view, so that row degrades to the module's own all-empty shape.
+ */
+async function inspectCheckouts(
+  repoPath: string,
+  threads: readonly ThreadRecord[],
+): Promise<CheckoutRow[]> {
+  const isolated = threads.filter((thread) => thread.checkoutPath !== null)
+  return Promise.all(isolated.map(async (thread) => {
+    let status: CheckoutStatus
+    try {
+      status = await inspectCheckout(checkoutDeps, { repoPath, threadId: thread.threadId })
+    } catch {
+      status = { exists: false, dirty: false, branch: null, head: null, commitsAhead: null }
+    }
+    return {
+      threadId: thread.threadId,
+      path: thread.checkoutPath as string,
+      exists: status.exists,
+      dirty: status.dirty,
+      branch: status.branch,
+      head: status.head,
+    }
+  }))
+}
+
+/**
+ * Register the nine cowork tools and return their disposers. The caller owns the
  * effect scope; this function only registers.
  */
 export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<() => void> {
@@ -293,6 +531,7 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
             createdAt: index.createdAt,
           },
           threads: index.threads.map(threadView),
+          checkouts: await inspectCheckouts(opened.repoPath, index.threads),
           pendingHandoffs,
           replay,
         }))
@@ -312,6 +551,11 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
       subject: {
         type: 'string',
         description: 'Short subject for a new thread; omit to let the router ask for one instead of creating.',
+      },
+      isolated: {
+        type: 'boolean',
+        description:
+          'Create the routed thread in its own local git clone (.dsh-cowork/threads/<threadId>, branch cowork/<threadId>) instead of the shared repository.',
       },
     },
     output: { schema: { type: 'json' }, render: renderJson },
@@ -343,6 +587,21 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
         }
         if (decision.action === 'needs_subject') {
           return toJson(success({ ...routePayload(decision) }))
+        }
+
+        if (args.isolated === true) {
+          const isolated = await createIsolatedThread(opened, { subject, intent }, deps)
+          if (isFailure(isolated)) return toJson(isolated)
+          return toJson(success({
+            ...routePayload(decision),
+            threadId: isolated.threadId,
+            subject,
+            title: isolated.title,
+            prompted: isolated.prompted,
+            isolated: true,
+            checkoutPath: isolated.checkoutPath,
+            thread: threadView(isolated.thread),
+          }))
         }
 
         const createdAt = nowOf(deps)
@@ -387,6 +646,11 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
     parameters: {
       subject: { type: 'string', required: true, description: 'Short subject the thread owns.' },
       brief: { type: 'string', description: 'Optional first message for the new thread.' },
+      isolated: {
+        type: 'boolean',
+        description:
+          'Run this thread in its own local git clone (.dsh-cowork/threads/<threadId>, branch cowork/<threadId>) instead of the shared repository.',
+      },
     },
     output: { schema: { type: 'json' }, render: renderJson },
     execute: async (args, exec) => {
@@ -402,6 +666,19 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
         const denied = checkRole('master', caller, opened.index)
         if (denied !== null) return toJson(denied)
 
+        const briefText = typeof args.brief === 'string' ? args.brief.trim() : ''
+        if (args.isolated === true) {
+          const isolated = await createIsolatedThread(opened, { subject, brief: briefText }, deps)
+          if (isFailure(isolated)) return toJson(isolated)
+          return toJson(success({
+            thread: threadView(isolated.thread),
+            title: isolated.title,
+            prompted: isolated.prompted,
+            isolated: true,
+            checkoutPath: isolated.checkoutPath,
+          }))
+        }
+
         const createdAt = nowOf(deps)
         const created = await opened.slice.createThread({
           repoPath: opened.repoPath,
@@ -412,9 +689,8 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
         await opened.store.addThread(record)
         let thread = record
         let prompted = false
-        const brief = typeof args.brief === 'string' ? args.brief.trim() : ''
-        if (brief !== '') {
-          const result = await opened.slice.promptSession(created.sessionId, brief)
+        if (briefText !== '') {
+          const result = await opened.slice.promptSession(created.sessionId, briefText)
           prompted = result.accepted
           if (prompted) {
             const updated = await opened.store.updateThread(created.sessionId, { status: 'active' })
@@ -523,6 +799,219 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
           filePath: result.filePath,
           status: result.record.status,
           record: result.record,
+        }))
+      } catch (error) {
+        return toJson(mapError(error))
+      }
+    },
+  })))
+
+  // 7) cowork_memory_write — append one durable project-memory entry.
+  disposers.push(host.tools.register(defineTool({
+    name: 'cowork_memory_write',
+    description:
+      'Append one durable project-memory entry (constraint, decision, or fact) to .dsh-cowork/memory/. Master or thread.',
+    parameters: {
+      kind: {
+        type: 'string',
+        required: true,
+        enum: ['constraint', 'decision', 'fact'],
+        description: 'Which memory file to append to: constraints.md, decisions.md, or facts.md.',
+      },
+      title: { type: 'string', required: true, description: 'One-line title; duplicate titles are allowed.' },
+      text: { type: 'string', required: true, description: 'The entry body, at most 8000 characters.' },
+      source: { type: 'string', required: true, description: 'Where this came from, e.g. the thread id.' },
+    },
+    output: { schema: { type: 'json' }, render: renderJson },
+    execute: async (args, exec) => {
+      const caller = callerOf(exec)
+      if (isFailure(caller)) return toJson(caller)
+      try {
+        const opened = await openProject(caller, deps)
+        if (isFailure(opened)) return toJson(opened)
+        const denied = checkRole('master-or-thread', caller, opened.index)
+        if (denied !== null) return toJson(denied)
+
+        const validated = validateMemoryEntry(args.kind, {
+          title: args.title,
+          text: args.text,
+          source: args.source,
+        })
+        if (!validated.ok) {
+          return toJson(failure(ERROR_CODES.memoryInvalid, 'memory entry is invalid', {
+            issues: validated.issues,
+          }))
+        }
+
+        try {
+          const appended = await appendMemoryEntry(
+            memoryIo(opened.store),
+            opened.repoPath,
+            validated.kind,
+            validated.value,
+            () => nowOf(deps),
+          )
+          return toJson(success({
+            file: appended.file,
+            filePath: appended.filePath,
+            entry: appended.entry,
+          }))
+        } catch (error) {
+          if (error instanceof MemoryCorruptError) {
+            return toJson(failure(ERROR_CODES.memoryInvalid, error.message, {
+              file: error.file,
+              issues: error.issues,
+            }))
+          }
+          return toJson(failure(ERROR_CODES.memoryWriteFailed, describeError(error)))
+        }
+      } catch (error) {
+        return toJson(mapError(error))
+      }
+    },
+  })))
+
+  // 8) cowork_memory_search — keyword search across the three memory files.
+  disposers.push(host.tools.register(defineTool({
+    name: 'cowork_memory_search',
+    description:
+      'Search the project memory (constraints, decisions, facts) by keyword; results are ranked by title, body, and source overlap. Master or thread.',
+    parameters: {
+      query: { type: 'string', required: true, description: 'Keywords to look for.' },
+      limit: { type: 'integer', description: 'Maximum hits, 1..20 (default 5).' },
+    },
+    output: { schema: { type: 'json' }, render: renderJson },
+    execute: async (args, exec) => {
+      const caller = callerOf(exec)
+      if (isFailure(caller)) return toJson(caller)
+      const query = args.query.trim()
+      if (query === '') return toJson(failure(ERROR_CODES.memoryInvalid, 'query must not be empty'))
+      try {
+        const opened = await openProject(caller, deps)
+        if (isFailure(opened)) return toJson(opened)
+        const denied = checkRole('master-or-thread', caller, opened.index)
+        if (denied !== null) return toJson(denied)
+
+        const loaded = await loadMemory(
+          { readText: (path) => opened.store.readText(path) },
+          opened.repoPath,
+        )
+        const entries = loaded.files.flatMap((file) => file.entries.map((entry) => ({
+          kind: file.kind,
+          file: file.file,
+          entry,
+        })))
+        const hits = searchMemory(entries, query, { tokenize, limit: args.limit })
+        return toJson(success({ hits, issues: loaded.issues, total: hits.length }))
+      } catch (error) {
+        return toJson(mapError(error))
+      }
+    },
+  })))
+
+  // 9) cowork_checkout_merge — integrate one thread's branch, then tear the clone down.
+  disposers.push(host.tools.register(defineTool({
+    name: 'cowork_checkout_merge',
+    description:
+      'Merge one isolated thread branch into the current repository, then delete its clone, workspace, and session. Master only.',
+    parameters: {
+      threadId: { type: 'string', required: true, description: 'Thread whose checkout should be merged.' },
+      message: { type: 'string', description: 'Merge commit message; defaults to "cowork: merge <threadId>".' },
+    },
+    output: { schema: { type: 'json' }, render: renderJson },
+    execute: async (args, exec) => {
+      const caller = callerOf(exec)
+      if (isFailure(caller)) return toJson(caller)
+      try {
+        const opened = await openProject(caller, deps)
+        if (isFailure(opened)) return toJson(opened)
+        const denied = checkRole('master', caller, opened.index)
+        if (denied !== null) return toJson(denied)
+
+        const threadId = args.threadId.trim()
+        const thread = opened.index.threads.find((entry) => entry.threadId === threadId)
+        if (thread === undefined) {
+          return toJson(failure(ERROR_CODES.threadNotFound, `thread not found in the project index: ${threadId}`, { threadId }))
+        }
+        const checkoutPath = thread.checkoutPath
+        if (checkoutPath === null) {
+          return toJson(failure(ERROR_CODES.checkoutNotFound, `thread ${threadId} has no isolated checkout`, { threadId }))
+        }
+        if (thread.status !== 'awaiting_review' && thread.status !== 'done') {
+          return toJson(failure(
+            ERROR_CODES.checkoutNotReady,
+            `thread ${threadId} is ${thread.status}; merging is allowed for awaiting_review or done`,
+            { threadId, status: thread.status },
+          ))
+        }
+
+        const merged = await mergeCheckout(checkoutDeps, {
+          repoPath: opened.repoPath,
+          threadId,
+          message: typeof args.message === 'string' && args.message.trim() !== '' ? args.message.trim() : undefined,
+        })
+        if (!merged.ok) {
+          if (merged.code === CHECKOUT_ERROR.mergeConflict) {
+            // The clone stays so the thread can resolve and retry.
+            const updated = await opened.store.updateThread(threadId, { status: 'blocked' })
+            const record = updated.threads.find((entry) => entry.threadId === threadId)
+            return toJson(failure(merged.code, merged.message, {
+              ...merged.details,
+              threadId,
+              status: 'blocked',
+              thread: record === undefined ? null : threadView(record),
+            }))
+          }
+          return toJson(failure(merged.code, merged.message, { ...merged.details, threadId }))
+        }
+
+        // The merge already landed; teardown problems are reported, never fatal.
+        const cleanup = {
+          removed: false,
+          branchDeleted: false,
+          workspaceId: null as string | null,
+          workspaceDeleted: false,
+          sessionArchived: false,
+        }
+        const cleanupErrors: string[] = []
+
+        // Resolve the workspace while the clone still exists: the host
+        // canonicalises the path with realpath before matching it.
+        const workspace = await deps.workspaceRegistry.resolveByPath(checkoutPath)
+
+        const removed = await removeCheckout(checkoutDeps, { repoPath: opened.repoPath, threadId })
+        if (removed.ok) {
+          cleanup.removed = removed.removed
+          cleanup.branchDeleted = removed.branchDeleted
+        } else {
+          cleanupErrors.push(`checkout: ${removed.message}`)
+        }
+
+        if (workspace !== undefined) {
+          cleanup.workspaceId = workspace.id
+          try {
+            cleanup.workspaceDeleted = await opened.slice.deleteWorkspace(workspace.id)
+          } catch (error) {
+            cleanupErrors.push(`workspace: ${describeError(error)}`)
+          }
+        }
+        try {
+          await opened.slice.archiveSession(threadId)
+          cleanup.sessionArchived = true
+        } catch (error) {
+          cleanupErrors.push(`session: ${describeError(error)}`)
+        }
+
+        const updated = await opened.store.updateThread(threadId, { checkoutPath: null, status: 'done' })
+        const record = updated.threads.find((entry) => entry.threadId === threadId)
+        return toJson(success({
+          threadId,
+          merged: true,
+          commit: merged.commit,
+          branch: merged.branch,
+          cleanup,
+          cleanupErrors,
+          thread: record === undefined ? null : threadView(record),
         }))
       } catch (error) {
         return toJson(mapError(error))

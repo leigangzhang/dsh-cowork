@@ -34,7 +34,7 @@ const thread = (overrides = {}) => ({
   subject: 'wire the store',
   status: 'new',
   cwd: '/repo',
-  worktreePath: null,
+  checkoutPath: null,
   createdAt: CREATED_AT,
   updatedAt: CREATED_AT,
   lastHandoffAt: null,

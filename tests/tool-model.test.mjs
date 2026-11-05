@@ -168,5 +168,18 @@ test('ERROR_CODES keeps the wire strings stable', () => {
     intentRequired: 'route/intent-required',
     sessionMissing: 'thread/session-missing',
     storeCorrupt: 'store/corrupt',
+    memoryInvalid: 'memory/invalid',
+    memoryWriteFailed: 'memory/write-failed',
+    threadNotFound: 'thread/not-found',
+    checkoutNotFound: 'checkout/not-found',
+    checkoutAlreadyExists: 'checkout/already-exists',
+    checkoutCreateFailed: 'checkout/create-failed',
+    checkoutInvalidBaseRef: 'checkout/invalid-base-ref',
+    checkoutPathGuard: 'checkout/path-guard',
+    checkoutDirty: 'checkout/dirty',
+    checkoutMergeConflict: 'checkout/merge-conflict',
+    checkoutMergeFailed: 'checkout/merge-failed',
+    checkoutGitFailed: 'checkout/git-failed',
+    checkoutNotReady: 'checkout/not-ready',
   })
 })
