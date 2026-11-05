@@ -74,6 +74,17 @@ done
 rm -rf node_modules/@types/node
 ln -s "$CHECKOUT/node_modules/@types/node" node_modules/@types/node
 
+# The client half typechecks against React types only; the runtime `react`
+# module comes from the host's module table at load time (kept external in
+# scripts/build-client.mjs), so no react package is linked here.
+TYPES_REACT_DIR="$(find "$CHECKOUT/node_modules/.pnpm" -maxdepth 1 -type d -name '@types+react@*' | head -n 1)"
+if [ -z "$TYPES_REACT_DIR" ]; then
+  echo "build: @types/react not found under $CHECKOUT/node_modules/.pnpm; the client half cannot be typechecked" >&2
+  exit 1
+fi
+rm -rf node_modules/@types/react
+ln -s "$TYPES_REACT_DIR/node_modules/@types/react" node_modules/@types/react
+
 if [ -d "$CHECKOUT/node_modules/.pnpm" ]; then
   STANDARD_SCHEMA_DIR="$(find "$CHECKOUT/node_modules/.pnpm" -maxdepth 1 -type d -name '@standard-schema+spec@*' | head -n 1)"
   if [ -n "$STANDARD_SCHEMA_DIR" ]; then
@@ -91,12 +102,16 @@ chmod +x node_modules/.bin/tsc
 echo "=== build: type and runtime links ready ==="
 
 if [ "${1:-}" = "--no-emit" ]; then
-  echo "=== Typecheck src ==="
+  echo "=== Typecheck src (host) ==="
   ./node_modules/.bin/tsc -p tsconfig.json --noEmit
+  echo "=== Typecheck src/client (browser half) ==="
+  ./node_modules/.bin/tsc -p tsconfig.client.json --noEmit
   exit 0
 fi
 
 echo "=== Compiling src → lib ==="
 rm -rf lib
 ./node_modules/.bin/tsc -p tsconfig.json
+echo "=== Building src/client → lib/client.js ==="
+node scripts/build-client.mjs
 echo "=== Build complete ==="
