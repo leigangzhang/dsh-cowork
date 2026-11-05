@@ -24,6 +24,18 @@ const root = resolve(here, '..')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
 const exists = (rel) => existsSync(resolve(root, rel))
 
+function sectionHasBullet(doc, heading) {
+  const lines = doc.split('\n')
+  const start = lines.findIndex((l) => l.trim() === heading)
+  if (start < 0) return false
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (/^##\s/.test(line)) return false
+    if (/^\s*-\s+/.test(line)) return true
+  }
+  return false
+}
+
 function collect(rootDir) {
   const errors = []
 
@@ -84,11 +96,13 @@ function collect(rootDir) {
     errors.push('tools/workflow.json is missing')
   }
 
-  // Note templates: the sections are the lifecycle contract
+  // Note templates: the sections are the lifecycle contract, and an empty
+  // section is a hollow template — every owner section must carry a bullet.
   if (exists('.agents/notes/proposed/TEMPLATE.md')) {
     const p = read('.agents/notes/proposed/TEMPLATE.md')
     for (const token of ['## Alternatives considered', '## Acceptance criteria']) {
       if (!p.includes(token)) errors.push(`proposed TEMPLATE is missing section: ${token}`)
+      else if (!sectionHasBullet(p, token)) errors.push(`proposed TEMPLATE section is empty: ${token}`)
     }
   } else {
     errors.push('.agents/notes/proposed/TEMPLATE.md is missing')
@@ -97,6 +111,7 @@ function collect(rootDir) {
     const d = read('.agents/notes/implemented/TEMPLATE.md')
     for (const token of ['## Decision', '## Consequences', '## Testing']) {
       if (!d.includes(token)) errors.push(`implemented TEMPLATE is missing section: ${token}`)
+      else if (!sectionHasBullet(d, token)) errors.push(`implemented TEMPLATE section is empty: ${token}`)
     }
   } else {
     errors.push('.agents/notes/implemented/TEMPLATE.md is missing')

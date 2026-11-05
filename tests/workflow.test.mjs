@@ -8,6 +8,17 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
 
+function sectionHasBullet(doc, heading) {
+  const lines = doc.split('\n')
+  const start = lines.findIndex((l) => l.trim() === heading)
+  if (start < 0) return false
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^##\s/.test(lines[i])) return false
+    if (/^\s*-\s+/.test(lines[i])) return true
+  }
+  return false
+}
+
 test('tools/workflow.json declares unique surfaces with non-empty evidence', () => {
   const workflow = JSON.parse(read('tools/workflow.json'))
   assert.equal(workflow.version, 1)
@@ -32,14 +43,15 @@ test('AGENTS.md keeps the context budget and the required pointers', () => {
   }
 })
 
-test('decision templates carry their lifecycle sections', () => {
+test('decision templates carry non-empty lifecycle sections', () => {
   const proposed = read('.agents/notes/proposed/TEMPLATE.md')
   const implemented = read('.agents/notes/implemented/TEMPLATE.md')
-  assert.ok(proposed.includes('## Alternatives considered'))
-  assert.ok(proposed.includes('## Acceptance criteria'))
-  assert.ok(implemented.includes('## Decision'))
-  assert.ok(implemented.includes('## Consequences'))
-  assert.ok(implemented.includes('## Testing'))
+  for (const heading of ['## Alternatives considered', '## Acceptance criteria']) {
+    assert.ok(sectionHasBullet(proposed, heading), `proposed TEMPLATE ${heading} is empty`)
+  }
+  for (const heading of ['## Decision', '## Consequences', '## Testing']) {
+    assert.ok(sectionHasBullet(implemented, heading), `implemented TEMPLATE ${heading} is empty`)
+  }
 })
 
 test('README links the product plan', () => {
