@@ -18,8 +18,11 @@ import z from '@deepseek-ai/schemastery'
 import type { HealthView, ProbeConfig, ProbeHost } from './probe-engine.js'
 import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
 import { isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
+import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
+import type { CoworkToolDeps } from './tools.js'
+import { registerCoworkTools } from './tools.js'
 
 const packageJson = JSON.parse(
   readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
@@ -101,6 +104,17 @@ function defaultRepoPath(): string {
   return resolve(fileURLToPath(new URL('..', import.meta.url)))
 }
 
+/**
+ * Host services the M1 assembly reads. The plugin cannot import the app's own
+ * types, so these stay structural; the shapes are the ones S0 confirmed
+ * (`agentPresets.register`, `sessionController`, `workspaceRegistry`).
+ */
+interface CoworkAssemblyHost {
+  sessionController: CoworkToolDeps['sessionController']
+  workspaceRegistry: CoworkToolDeps['workspaceRegistry']
+  agentPresets: CoworkToolDeps['agentPresets']
+}
+
 /** Register the probe preset, tool, routes, and event feed; clean all of them up on dispose. */
 export function apply(ctx: Context, config: Config): void {
   const host = ctx as unknown as ProbeHost
@@ -115,6 +129,16 @@ export function apply(ctx: Context, config: Config): void {
     repoPath: probeConfig.repoPath,
     promptTimeoutMs: probeConfig.promptTimeoutMs,
   })
+
+  // M1 assembly services: one dependency bag for the presets and the six tools.
+  const assembly = ctx as unknown as CoworkAssemblyHost
+  const coworkDeps: CoworkToolDeps = {
+    sessionController: assembly.sessionController,
+    workspaceRegistry: assembly.workspaceRegistry,
+    agentPresets: assembly.agentPresets,
+    clock: () => new Date(),
+    resolveRepoPath: () => probeConfig.repoPath,
+  }
 
   // Risk 3: a preset registered at runtime, owned by this fiber's lifetime.
   ctx.effect(() => {
@@ -291,6 +315,19 @@ export function apply(ctx: Context, config: Config): void {
     s0.dispose()
   }, 'dsh-cowork: probe runners')
 
+  // M1: the two runtime presets and the six cowork tools, owned by this fiber.
+  ctx.effect(() => registerPresets(coworkDeps.agentPresets).then((disposers) => async () => {
+    for (const dispose of disposers) await dispose()
+  }), 'dsh-cowork: cowork presets')
+
+  ctx.effect(() => {
+    const disposers = registerCoworkTools(ctx, coworkDeps)
+    return () => {
+      for (const dispose of disposers) dispose()
+    }
+  }, 'dsh-cowork: cowork tools')
+
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M0 probe ready at ${HEALTH_PATH} (repo ${probeConfig.repoPath})`)
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 S0 probe ready at ${S0_RUN_PATH}`)
+  ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 tools + presets ready`)
 }
