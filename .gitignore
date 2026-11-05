@@ -5,3 +5,5 @@ dist/
 *.tgz
 .dsh-cowork/
 .DS_Store
+
+.agent-teams/
