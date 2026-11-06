@@ -66,6 +66,8 @@
 6. **失败 E2E 留下夹具**：`.dsh-cowork/e2e/m3-repo` 含 `README.md`，会让 `npm run check` 变红；重跑检查前先清理。
 7. `src/tools.ts` 51,184 B，距 DSH 单文件 50 KiB 读上限仅 16 B；下次改动该文件前必须拆分。
 
+本阶段自己产生的遗留与修复顺序见 [M3 修复交接](M3_FIX_HANDOFF.md)：M3L-1..6 在 M3-FIX 内关闭，只有 M4/宿主约束与已接受设计取舍留在 KNOWN_ISSUES。
+
 ## 回滚
 
 - 代码：按提交 revert M3 的 host、panel、E2E 三个合并提交；`main` 未改动。

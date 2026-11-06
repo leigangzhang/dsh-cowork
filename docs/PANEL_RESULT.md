@@ -68,4 +68,4 @@
 - UI：列表行在状态旁显示 review 徽章（审查中/审查通过/需修改/已拒绝，带可见文本与时间 title）；详情「审查」区显示 verdict、reviewedAt、reviewer 短 id、summary、findings（severity/problem/requiredFix/file:line）、reviewer verification、review 文件绝对路径；`reviewerSessionId` 存在时提供「打开 review 会话」（`uiWorkspace.openSession`，失败/不可用有反馈）。
 - 离线证据：`tests/api-contract.test.mjs`、`tests/api.test.mjs`、`tests/panel-model.test.mjs` 覆盖字段映射、缺字段/坏指针降级、徽章标签与文案；`npm test` 309/309。
 - 真机：重启宿主并 clean re-inject 后，原包 client 加载成功，底栏「打开 Cowork 面板」与 tab 正常；应用 fixture 后 overview 返回 5 个 thread 与 chips，列表显示「审查中 / 已拒绝 / 需修改 / 审查通过」徽章，needs_revision 详情显示 summary、两条 findings（severity/problem/requiredFix/file:line）、reviewer 验证与 review 文件路径。截图 `.dsh-cowork/e2e/panel-m3/01-split-review-states.jpg`（1458 分栏）、`02-drill-list.jpg` 与 `03-drill-needs-revision.jpg`（900 宽、右栏 <480 钻取）。
-- 未验证（M3 新增）：深色主题下的 review 徽章/findings；「打开 review 会话」与「打开 thread 会话」只验证了按钮可用与文案，未在真机点击导航；≤480 下的 pass/reject 详情未逐项截图（已验 list 与 needs_revision 详情）。
+- 未验证（M3 新增）：深色主题下的 review 徽章/findings；「打开 review 会话」与「打开 thread 会话」只验证了按钮可用与文案，未在真机点击导航；≤480 下的 pass/reject 详情未逐项截图（已验 list 与 needs_revision 详情）。补验计划见 [M3 修复交接](M3_FIX_HANDOFF.md) M3L-4。

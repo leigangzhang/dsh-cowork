@@ -80,6 +80,10 @@
     {
       "pattern": "docs/M3_RESULT.md",
       "reason": "M3 delivered surface and real-host E2E evidence (M3A1-M3A9), with the unverified panel screenshots, limitations, and rollback; environment-bound evidence for contributors, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M3_FIX_HANDOFF.md",
+      "reason": "M3 closeout fix handoff: leftover inventory with ownership, ordered repair plan, environment runbook, and acceptance for the next session; internal operational guidance, not a user-facing guide"
     }
   ]
 }

@@ -1,6 +1,6 @@
 # M3 交接文档
 
-- 状态：**已交付（2026-11-05），M3A1–M3A9 全部有证据**。host review 门禁在真实宿主 E2E 15/15 步通过；面板 review 呈现已取得分栏与 ≤480 两档真实 Chrome 截图（M3A8 通过）。
+- 状态：**M3 已交付（2026-11-05），M3A1–M3A9 全部有证据；M3-FIX 收口待开始**。host review 门禁在真实宿主 E2E 15/15 步通过；面板 review 呈现已取得分栏与 ≤480 两档真实 Chrome 截图（M3A8 通过）。M3 自己产生的遗留（面板 API 超时、失败 E2E 清理、tools.ts 拆分、剩余真机验证、fixture 可复现、marker 时序）全部在 [M3 修复交接](M3_FIX_HANDOFF.md) 的 M3-FIX 内修，不拖到 M4。
 - 适用：接手 M3 之后维护的 agent 或人。范围：review 门禁 + 只读面板 + review 状态在面板的呈现。
 - 事实源：[PLAN](PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与已定决策；[M3 结果](M3_RESULT.md) 拥有交付面、E2E 证据、限制与回滚；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有探针与真机取证过程；[面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RESULT](PANEL_RESULT.md)、[PANEL_RECON](PANEL_RECON.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有 M2 行为；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
