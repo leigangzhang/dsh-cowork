@@ -6,6 +6,11 @@
  * reviewer's deterministic verdict instruction is steered before the reviewer's
  * own first turn can decide, and an unexpected terminal verdict fails the step
  * immediately with the observed index state.
+ *
+ * The master is woken by every handoff and may already be in a long reaction
+ * turn, so review requests and merges are steered into that turn instead of
+ * waiting for the master to go idle; a request or merge the master already
+ * produced is adopted idempotently.
  */
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -44,6 +49,8 @@ import {
   messageOf,
   obs,
   parseIndex,
+  planMergePrompt,
+  planReviewRequest,
   planReviewVerdict,
   readHandoffs,
   readTextIfPresent,
@@ -350,8 +357,22 @@ export class M3E2ERunner {
 
   private async requestReview(step: MutableStep, threadId: string, previousReviewer: string | null): Promise<string> {
     const master = this.master()
-    await this.waitIdle(master)
-    await this.promptStep(step, master, 'master', `Call cowork_review_request with threadId "${threadId}". ${MASTER_DONE}`)
+    // Never wait for the master to go idle here: a handoff wakes it, and its
+    // reaction turn can outlast this step's timeout. Adopt a request it already
+    // made, otherwise steer the instruction into the turn it is in.
+    const plan = planReviewRequest({
+      threadId,
+      masterSessionId: master,
+      previousReviewerSessionId: previousReviewer,
+      state: await this.reviewState(threadId),
+    })
+    obs(step, { reviewRequestPlan: plan })
+    if (plan.action === 'already-pending') {
+      step.evidence.note = plan.reason
+    } else {
+      const request = await this.promptStep(step, master, 'master', `Call cowork_review_request with threadId "${threadId}". ${MASTER_DONE}`, 'steer')
+      obs(step, { request: { mode: request.mode, fromSeq: request.fromSeq } })
+    }
     const target = await this.poll('review pending with a fresh reviewer session', async () => {
       const state = await this.reviewState(threadId)
       if (state === null || state.reviewStatus !== 'pending') return undefined
@@ -457,11 +478,16 @@ export class M3E2ERunner {
 
   private async mergeThread(step: MutableStep, run: MutableRun, thread: ThreadRef, fileName: string, expectedContent: string): Promise<void> {
     const master = this.master()
-    await this.waitAllIdle([master, thread.threadId])
-    if (await this.mergeAlreadyDone(thread, fileName, expectedContent)) {
-      step.evidence.note = 'merge target state was already reached before the prompt; passed idempotently'
+    // No long master-idle wait: the master may still be running its handoff or
+    // review reaction turn. A reached target passes idempotently; otherwise the
+    // merge instruction is steered into the current turn.
+    const plan = planMergePrompt(await this.mergeAlreadyDone(thread, fileName, expectedContent))
+    obs(step, { mergePromptPlan: plan })
+    if (plan.action === 'skip') {
+      step.evidence.note = plan.reason
     } else {
-      await this.promptStep(step, master, 'master', `Call cowork_checkout_merge with threadId "${thread.threadId}". ${MASTER_DONE}`)
+      const steer = await this.promptStep(step, master, 'master', `Call cowork_checkout_merge with threadId "${thread.threadId}". ${MASTER_DONE}`, 'steer')
+      obs(step, { steer: { mode: steer.mode, fromSeq: steer.fromSeq } })
       await this.poll('thread merged and torn down', async () => await this.mergeAlreadyDone(thread, fileName, expectedContent) ? true : undefined)
     }
     const content = await readTextIfPresent(join(this.fixturePath, fileName))
@@ -483,7 +509,6 @@ export class M3E2ERunner {
     obs(step, { mergeCommit: head.stdout.trim() })
     const commits = Array.isArray(run.cleanup.mergeCommits) ? run.cleanup.mergeCommits as unknown[] : []
     run.cleanup.mergeCommits = [...commits, { threadId: thread.threadId, commit: head.stdout.trim() }]
-    await this.waitIdle(master)
   }
 
   private async stepCleanup(step: MutableStep, run: MutableRun): Promise<void> {
@@ -581,17 +606,6 @@ export class M3E2ERunner {
       const { items } = await this.host.sessionController.list({})
       const row = items.find((item) => item.sessionId === sessionId)
       return row !== undefined && row.running === false ? true : undefined
-    }, timeoutMs)
-  }
-
-  private async waitAllIdle(sessionIds: readonly string[], timeoutMs = M3_E2E_STEP_TIMEOUT_MS): Promise<void> {
-    await this.poll(`sessions ${sessionIds.join(', ')} to be idle`, async () => {
-      const { items } = await this.host.sessionController.list({})
-      const allIdle = sessionIds.every((sessionId) => {
-        const row = items.find((item) => item.sessionId === sessionId)
-        return row !== undefined && row.running === false
-      })
-      return allIdle ? true : undefined
     }, timeoutMs)
   }
 
