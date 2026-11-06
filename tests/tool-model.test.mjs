@@ -181,5 +181,15 @@ test('ERROR_CODES keeps the wire strings stable', () => {
     checkoutMergeFailed: 'checkout/merge-failed',
     checkoutGitFailed: 'checkout/git-failed',
     checkoutNotReady: 'checkout/not-ready',
+    reviewNotReady: 'review/not-ready',
+    reviewAlreadyPending: 'review/already-pending',
+    reviewNotReviewer: 'review/not-reviewer',
+    reviewSelfReview: 'review/self-review',
+    reviewVerdictInvalid: 'review/verdict-invalid',
+    reviewNotPassed: 'review/not-passed',
+    reviewOverrideReasonRequired: 'review/override-reason-required',
+    reviewSessionFailed: 'review/session-failed',
+    reviewPromptFailed: 'review/prompt-failed',
+    reviewWriteFailed: 'review/write-failed',
   })
 })

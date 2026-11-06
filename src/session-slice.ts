@@ -9,6 +9,8 @@
 
 /** Every thread session is renamed with this prefix so the sidebar groups them. */
 export const THREAD_TITLE_PREFIX = 'cowork: '
+/** Every reviewer session is renamed with this prefix, distinguishing it from a working thread. */
+export const REVIEW_TITLE_PREFIX = 'cowork review: '
 
 const PRESET_MISMATCH_PREFIX = 'session/create-preset-mismatch:'
 const SESSION_ID_MISMATCH_PREFIX = 'session/create-id-mismatch:'
@@ -180,6 +182,39 @@ export class SessionSlice {
       title,
     })
     return { sessionId: created.sessionId, workspaceId: workspace.id, title: renamed.title }
+  }
+
+  /**
+   * Create the independent reviewer session for one review request.
+   *
+   * The session joins the project's own workspace (a review reads the main
+   * repository and, for an isolated thread, that thread's clone), mounts the
+   * requested preset, and is renamed to `cowork review: <subject>`. The preset
+   * check runs before the rename and fails closed: a session without the
+   * reviewer preset would have the wrong tool surface, so it must not be
+   * renamed and must not be recorded as a reviewer.
+   */
+  async createReviewSession(options: {
+    repoPath: string
+    subject: string
+    presetId: string
+  }): Promise<{ sessionId: string; workspaceId: string; title: string }> {
+    const { repoPath, subject, presetId } = options
+    const workspaceId = await this.resolveWorkspaceId(repoPath)
+    const created = await this.#ports.sessions.create({ workspaceId, agentPreset: presetId })
+
+    if (created.agentPreset !== presetId) {
+      throw new Error(
+        `${PRESET_MISMATCH_PREFIX} expected ${JSON.stringify(presetId)}, ` +
+          `got ${JSON.stringify(created.agentPreset)} for session ${created.sessionId}`,
+      )
+    }
+
+    const renamed = await this.#ports.sessions.rename({
+      sessionId: created.sessionId,
+      title: REVIEW_TITLE_PREFIX + subject,
+    })
+    return { sessionId: created.sessionId, workspaceId, title: renamed.title }
   }
 
   /**

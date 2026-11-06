@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { SessionSlice, THREAD_TITLE_PREFIX } from '../src/session-slice.ts'
+import { REVIEW_TITLE_PREFIX, SessionSlice, THREAD_TITLE_PREFIX } from '../src/session-slice.ts'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -369,4 +369,88 @@ test('renameSession awaits the rename and propagates failures', async () => {
   }
   await assert.rejects(new SessionSlice(failing.ports).renameSession('session-1', 'x'), failure)
   assert.deepEqual(failing.calls.rename, [{ sessionId: 'session-1', title: 'x' }])
+})
+
+// ---------------------------------------------------------------------------
+// M3 reviewer session
+// ---------------------------------------------------------------------------
+
+test('createReviewSession uses the project workspace, the reviewer preset, and a review title', async () => {
+  const { ports, calls } = fakePorts({
+    resolvedWorkspace: { id: 'workspace-existing', path: '/repo' },
+    createResult: { sessionId: 'session-reviewer', agentPreset: 'cowork-reviewer' },
+  })
+  const slice = new SessionSlice(ports)
+
+  const result = await slice.createReviewSession({
+    repoPath: '/repo',
+    subject: 'wire the review gate',
+    presetId: 'cowork-reviewer',
+  })
+
+  assert.deepEqual(result, {
+    sessionId: 'session-reviewer',
+    workspaceId: 'workspace-existing',
+    title: 'cowork review: wire the review gate',
+  })
+  assert.deepEqual(calls.createSession, [
+    { workspaceId: 'workspace-existing', agentPreset: 'cowork-reviewer' },
+  ])
+  assert.deepEqual(calls.rename, [
+    { sessionId: 'session-reviewer', title: 'cowork review: wire the review gate' },
+  ])
+  assert.equal(REVIEW_TITLE_PREFIX, 'cowork review: ')
+  assert.equal(calls.list.length, 0, 'createReviewSession writes no index and lists no sessions')
+})
+
+test('createReviewSession creates the project workspace when the registry has none', async () => {
+  const { ports, calls } = fakePorts({
+    resolvedWorkspace: undefined,
+    createdWorkspace: { id: 'workspace-new', path: '/repo' },
+    createResult: { sessionId: 'session-reviewer', agentPreset: 'cowork-reviewer' },
+  })
+
+  const result = await new SessionSlice(ports).createReviewSession({
+    repoPath: '/repo',
+    subject: 'review',
+    presetId: 'cowork-reviewer',
+  })
+
+  assert.equal(result.workspaceId, 'workspace-new')
+  assert.deepEqual(calls.createWorkspace, [['/repo']])
+})
+
+test('createReviewSession fails closed on a preset mismatch before any rename', async () => {
+  const { ports, calls } = fakePorts({
+    resolvedWorkspace: { id: 'workspace-existing', path: '/repo' },
+    createResult: { sessionId: 'session-reviewer', agentPreset: 'cowork-thread' },
+  })
+
+  await assert.rejects(
+    new SessionSlice(ports).createReviewSession({
+      repoPath: '/repo',
+      subject: 'review',
+      presetId: 'cowork-reviewer',
+    }),
+    /session\/create-preset-mismatch:.*cowork-reviewer.*cowork-thread/,
+  )
+  assert.deepEqual(calls.rename, [], 'a session without the reviewer preset must not be renamed')
+})
+
+test('createReviewSession propagates a failed create without renaming', async () => {
+  const { ports, calls } = fakePorts({ resolvedWorkspace: { id: 'workspace-existing', path: '/repo' } })
+  ports.sessions.create = async (request) => {
+    calls.createSession.push(request)
+    throw new Error('the host refused the session')
+  }
+
+  await assert.rejects(
+    new SessionSlice(ports).createReviewSession({
+      repoPath: '/repo',
+      subject: 'review',
+      presetId: 'cowork-reviewer',
+    }),
+    /the host refused the session/,
+  )
+  assert.deepEqual(calls.rename, [])
 })
