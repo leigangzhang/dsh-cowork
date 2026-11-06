@@ -26,6 +26,8 @@ import {
   buildRepairPrompt,
   buildReviewerNeedsRevisionPrompt,
   buildReviewerPassPrompt,
+  planMergePrompt,
+  planReviewRequest,
   planReviewVerdict,
   reviewStateOf,
   stepFailureState,
@@ -302,4 +304,91 @@ test('both driver files stay within the per-file budget', () => {
     assert.ok(size > 0, path)
     assert.ok(size <= FILE_BUDGET_BYTES, `${path} is ${size} bytes, above ${FILE_BUDGET_BYTES}`)
   }
+})
+
+// ---------------------------------------------------------------------------
+// master handoff reaction: steer, never wait for the master to go idle
+// ---------------------------------------------------------------------------
+
+const awaitingState = {
+  threadId: 'thread-1',
+  status: 'awaiting_review',
+  checkoutPath: null,
+  reviewStatus: null,
+  reviewerSessionId: null,
+  reviewedAt: null,
+  latestReviewPath: null,
+}
+
+test('planReviewRequest steers instead of waiting for an idle master', () => {
+  assert.deepEqual(
+    planReviewRequest({ threadId: 'thread-1', masterSessionId: 'master-1', previousReviewerSessionId: null, state: awaitingState }),
+    { action: 'steer', reason: 'the review request is steered into the master turn' },
+  )
+  assert.equal(
+    planReviewRequest({ threadId: 'thread-1', masterSessionId: 'master-1', previousReviewerSessionId: null, state: null }).action,
+    'steer',
+  )
+})
+
+test('planReviewRequest adopts a pending review the master already requested', () => {
+  const pending = { ...awaitingState, reviewStatus: 'pending', reviewerSessionId: 'reviewer-1' }
+  assert.deepEqual(
+    planReviewRequest({ threadId: 'thread-1', masterSessionId: 'master-1', previousReviewerSessionId: null, state: pending }),
+    { action: 'already-pending', reason: 'the master already requested this review in session reviewer-1' },
+  )
+  // Round two must not adopt the reviewer that already voted.
+  assert.equal(
+    planReviewRequest({ threadId: 'thread-1', masterSessionId: 'master-1', previousReviewerSessionId: 'reviewer-1', state: pending }).action,
+    'steer',
+  )
+  // The thread itself or the master is never a reviewer.
+  assert.equal(
+    planReviewRequest({ threadId: 'thread-1', masterSessionId: 'master-1', previousReviewerSessionId: null, state: { ...pending, reviewerSessionId: 'thread-1' } }).action,
+    'steer',
+  )
+  assert.equal(
+    planReviewRequest({ threadId: 'thread-1', masterSessionId: 'master-1', previousReviewerSessionId: null, state: { ...pending, reviewerSessionId: 'master-1' } }).action,
+    'steer',
+  )
+  // A resolved review is not pending.
+  assert.equal(
+    planReviewRequest({ threadId: 'thread-1', masterSessionId: 'master-1', previousReviewerSessionId: null, state: { ...pending, reviewStatus: 'pass' } }).action,
+    'steer',
+  )
+})
+
+test('planMergePrompt steers unless the merge target is already reached', () => {
+  assert.deepEqual(planMergePrompt(true), { action: 'skip', reason: 'merge target state was already reached; passed idempotently' })
+  assert.deepEqual(planMergePrompt(false), { action: 'steer', reason: 'the merge instruction is steered into the master turn' })
+})
+
+test('the runner steers the review request and the merge instead of waiting for master idle', () => {
+  const source = readFileSync(driverPath, 'utf8')
+  const slice = (start, end) => source.slice(source.indexOf(start), source.indexOf(end))
+
+  const requestReview = slice('private async requestReview', 'private async reviewVerdict')
+  assert.match(requestReview, /planReviewRequest/)
+  assert.match(requestReview, /already-pending/)
+  assert.match(requestReview, /'steer'/)
+  assert.equal(/waitIdle\(master\)/.test(requestReview), false, 'requestReview must not wait for the master')
+
+  const mergeThread = slice('private async mergeThread', 'private async stepCleanup')
+  assert.match(mergeThread, /planMergePrompt/)
+  assert.match(mergeThread, /'steer'/)
+  assert.equal(/waitAllIdle|waitIdle\(master\)/.test(mergeThread), false, 'mergeThread must not wait for the master')
+
+  // The step timeout was not raised as the fix.
+  assert.equal(M3_E2E_STEP_TIMEOUT_MS, 180_000)
+  assert.equal(/waitAllIdle/.test(source), false, 'the combined idle wait is dead code')
+})
+
+test('the master persona routes a handoff into the review gate and rules out dev tools', () => {
+  const persona = readFileSync(join(here, '..', 'src', 'presets.ts'), 'utf8')
+
+  assert.match(persona, /cowork_review_request/)
+  assert.match(persona, /dev_\*/)
+  assert.match(persona, /reviewStatus is pass/)
+  assert.match(persona, /allowUnreviewed true/)
+  assert.match(persona, /needs_revision/)
 })

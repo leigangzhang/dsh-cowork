@@ -364,6 +364,54 @@ export function assertionForReview(check: string, expected: unknown, actual: unk
   return { name: check, ok: e === a, evidence: clip(`expected=${e} actual=${a}`, 3000) }
 }
 
+/** How the runner asks the master for a review without waiting for it to go idle. */
+export interface ReviewRequestPlan {
+  readonly action: 'steer' | 'already-pending'
+  readonly reason: string
+}
+
+/**
+ * Decide how to request a review. A handoff wakes the master, and that reaction
+ * turn can run far longer than a step timeout, so the runner never waits for the
+ * master to go idle: it adopts a review the master already requested when the
+ * index shows a pending one with a fresh reviewer, and otherwise steers the
+ * instruction into the master's current turn.
+ */
+export function planReviewRequest(input: {
+  threadId: string
+  masterSessionId: string
+  previousReviewerSessionId: string | null
+  state: ReviewStateSnapshot | null
+}): ReviewRequestPlan {
+  const reviewer = input.state?.reviewerSessionId ?? null
+  const fresh =
+    reviewer !== null &&
+    reviewer !== input.threadId &&
+    reviewer !== input.masterSessionId &&
+    (input.previousReviewerSessionId === null || reviewer !== input.previousReviewerSessionId)
+  if (input.state?.reviewStatus === 'pending' && fresh) {
+    return { action: 'already-pending', reason: `the master already requested this review in session ${reviewer}` }
+  }
+  return { action: 'steer', reason: 'the review request is steered into the master turn' }
+}
+
+/** How the runner delivers the merge instruction. */
+export interface MergePromptPlan {
+  readonly action: 'skip' | 'steer'
+  readonly reason: string
+}
+
+/**
+ * Merge is never gated on a long master-idle wait: when the target state is
+ * already reached the step passes idempotently, otherwise the merge
+ * instruction is steered into whatever turn the master is in.
+ */
+export function planMergePrompt(alreadyDone: boolean): MergePromptPlan {
+  return alreadyDone
+    ? { action: 'skip', reason: 'merge target state was already reached; passed idempotently' }
+    : { action: 'steer', reason: 'the merge instruction is steered into the master turn' }
+}
+
 export function clip(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit)}…`
 }
