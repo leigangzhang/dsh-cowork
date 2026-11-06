@@ -204,6 +204,8 @@ export const PANEL_CSS = `
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .cw-row-time {
@@ -418,6 +420,138 @@ export const PANEL_CSS = `
 .cw-exit[data-tone="error"] {
   border-color: var(--dsw-alias-state-error-primary);
   color: var(--dsw-alias-state-error-primary);
+}
+
+/* Review state badge: label always visible; tone is the border, and text keeps
+   the primary label color on the warn tone so it stays readable in both themes. */
+.cw-review-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.cw-review-badge[data-tone="success"] {
+  border-color: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.cw-review-badge[data-tone="warn"] {
+  border-color: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-label-primary);
+}
+
+.cw-review-badge[data-tone="error"] {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.cw-review-badge[data-tone="idle"] { color: var(--dsw-alias-label-secondary); }
+
+.cw-review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cw-review-absent {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cw-review-time,
+.cw-review-reviewer {
+  white-space: nowrap;
+}
+
+.cw-review-subtitle {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cw-finding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cw-finding {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-left: 2px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm, 8px);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.cw-finding[data-tone="error"] { border-left-color: var(--dsw-alias-state-error-primary); }
+.cw-finding[data-tone="warn"] { border-left-color: var(--dsw-alias-state-warn-primary); }
+.cw-finding[data-tone="idle"] { border-left-color: var(--dsw-alias-state-idle-primary); }
+
+.cw-finding-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cw-finding-severity {
+  flex: none;
+  padding: 0 6px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.cw-finding-severity[data-tone="error"] {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.cw-finding-severity[data-tone="warn"] { border-color: var(--dsw-alias-state-warn-primary); }
+
+.cw-finding-severity[data-tone="idle"] { color: var(--dsw-alias-label-secondary); }
+
+.cw-finding-location {
+  min-width: 0;
+  font-family: ${MONO_FONT};
+  font-size: 10.5px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.cw-finding-problem {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.cw-finding-fix {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
 }
 
 .cw-path-list {

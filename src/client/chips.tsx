@@ -4,8 +4,11 @@
  * paired with its Chinese label in the same element group.
  */
 import type { ReactElement } from 'react'
-import type { PanelCounts, PanelThreadStatus } from '../api-contract.ts'
+import type { PanelCounts, PanelReviewStatus, PanelThreadStatus } from '../api-contract.ts'
 import {
+  reviewBadgeTitle,
+  reviewStatusLabel,
+  reviewStatusTone,
   statusChips,
   statusLabel,
   statusTone,
@@ -54,6 +57,32 @@ export function ExitChip({ exitCode }: { readonly exitCode: number }): ReactElem
   return (
     <span className="cw-exit" data-tone={verificationTone(exitCode)}>
       {verificationExitLabel(exitCode)}
+    </span>
+  )
+}
+
+/**
+ * Review state badge: the Chinese label is always visible (`审查中 / 审查通过 /
+ * 需修改 / 已拒绝`), so the state never depends on color alone. The title adds
+ * the absolute review time and the finding count.
+ */
+export function ReviewBadge({
+  status,
+  reviewedAt,
+  findingCount = 0,
+}: {
+  readonly status: PanelReviewStatus
+  readonly reviewedAt: string | null
+  readonly findingCount?: number
+}): ReactElement {
+  return (
+    <span
+      className="cw-review-badge"
+      data-review-status={status}
+      data-tone={reviewStatusTone(status)}
+      title={reviewBadgeTitle(status, reviewedAt, findingCount)}
+    >
+      {reviewStatusLabel(status)}
     </span>
   )
 }

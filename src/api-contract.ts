@@ -49,6 +49,12 @@ export interface PanelThread {
   readonly lastHandoffAt: string | null
   /** True when `lastHandoffAt` is set; the panel's list marker. */
   readonly hasHandoff: boolean
+  /** Latest review state recorded in the index, or null when never requested. */
+  readonly reviewStatus: PanelReviewStatus | null
+  /** When the latest verdict was recorded; null while pending or never reviewed. */
+  readonly reviewedAt: string | null
+  /** Session that may deliver a verdict; null when no review session exists. */
+  readonly reviewerSessionId: string | null
 }
 
 /** Per-status thread counts shown as the header chips. */
@@ -72,6 +78,80 @@ export interface PanelVerification {
   readonly command: string
   readonly exitCode: number
   readonly evidence: string
+}
+
+/**
+ * Review lifecycle of one thread. `pending` means a reviewer session was asked
+ * and has not answered yet; the three others are the recorded verdicts.
+ */
+export type PanelReviewStatus = 'pending' | 'pass' | 'needs_revision' | 'reject'
+
+/** A verdict is what a review file records; `pending` is index state, not a verdict. */
+export type PanelReviewVerdict = Exclude<PanelReviewStatus, 'pending'>
+
+/** Filename finding severity, most serious first. */
+export type PanelReviewSeverity = 'blocker' | 'high' | 'medium' | 'low'
+
+/** The four review states, in no priority order (they never enter the list sort). */
+export const PANEL_REVIEW_STATUSES: readonly PanelReviewStatus[] = [
+  'pending', 'pass', 'needs_revision', 'reject',
+]
+
+/** The three verdicts a review file may carry. */
+export const PANEL_REVIEW_VERDICTS: readonly PanelReviewVerdict[] = ['pass', 'needs_revision', 'reject']
+
+/** The four finding severities. */
+export const PANEL_REVIEW_SEVERITIES: readonly PanelReviewSeverity[] = ['blocker', 'high', 'medium', 'low']
+
+/** Whether a value is one of the four review states (the index may hold garbage). */
+export function isPanelReviewStatus(value: unknown): value is PanelReviewStatus {
+  return typeof value === 'string' && (PANEL_REVIEW_STATUSES as readonly string[]).includes(value)
+}
+
+/** Whether a value is one of the three recorded verdicts. */
+export function isPanelReviewVerdict(value: unknown): value is PanelReviewVerdict {
+  return typeof value === 'string' && (PANEL_REVIEW_VERDICTS as readonly string[]).includes(value)
+}
+
+/** Whether a value is one of the four finding severities. */
+export function isPanelReviewSeverity(value: unknown): value is PanelReviewSeverity {
+  return typeof value === 'string' && (PANEL_REVIEW_SEVERITIES as readonly string[]).includes(value)
+}
+
+/** One finding of a review; `file`/`line` locate it when the reviewer named them. */
+export interface PanelReviewFinding {
+  readonly id: string
+  readonly severity: PanelReviewSeverity
+  readonly problem: string
+  readonly requiredFix: string
+  readonly file?: string
+  readonly line?: number
+}
+
+/** One verification row the reviewer actually ran. */
+export interface PanelReviewVerification {
+  readonly command: string
+  readonly exitCode: number
+  readonly evidence: string
+}
+
+/** One review record, as stored under `.dsh-cowork/reviews/`. */
+export interface PanelReviewRecord {
+  readonly version: 1
+  readonly threadId: string
+  readonly reviewerSessionId: string
+  readonly verdict: PanelReviewVerdict
+  readonly summary: string
+  readonly findings: readonly PanelReviewFinding[]
+  readonly verification: readonly PanelReviewVerification[]
+  readonly createdAt: string
+}
+
+/** The latest review of one thread, plus the absolute file it was read from. */
+export interface PanelReviewPayload {
+  readonly record: PanelReviewRecord
+  /** Absolute path of the review JSON file; the panel shows it read-only. */
+  readonly filePath: string
 }
 
 /** Handoff status as recorded on disk. */
@@ -108,6 +188,12 @@ export interface HandoffPayload {
    */
   readonly masterMessage: string
   readonly formatterVersion: string
+  /**
+   * Latest review of the same thread, read from the index pointer (never guessed
+   * from the reviews directory). Null when the thread has no review yet, or when
+   * the pointer file was removed after the verdict.
+   */
+  readonly review: PanelReviewPayload | null
 }
 
 /** Stable error codes the panel maps to its own states. */
