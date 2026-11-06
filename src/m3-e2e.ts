@@ -1,502 +1,87 @@
 /**
- * M3 real-host E2E driver: the independent review gate. A throwaway git project
- * under `.dsh-cowork/e2e/m3-repo` drives real master/thread/reviewer sessions and
- * asserts only durable state (index review fields, review files, git/worktree,
- * session ids, tool events). No local runtime imports: `node --test` loads this
- * module and cannot resolve `./x.js` -> `./x.ts`. Built-ins and a type-only host
- * port only.
+ * M3 real-host end-to-end driver: the independent review gate.
+ *
+ * Keeps only the `M3E2ERunner` class and its run/step methods; shared types,
+ * constants, prompts, and pure helpers live in `src/m3-e2e-support.ts`. The
+ * reviewer's deterministic verdict instruction is steered before the reviewer's
+ * own first turn can decide, and an unexpected terminal verdict fails the step
+ * immediately with the observed index state.
  */
-import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
-import type { M2E2EHost } from './m2-e2e-support.js'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { isAbsolute, join, resolve } from 'node:path'
+import {
+  M3_E2E_EVIDENCE_RELATIVE,
+  M3_E2E_FIXTURE_RELATIVE,
+  M3_E2E_POLL_MS,
+  M3_E2E_STEP_TIMEOUT_MS,
+  M3_STEP_IDS,
+  MAX_EVENTS,
+  MAX_FILE_TEXT,
+  MAX_GIT_TEXT,
+  REVIEWER_PRESET_ID,
+  REVIEW_FINDING,
+  CONTENT_A,
+  CONTENT_B_FIXED,
+  CONTENT_B_INITIAL,
+  FILE_A,
+  FILE_B,
+  FINDING_ID,
+  MASTER_DONE,
+  THREAD_A_SUBJECT,
+  THREAD_B_SUBJECT,
+  asRecord,
+  assertionForReview,
+  assistantTextSince,
+  buildRepairPrompt,
+  buildReviewerNeedsRevisionPrompt,
+  buildReviewerPassPrompt,
+  clip,
+  isoNow,
+  isStrictlyInside,
+  lastSeq,
+  messageOf,
+  obs,
+  parseIndex,
+  planReviewVerdict,
+  readHandoffs,
+  readTextIfPresent,
+  recordCheck,
+  reviewStateOf,
+  runGit,
+  runView,
+  sleep,
+  stepFailureState,
+  stableJson,
+  stringOrNull,
+  toolCallsSince,
+  writeEvidenceAtomic,
+} from './m3-e2e-support.js'
+import type {
+  DeliveryEvent,
+  GitOutcome,
+  HandoffView,
+  IndexView,
+  M3E2EConfig,
+  M3E2EHost,
+  M3EvidenceDocument,
+  M3PromptEvidence,
+  M3RunState,
+  M3RunStatusView,
+  M3StepView,
+  MutableRun,
+  PromptMode,
+  MutableStep,
+  ReviewFileEvidence,
+  ReviewStateSnapshot,
+  ReviewVerdict,
+  SessionEvent,
+  ThreadRef,
+} from './m3-e2e-support.js'
 
-export const M3_E2E_EVIDENCE_RELATIVE = '.dsh-cowork/e2e/M3_E2E.json'
-export const M3_E2E_FIXTURE_RELATIVE = '.dsh-cowork/e2e/m3-repo'
-export const M3_E2E_STEP_TIMEOUT_MS = 180_000
-export const M3_E2E_POLL_MS = 500
-export const M3_E2E_RUN_PATH = '/dsh-cowork/e2e/m3/run'
-export const M3_E2E_STATUS_PATH = '/dsh-cowork/e2e/m3/status'
-
-const MAX_EVENTS = 4000
-const MAX_ASSISTANT_TEXT = 1000
-const MAX_FILE_TEXT = 2000
-const MAX_GIT_TEXT = 2000
-const GIT_TIMEOUT_MS = 30_000
-const GIT_MAX_BUFFER = 8 * 1024 * 1024
-
-export const REVIEW_REQUEST_TOOL = 'cowork_review_request'
-export const REVIEW_VERDICT_TOOL = 'cowork_review_verdict'
-export const MERGE_TOOL = 'cowork_checkout_merge'
-export const REVIEWER_PRESET_ID = 'cowork-reviewer'
-export const MASTER_DONE = 'Reply DONE.'
-export const THREAD_A_SUBJECT = 'M3 E2E review pass'
-export const THREAD_B_SUBJECT = 'M3 E2E review repair'
-export const FILE_A = 'e2e-a.txt'
-export const CONTENT_A = 'M3-E2E-PASS'
-export const FILE_B = 'e2e-b.txt'
-export const CONTENT_B_INITIAL = 'M3-E2E-NEEDS-REPAIR'
-export const CONTENT_B_FIXED = 'M3-E2E-FIXED'
-export const FINDING_ID = 'M3-E2E-1'
-
-export const M3_STEP_IDS = [
-  'setup',
-  'thread-a-create',
-  'thread-a-work',
-  'review-a-request',
-  'review-a-pass',
-  'merge-a',
-  'thread-b-create',
-  'thread-b-work',
-  'review-b-request',
-  'review-b-needs-revision',
-  'thread-b-repair',
-  'review-b-request-2',
-  'review-b-pass',
-  'merge-b',
-  'cleanup',
-] as const
-
-interface SessionEvent {
-  readonly type: string
-  readonly seq: number
-  readonly data: Record<string, unknown>
-}
-
-export type M3RunState = 'running' | 'done' | 'failed'
-export type M3StepStatus = 'pending' | 'running' | 'passed' | 'failed'
-export type ReviewSeverity = 'blocker' | 'high' | 'medium' | 'low'
-
-export interface ReviewFinding {
-  readonly id: string
-  readonly severity: ReviewSeverity
-  readonly problem: string
-  readonly requiredFix: string
-  readonly file?: string
-  readonly line?: number
-}
-
-export interface M3Assertion {
-  readonly name: string
-  readonly ok: boolean
-  readonly evidence: string
-}
-
-export interface M3ToolCallEvidence {
-  readonly name: string
-  readonly callId: string
-  readonly arguments: string
-}
-
-export interface M3PromptEvidence {
-  readonly sessionId: string
-  readonly role: 'master' | 'thread' | 'reviewer'
-  readonly content: string
-  accepted: boolean
-  readonly fromSeq: number
-  assistantText: string
-  toolCalls: M3ToolCallEvidence[]
-}
-
-export interface M3StepEvidence {
-  startedAt: string | null
-  endedAt: string | null
-  prompts: M3PromptEvidence[]
-  observations: Record<string, unknown>
-  assertions: M3Assertion[]
-  note?: string
-  error?: string
-}
-
-export interface M3StepView {
-  readonly id: string
-  readonly status: M3StepStatus
-  readonly evidence: M3StepEvidence
-}
-
-export interface M3RunStatusView {
-  readonly runId: string
-  readonly state: M3RunState
-  readonly startedAt: string
-  readonly endedAt?: string
-  readonly steps: readonly M3StepView[]
-  readonly evidenceFile: string
-  readonly error?: string
-}
-
-export interface M3EvidenceDocument {
-  readonly version: 1
-  readonly runId: string
-  readonly state: M3RunState
-  readonly startedAt: string
-  readonly endedAt: string | null
-  readonly evidenceFile: string
-  readonly host: {
-    readonly plugin: string
-    readonly pluginVersion: string
-    readonly node: string
-    readonly platform: string
-    readonly arch: string
-    readonly repoPath: string
-  }
-  readonly steps: readonly M3StepView[]
-  readonly finalIndex: unknown
-  readonly cleanup: Record<string, unknown>
-  readonly error?: string
-}
-
-export interface ReviewStateSnapshot {
-  readonly threadId: string
-  readonly status: string
-  readonly checkoutPath: string | null
-  readonly reviewStatus: string | null
-  readonly reviewerSessionId: string | null
-  readonly reviewedAt: string | null
-  readonly latestReviewPath: string | null
-}
-
-export interface M3E2EConfig {
-  readonly repoPath: string
-  readonly promptTimeoutMs: number
-  readonly pluginName: string
-  readonly pluginVersion: string
-  readonly log?: (message: string) => void
-}
-
-export type M3E2EHost = M2E2EHost
-
-export interface ReviewPromptInput {
-  readonly threadId: string
-  readonly subject: string
-  readonly repoPath: string
-  readonly checkoutPath: string
-  readonly fileName: string
-  readonly verificationCommand: string
-}
-
-export interface NeedsRevisionPromptInput extends ReviewPromptInput {
-  readonly finding: ReviewFinding
-}
-
-export interface RepairPromptInput {
-  readonly threadId: string
-  readonly checkoutPath: string
-  readonly fileName: string
-  readonly fixedContent: string
-  readonly finding: ReviewFinding
-}
-
-export const REVIEW_FINDING: ReviewFinding = {
-  id: FINDING_ID,
-  severity: 'high',
-  problem: `${FILE_B} still contains ${CONTENT_B_INITIAL}`,
-  requiredFix: `rewrite ${FILE_B} to content ${CONTENT_B_FIXED}`,
-}
-
-interface HandoffView {
-  readonly filePath: string
-  readonly record: { readonly threadId: string; readonly status: string; readonly summary: string; readonly createdAt: string; readonly [key: string]: unknown }
-}
-
-interface ReviewFileEvidence {
-  readonly filePath: string
-  readonly text: string
-  readonly record?: Record<string, unknown>
-}
-
-interface IndexThreadView {
-  readonly threadId: string
-  readonly subject?: string
-  readonly status: string
-  readonly checkoutPath: string | null
-  readonly reviewStatus?: unknown
-  readonly reviewerSessionId?: unknown
-  readonly reviewedAt?: unknown
-  readonly latestReviewPath?: unknown
-  readonly [key: string]: unknown
-}
-
-interface IndexView {
-  readonly masterSessionId: string
-  readonly threads: readonly IndexThreadView[]
-  readonly [key: string]: unknown
-}
-
-interface MutableStep {
-  readonly id: string
-  status: M3StepStatus
-  readonly evidence: M3StepEvidence
-}
-
-interface MutableRun {
-  readonly runId: string
-  state: M3RunState
-  readonly startedAt: string
-  endedAt?: string
-  readonly steps: MutableStep[]
-  error?: string
-  finalIndex: unknown
-  cleanup: Record<string, unknown>
-}
-
-interface GitOutcome {
-  readonly code: number
-  readonly stdout: string
-  readonly stderr: string
-}
-
-interface DeliveryEvent {
-  readonly type: string
-  readonly seq: number
-  readonly source: 'event' | 'assistant-text'
-  readonly text: string
-}
-
-export function stepFailureState(stepId: string, error: unknown): { state: 'failed'; error: string } {
-  return { state: 'failed', error: `step ${stepId}: ${messageOf(error)}` }
-}
-
-function reviewPreamble(input: ReviewPromptInput, command: string): string[] {
-  return [
-    'This is the M3 E2E fixture run. Act as the independent reviewer; never modify an implementation file.',
-    `Thread ${input.threadId} ("${input.subject}"). Main repo ${input.repoPath}; checkout ${input.checkoutPath} (branch cowork/${input.threadId}); read it with bash.`,
-    `Step 1 — use the bash tool to run the recorded verification command from the checkout: cd ${input.checkoutPath} && ${input.verificationCommand}. Keep its real exit code and output.`,
-    `Step 2 — ${command}`,
-  ]
-}
-
-export function buildReviewerPassPrompt(input: ReviewPromptInput): string {
-  const args = {
-    threadId: input.threadId,
-    verdict: 'pass',
-    summary: `Independent review of ${input.threadId}: the handoff change is present and the recorded verification command passed.`,
-    findings: [] as ReviewFinding[],
-    verification: [{ command: input.verificationCommand, exitCode: 0, evidence: '<copy the real command output here>' }],
-  }
-  return [
-    ...reviewPreamble(input, 'call cowork_review_verdict exactly once with these arguments (replace only the placeholder evidence with the real command output):'),
-    JSON.stringify(args, null, 2),
-    `Use verdict "pass" only if the command exited 0 and the change matches the handoff. ${MASTER_DONE}`,
-  ].join('\n\n')
-}
-
-export function buildReviewerNeedsRevisionPrompt(input: NeedsRevisionPromptInput): string {
-  const args = {
-    threadId: input.threadId,
-    verdict: 'needs_revision',
-    summary: `Independent review of ${input.threadId}: the fixture requires exactly one blocking correction before this thread can be merged.`,
-    findings: [input.finding],
-    verification: [{ command: input.verificationCommand, exitCode: 0, evidence: '<copy the real command output here>' }],
-  }
-  return [
-    ...reviewPreamble(input, 'the fixture must be sent back: call cowork_review_verdict exactly once with these arguments (keep the finding as written):'),
-    JSON.stringify(args, null, 2),
-    `The verdict must be "needs_revision" and the finding verbatim. ${MASTER_DONE}`,
-  ].join('\n\n')
-}
-
-export function buildRepairPrompt(input: RepairPromptInput): string {
-  const { finding } = input
-  return [
-    `The independent review returned needs_revision for thread ${input.threadId}.`,
-    `Finding ${finding.id} (${finding.severity}): ${finding.problem} Required fix: ${finding.requiredFix}.`,
-    `Use bash to run exactly: printf '${input.fixedContent}\\n' > ${input.fileName} && git add ${input.fileName} && git commit -m "fix: apply review finding ${finding.id}".`,
-    `Then call cowork_handoff again with status "awaiting_review", summary "M3 E2E repair: ${input.fileName} now contains ${input.fixedContent}", verification [{command: "test -f ${input.fileName}", exitCode: 0, evidence: "${input.fileName} exists"}], changedPaths ["${input.fileName}"].`,
-    `Change nothing else. ${MASTER_DONE}`,
-  ].join('\n\n')
-}
-
-export function reviewStateOf(index: IndexView | undefined | null, threadId: string): ReviewStateSnapshot | null {
-  if (index === undefined || index === null) return null
-  const thread = index.threads.find((entry) => entry.threadId === threadId)
-  if (thread === undefined) return null
-  return {
-    threadId,
-    status: thread.status,
-    checkoutPath: typeof thread.checkoutPath === 'string' ? thread.checkoutPath : null,
-    reviewStatus: stringOrNull(thread.reviewStatus),
-    reviewerSessionId: stringOrNull(thread.reviewerSessionId),
-    reviewedAt: stringOrNull(thread.reviewedAt),
-    latestReviewPath: stringOrNull(thread.latestReviewPath),
-  }
-}
-
-export function assertionForReview(check: string, expected: unknown, actual: unknown): M3Assertion {
-  const e = stableJson(expected)
-  const a = stableJson(actual)
-  return { name: check, ok: e === a, evidence: clip(`expected=${e} actual=${a}`, 3000) }
-}
-
-function clip(text: string, limit: number): string {
-  return text.length <= limit ? text : `${text.slice(0, limit)}…`
-}
-
-function isoNow(): string {
-  return new Date().toISOString()
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((settle) => setTimeout(settle, ms))
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
-}
-
-function stringOrNull(value: unknown): string | null {
-  return typeof value === 'string' ? value : null
-}
-
-function stableJson(value: unknown): string {
-  try {
-    const text = JSON.stringify(value)
-    return text === undefined ? String(value) : text
-  } catch {
-    return String(value)
-  }
-}
-
-function obs(step: MutableStep, patch: Record<string, unknown>): void {
-  Object.assign(step.evidence.observations, patch)
-}
-
-async function readTextIfPresent(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, 'utf8')
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined
-    throw error
-  }
-}
-
-function parseIndex(text: string): IndexView | undefined {
-  try {
-    const parsed = asRecord(JSON.parse(text))
-    if (parsed !== undefined && typeof parsed.masterSessionId === 'string' && Array.isArray(parsed.threads)) {
-      return parsed as unknown as IndexView
-    }
-  } catch {
-  }
-  return undefined
-}
-
-async function readHandoffs(fixturePath: string): Promise<HandoffView[]> {
-  const directory = join(fixturePath, '.dsh-cowork', 'handoffs')
-  let names: string[]
-  try {
-    names = await readdir(directory)
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ENOENT' || code === 'ENOTDIR') return []
-    throw error
-  }
-  const files: HandoffView[] = []
-  for (const name of names.filter((entry) => entry.endsWith('.json')).sort()) {
-    const filePath = join(directory, name)
-    try {
-      const record = asRecord(JSON.parse(await readFile(filePath, 'utf8')))
-      if (record === undefined || typeof record.threadId !== 'string' || typeof record.status !== 'string') continue
-      if (typeof record.summary !== 'string' || typeof record.createdAt !== 'string') continue
-      files.push({ filePath, record: record as unknown as HandoffView['record'] })
-    } catch {
-    }
-  }
-  return files
-}
-
-function contentText(message: unknown): string {
-  const content = asRecord(message)?.content
-  if (!Array.isArray(content)) return ''
-  const parts: string[] = []
-  for (const part of content) {
-    const block = asRecord(part)
-    if (block === undefined) continue
-    if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
-    else {
-      try {
-        parts.push(JSON.stringify(block))
-      } catch {
-        parts.push('[unserializable block]')
-      }
-    }
-  }
-  return parts.join('\n')
-}
-
-function lastSeq(events: readonly SessionEvent[]): number {
-  return events.at(-1)?.seq ?? 0
-}
-
-function assistantTextSince(events: readonly SessionEvent[], fromSeq: number): string {
-  const parts: string[] = []
-  for (const event of events) {
-    if (event.seq <= fromSeq || event.type !== 'assistant/message') continue
-    const text = contentText(asRecord(event.data.message))
-    if (text !== '') parts.push(text)
-  }
-  return clip(parts.join('\n'), MAX_ASSISTANT_TEXT)
-}
-
-function toolCallsSince(events: readonly SessionEvent[], fromSeq: number, name?: string): M3ToolCallEvidence[] {
-  const calls: M3ToolCallEvidence[] = []
-  for (const event of events) {
-    if (event.seq <= fromSeq || event.type !== 'tool/call') continue
-    const callName = typeof event.data.name === 'string' ? event.data.name : ''
-    if (name !== undefined && callName !== name) continue
-    calls.push({ name: callName, callId: String(event.data.callId ?? `seq-${event.seq}`), arguments: clip(String(event.data.arguments ?? ''), 4000) })
-  }
-  return calls
-}
-
-function runGit(args: readonly string[], cwd: string): Promise<GitOutcome> {
-  return new Promise<GitOutcome>((settle) => {
-    execFile('git', [...args], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf8' }, (error, stdout, stderr) => {
-      if (error === null) {
-        settle({ code: 0, stdout: stdout ?? '', stderr: stderr ?? '' })
-        return
-      }
-      const exit = (error as { code?: unknown }).code
-      settle({ code: typeof exit === 'number' ? exit : 1, stdout: typeof stdout === 'string' ? stdout : '', stderr: typeof stderr === 'string' && stderr.length > 0 ? stderr : (error as Error).message })
-    })
-  })
-}
-
-async function writeEvidenceAtomic(file: string, content: string): Promise<void> {
-  await mkdir(dirname(file), { recursive: true, mode: 0o700 })
-  const temp = `${file}.${randomUUID()}.tmp`
-  await writeFile(temp, content, { mode: 0o600 })
-  await rename(temp, file)
-}
-
-function isStrictlyInside(parent: string, child: string): boolean {
-  const base = resolve(parent)
-  return resolve(child).startsWith(base.endsWith(sep) ? base : `${base}${sep}`)
-}
-
-function recordCheck(step: MutableStep, name: string, ok: boolean, evidence: unknown): void {
-  const text = typeof evidence === 'string' ? evidence : stableJson(evidence)
-  step.evidence.assertions.push({ name, ok, evidence: clip(text, 3000) })
-  if (!ok) throw new Error(`assertion failed [${step.id}] ${name}: ${clip(text, 500)}`)
-}
-
-function runView(run: MutableRun, evidenceFile: string): M3RunStatusView {
-  return JSON.parse(JSON.stringify({
-    runId: run.runId,
-    state: run.state,
-    startedAt: run.startedAt,
-    ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
-    steps: run.steps,
-    evidenceFile,
-    ...(run.error === undefined ? {} : { error: run.error }),
-  })) as M3RunStatusView
-}
+export { M3_E2E_RUN_PATH, M3_E2E_STATUS_PATH } from './m3-e2e-support.js'
+export type { M3E2EHost } from './m3-e2e-support.js'
 
 export class M3E2ERunner {
   private readonly host: M3E2EHost
@@ -782,14 +367,21 @@ export class M3E2ERunner {
       ['a new reviewer session was created', previousReviewer === null || target.reviewer !== previousReviewer, `${target.reviewer} (previous ${String(previousReviewer)})`],
     ]
     for (const [name, ok, evidence] of rows) recordCheck(step, name, ok, evidence)
-    await this.waitIdle(master)
     return target.reviewer
   }
 
   private async reviewVerdict(step: MutableStep, verdict: 'pass' | 'needs_revision', thread: ThreadRef, reviewerId: string | null, fileName: string): Promise<void> {
     if (reviewerId === null) throw new Error(`no reviewer session for verdict ${verdict}`)
-    await this.waitIdle(reviewerId)
+    const expectedStatus = verdict === 'pass' ? 'done' : 'active'
     const deliveredFromSeq = this.lastSeqOf(thread.threadId)
+    const initial = await this.reviewState(thread.threadId)
+    const plan = planReviewVerdict(initial, verdict, expectedStatus)
+    obs(step, { initialReviewState: initial, verdictPlan: plan })
+    if (plan.action === 'fail') {
+      const events = this.reviewerEventSummary(reviewerId)
+      obs(step, { reviewerEvents: events })
+      throw new Error(`cannot deliver ${verdict}: ${plan.reason}; reviewerSessionId=${reviewerId}; events=${events}`)
+    }
     const input = {
       threadId: thread.threadId,
       subject: fileName === FILE_A ? THREAD_A_SUBJECT : THREAD_B_SUBJECT,
@@ -798,16 +390,24 @@ export class M3E2ERunner {
       fileName,
       verificationCommand: `test -f ${fileName}`,
     }
-    await this.promptStep(
-      step,
-      reviewerId,
-      'reviewer',
-      verdict === 'pass' ? buildReviewerPassPrompt(input) : buildReviewerNeedsRevisionPrompt({ ...input, finding: REVIEW_FINDING }),
-    )
-    const expectedStatus = verdict === 'pass' ? 'done' : 'active'
+    if (plan.action === 'steer') {
+      const instruction = 'Before calling cowork_review_verdict, follow this instruction; if you already planned a different verdict, replace it with the one below.\n\n'
+        + (verdict === 'pass' ? buildReviewerPassPrompt(input) : buildReviewerNeedsRevisionPrompt({ ...input, finding: REVIEW_FINDING }))
+      const steer = await this.promptStep(step, reviewerId, 'reviewer', instruction, 'steer')
+      obs(step, { steer: { mode: steer.mode, fromSeq: steer.fromSeq } })
+    } else {
+      step.evidence.note = plan.reason
+    }
     const state = await this.poll(`verdict ${verdict} and thread status ${expectedStatus}`, async () => {
       const current = await this.reviewState(thread.threadId)
-      return current !== null && current.reviewStatus === verdict && current.status === expectedStatus ? current : undefined
+      if (current === null) return undefined
+      if (current.reviewStatus === verdict && current.status === expectedStatus) return current
+      if (planReviewVerdict(current, verdict, expectedStatus).action === 'fail') {
+        const events = this.reviewerEventSummary(reviewerId)
+        obs(step, { unexpectedReviewState: current, reviewerEvents: events })
+        throw new Error(`unexpected review state while waiting for ${verdict}/${expectedStatus}: reviewStatus=${String(current.reviewStatus)} status=${current.status} reviewerSessionId=${reviewerId}; events=${events}`)
+      }
+      return undefined
     })
     obs(step, { indexStatus: state.status, reviewStatus: state.reviewStatus })
     await this.checkReviewFile(step, verdict, await this.readReviewRecord(state.latestReviewPath), thread.threadId, reviewerId)
@@ -817,6 +417,12 @@ export class M3E2ERunner {
       recordCheck(step, 'thread session received the findings delivery', delivery.text.includes(FINDING_ID), `${delivery.source}:${delivery.type}@${delivery.seq}`)
     }
     await this.waitIdle(reviewerId)
+  }
+
+  private reviewerEventSummary(reviewerId: string): string {
+    const events = this.events.get(reviewerId) ?? []
+    const types = events.slice(-12).map((event) => event.type).join(',')
+    return clip(`${types} | ${assistantTextSince(events, 0)}`, 800)
   }
 
   private async repairThread(step: MutableStep, thread: ThreadRef): Promise<void> {
@@ -989,12 +595,12 @@ export class M3E2ERunner {
     }, timeoutMs)
   }
 
-  private async promptStep(step: MutableStep, sessionId: string, role: M3PromptEvidence['role'], content: string): Promise<M3PromptEvidence> {
+  private async promptStep(step: MutableStep, sessionId: string, role: M3PromptEvidence['role'], content: string, mode: PromptMode = 'queue'): Promise<M3PromptEvidence> {
     const fromSeq = this.lastSeqOf(sessionId)
-    const evidence: M3PromptEvidence = { sessionId, role, content, accepted: false, fromSeq, assistantText: '', toolCalls: [] }
+    const evidence: M3PromptEvidence = { sessionId, role, content, mode, accepted: false, fromSeq, assistantText: '', toolCalls: [] }
     step.evidence.prompts.push(evidence)
     const result = await this.host.sessionController.prompt(
-      { requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: content }] },
+      { requestId: randomUUID(), sessionId, mode, content: [{ type: 'text', text: content }] },
       AbortSignal.timeout(this.config.promptTimeoutMs),
     )
     evidence.accepted = result.accepted
@@ -1161,9 +767,4 @@ export class M3E2ERunner {
       this.config.log?.(`M3 E2E evidence write failed: ${messageOf(error)}`)
     }
   }
-}
-
-interface ThreadRef {
-  readonly threadId: string
-  readonly checkoutPath: string
 }

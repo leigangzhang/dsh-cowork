@@ -26,15 +26,17 @@ import {
   buildRepairPrompt,
   buildReviewerNeedsRevisionPrompt,
   buildReviewerPassPrompt,
+  planReviewVerdict,
   reviewStateOf,
   stepFailureState,
-} from '../src/m3-e2e.ts'
+} from '../src/m3-e2e-support.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const driverPath = join(here, '..', 'src', 'm3-e2e.ts')
+const supportPath = join(here, '..', 'src', 'm3-e2e-support.ts')
 
-/** The per-file budget the driver must stay under (same rule as the M2 driver). */
-const FILE_BUDGET_BYTES = 50 * 1024
+/** Per-file budget for the split halves; both must stay well under the 50 KiB read limit. */
+const FILE_BUDGET_BYTES = 40 * 1024
 
 const reviewInput = {
   threadId: 'thread-1234',
@@ -70,10 +72,8 @@ test('M3_STEP_IDS is the fifteen-step M3 sequence in order', () => {
 test('the two review rounds keep their gate order', () => {
   const at = (id) => M3_STEP_IDS.indexOf(id)
 
-  // Round A: request, pass, then merge only after the pass.
   assert.equal(at('review-a-pass'), at('review-a-request') + 1)
   assert.equal(at('merge-a'), at('review-a-pass') + 1)
-  // Round B: needs_revision, repair, a fresh request, pass, merge.
   assert.equal(at('thread-b-repair'), at('review-b-needs-revision') + 1)
   assert.equal(at('review-b-request-2'), at('thread-b-repair') + 1)
   assert.equal(at('review-b-pass'), at('review-b-request-2') + 1)
@@ -81,7 +81,7 @@ test('the two review rounds keep their gate order', () => {
   assert.equal(M3_STEP_IDS.at(-1), 'cleanup')
 })
 
-test('the driver constants name the frozen M3 surface', () => {
+test('the support constants name the frozen M3 surface', () => {
   assert.equal(M3_E2E_EVIDENCE_RELATIVE, '.dsh-cowork/e2e/M3_E2E.json')
   assert.equal(M3_E2E_FIXTURE_RELATIVE, '.dsh-cowork/e2e/m3-repo')
   assert.equal(M3_E2E_RUN_PATH, '/dsh-cowork/e2e/m3/run')
@@ -103,7 +103,7 @@ test('the pass prompt carries the thread, the tool, and verdict pass', () => {
   assert.equal(prompt.includes(reviewInput.checkoutPath), true)
   assert.equal(prompt.includes(reviewInput.verificationCommand), true)
   assert.equal(prompt.includes('needs_revision'), false)
-  assert.equal(prompt.includes(`${MASTER_DONE}`), true)
+  assert.equal(prompt.includes(MASTER_DONE), true)
 })
 
 test('the pass prompt asks for a real command run, not a copied verdict', () => {
@@ -156,11 +156,10 @@ test('reviewStateOf returns null when the index or the thread is absent', () => 
 })
 
 test('reviewStateOf normalises missing review fields to null', () => {
-  const index = {
+  const state = reviewStateOf({
     masterSessionId: 'm',
     threads: [{ threadId: 't1', status: 'awaiting_review', checkoutPath: '/clone' }],
-  }
-  const state = reviewStateOf(index, 't1')
+  }, 't1')
 
   assert.deepEqual(state, {
     threadId: 't1',
@@ -174,7 +173,7 @@ test('reviewStateOf normalises missing review fields to null', () => {
 })
 
 test('reviewStateOf returns the review fields the index stores', () => {
-  const index = {
+  const state = reviewStateOf({
     masterSessionId: 'm',
     threads: [{
       threadId: 't2',
@@ -185,8 +184,7 @@ test('reviewStateOf returns the review fields the index stores', () => {
       reviewedAt: '2026-01-01T00:00:00.000Z',
       latestReviewPath: '/repo/.dsh-cowork/reviews/t2-1.json',
     }],
-  }
-  const state = reviewStateOf(index, 't2')
+  }, 't2')
 
   assert.equal(state.reviewStatus, 'pass')
   assert.equal(state.reviewerSessionId, 'reviewer-1')
@@ -206,6 +204,44 @@ test('assertionForReview passes equal durable values and fails different ones', 
   assert.equal(fail.evidence.includes('actual="needs_revision"'), true)
 })
 
+test('planReviewVerdict steers while the reviewer has no verdict yet', () => {
+  const pending = { threadId: 't', status: 'awaiting_review', checkoutPath: '/c', reviewStatus: 'pending', reviewerSessionId: 'r', reviewedAt: null, latestReviewPath: null }
+  assert.deepEqual(planReviewVerdict(pending, 'pass', 'done'), {
+    action: 'steer',
+    mode: 'steer',
+    reason: 'reviewer has not produced a verdict yet',
+  })
+  assert.equal(planReviewVerdict(null, 'needs_revision', 'active').mode, 'steer')
+})
+
+test('planReviewVerdict skips when the expected verdict already landed', () => {
+  const done = { threadId: 't', status: 'done', checkoutPath: '/c', reviewStatus: 'pass', reviewerSessionId: 'r', reviewedAt: 'x', latestReviewPath: '/x.json' }
+  const plan = planReviewVerdict(done, 'pass', 'done')
+  assert.equal(plan.action, 'skip')
+  assert.equal(plan.mode, null)
+  assert.equal(plan.reason, 'reviewer already produced the expected verdict')
+
+  const active = { threadId: 't', status: 'active', checkoutPath: '/c', reviewStatus: 'needs_revision', reviewerSessionId: 'r', reviewedAt: 'x', latestReviewPath: '/x.json' }
+  assert.equal(planReviewVerdict(active, 'needs_revision', 'active').action, 'skip')
+})
+
+test('planReviewVerdict fails fast on a different terminal verdict', () => {
+  const done = { threadId: 't', status: 'done', checkoutPath: '/c', reviewStatus: 'pass', reviewerSessionId: 'r', reviewedAt: 'x', latestReviewPath: '/x.json' }
+  const plan = planReviewVerdict(done, 'needs_revision', 'active')
+  assert.equal(plan.action, 'fail')
+  assert.equal(plan.mode, null)
+  assert.match(plan.reason, /pass/)
+  assert.match(plan.reason, /done/)
+
+  const active = { threadId: 't', status: 'active', checkoutPath: '/c', reviewStatus: 'needs_revision', reviewerSessionId: 'r', reviewedAt: 'x', latestReviewPath: '/x.json' }
+  assert.equal(planReviewVerdict(active, 'pass', 'done').action, 'fail')
+})
+
+test('planReviewVerdict fails when the thread left awaiting_review without a verdict', () => {
+  const active = { threadId: 't', status: 'active', checkoutPath: '/c', reviewStatus: null, reviewerSessionId: 'r', reviewedAt: null, latestReviewPath: null }
+  assert.equal(planReviewVerdict(active, 'needs_revision', 'active').action, 'fail')
+})
+
 test('a step error maps to the terminal failed state with its step id', () => {
   assert.deepEqual(stepFailureState('review-a-pass', new Error('boom')), {
     state: 'failed',
@@ -223,23 +259,47 @@ test('the runner exposes start, resolve, attachEvents, and dispose', () => {
   for (const member of ['start():', 'resolve(runId', 'attachEvents():', 'dispose():', 'private async execute(']) {
     assert.equal(source.includes(member), true, `driver is missing ${member}`)
   }
-  // One run at a time: a second start while running is rejected.
   assert.match(source, /still running/)
-  // Evidence is written atomically, not with a bare writeFile.
-  assert.match(source, /writeEvidenceAtomic/)
-  assert.match(source, /rename\(temp, file\)/)
+  const support = readFileSync(supportPath, 'utf8')
+  assert.match(support, /writeEvidenceAtomic/)
+  assert.match(support, /rename\(temp, file\)/)
 })
 
-test('the driver keeps only built-in runtime imports so node --test can load it', () => {
-  const lines = readFileSync(driverPath, 'utf8').split('\n')
-  const valueImports = lines.filter((line) => /^import \{/.test(line))
-  for (const line of valueImports) {
-    assert.equal(/from 'node:/.test(line), true, `unexpected runtime import: ${line}`)
+test('the runner steers the verdict instruction and fails fast on a foreign verdict', () => {
+  const source = readFileSync(driverPath, 'utf8')
+
+  assert.match(source, /mode: PromptMode = 'queue'/)
+  assert.equal(source.includes("'steer')"), true)
+  assert.match(source, /Before calling cowork_review_verdict, follow this instruction/)
+  assert.match(source, /steer: \{ mode: steer\.mode, fromSeq: steer\.fromSeq \}/)
+  assert.match(source, /unexpected review state while waiting for/)
+})
+
+test('the driver keeps only built-in and support runtime imports', () => {
+  const valueImports = (path) => [...readFileSync(path, 'utf8').matchAll(/^import\s+(?!type\b)[\s\S]*?from\s+'([^']+)'/gm)].map((match) => match[1])
+  for (const path of [driverPath, supportPath]) {
+    for (const specifier of valueImports(path)) {
+      const allowed = specifier.startsWith('node:') || (path === driverPath && specifier === './m3-e2e-support.js')
+      assert.equal(allowed, true, `unexpected runtime import in ${path}: ${specifier}`)
+    }
   }
 })
 
-test('the driver stays within the per-file budget', () => {
-  const size = statSync(driverPath).size
-  assert.ok(size > 0, driverPath)
-  assert.ok(size <= FILE_BUDGET_BYTES, `${driverPath} is ${size} bytes, above ${FILE_BUDGET_BYTES}`)
+test('support has no runner import and the runner imports no other local module', () => {
+  const support = readFileSync(supportPath, 'utf8')
+  const driver = readFileSync(driverPath, 'utf8')
+
+  assert.equal(/from '\.\/m3-e2e\.js'/.test(support), false)
+  assert.equal(/from '\.\.\/src\/m3-e2e\.js'/.test(support), false)
+  for (const line of driver.split('\n').filter((entry) => /^import .* from '\.\//.test(entry))) {
+    assert.match(line, /from '\.\/m3-e2e-support\.js'/, `driver imports another local module: ${line}`)
+  }
+})
+
+test('both driver files stay within the per-file budget', () => {
+  for (const path of [driverPath, supportPath]) {
+    const size = statSync(path).size
+    assert.ok(size > 0, path)
+    assert.ok(size <= FILE_BUDGET_BYTES, `${path} is ${size} bytes, above ${FILE_BUDGET_BYTES}`)
+  }
 })
