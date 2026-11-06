@@ -18,3 +18,4 @@
 | KI-3 | preset 运行时注册，重启即消失 | 正式安装路径下重启后 cowork preset 不可用；dev injector 重启是否自动恢复未核实 | M1 遗留；PLAN 把打包与持久化放在 M4 | M4；已转计划 | M1 | 若 dev injector 重启后 preset 不能自动恢复，则这条超出 M4 打包范围，需要单独评估 |
 | KI-4 | merge 冲突必须人工或 thread 解决 | 冲突时 thread 阻塞、master 不能强推；冲突频繁会拖慢推进 | 设计取舍：不自动解决冲突（[PLAN](PLAN.md) §5.6） | 保持；M3 review 流程需覆盖 | M0/M2 | 冲突频率高或成为常态时，评估辅助解决（人工确认后自动合并等） |
 | KI-5 | 全部结论以 workspace-write 为策略前提 | 部署改成 `read-only` 时 clone 写不了；改成 `danger-full-access` 时被否决的 worktree 等方案重新变得可行 | P0 实测环境前提（[M2-P0 结果](M2_PROBE_RESULT.md)） | 部署/兼容性；保持 | M2 | 部署策略变化时重跑关键 E2E，并重评隔离机制 |
+| KI-6 | 面板 API thread 字段 `worktreePath` → `checkoutPath` 的破坏性改名 | 按旧字段读取 `/api/cowork.overview` 的外部调用方拿不到隔离路径；仓库内 host/client 已同步，面板未发布故暂无实际外部消费方 | 合并 M2 与面板分支时的字段统一：M2 已把 `ThreadRecord` 定为 `checkoutPath`（store 读兼容旧索引的 `worktreePath`），面板 wire 跟随 M2（[PANEL_RESULT](PANEL_RESULT.md)）；这是跨分支合并的直接结果，不是独立决策 | 面板发布前评估；保持 | M2（面板合并） | 面板随插件对外发布、出现仓库外 API 消费方，或需要兼容旧调用方时，评估字段别名与主版本（破坏性变更） |

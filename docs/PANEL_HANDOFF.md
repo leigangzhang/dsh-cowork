@@ -74,7 +74,7 @@ M0 的 client 半边已删除，**不要直接写完整面板**。先做一个�
 2. “打开 thread 会话”的导航 API：用客户端 `uiSession`/session controller 的哪个方法？确认后写进提案。
 3. guide entry 的标题与描述（“Cowork / 项目协作总览”？）与底栏按钮文案（已定 “Cowork”）。
 4. `masterMessage` 的服务端生成时机：读 handoff 时现生成，还是把投递文本落盘？默认现生成 + 记录格式器版本。
-5. 面板是否需要在 thread 列表显示 worktree 状态（M2 字段）？v0 可只显示 `worktreePath` 有/无，不展开。
+5. 面板是否需要在 thread 列表显示 checkout 状态（M2 字段）？v0 可只显示 `checkoutPath` 有/无，不展开。
 
 ## 完成定义
 
