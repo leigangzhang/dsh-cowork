@@ -210,6 +210,42 @@ test('createCheckoutThread fails closed when the session did not mount the prese
   assert.equal(calls.rename.length, 0, 'a mismatched session must not be renamed')
 })
 
+test('createCheckoutThread fails closed when the host returns a different session id', async () => {
+  const checkoutPath = '/repo/.dsh-cowork/threads/session-x'
+  const { ports, calls } = fakePorts({
+    createdWorkspace: { id: 'workspace-clone', path: checkoutPath },
+    // The host minted its own id instead of honouring the requested one.
+    createResult: { sessionId: 'session-host-minted', agentPreset: 'cowork-thread' },
+  })
+  const slice = new SessionSlice(ports)
+
+  await assert.rejects(
+    slice.createCheckoutThread({
+      repoPath: '/repo',
+      checkoutPath,
+      threadId: 'session-x',
+      subject: 'isolated',
+      presetId: 'cowork-thread',
+    }),
+    (error) => {
+      assert.match(error.message, /^session\/create-id-mismatch:/)
+      // Both ids are in the message: the caller has to know which one it asked for.
+      assert.match(error.message, /session-x/)
+      assert.match(error.message, /session-host-minted/)
+      return true
+    },
+  )
+
+  // The rename is what would retitle a session that does not own the clone, and
+  // the caller writes the index only after this method returns, so neither ran.
+  assert.equal(calls.rename.length, 0, 'a foreign session must not be renamed')
+  assert.deepEqual(
+    calls.createSession,
+    [{ sessionId: 'session-x', workspaceId: 'workspace-clone', agentPreset: 'cowork-thread' }],
+    'the requested id is still what the host was asked for',
+  )
+})
+
 test('deleteWorkspace and archiveSession delegate to the workspace registry', async () => {
   const { ports, calls } = fakePorts({ deleteResult: false })
   const slice = new SessionSlice(ports)

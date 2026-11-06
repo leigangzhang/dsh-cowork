@@ -18,6 +18,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { CHECKOUT_ERROR, createCheckout, inspectCheckout, mergeCheckout, removeCheckout } from './checkout.js'
 import type { CheckoutDeps, CheckoutStatus, GitResult, GitRunner } from './checkout.js'
+import { applyThreadStatus, describeError, teardownMergedCheckout } from './checkout-teardown.js'
 import { replayPendingHandoffs, submitHandoff } from './handoff.js'
 import {
   MemoryCorruptError,
@@ -143,11 +144,6 @@ function memoryIo(store: ProjectStore): MemoryIo {
     writeText: (path, content) => store.writeTextAtomic(path, content),
     withLock: (operation) => store.withWriteLock(operation),
   }
-}
-
-/** Error text for a caught value. */
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function isFailure(value: unknown): value is ToolFailure {
@@ -952,66 +948,50 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
         })
         if (!merged.ok) {
           if (merged.code === CHECKOUT_ERROR.mergeConflict) {
-            // The clone stays so the thread can resolve and retry.
-            const updated = await opened.store.updateThread(threadId, { status: 'blocked' })
-            const record = updated.threads.find((entry) => entry.threadId === threadId)
+            // The clone stays so the thread can resolve and retry. The conflict
+            // result is the real answer, so a failed index write is reported
+            // inside it (`statusUpdateError`) instead of escaping to the
+            // generic catch, which would hide the conflict itself.
+            const statusUpdate = await applyThreadStatus(async () => {
+              const updated = await opened.store.updateThread(threadId, { status: 'blocked' })
+              return { thread: updated.threads.find((entry) => entry.threadId === threadId) ?? null }
+            })
             return toJson(failure(merged.code, merged.message, {
               ...merged.details,
               threadId,
               status: 'blocked',
-              thread: record === undefined ? null : threadView(record),
+              thread: statusUpdate.thread === null ? null : threadView(statusUpdate.thread),
+              ...(statusUpdate.error === null ? {} : { statusUpdateError: statusUpdate.error }),
             }))
           }
           return toJson(failure(merged.code, merged.message, { ...merged.details, threadId }))
         }
 
-        // The merge already landed; teardown problems are reported, never fatal.
-        const cleanup = {
-          removed: false,
-          branchDeleted: false,
-          workspaceId: null as string | null,
-          workspaceDeleted: false,
-          sessionArchived: false,
-        }
-        const cleanupErrors: string[] = []
-
-        // Resolve the workspace while the clone still exists: the host
-        // canonicalises the path with realpath before matching it.
-        const workspace = await deps.workspaceRegistry.resolveByPath(checkoutPath)
-
-        const removed = await removeCheckout(checkoutDeps, { repoPath: opened.repoPath, threadId })
-        if (removed.ok) {
-          cleanup.removed = removed.removed
-          cleanup.branchDeleted = removed.branchDeleted
-        } else {
-          cleanupErrors.push(`checkout: ${removed.message}`)
-        }
-
-        if (workspace !== undefined) {
-          cleanup.workspaceId = workspace.id
-          try {
-            cleanup.workspaceDeleted = await opened.slice.deleteWorkspace(workspace.id)
-          } catch (error) {
-            cleanupErrors.push(`workspace: ${describeError(error)}`)
-          }
-        }
-        try {
-          await opened.slice.archiveSession(threadId)
-          cleanup.sessionArchived = true
-        } catch (error) {
-          cleanupErrors.push(`session: ${describeError(error)}`)
-        }
-
-        const updated = await opened.store.updateThread(threadId, { checkoutPath: null, status: 'done' })
-        const record = updated.threads.find((entry) => entry.threadId === threadId)
+        // The merge already landed: every teardown step is caught on its own
+        // and reported in `cleanupErrors`, never turned into a failed result.
+        // A failure here means the branch *is* merged; a reported failure would
+        // invite a retry that merges it a second time.
+        const teardown = await teardownMergedCheckout<ThreadRecord>(
+          { checkoutPath, threadId },
+          {
+            resolveWorkspace: (path) => deps.workspaceRegistry.resolveByPath(path),
+            removeCheckout: () => removeCheckout(checkoutDeps, { repoPath: opened.repoPath, threadId }),
+            deleteWorkspace: (workspaceId) => opened.slice.deleteWorkspace(workspaceId),
+            archiveSession: (sessionId) => opened.slice.archiveSession(sessionId),
+            updateThread: async (id) => {
+              const updated = await opened.store.updateThread(id, { checkoutPath: null, status: 'done' })
+              return { thread: updated.threads.find((entry) => entry.threadId === id) ?? null }
+            },
+          },
+        )
         return toJson(success({
           threadId,
           merged: true,
           commit: merged.commit,
           branch: merged.branch,
-          cleanup,
-          cleanupErrors,
-          thread: record === undefined ? null : threadView(record),
+          cleanup: teardown.cleanup,
+          cleanupErrors: teardown.cleanupErrors,
+          thread: teardown.thread === null ? null : threadView(teardown.thread),
         }))
       } catch (error) {
         return toJson(mapError(error))
