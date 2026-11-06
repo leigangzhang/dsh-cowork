@@ -18,6 +18,9 @@ import {
   MAX_PANEL_THREADS,
   OVERVIEW_PATH,
   countThreads,
+  isPanelReviewSeverity,
+  isPanelReviewStatus,
+  isPanelReviewVerdict,
   isPanelThreadStatus,
   sortThreadsForPanel,
   type HandoffPayload,
@@ -26,6 +29,10 @@ import {
   type OverviewResponse,
   type PanelErrorBody,
   type PanelErrorCode,
+  type PanelReviewFinding,
+  type PanelReviewPayload,
+  type PanelReviewRecord,
+  type PanelReviewVerification,
   type PanelThread,
 } from './api-contract.js'
 import { formatMasterMessage } from './handoff.js'
@@ -39,11 +46,33 @@ export interface PanelSessionRow {
   readonly cwd?: string
 }
 
-/** Store reads the routes may perform. `ProjectStore` satisfies this structurally. */
+/**
+ * Store reads the routes may perform. `ProjectStore` satisfies this
+ * structurally. The review reader is optional because the M3 review module and
+ * the panel land on separate lines: when the store does not expose it yet, the
+ * route falls back to the project's own text read, so a review pointer never
+ * becomes a panel failure just because the store predates the field.
+ */
 export interface CoworkStorePort {
   hasIndex(): Promise<boolean>
   readIndex(): Promise<ProjectIndex>
   listHandoffs(): Promise<HandoffFile[]>
+  /** Read and validate one review file; `store/not-found` when it is gone. */
+  readReview?(filePath: string): Promise<unknown>
+  /** Raw text read of a project-owned file; `null` when the file is gone. */
+  readText?(absPath: string): Promise<string | null>
+}
+
+/**
+ * Optional review fields of one index thread. Indexes written before M3 carry
+ * none of them, and this module must stay readable against such a project.
+ */
+interface ThreadReviewFields {
+  readonly reviewStatus?: unknown
+  readonly reviewedAt?: unknown
+  readonly reviewerSessionId?: unknown
+  /** Absolute path of the thread's latest review file, or null. */
+  readonly latestReviewPath?: unknown
 }
 
 /** The host facts a route needs, injected so tests can stand in for the host. */
@@ -205,10 +234,18 @@ export function isListableThread(
   return thread.status !== 'archived' && isPanelThreadStatus(thread.status)
 }
 
+/** A trimmed non-empty string, or null: the index may hold '' or a non-string. */
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null
+}
+
 /** Project one index entry into the wire shape the panel renders. */
 export function toPanelThread(
   record: ThreadRecord & { readonly status: PanelThread['status'] },
 ): PanelThread {
+  // Review fields are read through the optional view: an index written before
+  // M3 has none of them, and that must degrade to null, not to a broken row.
+  const review = record as unknown as ThreadReviewFields
   return {
     threadId: record.threadId,
     subject: record.subject,
@@ -221,6 +258,9 @@ export function toPanelThread(
     // The panel only needs the marker; deriving it keeps the wire honest when
     // an older index lacks the derived field.
     hasHandoff: record.lastHandoffAt !== null,
+    reviewStatus: isPanelReviewStatus(review.reviewStatus) ? review.reviewStatus : null,
+    reviewedAt: optionalString(review.reviewedAt),
+    reviewerSessionId: optionalString(review.reviewerSessionId),
   }
 }
 
@@ -242,6 +282,141 @@ export function buildOverview(index: ProjectIndex, repoPath: string): OverviewPa
     threads,
   }
 }
+
+/**
+ * Normalize one finding of a review file. A row the panel cannot render is
+ * dropped rather than blanking the whole review: the file path stays visible,
+ * so the raw document can still be inspected.
+ */
+function toPanelReviewFinding(value: unknown): PanelReviewFinding | null {
+  if (typeof value !== 'object' || value === null) return null
+  const row = value as Record<string, unknown>
+  if (!optionalString(row.id) || !optionalString(row.problem) || !optionalString(row.requiredFix)) return null
+  if (!isPanelReviewSeverity(row.severity)) return null
+  const finding: {
+    id: string
+    severity: PanelReviewFinding['severity']
+    problem: string
+    requiredFix: string
+    file?: string
+    line?: number
+  } = {
+    id: row.id as string,
+    severity: row.severity,
+    problem: row.problem as string,
+    requiredFix: row.requiredFix as string,
+  }
+  const file = optionalString(row.file)
+  if (file !== null) finding.file = file
+  if (typeof row.line === 'number' && Number.isInteger(row.line) && row.line > 0) finding.line = row.line
+  return finding
+}
+
+/** Normalize one reviewer verification row; same leniency as findings. */
+function toPanelReviewVerification(value: unknown): PanelReviewVerification | null {
+  if (typeof value !== 'object' || value === null) return null
+  const row = value as Record<string, unknown>
+  if (!optionalString(row.command)) return null
+  if (typeof row.exitCode !== 'number' || !Number.isInteger(row.exitCode)) return null
+  if (typeof row.evidence !== 'string') return null
+  return { command: row.command as string, exitCode: row.exitCode, evidence: row.evidence }
+}
+
+/**
+ * Narrow one review document to the wire record. Returns null when the verdict
+ * or one of the identity fields is unusable: without a verdict the panel cannot
+ * label the review, so the caller reports the file as corrupt instead of
+ * inventing a state.
+ */
+export function toPanelReviewRecord(document: unknown): PanelReviewRecord | null {
+  if (typeof document !== 'object' || document === null) return null
+  const record = document as Record<string, unknown>
+  if (!isPanelReviewVerdict(record.verdict)) return null
+  if (typeof record.summary !== 'string') return null
+  if (!optionalString(record.reviewerSessionId)) return null
+  if (!optionalString(record.createdAt)) return null
+  const findings = Array.isArray(record.findings)
+    ? record.findings.map(toPanelReviewFinding).filter((row): row is PanelReviewFinding => row !== null)
+    : []
+  const verification = Array.isArray(record.verification)
+    ? record.verification.map(toPanelReviewVerification).filter((row): row is PanelReviewVerification => row !== null)
+    : []
+  return {
+    version: 1,
+    threadId: optionalString(record.threadId) ?? '',
+    reviewerSessionId: record.reviewerSessionId as string,
+    verdict: record.verdict,
+    summary: record.summary,
+    findings,
+    verification,
+    createdAt: record.createdAt as string,
+  }
+}
+
+/** Whether a read failure means "the pointer file is gone" rather than "unreadable". */
+function isMissingReviewFile(error: unknown): boolean {
+  return error instanceof StoreError && error.code === 'store/not-found'
+}
+
+/**
+ * Read the review file an index pointer names. `null` means the pointer file no
+ * longer exists; a damaged document is `store/corrupt`, and any other failure
+ * propagates to the shared error mapping. The path is never guessed from the
+ * reviews directory: only the index pointer decides which verdict is current.
+ */
+export async function readReviewPayload(
+  store: CoworkStorePort,
+  filePath: string,
+): Promise<PanelReviewPayload | null> {
+  let document: unknown
+  if (typeof store.readReview === 'function') {
+    try {
+      document = await store.readReview(filePath)
+    } catch (error) {
+      if (isMissingReviewFile(error)) return null
+      throw error
+    }
+  } else if (typeof store.readText === 'function') {
+    const text = await store.readText(filePath)
+    if (text === null) return null
+    try {
+      document = JSON.parse(text)
+    } catch (error) {
+      throw new StoreError(
+        'store/corrupt',
+        `${filePath}: invalid review JSON (${(error as Error).message})`,
+        filePath,
+      )
+    }
+  } else {
+    // A host whose store exposes no read path at all: the review is unknown,
+    // and the panel must still render the handoff.
+    return null
+  }
+  const record = toPanelReviewRecord(document)
+  if (record === null) {
+    throw new StoreError('store/corrupt', `${filePath}: invalid review document`, filePath)
+  }
+  return { record, filePath }
+}
+
+/** The review pointer of one index thread, or null when it has none. */
+function latestReviewPathOf(record: ThreadRecord | undefined): string | null {
+  if (record === undefined) return null
+  return optionalString((record as unknown as ThreadReviewFields).latestReviewPath)
+}
+
+/** Latest review of one thread, resolved through the index pointer only. */
+export async function readThreadReview(
+  store: CoworkStorePort,
+  index: ProjectIndex,
+  threadId: string,
+): Promise<PanelReviewPayload | null> {
+  const pointer = latestReviewPathOf(index.threads.find((thread) => thread.threadId === threadId))
+  if (pointer === null) return null
+  return readReviewPayload(store, pointer)
+}
+
 
 /** Whether `candidate` is newer than `current`; equal timestamps fall back to the file name. */
 function isNewerHandoff(candidate: HandoffFile, current: HandoffFile): boolean {
@@ -267,14 +442,20 @@ export function selectLatestHandoff(
 /**
  * Handoff body: the stored record plus the message the master received. The
  * message is re-rendered on read (never stored), so the formatter version
- * travels with it and a rendering change is visible instead of silent.
+ * travels with it and a rendering change is visible instead of silent. The
+ * optional review is the thread's latest verdict, already resolved by the
+ * caller from the index pointer.
  */
-export function buildHandoffPayload(file: HandoffFile): HandoffPayload {
+export function buildHandoffPayload(
+  file: HandoffFile,
+  review: PanelReviewPayload | null = null,
+): HandoffPayload {
   return {
     record: file.record,
     filePath: file.filePath,
     masterMessage: formatMasterMessage(file.record, file.filePath),
     formatterVersion: HANDOFF_FORMATTER_VERSION,
+    review,
   }
 }
 
@@ -318,7 +499,10 @@ async function handleHandoff(request: Request, ports: CoworkApiPorts): Promise<R
     if (latest === null) {
       throw new PanelApiError('handoff/not-found', `thread has no handoff: ${threadId}`)
     }
-    const response: HandoffResponse = { ok: true, handoff: buildHandoffPayload(latest) }
+    // The review pointer lives on the thread's index row: a review file that
+    // exists in the directory but is not pointed at is not the current verdict.
+    const review = await readThreadReview(store, await store.readIndex(), threadId)
+    const response: HandoffResponse = { ok: true, handoff: buildHandoffPayload(latest, review) }
     return jsonResponse(200, response)
   } catch (error) {
     const { status, body } = toErrorResponse(error)

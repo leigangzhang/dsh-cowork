@@ -3,10 +3,16 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import {
+  PANEL_REVIEW_SEVERITIES,
+  PANEL_REVIEW_STATUSES,
+  PANEL_REVIEW_VERDICTS,
   PANEL_STATUS_ORDER,
   countThreads,
   defaultSelectedThreadId,
   isPanelError,
+  isPanelReviewSeverity,
+  isPanelReviewStatus,
+  isPanelReviewVerdict,
   isPanelThreadStatus,
   sortThreadsForPanel,
 } from '../src/api-contract.ts'
@@ -118,6 +124,57 @@ test('isPanelThreadStatus accepts exactly the five listable statuses', () => {
   assert.equal(isPanelThreadStatus('archived'), false)
   assert.equal(isPanelThreadStatus('unknown'), false)
   assert.equal(isPanelThreadStatus(undefined), false)
+})
+
+test('review states are their own union and never mix with thread statuses', () => {
+  assert.deepEqual([...PANEL_REVIEW_STATUSES], ['pending', 'pass', 'needs_revision', 'reject'])
+  assert.deepEqual([...PANEL_REVIEW_VERDICTS], ['pass', 'needs_revision', 'reject'])
+  assert.deepEqual([...PANEL_REVIEW_SEVERITIES], ['blocker', 'high', 'medium', 'low'])
+
+  for (const status of PANEL_REVIEW_STATUSES) assert.equal(isPanelReviewStatus(status), true)
+  for (const status of PANEL_STATUS_ORDER) assert.equal(isPanelReviewStatus(status), false)
+  assert.equal(isPanelReviewStatus('archived'), false)
+  assert.equal(isPanelReviewStatus(undefined), false)
+  assert.equal(isPanelReviewStatus(null), false)
+
+  // A review state is never a thread status, and vice versa.
+  for (const status of PANEL_REVIEW_STATUSES) assert.equal(isPanelThreadStatus(status), false)
+  assert.equal(isPanelThreadStatus('pass'), false)
+  assert.equal(isPanelThreadStatus('pending'), false)
+  assert.equal(isPanelThreadStatus('awaiting_review'), true)
+
+  // `pending` is a lifecycle state, never a recorded verdict.
+  assert.equal(isPanelReviewVerdict('pending'), false)
+  for (const verdict of PANEL_REVIEW_VERDICTS) assert.equal(isPanelReviewVerdict(verdict), true)
+  assert.equal(isPanelReviewVerdict('approved'), false)
+
+  assert.equal(isPanelReviewSeverity('blocker'), true)
+  assert.equal(isPanelReviewSeverity('high'), true)
+  assert.equal(isPanelReviewSeverity('medium'), true)
+  assert.equal(isPanelReviewSeverity('low'), true)
+  assert.equal(isPanelReviewSeverity('critical'), false)
+})
+
+test('review state does not change the panel order, counts or default selection', () => {
+  assert.deepEqual(
+    [...PANEL_STATUS_ORDER],
+    ['awaiting_review', 'blocked', 'active', 'new', 'done'],
+    'the list order still names thread statuses only',
+  )
+  const threads = [
+    { threadId: 'a', status: 'done', updatedAt: '2026-01-02T00:00:00.000Z', reviewStatus: 'needs_revision' },
+    { threadId: 'b', status: 'done', updatedAt: '2026-01-03T00:00:00.000Z', reviewStatus: 'pass' },
+  ]
+  const sorted = sortThreadsForPanel(threads)
+  assert.deepEqual(
+    sorted.map((thread) => thread.threadId),
+    ['b', 'a'],
+    'review state never reorders rows',
+  )
+  assert.deepEqual(countThreads(threads), {
+    new: 0, active: 0, awaiting_review: 0, blocked: 0, done: 2,
+  })
+  assert.equal(defaultSelectedThreadId(sorted), 'b', 'the default row is still the first sorted row')
 })
 
 test('isPanelError recognizes the shared error envelope only', () => {

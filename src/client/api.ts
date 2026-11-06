@@ -10,10 +10,18 @@ import {
   HANDOFF_PATH,
   OVERVIEW_PATH,
   isPanelError,
+  isPanelReviewSeverity,
+  isPanelReviewStatus,
+  isPanelReviewVerdict,
   type HandoffPayload,
   type HandoffResponse,
   type OverviewPayload,
   type OverviewResponse,
+  type PanelHandoffRecord,
+  type PanelReviewFinding,
+  type PanelReviewPayload,
+  type PanelReviewRecord,
+  type PanelReviewVerification,
 } from '../api-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 
@@ -57,6 +65,86 @@ export function panelApiPath(path: string, params: Readonly<Record<string, strin
   return search.length === 0 ? path : `${path}?${search}`
 }
 
+/** A trimmed non-empty string from an untrusted body, or null. */
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null
+}
+
+/** One finding row; a row the panel cannot label is dropped, not rendered bare. */
+function parseReviewFinding(value: unknown): PanelReviewFinding | null {
+  if (typeof value !== 'object' || value === null) return null
+  const row = value as Record<string, unknown>
+  if (optionalString(row.id) === null) return null
+  if (!isPanelReviewSeverity(row.severity)) return null
+  if (typeof row.problem !== 'string' || typeof row.requiredFix !== 'string') return null
+  const finding: {
+    id: string
+    severity: PanelReviewFinding['severity']
+    problem: string
+    requiredFix: string
+    file?: string
+    line?: number
+  } = {
+    id: row.id as string,
+    severity: row.severity,
+    problem: row.problem,
+    requiredFix: row.requiredFix,
+  }
+  const file = optionalString(row.file)
+  if (file !== null) finding.file = file
+  if (typeof row.line === 'number' && Number.isInteger(row.line) && row.line > 0) finding.line = row.line
+  return finding
+}
+
+/** One reviewer verification row; malformed rows are dropped like findings. */
+function parseReviewVerification(value: unknown): PanelReviewVerification | null {
+  if (typeof value !== 'object' || value === null) return null
+  const row = value as Record<string, unknown>
+  if (optionalString(row.command) === null) return null
+  if (typeof row.exitCode !== 'number' || !Number.isInteger(row.exitCode)) return null
+  if (typeof row.evidence !== 'string') return null
+  return { command: row.command as string, exitCode: row.exitCode, evidence: row.evidence }
+}
+
+/** Narrow one review document to the wire record, or null when it has no verdict. */
+function parseReviewRecord(value: unknown): PanelReviewRecord | null {
+  if (typeof value !== 'object' || value === null) return null
+  const record = value as Record<string, unknown>
+  if (!isPanelReviewVerdict(record.verdict)) return null
+  if (typeof record.summary !== 'string') return null
+  const reviewerSessionId = optionalString(record.reviewerSessionId)
+  const createdAt = optionalString(record.createdAt)
+  if (reviewerSessionId === null || createdAt === null) return null
+  const findings = Array.isArray(record.findings)
+    ? record.findings.map(parseReviewFinding).filter((row): row is PanelReviewFinding => row !== null)
+    : []
+  const verification = Array.isArray(record.verification)
+    ? record.verification.map(parseReviewVerification)
+      .filter((row): row is PanelReviewVerification => row !== null)
+    : []
+  return {
+    version: 1,
+    threadId: optionalString(record.threadId) ?? '',
+    reviewerSessionId,
+    verdict: record.verdict,
+    summary: record.summary,
+    findings,
+    verification,
+    createdAt,
+  }
+}
+
+/** Narrow the optional `review` field of a handoff response. */
+function parseReviewPayload(value: unknown): PanelReviewPayload | null {
+  if (typeof value !== 'object' || value === null) return null
+  const payload = value as Record<string, unknown>
+  const filePath = optionalString(payload.filePath)
+  if (filePath === null) return null
+  const record = parseReviewRecord(payload.record)
+  if (record === null) return null
+  return { record, filePath }
+}
+
 /** Narrow the parsed body to an overview payload (runtime trust boundary). */
 function parseOverview(body: unknown): OverviewPayload {
   if (typeof body !== 'object' || body === null) throw new PanelApiError('internal', '总览响应不是对象')
@@ -92,6 +180,11 @@ function parseOverview(body: unknown): OverviewPayload {
       updatedAt: String(thread.updatedAt ?? ''),
       lastHandoffAt: thread.lastHandoffAt ?? null,
       hasHandoff: thread.hasHandoff === true,
+      // Only the four review states are accepted; anything else is "no review",
+      // so a hand-written index cannot label a thread with an invented state.
+      reviewStatus: isPanelReviewStatus(thread.reviewStatus) ? thread.reviewStatus : null,
+      reviewedAt: optionalString(thread.reviewedAt),
+      reviewerSessionId: optionalString(thread.reviewerSessionId),
     })),
   }
 }
@@ -105,7 +198,15 @@ function parseHandoff(body: unknown): HandoffPayload {
   if (typeof handoff !== 'object' || handoff === null) throw new PanelApiError('internal', '交接单响应缺少 handoff')
   if (typeof handoff.filePath !== 'string') throw new PanelApiError('internal', '交接单响应缺少 filePath')
   if (typeof handoff.masterMessage !== 'string') throw new PanelApiError('internal', '交接单响应缺少 masterMessage')
-  return handoff
+  // `review` is optional on the wire by design (older hosts omit it, and a
+  // missing verdict is a normal state), so it never fails the handoff parse.
+  return {
+    record: handoff.record as PanelHandoffRecord,
+    filePath: handoff.filePath,
+    masterMessage: handoff.masterMessage,
+    formatterVersion: typeof handoff.formatterVersion === 'string' ? handoff.formatterVersion : '',
+    review: parseReviewPayload(handoff.review),
+  }
 }
 
 /**

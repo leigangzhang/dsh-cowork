@@ -3,12 +3,16 @@ import assert from 'node:assert/strict'
 import {
   CHIP_STATUS_ORDER,
   FEEDBACK_TTL_MS,
+  FINDING_SEVERITY_LABELS,
+  FINDING_SEVERITY_TONES,
   LIST_COLUMN_WIDTH,
   LONG_LIST_THRESHOLD,
   LONG_SUBJECT_THRESHOLD,
   MASTER_MESSAGE_FALLBACK_HEIGHT,
   MASTER_MESSAGE_MIN_HEIGHT,
   PROJECT_PATH_MAX_CHARS,
+  REVIEW_STATUS_LABELS,
+  REVIEW_STATUS_TONES,
   SPLIT_WIDTH_THRESHOLD,
   STATUS_LABELS,
   chooseLayout,
@@ -16,15 +20,27 @@ import {
   copySuccessMessage,
   emptyNotice,
   errorPresentation,
+  findingSeverityLabel,
+  findingSeverityTone,
   formatLocalTimestamp,
   formatRelativeTime,
   isLongList,
   isLongSubject,
   masterMessageMaxHeight,
   middleEllipsis,
+  openReviewSessionFailureMessage,
+  openReviewSessionMessage,
+  openReviewSessionUnavailableMessage,
   openSessionFailureMessage,
   openSessionMessage,
   openSessionUnavailableMessage,
+  reviewAbsentMessage,
+  reviewBadgeTitle,
+  reviewDetailUnavailableMessage,
+  reviewOpenUnavailableMessage,
+  reviewPendingMessage,
+  reviewStatusLabel,
+  reviewStatusTone,
   shortThreadId,
   statusChips,
   statusLabel,
@@ -214,4 +230,93 @@ test('MASTER message height is about 40% of the measured area, clamped', () => {
   assert.equal(masterMessageMaxHeight(0), MASTER_MESSAGE_FALLBACK_HEIGHT)
   assert.equal(masterMessageMaxHeight(Number.NaN), MASTER_MESSAGE_FALLBACK_HEIGHT)
   assert.equal(MASTER_MESSAGE_FALLBACK_HEIGHT, 240)
+})
+
+test('the four review states have visible labels and distinct tones', () => {
+  assert.deepEqual(REVIEW_STATUS_LABELS, {
+    pending: '审查中',
+    pass: '审查通过',
+    needs_revision: '需修改',
+    reject: '已拒绝',
+  })
+  assert.equal(reviewStatusLabel('pending'), '审查中')
+  assert.equal(reviewStatusLabel('pass'), '审查通过')
+  assert.equal(reviewStatusLabel('needs_revision'), '需修改')
+  assert.equal(reviewStatusLabel('reject'), '已拒绝')
+  assert.equal(reviewStatusLabel('unknown'), 'unknown', 'an invented state stays visible')
+
+  assert.equal(reviewStatusTone('pending'), 'warn')
+  assert.equal(reviewStatusTone('pass'), 'success')
+  assert.equal(reviewStatusTone('needs_revision'), 'warn')
+  assert.equal(reviewStatusTone('reject'), 'error')
+  assert.equal(reviewStatusTone('unknown'), 'idle')
+  assert.deepEqual(Object.keys(REVIEW_STATUS_TONES).sort(), ['needs_revision', 'pass', 'pending', 'reject'])
+
+  // Status is never color-only: every review state carries non-empty text.
+  for (const status of Object.keys(REVIEW_STATUS_LABELS)) {
+    assert.ok(reviewStatusLabel(status).length > 0, `${status} has visible text`)
+  }
+})
+
+test('finding severities map to labels and tones, blockers and highs are errors', () => {
+  assert.deepEqual(FINDING_SEVERITY_LABELS, {
+    blocker: '阻断',
+    high: '高',
+    medium: '中',
+    low: '低',
+  })
+  assert.equal(findingSeverityLabel('blocker'), '阻断')
+  assert.equal(findingSeverityLabel('high'), '高')
+  assert.equal(findingSeverityLabel('medium'), '中')
+  assert.equal(findingSeverityLabel('low'), '低')
+  assert.equal(findingSeverityLabel('critical'), 'critical')
+
+  assert.equal(findingSeverityTone('blocker'), 'error')
+  assert.equal(findingSeverityTone('high'), 'error')
+  assert.equal(findingSeverityTone('medium'), 'warn')
+  assert.equal(findingSeverityTone('low'), 'idle')
+  assert.equal(findingSeverityTone('critical'), 'idle')
+  assert.deepEqual(Object.keys(FINDING_SEVERITY_TONES).sort(), ['blocker', 'high', 'low', 'medium'])
+})
+
+test('the review badge title carries the time and the finding count', () => {
+  assert.equal(reviewBadgeTitle('pass', null), '审查通过')
+  const withTime = reviewBadgeTitle('needs_revision', '2026-01-02T03:04:05.000Z')
+  assert.match(withTime, /^需修改 · \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+  const withFindings = reviewBadgeTitle('needs_revision', '2026-01-02T03:04:05.000Z', 2)
+  assert.equal(withFindings, `${withTime} · 2 条 finding`)
+  assert.equal(reviewBadgeTitle('pass', 'not-a-date'), '审查通过 · 时间未知')
+  assert.equal(reviewBadgeTitle('pending', '  '), '审查中', 'a blank time adds nothing')
+  assert.equal(reviewBadgeTitle('pass', null, 0), '审查通过')
+})
+
+test('review messages explain the absent, pending and open-session states', () => {
+  assert.match(reviewAbsentMessage(), /尚无 review/)
+  assert.match(reviewAbsentMessage(), /cowork_review_request/)
+  assert.match(reviewPendingMessage(), /审查中/)
+  assert.match(reviewDetailUnavailableMessage('pass'), /review 详情不可用/)
+  assert.match(reviewDetailUnavailableMessage('pass'), /审查通过/)
+  assert.match(reviewDetailUnavailableMessage('reject'), /已拒绝/)
+  assert.match(reviewOpenUnavailableMessage(), /review 会话/)
+  assert.match(reviewOpenUnavailableMessage(), /cowork_review_request/)
+
+  assert.match(openReviewSessionMessage('session-deadbeef-0000'), /review 会话/)
+  assert.match(openReviewSessionMessage('session-deadbeef-0000'), /session-/)
+  assert.match(openReviewSessionFailureMessage(''), /打开 review 会话失败/)
+  assert.match(openReviewSessionFailureMessage('navigating'), /navigating/)
+  assert.match(openReviewSessionUnavailableMessage(), /无法打开 review 会话/)
+
+  // The thread-session messages stay distinct from the review ones.
+  assert.notEqual(openReviewSessionMessage('abc'), openSessionMessage('abc'))
+  assert.notEqual(openReviewSessionUnavailableMessage(), openSessionUnavailableMessage())
+})
+
+test('the review badge does not change the 480px layout switch', () => {
+  assert.equal(chooseLayout(648), 'split')
+  assert.equal(chooseLayout(481), 'split')
+  assert.equal(chooseLayout(480), 'drill')
+  // The badge always renders text, so both layouts keep a readable state.
+  for (const status of Object.keys(REVIEW_STATUS_LABELS)) {
+    assert.ok(reviewStatusLabel(status).trim().length > 0)
+  }
 })

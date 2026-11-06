@@ -22,10 +22,14 @@ import {
   FEEDBACK_TTL_MS,
   masterMessageMaxHeight,
   middleEllipsis,
+  openReviewSessionFailureMessage,
+  openReviewSessionMessage,
+  openReviewSessionUnavailableMessage,
   openSessionFailureMessage,
   openSessionMessage,
   openSessionUnavailableMessage,
   PROJECT_PATH_MAX_CHARS,
+  reviewOpenUnavailableMessage,
   surfaceState,
   type LayoutMode,
   type NoticePresentation,
@@ -281,6 +285,32 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     }
   }, [selectedThread, services.uiWorkspace, showFeedback])
 
+  /**
+   * Open the review session. This is deliberately separate from the thread
+   * session action: the review session is a different id, and pressing it must
+   * never navigate to the selected thread instead.
+   */
+  const openReviewSession = useCallback(() => {
+    const reviewerSessionId = selectedThread?.reviewerSessionId
+      ?? handoff?.review?.record.reviewerSessionId
+      ?? null
+    if (reviewerSessionId === null) {
+      showFeedback({ kind: 'failed', text: reviewOpenUnavailableMessage() })
+      return
+    }
+    const workspace = services.uiWorkspace
+    if (workspace === undefined || typeof workspace.openSession !== 'function') {
+      showFeedback({ kind: 'failed', text: openReviewSessionUnavailableMessage() })
+      return
+    }
+    try {
+      workspace.openSession(reviewerSessionId)
+      showFeedback({ kind: 'ok', text: openReviewSessionMessage(reviewerSessionId) })
+    } catch (reason) {
+      showFeedback({ kind: 'failed', text: openReviewSessionFailureMessage(errorMessage(reason)) })
+    }
+  }, [selectedThread, handoff?.review, services.uiWorkspace, showFeedback])
+
   const copyHandoffPath = useCallback(() => {
     const filePath = handoff?.filePath
     if (filePath === undefined || filePath.length === 0) {
@@ -302,6 +332,13 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   const surface = surfaceState({ loading: phase === 'loading', error, threadCount: overview?.threads.length ?? 0 })
   const emptyPresentation = error === null ? emptyNotice('no-threads') : errorPresentation(error)
   const canOpenSession = services.uiWorkspace !== undefined && typeof services.uiWorkspace.openSession === 'function'
+  const reviewerSessionId = selectedThread?.reviewerSessionId
+    ?? handoff?.review?.record.reviewerSessionId
+    ?? null
+  const canOpenReviewSession = canOpenSession && reviewerSessionId !== null
+  const reviewOpenHint = reviewerSessionId === null
+    ? reviewOpenUnavailableMessage()
+    : openReviewSessionUnavailableMessage()
 
   const detail = selectedThread === null ? null : (
     <ThreadDetail
@@ -315,6 +352,9 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
       openSessionHint={openSessionUnavailableMessage()}
       feedback={feedback}
       onOpenSession={openSession}
+      canOpenReviewSession={canOpenReviewSession}
+      reviewOpenHint={reviewOpenHint}
+      onOpenReviewSession={openReviewSession}
       onCopyPath={copyHandoffPath}
       onBack={layout === 'drill' ? () => { setDrillOpen(false) } : null}
     />
