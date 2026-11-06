@@ -84,6 +84,13 @@ export interface CoworkApiPorts {
    * already carries `cwd`.
    */
   listSessions(): Promise<{ readonly items: readonly PanelSessionRow[] }>
+  /**
+   * Bound on {@link listSessions}, in milliseconds. Production leaves this
+   * unset and gets {@link LIST_SESSIONS_TIMEOUT_MS}; tests inject a few
+   * milliseconds so the timeout path is deterministic without waiting 30 s.
+   * Not part of the wire contract: it only bounds the host call.
+   */
+  listSessionsTimeoutMs?: number
   findProjectRoot(startPath: string): Promise<string | null>
   createStore(repoPath: string): CoworkStorePort
 }
@@ -143,11 +150,21 @@ const PANEL_ERROR_STATUS: Readonly<Record<PanelErrorCode, number>> = {
   'request/thread-required': 400,
   'session/unknown': 400,
   'session/cwd-unavailable': 400,
+  'session/list-timeout': 504,
   'project/not-initialized': 404,
   'handoff/not-found': 404,
   'store/corrupt': 500,
   internal: 500,
 }
+
+/**
+ * How long a route waits for the host's session listing. The listing is a
+ * metadata read that answers in milliseconds on a healthy host, but an old
+ * fiber or a very large session list has been observed to hang for minutes
+ * (KI-12); waiting forever turns that into an endless panel spinner. Giving up
+ * with a retryable 504 is better than a request that never settles.
+ */
+export const LIST_SESSIONS_TIMEOUT_MS = 30_000
 
 const JSON_HEADERS: Readonly<Record<string, string>> = {
   'content-type': 'application/json; charset=utf-8',
@@ -198,16 +215,47 @@ function queryParam(request: Request, name: string): string | null {
 }
 
 /**
+ * Await the session listing with a bound. The losing branch of the race keeps
+ * a handler attached: if the host listing rejects after the timeout already
+ * answered 504, that late rejection must not surface as an unhandled rejection.
+ * The timer is cleared in `finally`, so the successful path leaves none behind
+ * either.
+ */
+async function listSessionsBounded(ports: CoworkApiPorts): Promise<readonly PanelSessionRow[]> {
+  const timeoutMs = ports.listSessionsTimeoutMs ?? LIST_SESSIONS_TIMEOUT_MS
+  const pending = ports.listSessions()
+  void pending.catch(() => { /* answered by the race below; keeps a late rejection quiet */ })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new PanelApiError(
+          'session/list-timeout',
+          `session listing did not answer within ${timeoutMs} ms; `
+            + 'the host may still be loading a large session list, retry the request',
+        ))
+      }, timeoutMs)
+    })
+    const { items } = await Promise.race([pending, timeout])
+    return items
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/**
  * Resolve the project root for a session. The browser only ever sends a
  * session id: the cwd comes from the host, so a crafted `path` parameter can
  * never read a repository the caller's session does not belong to.
  *
  * The cwd is read from session metadata (`listSessions`). A failure of that
  * listing is a host failure and falls through to `internal`; only a listing
- * that does not contain the id is reported as an unknown session.
+ * that does not contain the id is reported as an unknown session. A listing
+ * that never answers becomes `session/list-timeout` instead of hanging the
+ * request forever.
  */
 async function resolveProjectRoot(ports: CoworkApiPorts, sessionId: string): Promise<string> {
-  const { items } = await ports.listSessions()
+  const items = await listSessionsBounded(ports)
   const row = items.find((item) => item.sessionId === sessionId)
   if (row === undefined) {
     throw new PanelApiError('session/unknown', `unknown session: ${sessionId}`)
