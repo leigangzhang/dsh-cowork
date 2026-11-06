@@ -1,7 +1,7 @@
 # M3 结果：独立 review 门禁与面板 review 呈现
 
 - 结论：**host 侧 M3 已交付并在真实宿主验证**——`cowork_review_request` / `cowork_review_verdict`、独立 `cowork-reviewer` 会话、`reviews/` 存储、verdict 状态路由、`needs_revision` 退回、`pass` 合并门禁与显式覆盖，全部在真实宿主 E2E 中跑通（15/15 步，两次合并）。**面板侧 code 已交付**（overview/handoff review 字段、徽章、审查详情、打开 review 会话），但**真实 Chrome 带 review 状态的截图未取得**：宿主在大量会话下 `/api/session/list` 持续 >60 s 不返回，面板停在 loading；本项按未验证记录，不作为通过。
-- 分支与字节：`feat/m3-review-panel`，代码/证据基线 `d95fb82`（含 t8）；文档提交在本文件所在提交之后。
+- 分支与字节：`feat/m3-review-panel`，代码/证据基线 `d95fb82`（含 t8）；M3 文档与交接的提交见 `.dsh-cowork/e2e/M3_DOCS_READY.json` 的 `commit`（写该 marker 时的 HEAD）。
 - 依据：[M3 提案](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有范围与决策；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有本轮探针与失败；[M3 交接](M3_HANDOFF.md) 拥有从哪继续；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有明确不修项。
 
 ## 交付面

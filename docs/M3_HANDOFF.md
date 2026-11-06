@@ -11,7 +11,7 @@
 - **仍缺**：面板两档真实 Chrome 截图（F1）。阻塞是宿主 API 延迟，不是面板代码；重试步骤见 [M3 P0 探针](M3_PROBE_RESULT.md)「失败与经验」与 KI-12。重试成功后补截图并更新 [M3 结果](M3_RESULT.md) 的 M3A8 行。
 - 环境注记：同名包 client 在本进程内不生效（KI-11）；真机复现需临时改名包或重启宿主。失败 E2E 会留下 `.dsh-cowork/e2e/m3-repo` 夹具，重跑 `npm run check` 前先清理（KI-13）。
 
-> 下面「第一步：P0 探针」「实施顺序」是交付前的原始计划，保留作历史；完成状态以上文与 [M3 结果](M3_RESULT.md) 为准。
+> 下面「交付前的事实」「第一步：P0 探针」「实施顺序」是交付前的原始记录，保留作历史；完成状态以上文与 [M3 结果](M3_RESULT.md) 为准。
 
 ## 先读什么
 
@@ -22,7 +22,7 @@
 5. [面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RECON](PANEL_RECON.md)、[PANEL_HANDOFF](PANEL_HANDOFF.md)：面板落点、数据契约、客户端构建事实。
 6. [M1 结果](M1_RESULT.md)、[M0 探针](M0_PROBE_RESULT.md)：已证 API，不要重复验证。
 
-## 现在的事实
+## 交付前的事实（历史）
 
 - `main` 从 M2 收口后的提交开始；工具面 9 个（M1 六个 + `cowork_memory_write` / `cowork_memory_search` / `cowork_checkout_merge`），`cowork_route` / `cowork_thread_create` 有 `isolated?: boolean`。
 - thread 是用户可直接打开、可交互的普通会话（PLAN §1/§2），隔离为每 thread 一个本地 clone；reviewer 需要看主仓库与分支差异，**不要**把 reviewer 的 cwd 设成 clone。
