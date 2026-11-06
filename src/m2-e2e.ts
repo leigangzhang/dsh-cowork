@@ -544,7 +544,7 @@ export class M2E2ERunner {
       step,
       master,
       'master',
-      `Call cowork_checkout_merge with threadId "${thread}". ${MASTER_DONE}`,
+      `Call cowork_checkout_merge with threadId "${thread}", allowUnreviewed true, overrideReason "M2 E2E lane predates the M3 review gate". ${MASTER_DONE}`,
     )
     await this.poll('first thread merged and torn down', async () => {
       const failed = this.latestToolFailure(master, prompt.fromSeq, MERGE_TOOL)
@@ -681,7 +681,7 @@ export class M2E2ERunner {
         step,
         master,
         'master',
-        `Call cowork_checkout_merge with threadId "${thread}". ${MASTER_DONE}`,
+        `Call cowork_checkout_merge with threadId "${thread}", allowUnreviewed true, overrideReason "M2 E2E lane predates the M3 review gate". ${MASTER_DONE}`,
       )
       const record = await this.poll('second thread marked blocked after the conflict', async () => {
         const calls = this.toolCallsSince(master, prompt.fromSeq, MERGE_TOOL)
@@ -798,7 +798,7 @@ export class M2E2ERunner {
       step,
       master,
       'master',
-      `Call cowork_checkout_merge with threadId "${thread}". ${MASTER_DONE}`,
+      `Call cowork_checkout_merge with threadId "${thread}", allowUnreviewed true, overrideReason "M2 E2E lane predates the M3 review gate". ${MASTER_DONE}`,
     )
     await this.poll('retry merge succeeded and tore the checkout down', async () => {
       const failed = this.latestToolFailure(master, prompt.fromSeq, MERGE_TOOL)

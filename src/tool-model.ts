@@ -30,6 +30,16 @@ export const ERROR_CODES = {
   checkoutMergeFailed: 'checkout/merge-failed',
   checkoutGitFailed: 'checkout/git-failed',
   checkoutNotReady: 'checkout/not-ready',
+  reviewNotReady: 'review/not-ready',
+  reviewAlreadyPending: 'review/already-pending',
+  reviewNotReviewer: 'review/not-reviewer',
+  reviewSelfReview: 'review/self-review',
+  reviewVerdictInvalid: 'review/verdict-invalid',
+  reviewNotPassed: 'review/not-passed',
+  reviewOverrideReasonRequired: 'review/override-reason-required',
+  reviewSessionFailed: 'review/session-failed',
+  reviewPromptFailed: 'review/prompt-failed',
+  reviewWriteFailed: 'review/write-failed',
 } as const
 
 /** The one failure envelope every tool returns instead of throwing. */
@@ -154,6 +164,41 @@ export function buildThreadBrief(input: {
   )
   return lines.join('\n')
 }
+
+/**
+ * The `findings` parameter schema of `cowork_review_verdict`. It lives here,
+ * not in src/review.ts, because it is a tool-boundary concern: the review
+ * model owns the semantics, the tool model owns what the model is asked for.
+ * The shape is kept `as const` so it satisfies the host's parameter-spec type.
+ */
+export const REVIEW_FINDING_PARAMETER = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: { type: 'string', required: true, description: 'Short finding id, e.g. F1.' },
+    severity: {
+      type: 'string',
+      required: true,
+      enum: ['blocker', 'high', 'medium', 'low'],
+      description: 'How serious the finding is.',
+    },
+    problem: { type: 'string', required: true, description: 'What is wrong.' },
+    requiredFix: { type: 'string', required: true, description: 'What must change.' },
+    file: { type: 'string', description: 'File the finding is in, when known.' },
+    line: { type: 'integer', description: 'Positive line number, when known.' },
+  },
+} as const
+
+/** The `verification` row schema, shared by `cowork_review_verdict`. */
+export const REVIEW_VERIFICATION_PARAMETER = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    command: { type: 'string', required: true, description: 'Exact command that was run.' },
+    exitCode: { type: 'integer', required: true, description: 'Exit code the command returned.' },
+    evidence: { type: 'string', required: true, description: 'Short output or result that proves it.' },
+  },
+} as const
 
 /** The router decision this module maps into a tool payload. */
 export interface RouteDecisionLike {
