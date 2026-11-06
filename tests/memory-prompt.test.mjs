@@ -227,6 +227,25 @@ test('renders an empty string when the project has no memory yet', () => {
   assert.equal(providerOf(sections)({}), '')
 })
 
+test('clears the cache when renderMemory returns null so recovered text is fresh', () => {
+  const { agent, sections } = fakeAgent()
+  const deps = makeDeps({
+    render: (_repo, call) => {
+      if (call === 1) return { text: 'stale block', digest: 'same' }
+      if (call === 2) return null
+      // Same digest as the pre-null render: only a cleared cache re-emits text.
+      return { text: 'fresh block', digest: 'same' }
+    },
+  })
+  registerMemoryPrompt(fakeHost([agent]).host, deps)
+  const provider = providerOf(sections)
+
+  assert.equal(provider({}), 'stale block')
+  assert.equal(provider({}), '')
+  assert.equal(provider({}), 'fresh block')
+  assert.equal(deps.renderCalls.length, 3)
+})
+
 test('keeps the provider cache isolated per agent', () => {
   const renders = {
     '/work/a/.dsh-cowork': { text: 'A one', digest: 'a1' },
@@ -264,6 +283,52 @@ test('counts a duplicate section registration without breaking other agents', ()
   assert.equal(deps.logs.length, 1)
   assert.match(deps.logs[0], /dup/)
   assert.match(deps.logs[0], /duplicate section name/)
+})
+
+test('counts one duplicate per agent even when its failing event repeats', () => {
+  const host = fakeHost([])
+  const deps = makeDeps()
+  const registration = registerMemoryPrompt(host.host, deps)
+  const failing = fakeAgent({
+    id: 'dup',
+    onSection() {
+      throw new Error('duplicate section name')
+    },
+  })
+
+  host.emit(failing.agent, 'create')
+  host.emit(failing.agent, 'restore')
+  host.emit(failing.agent, 'create')
+
+  assert.equal(registration.duplicateSkipped(), 1)
+  assert.deepEqual(registration.registered(), [])
+  // One log line: the repeat events are rejected before registering again.
+  assert.equal(deps.logs.length, 1)
+})
+
+test('counts each failing agent separately across listing and emitted events', () => {
+  const listed = fakeAgent({
+    id: 'dup-a',
+    onSection() {
+      throw new Error('duplicate section name')
+    },
+  })
+  const host = fakeHost([listed.agent])
+  const deps = makeDeps()
+  const registration = registerMemoryPrompt(host.host, deps)
+
+  const emitted = fakeAgent({
+    id: 'dup-b',
+    onSection() {
+      throw new Error('duplicate section name')
+    },
+  })
+  host.emit(emitted.agent, 'create')
+
+  assert.equal(registration.duplicateSkipped(), 2)
+  // Re-emitting an already counted agent must not raise the count.
+  host.emit(listed.agent, 'restore')
+  assert.equal(registration.duplicateSkipped(), 2)
 })
 
 test('registers each agent only once even if it is listed and emitted repeatedly', () => {

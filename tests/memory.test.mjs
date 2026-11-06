@@ -160,6 +160,22 @@ test('parseMemoryFile rejects a source line whose timestamp is not a real date',
   assert.match(parsed.issues[0].message, /ISO 8601/)
 })
 
+test('the timestamp policy rejects month 13 but keeps a shape-valid date verbatim', () => {
+  // The regex shape matches month 13 with a plausible day and time; only
+  // Date.parse can tell that the month does not exist.
+  const month13 = parseMemoryFile('fact', 'facts.md', block('a', 'b', 's', '2026-13-05T00:00:00.000Z'))
+  assert.equal(month13.entries.length, 0)
+  assert.equal(month13.issues.length, 1)
+  assert.match(month13.issues[0].message, /2026-13-05T00:00:00\.000Z/)
+  assert.match(month13.issues[0].message, /ISO 8601/)
+
+  // A leap day is real; the reader keeps the string it read (no normalisation).
+  const leap = parseMemoryFile('fact', 'facts.md', block('leap', 'b', 's', '2028-02-29T12:34:56.789Z'))
+  assert.deepEqual(leap.issues, [])
+  assert.equal(leap.entries.length, 1)
+  assert.equal(leap.entries[0].createdAt, '2028-02-29T12:34:56.789Z')
+})
+
 test('parseMemoryFile reports an entry whose body is only the provenance line', () => {
   const parsed = parseMemoryFile('fact', 'facts.md', `## empty body\n\n(来源: s; ${ISO})\n`)
   assert.equal(parsed.entries.length, 0)
@@ -192,6 +208,8 @@ test('validateMemoryEntry rejects an unknown kind', () => {
     const result = validateMemoryEntry(kind, { title: 't', text: 'x', source: 's' })
     assert.equal(result.ok, false)
     assert.equal(result.issues.length, 1)
+    // `kind` is a first-class field of the issue, not a cast into 'title'/'text'/'source'.
+    assert.equal(result.issues[0].field, 'kind')
     assert.match(result.issues[0].message, /kind must be one of/)
   }
 })
@@ -256,6 +274,25 @@ test('renderMemoryEntry round-trips through parseMemoryFile', () => {
   assert.equal(parsed.entries[0].title, input.title)
   assert.equal(parsed.entries[0].text, input.text)
   assert.equal(parsed.entries[0].source, input.source)
+})
+
+test('renderMemoryEntry stamps the injected clock instead of the wall clock', () => {
+  const input = { title: 'pin the clock', text: 'tests assert exact timestamps', source: 'thread-c' }
+  const fixed = new Date('2026-01-02T03:04:05.678Z')
+
+  const rendered = renderMemoryEntry(input, () => fixed)
+  assert.match(rendered, /\(来源: thread-c; 2026-01-02T03:04:05\.678Z\)$/)
+
+  // The rendered block still round-trips, and the timestamp is stored verbatim.
+  const parsed = parseMemoryFile('fact', 'facts.md', rendered)
+  assert.deepEqual(parsed.issues, [])
+  assert.equal(parsed.entries[0].createdAt, fixed.toISOString())
+
+  // Without a clock the contract is "some real ISO 8601 instant", not a fixed value.
+  const wall = renderMemoryEntry(input)
+  const stamped = /\(来源: thread-c; (.+)\)$/.exec(wall)
+  assert.ok(stamped)
+  assert.equal(Number.isNaN(Date.parse(stamped[1])), false)
 })
 
 // ---------------------------------------------------------------------------

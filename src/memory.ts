@@ -82,7 +82,12 @@ export interface MemoryEntryInput {
 }
 
 export interface MemoryValidationIssue {
-  field: 'title' | 'text' | 'source'
+  /**
+   * The field at fault. `kind` is an issue too: appending to the wrong file is
+   * a validation error, and reporting it here (rather than casting it to one of
+   * the entry fields) keeps the field name honest for the caller.
+   */
+  field: 'title' | 'text' | 'source' | 'kind'
   message: string
 }
 
@@ -143,10 +148,16 @@ const TEXT_WEIGHT = 2
 const SOURCE_WEIGHT = 1
 
 /**
- * Trailing provenance line. `(.+)` is greedy so a source may itself contain
- * `; `; the timestamp is anchored to an ISO 8601 date prefix, and
- * {@link parseMemoryFile} additionally rejects a value `Date.parse` cannot read
- * (for example month 13, which still satisfies the shape).
+ * Timestamp policy for the provenance line — one rule, one owner.
+ *
+ * A writer stamps an entry with `clock().toISOString()` (UTC, millisecond
+ * precision). A reader accepts a timestamp when `Date.parse` returns a number:
+ * that is dependency-free and still rejects the shapes that matter — month 13,
+ * day 45, hour 99 and a non-date string all come back NaN even though
+ * {@link SOURCE_LINE}'s shape matched. Ordering uses the same parser through
+ * {@link timeOf}, where an unparseable value sorts oldest instead of being
+ * dropped. No timezone normalisation happens on read: the string is stored and
+ * reported verbatim, so a file written by an older version still round-trips.
  */
 const SOURCE_LINE = /^\(来源: (.+); (\d{4}-\d{2}-\d{2}T[^)]+)\)$/
 
@@ -168,15 +179,14 @@ function isMemoryKind(value: unknown): value is MemoryKind {
 }
 
 /**
- * Build one structured validation issue. The public `field` union is frozen to
- * the three entry fields, yet an unknown `kind` still has to be reported as a
- * structured issue rather than thrown, so the cast keeps the readable name.
+ * Build one structured validation issue. `field` is the public union, `kind`
+ * included, so an unknown kind is reported with its own name and no cast.
  */
 function validationIssue(
-  field: MemoryValidationIssue['field'] | 'kind',
+  field: MemoryValidationIssue['field'],
   message: string,
 ): MemoryValidationIssue {
-  return { field: field as MemoryValidationIssue['field'], message }
+  return { field, message }
 }
 
 /** Number of tokens the injected tokenizer reports for `text`, as a set. */
@@ -398,13 +408,14 @@ export function validateMemoryEntry(
 }
 
 /**
- * Render one entry in file format. The public signature carries no clock, so
- * this convenience stamps the wall clock; {@link appendMemoryEntry} uses the
- * internal renderer with its injected clock instead, which is why the tests
- * assert the timestamp's shape rather than an exact value here.
+ * Render one entry in file format. The clock is injectable so a test (or a
+ * caller that already owns a clock, such as the tools layer) can pin the
+ * timestamp; without one this falls back to the wall clock. See the timestamp
+ * policy at {@link SOURCE_LINE} for what the writer guarantees.
  */
-export function renderMemoryEntry(entry: MemoryEntryInput): string {
-  return renderEntry({ ...entry, createdAt: new Date().toISOString() })
+export function renderMemoryEntry(entry: MemoryEntryInput, clock?: () => Date): string {
+  const now = clock === undefined ? new Date() : clock()
+  return renderEntry({ ...entry, createdAt: now.toISOString() })
 }
 
 /** Token estimate: four characters per token, rounded up. */

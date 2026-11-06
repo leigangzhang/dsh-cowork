@@ -11,6 +11,7 @@
 export const THREAD_TITLE_PREFIX = 'cowork: '
 
 const PRESET_MISMATCH_PREFIX = 'session/create-preset-mismatch:'
+const SESSION_ID_MISMATCH_PREFIX = 'session/create-id-mismatch:'
 const DEFAULT_PROMPT_TIMEOUT_MS = 120_000
 
 export interface SessionCreateRequest {
@@ -129,8 +130,18 @@ export class SessionSlice {
    * Order is load-bearing: the workspace is created on `checkoutPath` first (so
    * the session mounts inside the clone), the session is created with the
    * explicit `sessionId` the caller already used for the clone directory and
-   * branch, and only then is it renamed. A session that did not mount the
-   * requested preset fails closed before anything else is named.
+   * branch, and only then is it renamed. Two fail-closed checks run between the
+   * create and the rename, in this order:
+   *
+   * 1. the host must return the session id we asked for — the caller's thread
+   *    id names the clone path and the `cowork/<id>` branch, so a host that
+   *    mints a different id would leave the index pointing at a session that
+   *    does not own the clone (and the rename below would retitle the wrong
+   *    session);
+   * 2. the session must have mounted the requested preset.
+   *
+   * Either failure throws before the rename, so neither the rename nor the
+   * caller's index write happens.
    */
   async createCheckoutThread(options: {
     repoPath: string
@@ -149,6 +160,13 @@ export class SessionSlice {
       workspaceId: workspace.id,
       agentPreset: presetId,
     })
+
+    if (created.sessionId !== threadId) {
+      throw new Error(
+        `${SESSION_ID_MISMATCH_PREFIX} requested ${JSON.stringify(threadId)}, ` +
+          `got ${JSON.stringify(created.sessionId)}; refusing to rename a session that does not own the checkout`,
+      )
+    }
 
     if (created.agentPreset !== presetId) {
       throw new Error(

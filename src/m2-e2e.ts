@@ -18,350 +18,96 @@
  * first check whether their target state was already reached; if so they pass
  * idempotently and record `note` instead of prompting again.
  */
-import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { hostname } from 'node:os'
-import { dirname, join, resolve, sep } from 'node:path'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { writeStoreAtomic } from './probe-store.js'
 import { MASTER_PRESET_ID } from './presets.js'
+import {
+  FIXTURE_SUBJECT_1,
+  FIXTURE_SUBJECT_2,
+  MASTER_DONE,
+  MAX_ASSISTANT_TEXT,
+  MAX_EVENTS,
+  MAX_FILE_TEXT,
+  MAX_GIT_TEXT,
+  MAX_TOOL_TEXT,
+  MEMORY_TEXT,
+  MEMORY_TITLE,
+  MERGE_TOOL,
+  M2_E2E_EVIDENCE_RELATIVE,
+  M2_E2E_FIXTURE_RELATIVE,
+  M2_E2E_STEP_TIMEOUT_MS,
+  POLL_MS,
+  STEP_IDS,
+  asRecord,
+  assistantTextSince,
+  clip,
+  contentText,
+  evidenceDocument,
+  gitOkObserved,
+  isoNow,
+  isStrictlyInside,
+  lastSeq,
+  memoryVisibilityChecks,
+  memoryVisiblePrompt,
+  messageOf,
+  observeGit,
+  parseIndex,
+  persistEvidence,
+  readHandoffs,
+  readObserved,
+  readTextIfPresent,
+  recordAssertion,
+  runGit,
+  sleep,
+  stateSnapshot,
+  statusView,
+  toolCallsSince,
+} from './m2-e2e-support.js'
+import type {
+  GitOutcome,
+  HandoffView,
+  IndexThread,
+  IndexView,
+  M2E2EConfig,
+  M2E2EEvidenceDocument,
+  M2E2EHost,
+  M2E2EStatusView,
+  M2PromptEvidence,
+  M2RunState,
+  M2SessionEvent,
+  M2ToolCallEvidence,
+  M2Workspace,
+  MutableRun,
+  MutableStep,
+} from './m2-e2e-support.js'
+// The support module owns the shared types and constants; re-export the ones
+// this module exported before the split so importers (src/index.ts) keep working.
+export {
+  M2_E2E_EVIDENCE_RELATIVE,
+  M2_E2E_FIXTURE_RELATIVE,
+  M2_E2E_STEP_TIMEOUT_MS,
+} from './m2-e2e-support.js'
+export type {
+  M2Assertion,
+  M2E2EConfig,
+  M2E2EEvidenceDocument,
+  M2E2EHost,
+  M2E2EStatusView,
+  M2PromptEvidence,
+  M2RunState,
+  M2SessionEvent,
+  M2SessionHeader,
+  M2SessionRow,
+  M2StepEvidence,
+  M2StepStatus,
+  M2StepView,
+  M2ToolCallEvidence,
+  M2Workspace,
+} from './m2-e2e-support.js'
 
-/** Evidence file, relative to the plugin's default repository root. */
-export const M2_E2E_EVIDENCE_RELATIVE = '.dsh-cowork/e2e/M2_E2E.json'
-/** Throwaway project root, relative to the plugin's default repository root. */
-export const M2_E2E_FIXTURE_RELATIVE = '.dsh-cowork/e2e/m2-repo'
-/** Upper bound for one E2E step (including its polling). */
-export const M2_E2E_STEP_TIMEOUT_MS = 180_000
-/** Poll interval; state is polled, never replaced by a fixed sleep. */
-const POLL_MS = 500
-/** Per-session event buffer bound. */
-const MAX_EVENTS = 4000
-/** Clipping bounds for evidence text. */
-const MAX_ASSISTANT_TEXT = 1000
-const MAX_TOOL_ARGUMENTS = 4000
-const MAX_TOOL_TEXT = 4000
-const MAX_FILE_TEXT = 2000
-const MAX_GIT_TEXT = 2000
-const MAX_FIELD_TEXT = 3000
-/** Git invocation bounds. */
-const GIT_TIMEOUT_MS = 30_000
-const GIT_MAX_BUFFER = 8 * 1024 * 1024
-
-/** One session event as this driver consumes it. */
-export interface M2SessionEvent {
-  readonly type: string
-  readonly seq: number
-  readonly time: number
-  readonly data: Record<string, unknown>
-}
-
-/** One session row returned by `sessionController.list`. */
-export interface M2SessionRow {
-  readonly sessionId: string
-  readonly cwd?: string
-  readonly running: boolean
-}
-
-/** One session header returned by `sessionController.inspect`. */
-export interface M2SessionHeader {
-  readonly id: string
-  readonly cwd?: string
-  readonly agentPreset?: string
-}
-
-/** One workspace record as this driver consumes it. */
-export interface M2Workspace {
-  readonly id: string
-  readonly path: string
-  readonly sessionIds: readonly string[]
-}
-
-/** Host services the driver calls; structural so the module stays testable. */
-export interface M2E2EHost {
-  readonly sessionController: {
-    create(request: {
-      workspaceId?: string
-      cwd?: string
-      sessionId?: string
-      agentPreset?: string
-    }): Promise<{ sessionId: string; agentPreset?: string }>
-    prompt(
-      request: {
-        requestId: string
-        sessionId: string
-        mode: 'queue' | 'steer'
-        content: ReadonlyArray<{ type: 'text'; text: string }>
-      },
-      signal?: AbortSignal,
-    ): Promise<{ accepted: boolean }>
-    list(request?: unknown, signal?: AbortSignal): Promise<{ items: readonly M2SessionRow[] }>
-    inspect(sessionId: string, signal?: AbortSignal): Promise<{ meta: M2SessionHeader }>
-  }
-  readonly workspaceRegistry: {
-    resolveByPath(path: string): Promise<M2Workspace | undefined>
-    delete(id: string): Promise<boolean>
-    archiveSession(sessionId: string, options?: { stopActivity?: boolean }): Promise<void>
-  }
-  on(
-    name: 'session/event',
-    listener: (session: { id: string }, event: M2SessionEvent) => void,
-  ): () => void
-}
-
-/** Construction knobs the plugin supplies. */
-export interface M2E2EConfig {
-  /** The plugin's default repository root; the fixture and evidence live under it. */
-  readonly repoPath: string
-  /** Prompt admission timeout, reused from the plugin config. */
-  readonly promptTimeoutMs: number
-  /** Plugin identity recorded in the evidence document. */
-  readonly pluginName: string
-  readonly pluginVersion: string
-  readonly log?: (message: string) => void
-}
-
-/** Run lifecycle. */
-export type M2RunState = 'running' | 'done' | 'failed'
-/** Step lifecycle. */
-export type M2StepStatus = 'pending' | 'running' | 'passed' | 'failed'
-
-/** One assertion with its observed value. */
-export interface M2Assertion {
-  readonly check: string
-  readonly passed: boolean
-  readonly detail: string
-}
-
-/** One tool invocation observed in a session event stream. */
-export interface M2ToolCallEvidence {
-  readonly name: string
-  readonly callId: string
-  readonly arguments: string
-  resultText: string | null
-  isError: boolean | null
-  errorCode?: string
-}
-
-/** One prompt plus what the session did in response to it. */
-export interface M2PromptEvidence {
-  readonly sessionId: string
-  readonly role: 'master' | 'thread'
-  readonly text: string
-  accepted: boolean
-  readonly fromSeq: number
-  assistantText: string
-  toolCalls: M2ToolCallEvidence[]
-}
-
-/** Everything one step recorded. */
-export interface M2StepEvidence {
-  startedAt: string | null
-  endedAt: string | null
-  prompts: M2PromptEvidence[]
-  observations: Record<string, unknown>
-  assertions: M2Assertion[]
-  note?: string
-  error?: string
-}
-
-/** One step view returned by the status route. */
-export interface M2StepView {
-  readonly id: string
-  readonly status: M2StepStatus
-  readonly evidence: M2StepEvidence
-}
-
-/** One run view returned by the status route and stored in the evidence file. */
-export interface M2E2EStatusView {
-  readonly runId: string
-  readonly state: M2RunState
-  readonly startedAt: string
-  readonly endedAt?: string
-  readonly steps: readonly M2StepView[]
-  readonly evidenceFile: string
-  readonly error?: string
-}
-
-/** Evidence document written at every step boundary and at the end. */
-export interface M2E2EEvidenceDocument {
-  readonly version: 1
-  readonly runId: string
-  readonly state: M2RunState
-  readonly startedAt: string
-  readonly endedAt: string | null
-  readonly host: {
-    readonly plugin: string
-    readonly pluginVersion: string
-    readonly node: string
-    readonly platform: string
-    readonly arch: string
-    readonly hostname: string
-    readonly repoPath: string
-  }
-  readonly steps: readonly M2StepView[]
-  readonly finalIndex: unknown
-  readonly cleanup: Record<string, unknown>
-  readonly error?: string
-}
-
-/** A thread record as the index stores it. */
-interface IndexThread {
-  readonly threadId: string
-  readonly subject: string
-  readonly status: string
-  readonly checkoutPath: string | null
-  readonly [key: string]: unknown
-}
-
-/** The slice of the project index this driver reads. */
-interface IndexView {
-  readonly masterSessionId: string
-  readonly threads: readonly IndexThread[]
-  readonly [key: string]: unknown
-}
-
-/** One handoff file read from disk. */
-interface HandoffView {
-  readonly filePath: string
-  readonly record: {
-    readonly threadId: string
-    readonly status: string
-    readonly summary: string
-    readonly createdAt: string
-    readonly [key: string]: unknown
-  }
-}
-
-interface MutableStep {
-  readonly id: string
-  status: M2StepStatus
-  readonly evidence: M2StepEvidence
-}
-
-interface MutableRun {
-  readonly runId: string
-  state: M2RunState
-  readonly startedAt: string
-  endedAt?: string
-  readonly steps: MutableStep[]
-  error?: string
-  finalIndex: unknown
-  cleanup: Record<string, unknown>
-}
-
-/** Git result used by observed helper calls. */
-interface GitOutcome {
-  readonly code: number
-  readonly stdout: string
-  readonly stderr: string
-}
-
-/** The ordered steps; a failure stops the run and leaves later steps pending. */
-const STEP_IDS = [
-  'setup',
-  'memory-write',
-  'isolated-thread',
-  'thread-work',
-  'memory-cross-thread',
-  'merge-success',
-  'conflict-thread',
-  'conflict-merge',
-  'conflict-retry',
-  'cleanup',
-] as const
-
-const MERGE_TOOL = 'cowork_checkout_merge'
-const MASTER_DONE = 'Reply DONE.'
-const FIXTURE_SUBJECT_1 = 'E2E 隔离线程'
-const FIXTURE_SUBJECT_2 = 'E2E 冲突线程'
-const MEMORY_TITLE = 'E2E 约束'
-const MEMORY_TEXT = '所有提交信息用中文'
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function clip(text: string, limit: number): string {
-  return text.length <= limit ? text : `${text.slice(0, limit)}…`
-}
-
-function isoNow(): string {
-  return new Date().toISOString()
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((settle) => setTimeout(settle, ms))
-}
-
-/** Pad a path check with a trailing separator so `/a/b` never matches `/a/bc`. */
-function isStrictlyInside(parent: string, child: string): boolean {
-  return child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`)
-}
-
-/** Read a UTF-8 file, treating a missing path as `undefined` and other errors as failures. */
-async function readTextIfPresent(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, 'utf8')
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined
-    throw error
-  }
-}
-
-/** Model-facing tool result text: text blocks joined, other blocks JSON-serialized. */
-function contentText(message: unknown): string {
-  const content = asRecord(message)?.content
-  if (!Array.isArray(content)) return ''
-  const parts: string[] = []
-  for (const part of content) {
-    const block = asRecord(part)
-    if (block === undefined) continue
-    if (block.type === 'text' && typeof block.text === 'string') {
-      parts.push(block.text)
-    } else {
-      try {
-        parts.push(JSON.stringify(block))
-      } catch {
-        parts.push('[unserializable block]')
-      }
-    }
-  }
-  return parts.join('\n')
-}
-
-/** git with an argument array, an explicit cwd, and a timeout; non-zero exits are values. */
-function runGit(args: readonly string[], cwd: string): Promise<GitOutcome> {
-  return new Promise<GitOutcome>((settle) => {
-    execFile(
-      'git',
-      [...args],
-      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf8' },
-      (error, stdout, stderr) => {
-        if (error === null) {
-          settle({ code: 0, stdout: stdout ?? '', stderr: stderr ?? '' })
-          return
-        }
-        const exit = (error as { code?: unknown }).code
-        settle({
-          code: typeof exit === 'number' ? exit : 1,
-          stdout: typeof stdout === 'string' ? stdout : '',
-          stderr:
-            typeof stderr === 'string' && stderr.length > 0 ? stderr : (error as Error).message,
-        })
-      },
-    )
-  })
-}
 
 /**
  * One M2 E2E run at a time. The runner keeps only in-memory run views; every
@@ -437,7 +183,7 @@ export class M2E2ERunner {
   /** Read one live run view, or undefined when this process never saw the id. */
   status(runId: string): M2E2EStatusView | undefined {
     const run = this.runs.get(runId)
-    return run === undefined ? undefined : this.view(run)
+    return run === undefined ? undefined : statusView(run, this.evidenceFile)
   }
 
   /**
@@ -480,18 +226,6 @@ export class M2E2ERunner {
       if (oldest === undefined || oldest === this.lastRunId) return
       this.runs.delete(oldest)
     }
-  }
-
-  private view(run: MutableRun): M2E2EStatusView {
-    return JSON.parse(JSON.stringify({
-      runId: run.runId,
-      state: run.state,
-      startedAt: run.startedAt,
-      ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
-      steps: run.steps,
-      evidenceFile: this.evidenceFile,
-      ...(run.error === undefined ? {} : { error: run.error }),
-    })) as M2E2EStatusView
   }
 
   private async execute(run: MutableRun): Promise<void> {
@@ -537,6 +271,7 @@ export class M2E2ERunner {
       case 'memory-write': return this.stepMemoryWrite(step)
       case 'isolated-thread': return this.stepIsolatedThread(step)
       case 'thread-work': return this.stepThreadWork(step)
+      case 'memory-visible': return this.stepMemoryVisible(step)
       case 'memory-cross-thread': return this.stepMemoryCrossThread(step)
       case 'merge-success': return this.stepMergeSuccess(step)
       case 'conflict-thread': return this.stepConflictThread(step)
@@ -556,13 +291,13 @@ export class M2E2ERunner {
     await mkdir(repo, { recursive: true, mode: 0o700 })
     step.evidence.observations.fixture = repo
 
-    await this.gitOk(step, ['init', '-b', 'main'], repo, 'git init')
-    await this.gitOk(step, ['config', 'user.email', 'e2e@dsh-cowork.invalid'], repo, 'git config email')
-    await this.gitOk(step, ['config', 'user.name', 'dsh-cowork e2e'], repo, 'git config name')
+    await gitOkObserved(step, ['init', '-b', 'main'], repo, 'git init')
+    await gitOkObserved(step, ['config', 'user.email', 'e2e@dsh-cowork.invalid'], repo, 'git config email')
+    await gitOkObserved(step, ['config', 'user.name', 'dsh-cowork e2e'], repo, 'git config name')
     await writeFile(join(repo, 'README.md'), '# M2 E2E fixture\n', 'utf8')
     await writeFile(join(repo, '.gitignore'), '.dsh-cowork/\n', 'utf8')
-    await this.gitOk(step, ['add', 'README.md', '.gitignore'], repo, 'git add')
-    await this.gitOk(step, ['commit', '-m', 'init'], repo, 'git commit')
+    await gitOkObserved(step, ['add', 'README.md', '.gitignore'], repo, 'git add')
+    await gitOkObserved(step, ['commit', '-m', 'init'], repo, 'git commit')
 
     const created = await this.host.sessionController.create({
       cwd: repo,
@@ -573,7 +308,7 @@ export class M2E2ERunner {
     run.cleanup.masterSessionId = created.sessionId
     step.evidence.observations.masterSessionId = created.sessionId
     step.evidence.observations.createReturnedPreset = created.agentPreset ?? null
-    this.check(
+    recordAssertion(
       step,
       'master session mounted cowork-master',
       created.agentPreset === MASTER_PRESET_ID,
@@ -595,13 +330,13 @@ export class M2E2ERunner {
     })
     step.evidence.observations.indexFile = join(repo, '.dsh-cowork', 'index.json')
     step.evidence.observations.indexMasterSessionId = index.masterSessionId
-    this.check(
+    recordAssertion(
       step,
       'index file exists',
       existsSync(join(repo, '.dsh-cowork', 'index.json')),
       join(repo, '.dsh-cowork', 'index.json'),
     )
-    this.check(
+    recordAssertion(
       step,
       'index masterSessionId equals the created master',
       index.masterSessionId === created.sessionId,
@@ -628,8 +363,8 @@ export class M2E2ERunner {
     })
     step.evidence.observations.memoryFile = file
     step.evidence.observations.memoryText = clip(content, MAX_FILE_TEXT)
-    this.check(step, 'constraints.md contains the entry title', content.includes(MEMORY_TITLE), file)
-    this.check(step, 'constraints.md contains the entry text', content.includes(MEMORY_TEXT), file)
+    recordAssertion(step, 'constraints.md contains the entry title', content.includes(MEMORY_TITLE), file)
+    recordAssertion(step, 'constraints.md contains the entry text', content.includes(MEMORY_TEXT), file)
     await this.waitIdle(master)
   }
 
@@ -662,15 +397,15 @@ export class M2E2ERunner {
     step.evidence.observations.checkoutPath = checkoutPath
     step.evidence.observations.indexStatus = record.status
 
-    this.check(step, 'clone directory exists', existsSync(checkoutPath), checkoutPath)
-    this.check(
+    recordAssertion(step, 'clone directory exists', existsSync(checkoutPath), checkoutPath)
+    recordAssertion(
       step,
       'clone .git is a directory',
       existsSync(join(checkoutPath, '.git')) && statSync(join(checkoutPath, '.git')).isDirectory(),
       join(checkoutPath, '.git'),
     )
-    const branch = await this.gitObserved(step, ['branch', '--show-current'], checkoutPath)
-    this.check(
+    const branch = await observeGit(step, ['branch', '--show-current'], checkoutPath)
+    recordAssertion(
       step,
       'clone is on cowork/<threadId>',
       branch.code === 0 && branch.stdout.trim() === `cowork/${threadId}`,
@@ -678,17 +413,17 @@ export class M2E2ERunner {
     )
     const workspace = await this.host.workspaceRegistry.resolveByPath(checkoutPath)
     step.evidence.observations.workspaceId = workspace?.id ?? null
-    this.check(step, 'checkout path is a registered workspace', workspace !== undefined, checkoutPath)
+    recordAssertion(step, 'checkout path is a registered workspace', workspace !== undefined, checkoutPath)
     const header = await this.host.sessionController.inspect(threadId)
     step.evidence.observations.sessionCwd = header.meta.cwd ?? null
     step.evidence.observations.sessionPreset = header.meta.agentPreset ?? null
-    this.check(
+    recordAssertion(
       step,
       'thread session cwd equals the checkout path',
       header.meta.cwd === checkoutPath,
       `${String(header.meta.cwd)} == ${checkoutPath}`,
     )
-    this.check(
+    recordAssertion(
       step,
       'index status is active',
       record.status === 'active',
@@ -733,15 +468,41 @@ export class M2E2ERunner {
     step.evidence.observations.indexStatus = target.record.status
     step.evidence.observations.handoffFile = target.handoff.filePath
     step.evidence.observations.handoff = target.handoff.record
-    this.check(step, 'clone contains e2e.txt', target.text.includes('e2e'), join(checkoutPath, 'e2e.txt'))
-    this.check(step, 'clone HEAD is the thread commit', target.log.stdout.trim() === 'e2e thread work', target.log.stdout.trim())
-    this.check(step, 'clone working tree is clean', target.status.stdout.trim() === '', target.status.stdout)
-    this.check(step, 'index status is awaiting_review', target.record.status === 'awaiting_review', target.record.status)
-    this.check(step, 'handoff file exists for the thread', existsSync(target.handoff.filePath), target.handoff.filePath)
+    recordAssertion(step, 'clone contains e2e.txt', target.text.includes('e2e'), join(checkoutPath, 'e2e.txt'))
+    recordAssertion(step, 'clone HEAD is the thread commit', target.log.stdout.trim() === 'e2e thread work', target.log.stdout.trim())
+    recordAssertion(step, 'clone working tree is clean', target.status.stdout.trim() === '', target.status.stdout)
+    recordAssertion(step, 'index status is awaiting_review', target.record.status === 'awaiting_review', target.record.status)
+    recordAssertion(step, 'handoff file exists for the thread', existsSync(target.handoff.filePath), target.handoff.filePath)
     await this.waitIdle(thread)
   }
 
-  /** Step 4: the thread reads the constraint the master wrote (project memory crosses sessions). */
+  /** Step 4: prove the master's constraint is visible to the model, not just to disk. */
+  private async stepMemoryVisible(step: MutableStep): Promise<void> {
+    const thread = this.thread1
+    if (thread === null) throw new Error('first thread was not created')
+    await this.waitIdle(thread)
+    const prompt = await this.promptStep(
+      step,
+      thread,
+      'thread',
+      // Title-only prompt: the expected text lives in the system prompt's
+      // memory block, never in the prompt (see memoryVisiblePrompt).
+      memoryVisiblePrompt(),
+    )
+    const reply = await this.poll('thread reply containing the constraint text', async () => {
+      const text = this.assistantTextSince(thread, prompt.fromSeq)
+      return text.includes(MEMORY_TEXT) ? text : undefined
+    })
+    const toolCallCount = this.toolCallsSince(thread, prompt.fromSeq).length
+    step.evidence.observations.assistantSummary = clip(reply, MAX_ASSISTANT_TEXT)
+    step.evidence.observations.toolCallCount = toolCallCount
+    for (const check of memoryVisibilityChecks(reply, toolCallCount, MEMORY_TEXT)) {
+      recordAssertion(step, check.check, check.passed, check.detail)
+    }
+    await this.waitIdle(thread)
+  }
+
+  /** Step 5: the thread reads the constraint the master wrote (project memory crosses sessions). */
   private async stepMemoryCrossThread(step: MutableStep): Promise<void> {
     const thread = this.thread1
     if (thread === null) throw new Error('first thread was not created')
@@ -758,7 +519,7 @@ export class M2E2ERunner {
       return calls.find((call) => call.resultText !== null && call.resultText.includes(MEMORY_TITLE))
     })
     step.evidence.observations.memorySearchResult = clip(hit.resultText ?? '', MAX_TOOL_TEXT)
-    this.check(
+    recordAssertion(
       step,
       'thread tool result contains the master constraint title',
       (hit.resultText ?? '').includes(MEMORY_TITLE),
@@ -767,7 +528,7 @@ export class M2E2ERunner {
     await this.waitIdle(thread)
   }
 
-  /** Step 5: merge the first thread, clean up, and prove the main worktree got the file. */
+  /** Step 6: merge the first thread, clean up, and prove the main worktree got the file. */
   private async stepMergeSuccess(step: MutableStep): Promise<void> {
     const master = this.master()
     const thread = this.thread1
@@ -794,12 +555,12 @@ export class M2E2ERunner {
     const payload = this.parseToolJson(call)
     step.evidence.observations.mergeToolResult = clip(call.resultText ?? '', MAX_TOOL_TEXT)
     step.evidence.observations.mergePayload = payload ?? null
-    this.check(step, 'cowork_checkout_merge returned ok', payload?.ok === true, clip(call.resultText ?? '', 1000))
+    recordAssertion(step, 'cowork_checkout_merge returned ok', payload?.ok === true, clip(call.resultText ?? '', 1000))
     await this.assertMerged(step, thread, checkoutPath, 'e2e.txt')
     await this.waitIdle(master)
   }
 
-  /** Step 6: create the second isolated thread, commit its side, and commit the conflicting main side. */
+  /** Step 7: create the second isolated thread, commit its side, and commit the conflicting main side. */
   private async stepConflictThread(step: MutableStep): Promise<void> {
     const master = this.master()
     await this.waitIdle(master)
@@ -824,18 +585,18 @@ export class M2E2ERunner {
     this.track(threadId)
     step.evidence.observations.threadId = threadId
     step.evidence.observations.checkoutPath = checkoutPath
-    this.check(step, 'second clone directory exists', existsSync(checkoutPath), checkoutPath)
-    const branch = await this.gitObserved(step, ['branch', '--show-current'], checkoutPath)
-    this.check(
+    recordAssertion(step, 'second clone directory exists', existsSync(checkoutPath), checkoutPath)
+    const branch = await observeGit(step, ['branch', '--show-current'], checkoutPath)
+    recordAssertion(
       step,
       'second clone is on cowork/<threadId>',
       branch.code === 0 && branch.stdout.trim() === `cowork/${threadId}`,
       `exit=${branch.code} branch=${branch.stdout.trim()}`,
     )
     const workspace = await this.host.workspaceRegistry.resolveByPath(checkoutPath)
-    this.check(step, 'second checkout is a registered workspace', workspace !== undefined, checkoutPath)
+    recordAssertion(step, 'second checkout is a registered workspace', workspace !== undefined, checkoutPath)
     const header = await this.host.sessionController.inspect(threadId)
-    this.check(
+    recordAssertion(
       step,
       'second thread session cwd equals the checkout path',
       header.meta.cwd === checkoutPath,
@@ -871,11 +632,11 @@ export class M2E2ERunner {
     step.evidence.observations.threadGitLog = clip(commit.log.stdout, MAX_GIT_TEXT)
 
     await writeFile(join(this.fixturePath, 'conflict.txt'), 'main\n', 'utf8')
-    await this.gitOk(step, ['add', 'conflict.txt'], this.fixturePath, 'git add main conflict')
-    await this.gitOk(step, ['commit', '-m', 'e2e main conflict'], this.fixturePath, 'git commit main conflict')
-    const mainText = await this.readObserved(step, join(this.fixturePath, 'conflict.txt'))
+    await gitOkObserved(step, ['add', 'conflict.txt'], this.fixturePath, 'git add main conflict')
+    await gitOkObserved(step, ['commit', '-m', 'e2e main conflict'], this.fixturePath, 'git commit main conflict')
+    const mainText = await readObserved(step, join(this.fixturePath, 'conflict.txt'))
     step.evidence.observations.mainConflictText = mainText ?? null
-    this.check(step, 'main worktree has conflict.txt with main content', mainText?.trim() === 'main', String(mainText))
+    recordAssertion(step, 'main worktree has conflict.txt with main content', mainText?.trim() === 'main', String(mainText))
 
     const handedOff = await this.poll('second thread handoff after the two-sided commit', async () => {
       const index = await this.readIndex()
@@ -889,16 +650,16 @@ export class M2E2ERunner {
     step.evidence.observations.threadHandoff = handedOff.handoff.record
     step.evidence.observations.handoffFile = handedOff.handoff.filePath
     step.evidence.observations.indexStatusAfterHandoff = handedOff.record.status
-    this.check(step, 'second clone commit exists', commit.log.stdout.trim() === 'e2e conflict thread', commit.log.stdout.trim())
-    this.check(step, 'second clone is clean', commit.status.stdout.trim() === '', commit.status.stdout)
-    this.check(step, 'handoff file exists for the second thread', existsSync(handedOff.handoff.filePath), handedOff.handoff.filePath)
+    recordAssertion(step, 'second clone commit exists', commit.log.stdout.trim() === 'e2e conflict thread', commit.log.stdout.trim())
+    recordAssertion(step, 'second clone is clean', commit.status.stdout.trim() === '', commit.status.stdout)
+    recordAssertion(step, 'handoff file exists for the second thread', existsSync(handedOff.handoff.filePath), handedOff.handoff.filePath)
     if (handedOff.record.status === 'blocked') {
       step.evidence.note = 'the master merged eagerly after the handoff and hit the conflict; step 7 verifies that state'
     }
     await this.waitAllIdle([master, threadId])
   }
 
-  /** Step 7: merge the second thread, expect a conflict, and prove the abort kept the clone. */
+  /** Step 8: merge the second thread, expect a conflict, and prove the abort kept the clone. */
   private async stepConflictMerge(step: MutableStep): Promise<void> {
     const master = this.master()
     const thread = this.thread2
@@ -941,18 +702,18 @@ export class M2E2ERunner {
     }
     const record = await this.threadRecord(thread)
     step.evidence.observations.indexStatus = record?.status ?? null
-    this.check(step, 'index status is blocked', record?.status === 'blocked', String(record?.status))
+    recordAssertion(step, 'index status is blocked', record?.status === 'blocked', String(record?.status))
     if (call === undefined) {
       step.evidence.observations.toolResult = 'no cowork_checkout_merge result observed (idempotent auto-merge path)'
-      this.check(step, 'clone is retained after the conflict', existsSync(checkoutPath), checkoutPath)
-      this.check(
+      recordAssertion(step, 'clone is retained after the conflict', existsSync(checkoutPath), checkoutPath)
+      recordAssertion(
         step,
         'no merge is left in progress in the main repository',
         !existsSync(join(this.fixturePath, '.git', 'MERGE_HEAD')),
         join(this.fixturePath, '.git', 'MERGE_HEAD'),
       )
-      const statusWithoutCall = await this.gitObserved(step, ['status', '--porcelain'], this.fixturePath)
-      this.check(step, 'main worktree has no unresolved conflict markers', statusWithoutCall.stdout.trim() === '', statusWithoutCall.stdout)
+      const statusWithoutCall = await observeGit(step, ['status', '--porcelain'], this.fixturePath)
+      recordAssertion(step, 'main worktree has no unresolved conflict markers', statusWithoutCall.stdout.trim() === '', statusWithoutCall.stdout)
       await this.waitAllIdle([master, thread])
       return
     }
@@ -962,32 +723,32 @@ export class M2E2ERunner {
     const conflictFiles = Array.isArray(details?.conflictFiles) ? details.conflictFiles : []
     step.evidence.observations.mergeToolResult = clip(call.resultText ?? '', MAX_TOOL_TEXT)
     step.evidence.observations.conflictFiles = conflictFiles
-    this.check(step, 'cowork_checkout_merge returned a failure', payload?.ok === false, clip(call.resultText ?? '', 1000))
-    this.check(
+    recordAssertion(step, 'cowork_checkout_merge returned a failure', payload?.ok === false, clip(call.resultText ?? '', 1000))
+    recordAssertion(
       step,
       'merge failure code is checkout/merge-conflict',
       error?.code === 'checkout/merge-conflict',
       String(error?.code),
     )
-    this.check(
+    recordAssertion(
       step,
       'conflictFiles contains conflict.txt',
       conflictFiles.includes('conflict.txt'),
       JSON.stringify(conflictFiles),
     )
-    this.check(step, 'clone is retained after the conflict', existsSync(checkoutPath), checkoutPath)
-    this.check(
+    recordAssertion(step, 'clone is retained after the conflict', existsSync(checkoutPath), checkoutPath)
+    recordAssertion(
       step,
       'no merge is left in progress in the main repository',
       !existsSync(join(this.fixturePath, '.git', 'MERGE_HEAD')),
       join(this.fixturePath, '.git', 'MERGE_HEAD'),
     )
-    const status = await this.gitObserved(step, ['status', '--porcelain'], this.fixturePath)
-    this.check(step, 'main worktree has no unresolved conflict markers', status.stdout.trim() === '', status.stdout)
+    const status = await observeGit(step, ['status', '--porcelain'], this.fixturePath)
+    recordAssertion(step, 'main worktree has no unresolved conflict markers', status.stdout.trim() === '', status.stdout)
     await this.waitAllIdle([master, thread])
   }
 
-  /** Step 8: the thread resolves its side and the second merge succeeds. */
+  /** Step 9: the thread resolves its side and the second merge succeeds. */
   private async stepConflictRetry(step: MutableStep): Promise<void> {
     const master = this.master()
     const thread = this.thread2
@@ -1023,9 +784,9 @@ export class M2E2ERunner {
     step.evidence.observations.cloneStatus = clip(target.status.stdout, MAX_GIT_TEXT)
     step.evidence.observations.indexStatus = target.record.status
     step.evidence.observations.handoffFile = target.handoff.filePath
-    this.check(step, 'clone conflict.txt is resolved', target.text.trim() === 'resolved', target.text)
-    this.check(step, 'thread merge is committed and clone is clean', target.status.stdout.trim() === '', target.status.stdout)
-    this.check(step, 'retry handoff exists', existsSync(target.handoff.filePath), target.handoff.filePath)
+    recordAssertion(step, 'clone conflict.txt is resolved', target.text.trim() === 'resolved', target.text)
+    recordAssertion(step, 'thread merge is committed and clone is clean', target.status.stdout.trim() === '', target.status.stdout)
+    recordAssertion(step, 'retry handoff exists', existsSync(target.handoff.filePath), target.handoff.filePath)
 
     await this.waitAllIdle([master, thread])
     if (await this.mergeAlreadyDone(thread, checkoutPath, 'conflict.txt')) {
@@ -1047,14 +808,14 @@ export class M2E2ERunner {
     const call = await this.waitToolResult(master, prompt.fromSeq, MERGE_TOOL)
     const payload = this.parseToolJson(call)
     step.evidence.observations.mergeToolResult = clip(call.resultText ?? '', MAX_TOOL_TEXT)
-    this.check(step, 'retry merge returned ok', payload?.ok === true, clip(call.resultText ?? '', 1000))
+    recordAssertion(step, 'retry merge returned ok', payload?.ok === true, clip(call.resultText ?? '', 1000))
     await this.assertMerged(step, thread, checkoutPath, 'conflict.txt')
-    const mainText = await this.readObserved(step, join(this.fixturePath, 'conflict.txt'))
-    this.check(step, 'main worktree conflict.txt is resolved', mainText?.trim() === 'resolved', String(mainText))
+    const mainText = await readObserved(step, join(this.fixturePath, 'conflict.txt'))
+    recordAssertion(step, 'main worktree conflict.txt is resolved', mainText?.trim() === 'resolved', String(mainText))
     await this.waitIdle(master)
   }
 
-  /** Step 9: snapshot the final index, archive sessions, drop workspaces, delete the fixture. */
+  /** Step 10: snapshot the final index, archive sessions, drop workspaces, delete the fixture. */
   private async stepCleanup(step: MutableStep, run: MutableRun): Promise<void> {
     const index = await this.readIndex()
     run.finalIndex = index ?? null
@@ -1110,27 +871,10 @@ export class M2E2ERunner {
     }
     run.cleanup = { ...run.cleanup, ...cleanup }
     step.evidence.observations.cleanup = cleanup
-    this.check(step, 'temporary project removed', cleanup.tempRepoRemoved, this.fixturePath)
+    recordAssertion(step, 'temporary project removed', cleanup.tempRepoRemoved, this.fixturePath)
   }
 
   // --------------------------------------------------------------- assertion
-
-  private check(step: MutableStep, check: string, passed: boolean, detail: unknown): void {
-    let text: string
-    if (typeof detail === 'string') {
-      text = detail
-    } else {
-      try {
-        text = JSON.stringify(detail)
-      } catch {
-        text = String(detail)
-      }
-    }
-    step.evidence.assertions.push({ check, passed, detail: clip(text, MAX_FIELD_TEXT) })
-    if (!passed) {
-      throw new Error(`assertion failed [${step.id}] ${check}: ${clip(text, 500)}`)
-    }
-  }
 
   /** Assert the durable "merge finished" facts shared by both merge scenarios. */
   private async assertMerged(
@@ -1140,18 +884,18 @@ export class M2E2ERunner {
     fileName: string,
   ): Promise<void> {
     const mainPath = join(this.fixturePath, fileName)
-    const content = await this.readObserved(step, mainPath)
-    this.check(step, `${fileName} exists in the main worktree`, content !== undefined, mainPath)
+    const content = await readObserved(step, mainPath)
+    recordAssertion(step, `${fileName} exists in the main worktree`, content !== undefined, mainPath)
     if (fileName === 'conflict.txt') {
-      this.check(step, 'merged conflict.txt is resolved', content?.trim() === 'resolved', String(content))
+      recordAssertion(step, 'merged conflict.txt is resolved', content?.trim() === 'resolved', String(content))
     }
-    this.check(step, 'clone directory removed', !existsSync(checkoutPath), checkoutPath)
-    const branch = await this.gitObserved(
+    recordAssertion(step, 'clone directory removed', !existsSync(checkoutPath), checkoutPath)
+    const branch = await observeGit(
       step,
       ['rev-parse', '--verify', `refs/heads/cowork/${threadId}`],
       this.fixturePath,
     )
-    this.check(
+    recordAssertion(
       step,
       'thread branch deleted from the main repository',
       branch.code !== 0,
@@ -1163,7 +907,7 @@ export class M2E2ERunner {
     } catch {
       workspace = undefined
     }
-    this.check(
+    recordAssertion(
       step,
       'checkout workspace removed',
       workspace === undefined,
@@ -1172,8 +916,8 @@ export class M2E2ERunner {
     const index = await this.readIndex()
     const record = index?.threads.find((entry) => entry.threadId === threadId)
     step.evidence.observations.finalThreadRecord = record ?? null
-    this.check(step, 'index checkoutPath is null', record?.checkoutPath === null, String(record?.checkoutPath))
-    this.check(step, 'index status is done', record?.status === 'done', String(record?.status))
+    recordAssertion(step, 'index checkoutPath is null', record?.checkoutPath === null, String(record?.checkoutPath))
+    recordAssertion(step, 'index status is done', record?.status === 'done', String(record?.status))
   }
 
   /** Whether the merge target is already durable; used to pass idempotently. */
@@ -1260,7 +1004,7 @@ export class M2E2ERunner {
       AbortSignal.timeout(this.config.promptTimeoutMs),
     )
     evidence.accepted = result.accepted
-    this.check(step, `prompt accepted by ${role} session`, result.accepted === true, sessionId)
+    recordAssertion(step, `prompt accepted by ${role} session`, result.accepted === true, sessionId)
     return evidence
   }
 
@@ -1273,17 +1017,11 @@ export class M2E2ERunner {
   }
 
   private lastSeq(sessionId: string): number {
-    return (this.events.get(sessionId) ?? []).at(-1)?.seq ?? 0
+    return lastSeq(this.events.get(sessionId) ?? [])
   }
 
   private assistantTextSince(sessionId: string, fromSeq: number): string {
-    const parts: string[] = []
-    for (const event of this.events.get(sessionId) ?? []) {
-      if (event.seq <= fromSeq || event.type !== 'assistant/message') continue
-      const text = contentText(asRecord(event.data.message))
-      if (text !== '') parts.push(text)
-    }
-    return clip(parts.join('\n'), MAX_ASSISTANT_TEXT)
+    return assistantTextSince(this.events.get(sessionId) ?? [], fromSeq)
   }
 
   private toolCallsSince(
@@ -1291,40 +1029,7 @@ export class M2E2ERunner {
     fromSeq: number,
     name?: string,
   ): M2ToolCallEvidence[] {
-    const calls = new Map<string, M2ToolCallEvidence>()
-    for (const event of this.events.get(sessionId) ?? []) {
-      if (event.seq <= fromSeq) continue
-      if (event.type === 'tool/call') {
-        const callName = typeof event.data.name === 'string' ? event.data.name : ''
-        if (name !== undefined && callName !== name) continue
-        const callId = typeof event.data.callId === 'string'
-          ? event.data.callId
-          : `seq-${event.seq}`
-        calls.set(callId, {
-          name: callName,
-          callId,
-          arguments: clip(String(event.data.arguments ?? ''), MAX_TOOL_ARGUMENTS),
-          resultText: null,
-          isError: null,
-        })
-        continue
-      }
-      if (event.type !== 'tool/result') continue
-      const message = asRecord(event.data.message)
-      const callId = typeof message?.toolCallId === 'string'
-        ? message.toolCallId
-        : typeof asRecord(message?.source)?.callId === 'string'
-          ? String(asRecord(message?.source)?.callId)
-          : undefined
-      if (callId === undefined) continue
-      const call = calls.get(callId)
-      if (call === undefined) continue
-      call.resultText = clip(contentText(message), MAX_TOOL_TEXT)
-      const error = asRecord(event.data.error)
-      call.isError = message?.isError === true || error !== undefined
-      if (typeof error?.code === 'string') call.errorCode = error.code
-    }
-    return [...calls.values()]
+    return toolCallsSince(this.events.get(sessionId) ?? [], fromSeq, name)
   }
 
   private async waitToolResult(
@@ -1380,56 +1085,11 @@ export class M2E2ERunner {
 
   private async readIndex(): Promise<IndexView | undefined> {
     const text = await readTextIfPresent(join(this.fixturePath, '.dsh-cowork', 'index.json'))
-    if (text === undefined) return undefined
-    try {
-      const parsed = asRecord(JSON.parse(text))
-      if (
-        parsed !== undefined
-        && typeof parsed.masterSessionId === 'string'
-        && Array.isArray(parsed.threads)
-      ) {
-        return parsed as unknown as IndexView
-      }
-    } catch {
-      // A half-written file during a poll is transient; report absence.
-    }
-    return undefined
-  }
-
-  private async readObserved(step: MutableStep, path: string): Promise<string | undefined> {
-    const text = await readTextIfPresent(path)
-    const files = (step.evidence.observations.files as unknown[]) ?? []
-    files.push({ path, exists: text !== undefined, text: clip(text ?? '', MAX_FILE_TEXT) })
-    step.evidence.observations.files = files
-    return text
+    return text === undefined ? undefined : parseIndex(text)
   }
 
   private async listHandoffs(): Promise<HandoffView[]> {
-    const directory = join(this.fixturePath, '.dsh-cowork', 'handoffs')
-    let names: string[]
-    try {
-      names = await readdir(directory)
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ENOTDIR') return []
-      throw error
-    }
-    const files: HandoffView[] = []
-    for (const name of names.filter((entry) => entry.endsWith('.json')).sort()) {
-      const filePath = join(directory, name)
-      try {
-        const record = asRecord(JSON.parse(await readFile(filePath, 'utf8')))
-        if (record === undefined || typeof record.threadId !== 'string') continue
-        if (typeof record.status !== 'string' || typeof record.summary !== 'string') continue
-        files.push({
-          filePath,
-          record: record as unknown as HandoffView['record'],
-        })
-      } catch {
-        // A handoff being atomically replaced is transient; the next poll sees it.
-      }
-    }
-    return files
+    return readHandoffs(this.fixturePath)
   }
 
   private async waitHandoffAfter(startedAt: string, threadId: string): Promise<HandoffView | undefined> {
@@ -1437,55 +1097,9 @@ export class M2E2ERunner {
     return files.find((file) => file.record.threadId === threadId && file.record.createdAt >= startedAt)
   }
 
-  private async git(args: readonly string[], cwd: string): Promise<GitOutcome> {
-    return runGit(args, cwd)
-  }
-
-  /** Run git and record command + raw output in the step evidence. */
-  private async gitObserved(step: MutableStep, args: readonly string[], cwd: string): Promise<GitOutcome> {
-    const result = await this.git(args, cwd)
-    const commands = (step.evidence.observations.git as unknown[]) ?? []
-    commands.push({
-      args: [...args],
-      cwd,
-      exitCode: result.code,
-      stdout: clip(result.stdout, MAX_GIT_TEXT),
-      stderr: clip(result.stderr, MAX_GIT_TEXT),
-    })
-    step.evidence.observations.git = commands
-    return result
-  }
-
-  private async gitOk(
-    step: MutableStep,
-    args: readonly string[],
-    cwd: string,
-    label: string,
-  ): Promise<GitOutcome> {
-    const result = await this.gitObserved(step, args, cwd)
-    if (result.code !== 0) {
-      throw new Error(`${label} failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`)
-    }
-    return result
-  }
-
-  private async stateSnapshot(): Promise<Record<string, unknown>> {
-    const index = await this.readIndex()
-    return {
-      fixtureExists: existsSync(this.fixturePath),
-      masterSessionId: index?.masterSessionId ?? null,
-      threads: (index?.threads ?? []).map((thread) => ({
-        threadId: thread.threadId,
-        status: thread.status,
-        checkoutPath: thread.checkoutPath,
-        cloneExists: typeof thread.checkoutPath === 'string' && existsSync(thread.checkoutPath),
-      })),
-    }
-  }
-
   private async safeSnapshot(): Promise<Record<string, unknown>> {
     try {
-      return await this.stateSnapshot()
+      return stateSnapshot(await this.readIndex(), this.fixturePath)
     } catch (error) {
       return { error: messageOf(error) }
     }
@@ -1541,33 +1155,14 @@ export class M2E2ERunner {
   }
 
   private async persist(run: MutableRun): Promise<void> {
-    const document: M2E2EEvidenceDocument = {
-      version: 1,
-      runId: run.runId,
-      state: run.state,
-      startedAt: run.startedAt,
-      endedAt: run.endedAt ?? null,
-      host: {
-        plugin: this.config.pluginName,
+    const document = evidenceDocument(
+      {
+        pluginName: this.config.pluginName,
         pluginVersion: this.config.pluginVersion,
-        node: process.version,
-        platform: process.platform,
-        arch: process.arch,
-        hostname: hostname(),
         repoPath: this.config.repoPath,
       },
-      steps: JSON.parse(JSON.stringify(run.steps)) as M2StepView[],
-      finalIndex: run.finalIndex,
-      cleanup: run.cleanup,
-      ...(run.error === undefined ? {} : { error: run.error }),
-    }
-    try {
-      await mkdir(dirname(this.evidenceFile), { recursive: true, mode: 0o700 })
-      await writeStoreAtomic(this.evidenceFile, `${JSON.stringify(document, null, 2)}\n`)
-    } catch (error) {
-      // Evidence persistence is a convenience for the status route after a
-      // reload; the live in-memory run remains authoritative.
-      this.config.log?.(`M2 E2E evidence write failed: ${messageOf(error)}`)
-    }
+      run,
+    )
+    await persistEvidence(document, this.evidenceFile, writeStoreAtomic, this.config.log)
   }
 }

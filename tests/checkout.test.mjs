@@ -1,12 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   CHECKOUT_BRANCH_PREFIX,
   CHECKOUT_ERROR,
   CHECKOUT_ROOT_RELATIVE,
+  STDERR_DETAIL_LIMIT,
   checkoutPaths,
   createCheckout,
   inspectCheckout,
@@ -495,4 +496,101 @@ test('removeCheckout reports gitFailed when the branch cannot be deleted', async
   assert.equal(result.ok, false)
   assert.equal(result.code, CHECKOUT_ERROR.gitFailed)
   assert.equal(result.details.branch, 'cowork/t20')
+})
+
+test('mergeCheckout reports gitFailed when aborting a conflicted merge fails', async (t) => {
+  const repo = makeRepo(t)
+  makeCheckout(repo, 't21')
+  const git = fakeGit(
+    ok(''),
+    failed('', 1),
+    ok(''),
+    failed('CONFLICT (content): Merge conflict in src/a.ts'),
+    ok('src/a.ts\n'),
+    failed('fatal: could not abort the merge'),
+  )
+
+  const result = await mergeCheckout({ runGit: git.runGit }, { repoPath: repo, threadId: 't21' })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, CHECKOUT_ERROR.gitFailed)
+  assert.equal(result.details.stage, 'abort')
+  assert.equal(result.details.mergeStage, 'conflict')
+  assert.equal(result.details.aborted, false)
+  assert.deepEqual(result.details.conflictFiles, ['src/a.ts'])
+  assert.match(result.details.stderr, /could not abort the merge/)
+  assert.match(result.message, /merge --abort failed/)
+  assert.equal(result.details.exitCode, 1)
+  assert.equal(result.details.mergeExitCode, 1)
+  assert.match(result.details.mergeStderr, /Merge conflict in src\/a.ts/)
+})
+
+test('mergeCheckout reports gitFailed when aborting a MERGE_HEAD failure fails', async (t) => {
+  const repo = makeRepo(t)
+  makeCheckout(repo, 't22')
+  const git = fakeGit(
+    ok(''),
+    failed('', 1),
+    ok(''),
+    failed('fatal: refusing to merge unrelated histories'),
+    ok(''),
+    ok('MERGE_HEAD\n'),
+    failed('fatal: could not abort the merge'),
+  )
+
+  const result = await mergeCheckout({ runGit: git.runGit }, { repoPath: repo, threadId: 't22' })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, CHECKOUT_ERROR.gitFailed)
+  assert.equal(result.details.stage, 'abort')
+  assert.equal(result.details.mergeStage, 'merge')
+  assert.equal(result.details.aborted, false)
+  assert.match(result.details.stderr, /could not abort the merge/)
+  assert.match(result.details.mergeStderr, /refusing to merge unrelated histories/)
+  assert.match(result.message, /merge --abort failed/)
+})
+
+test('mergeCheckout truncates oversized stderr and marks it', async (t) => {
+  const repo = makeRepo(t)
+  makeCheckout(repo, 't23')
+  const huge = 'e'.repeat(STDERR_DETAIL_LIMIT + 500)
+  const git = fakeGit(ok(''), failed('', 1), failed(huge))
+
+  const result = await mergeCheckout({ runGit: git.runGit }, { repoPath: repo, threadId: 't23' })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, CHECKOUT_ERROR.mergeFailed)
+  assert.equal(result.details.stderrTruncated, true)
+  assert.equal(result.details.stderr.length, STDERR_DETAIL_LIMIT + '…[truncated 500 chars]'.length)
+  assert.match(result.details.stderr, /\[truncated 500 chars\]/)
+  assert.equal(result.message.includes(huge), false)
+})
+
+test('mergeCheckout marks a short stderr as not truncated', async (t) => {
+  const repo = makeRepo(t)
+  makeCheckout(repo, 't24')
+  const git = fakeGit(ok(''), failed('', 1), failed('fatal: short'))
+
+  const result = await mergeCheckout({ runGit: git.runGit }, { repoPath: repo, threadId: 't24' })
+
+  assert.equal(result.details.stderr, 'fatal: short')
+  assert.equal(result.details.stderrTruncated, false)
+})
+
+test('createCheckout maps a mkdirSync failure to createFailed without throwing', async (t) => {
+  const repo = makeRepo(t)
+  const target = join(repo, CHECKOUT_ROOT_RELATIVE, 't25')
+  // A file where the checkout root must be a directory makes mkdirSync throw.
+  writeFileSync(join(repo, '.dsh-cowork'), 'not a directory\n')
+  const git = fakeGit(ok('abc123\n'))
+
+  const result = await createCheckout({ runGit: git.runGit }, { repoPath: repo, threadId: 't25' })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, CHECKOUT_ERROR.createFailed)
+  assert.equal(result.details.path, target)
+  assert.equal(result.details.parentPath, join(repo, CHECKOUT_ROOT_RELATIVE))
+  assert.match(result.details.reason, /ENOTDIR/)
+  assert.equal(existsSync(target), false)
+  assert.equal(git.calls.length, 1)
 })
