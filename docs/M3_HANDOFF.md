@@ -2,7 +2,7 @@
 
 - 状态：**预案，可开始**。M2 收口已按 [M2 修复交接](M2_FIX_HANDOFF.md) 完成：F1–F8 有证据，真实宿主 E2E 11/11 步通过，四条命令在最终字节上全绿（见 [M2 结果](M2_RESULT.md)）。
 - 适用：接手 M3 的 agent 或人。范围：review 门禁 + 只读面板 + review 状态在面板的呈现。
-- 事实源：[PLAN](PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 提案预案](../.agents/notes/proposed/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与待定决策；[面板提案](../.agents/notes/proposed/feature/2026-11-05-cowork-panel.md)、[PANEL_RECON](PANEL_RECON.md)、[PANEL_HANDOFF](PANEL_HANDOFF.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有已交付行为；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪开始、先验证什么、怎样算完成」。
+- 事实源：[PLAN](PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 提案预案](../.agents/notes/proposed/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与待定决策；[面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RECON](PANEL_RECON.md)、[PANEL_HANDOFF](PANEL_HANDOFF.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有已交付行为；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪开始、先验证什么、怎样算完成」。
 
 ## 先读什么
 
@@ -10,7 +10,7 @@
 2. [PLAN](PLAN.md) §5.7 review、§5.8 工具面、§6 M3。
 3. [M3 提案预案](../.agents/notes/proposed/feature/2026-11-05-m3-review-panel.md)：范围、验收 id、待 M2 修复后定的决策。
 4. [M2 结果](M2_RESULT.md)、[M2 修复交接](M2_FIX_HANDOFF.md)、[KNOWN_ISSUES](KNOWN_ISSUES.md)：M2 的真实行为、收口修复、明确不修项。
-5. [面板提案](../.agents/notes/proposed/feature/2026-11-05-cowork-panel.md)、[PANEL_RECON](PANEL_RECON.md)、[PANEL_HANDOFF](PANEL_HANDOFF.md)：面板落点、数据契约、客户端构建事实。
+5. [面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RECON](PANEL_RECON.md)、[PANEL_HANDOFF](PANEL_HANDOFF.md)：面板落点、数据契约、客户端构建事实。
 6. [M1 结果](M1_RESULT.md)、[M0 探针](M0_PROBE_RESULT.md)：已证 API，不要重复验证。
 
 ## 现在的事实
