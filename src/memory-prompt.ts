@@ -66,6 +66,7 @@ export interface MemoryPromptDeps {
 export interface MemoryPromptRegistration {
   dispose(): void
   registered(): readonly string[]
+  /** Number of distinct agents whose registration was rejected; never per event. */
   duplicateSkipped(): number
 }
 
@@ -91,7 +92,13 @@ export function registerMemoryPrompt(
   const sectionDisposers: Array<() => void> = []
   /** Agents we already attempted, so a repeated event cannot register twice. */
   const attempted = new Set<string>()
-  let duplicateCount = 0
+  /**
+   * Agent ids whose registration threw. A set, not a counter: the host can
+   * replay the same agent (list + create event, restore after hot reload), and
+   * `duplicateSkipped()` must report the number of *agents* that collided, not
+   * the number of failed attempts.
+   */
+  const duplicateAgents = new Set<string>()
   let disposed = false
   let unsubscribe: (() => void) | null = null
 
@@ -114,6 +121,7 @@ export function registerMemoryPrompt(
     }
     registeredIds.length = 0
     attempted.clear()
+    duplicateAgents.clear()
   }
 
   const tryRegister = (agent: MemoryPromptAgent | undefined): void => {
@@ -145,7 +153,15 @@ export function registerMemoryPrompt(
     const provider = (_context: unknown): string => {
       if (disposed) return ''
       const render = deps.renderMemory(projectRoot)
-      if (render === null) return ''
+      if (render === null) {
+        // No memory block right now (project index gone, memory file
+        // unreadable, or every entry filtered out). Drop the cache: keeping it
+        // would let a later render whose digest happens to equal the stale one
+        // return the old text after the memory had already disappeared.
+        cachedDigest = null
+        cachedText = ''
+        return ''
+      }
       if (cachedDigest === render.digest) return cachedText
       cachedDigest = render.digest
       cachedText = render.text
@@ -166,7 +182,7 @@ export function registerMemoryPrompt(
       sectionDisposers.push(releaseSection)
       registeredIds.push(agent.id)
     } catch (error) {
-      duplicateCount += 1
+      duplicateAgents.add(agent.id)
       deps.log?.(`cowork: memory section registration failed for agent ${agent.id}: ${describeError(error)}`)
     }
   }
@@ -181,6 +197,6 @@ export function registerMemoryPrompt(
   return {
     dispose,
     registered: () => registeredIds.slice(),
-    duplicateSkipped: () => duplicateCount,
+    duplicateSkipped: () => duplicateAgents.size,
   }
 }
