@@ -26,6 +26,8 @@ import { registerMemoryPrompt } from './memory-prompt.js'
 import type { MemoryPromptAgent, MemoryPromptDeps, MemoryPromptHost, MemoryRender } from './memory-prompt.js'
 import { M2E2ERunner } from './m2-e2e.js'
 import type { M2E2EHost } from './m2-e2e.js'
+import { M3E2ERunner, M3_E2E_RUN_PATH, M3_E2E_STATUS_PATH } from './m3-e2e.js'
+import type { M3E2EHost } from './m3-e2e.js'
 import { isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
@@ -186,6 +188,15 @@ export function apply(ctx: Context, config: Config): void {
   })
   // M2 real-host E2E: loopback-only start/status routes, evidence under .dsh-cowork/e2e/.
   const m2e2e = new M2E2ERunner(ctx as unknown as M2E2EHost, {
+    repoPath: probeConfig.repoPath,
+    promptTimeoutMs: probeConfig.promptTimeoutMs,
+    pluginName: PLUGIN_NAME,
+    pluginVersion: PLUGIN_VERSION,
+    log: (message) => ctx.logger?.info?.(`[${PLUGIN_NAME}] ${message}`),
+  })
+  // M3 real-host E2E: independent review gate, two review rounds, evidence under
+  // .dsh-cowork/e2e/M3_E2E.json. Same loopback-only start/status shape as M2.
+  const m3e2e = new M3E2ERunner(ctx as unknown as M3E2EHost, {
     repoPath: probeConfig.repoPath,
     promptTimeoutMs: probeConfig.promptTimeoutMs,
     pluginName: PLUGIN_NAME,
@@ -422,6 +433,50 @@ export function apply(ctx: Context, config: Config): void {
         ...(run.error === undefined ? {} : { error: run.error }),
       })
     },
+  }, {
+    kind: 'exact',
+    path: M3_E2E_RUN_PATH,
+    handler: (request, response) => {
+      if (!guard(request, response, 'POST')) return
+      request.resume()
+      try {
+        const run = m3e2e.start()
+        sendJson(response, 200, { ok: true, runId: run.runId })
+      } catch (error) {
+        sendJson(response, 409, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    },
+  }, {
+    kind: 'exact',
+    path: M3_E2E_STATUS_PATH,
+    handler: async (request, response) => {
+      if (!guard(request, response, 'GET')) return
+      let runId: string
+      try {
+        runId = requireRunId(readQuery(request.url, 'runId'))
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        return
+      }
+      const run = await m3e2e.resolve(runId)
+      if (run === undefined) {
+        sendJson(response, 404, { ok: false, error: `unknown M3 E2E runId: ${runId}` })
+        return
+      }
+      sendJson(response, 200, {
+        ok: true,
+        runId: run.runId,
+        state: run.state,
+        startedAt: run.startedAt,
+        ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
+        steps: run.steps,
+        evidenceFile: run.evidenceFile,
+        ...(run.error === undefined ? {} : { error: run.error }),
+      })
+    },
   })
 
   for (const route of routes) {
@@ -431,10 +486,12 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => runner.attachEvents(), 'dsh-cowork: session event feed')
   ctx.effect(() => s0.attachEvents(), 'dsh-cowork: S0 session event feed')
   ctx.effect(() => m2e2e.attachEvents(), 'dsh-cowork: M2 E2E session event feed')
+  ctx.effect(() => m3e2e.attachEvents(), 'dsh-cowork: M3 E2E session event feed')
   ctx.effect(() => () => {
     runner.dispose()
     s0.dispose()
     m2e2e.dispose()
+    m3e2e.dispose()
   }, 'dsh-cowork: probe runners')
 
   // M1: the two runtime presets and the six cowork tools, owned by this fiber.
