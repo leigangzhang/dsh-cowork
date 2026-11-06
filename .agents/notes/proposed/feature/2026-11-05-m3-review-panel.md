@@ -10,7 +10,7 @@ M2 交付了项目记忆、thread 隔离 clone 与结构化 handoff，但「谁�
 
 M3 开始前的事实与提案初稿编写时不同，初稿里的「待 M2 修复后定」已经可以定稿：
 
-- **代码基线不是 `main`。** 最新实现是审阅分支 `fix/m2-closeout`（`d774fde`），比 `main`（`234c084`）多 10 个提交，包含 M2 收口修复（F1–F8）与 M2 结果文档；M3 必须从这条分支开新分支，而不是从 `main`。
+- **代码基线是 `main`。** M2 收口的 `fix/m2-closeout`（`d774fde`）已合并进 `main`（合并提交 `90f41cd`，树与 `d774fde` 相同，`git diff d774fde origin/main` 为空）；M3 从 `main` 开 `feat/m3-review-panel`，不再依赖审阅分支。
 - **客户端能力探针已经做过。** 面板提案已交付：client bundle、右侧栏 tab、14 个公开 token、`/api/cowork.overview` 与 `/api/cowork.handoff` 都在真实宿主验证过（[PANEL_RESULT](../../../../docs/PANEL_RESULT.md)）。M3 的未知项不再是「client 能不能挂载」，而是「review 会话能不能闭环」与「review 字段能不能按既有 wire 契约只增不改地返回」。
 - **工具面是 9 个**（M1 六个 + `cowork_memory_write` / `cowork_memory_search` / `cowork_checkout_merge`）；合并前置仍是 `awaiting_review | done` 且没有 review 字段。M2 的合并 teardown 已改为「merge 落地后各步独立捕获，索引最后无条件写」。
 - **索引已存在旧字段 `worktreePath`。** store 读时归一化为 `checkoutPath`；本仓库真实索引就是旧形状。新的 review 字段必须按同样方式向后兼容，缺字段的旧索引要能读。
@@ -19,7 +19,7 @@ M3 开始前的事实与提案初稿编写时不同，初稿里的「待 M2 修�
 
 **基线与分支**
 
-- 从 `fix/m2-closeout`（`d774fde`）开 `feat/m3-review-panel`；不改写 `main`，不 force push。
+- 从 `main`（`90f41cd`，已合并 `fix/m2-closeout`）开 `feat/m3-review-panel`；不改写 `main`，不 force push。
 - 客户端能力探针不重复；M3 的 P0 只验证两件事并写入 `docs/M3_PROBE_RESULT.md`：①`sessionController.create({workspaceId, agentPreset:'cowork-reviewer'})` 能建出可唤醒的 review 会话并写回 verdict；②`/api/cowork.overview` / `/api/cowork.handoff` 在旧索引上返回新增 review 字段、缺字段时取 `null`。
 
 **review 门禁（host）**
@@ -96,7 +96,7 @@ M3 开始前的事实与提案初稿编写时不同，初稿里的「待 M2 修�
 - **索引继续只增字段。** `reviewStatus` 等字段必须对旧索引容错，否则 M2 项目加载即损坏；回归用「旧 `worktreePath` 索引 + 缺 review 字段」的单测钉住。
 - **运行时 preset 重启消失（KI-3）。** reviewer preset 与 master/thread 一样是运行时注册；M3 E2E 不承诺跨重启，重启后旧 review 会话仍可读 verdict 文件，但新 review 需要重载插件。
 - **M2 E2E 车道受合并门禁影响。** M2 驱动会在合并步骤改用 `allowUnreviewed + overrideReason`，保持旧证据路径可复现；M3 结果必须写明这是刻意覆盖，不是 M3 的 review 路径。
-- **并发写者。** 索引、面板契约、文档都可能与另一个会话并行改；分支从 `fix/m2-closeout` 固定，动手前 `git fetch`，worktree 隔离，索引只增字段、不重排。
+- **并发写者。** 索引、面板契约、文档都可能与另一个会话并行改；分支从 `main` 固定，动手前 `git fetch`，worktree 隔离，索引只增字段、不重排。
 
 ## Delivery stages
 
