@@ -69,3 +69,11 @@
 - 离线证据：`tests/api-contract.test.mjs`、`tests/api.test.mjs`、`tests/panel-model.test.mjs` 覆盖字段映射、缺字段/坏指针降级、徽章标签与文案；`npm test` 309/309。
 - 真机：重启宿主并 clean re-inject 后，原包 client 加载成功，底栏「打开 Cowork 面板」与 tab 正常；应用 fixture 后 overview 返回 5 个 thread 与 chips，列表显示「审查中 / 已拒绝 / 需修改 / 审查通过」徽章，needs_revision 详情显示 summary、两条 findings（severity/problem/requiredFix/file:line）、reviewer 验证与 review 文件路径。截图 `.dsh-cowork/e2e/panel-m3/01-split-review-states.jpg`（1458 分栏）、`02-drill-list.jpg` 与 `03-drill-needs-revision.jpg`（900 宽、右栏 <480 钻取）。
 - 未验证（M3 新增）：深色主题下的 review 徽章/findings；「打开 review 会话」与「打开 thread 会话」只验证了按钮可用与文案，未在真机点击导航；≤480 下的 pass/reject 详情未逐项截图（已验 list 与 needs_revision 详情）。补验计划见 [M3 修复交接](M3_FIX_HANDOFF.md) M3L-4。
+
+## M3-FIX 真机补验（2026-11-06）
+
+- fixture 可复现：`node tools/panel-fixture.mjs apply|restore`（备份在 `.dsh-cowork/e2e/panel-m3/backup`，退出码 0/1/2）。本轮先 apply、截完图后 restore，真实 `.dsh-cowork` 恢复为一个 thread「路由演示」。
+- 深色：本部署的设置写入不持久（点击「深色」后设置回落到浅色），所以用 DSH 自己的 `data-ds-dark-theme` 属性强制暗色 token（页面计算背景 `rgb(21,21,23)`、正文 `rgb(249,250,251)`）后截图 `04-dark-review-states.jpg`（review 徽章与 needs_revision findings 在暗色下可读）。这是暗色 token 渲染证据，不是「主题切换持久化」证据。
+- ≤480 钻取：窗口 900×900 下右栏 <480，自动切钻取；`05-drill-pass-detail.jpg` 显示 pass 详情（没有 finding、两条 reviewer 验证、review 文件绝对路径、打开按钮），`06-drill-reject-detail.jpg` 显示 reject 详情（blocker finding、exit 1 chip、review 文件路径）。
+- 两个打开按钮（真实导航，不只是按钮存在）：pending review 的「打开 review 会话」导航到真实 master 会话（`session-65c8337f…`，标题 `Call cowork_project_init tool` / `cowork master`）；真实 thread「路由演示」的「打开 thread 会话」导航到 `cowork: 路由演示`（`session-a9072f0b…`）。fixture 中指向已归档会话的按钮会让主工作区回到「选择一个工作区」——这是宿主对不存在会话的行为，面板无法预判会话是否仍存在，记录为观察到的限制，不新增 UI 假校验。
+- 仍成立：同名包 client 在当前进程内的 pkgMeta 缓存问题（KI-11）；本次用一次性 local heal 插件清缓存后才加载原包 client，helper 已卸载且 profile patch 已还原。

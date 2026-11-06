@@ -1,6 +1,7 @@
 # M3 收口修复交接
 
-- 状态：**待开始（M3-FIX）**。M3 代码/证据基线 `cd1fe9e`（`feat/m3-review-panel`，已推送），独立终审 t11 已 pass；本文只拥有「M3 遗留清单、修复计划、下一个会话怎么开始」。行为与契约决策见 [M3 收口修复提案](../.agents/notes/proposed/bug-fix/2026-11-05-m3-closeout-fixes.md)（落地时迁入 `implemented/`）；已交付事实见 [M3 结果](M3_RESULT.md)、[M3 P0 探针](M3_PROBE_RESULT.md)、[PANEL_RESULT](PANEL_RESULT.md) 与 [M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md)。
+- 状态：**已完成（2026-11-06，`fix/m3-closeout`）**。M3 代码/证据基线 `cd1fe9e`（`feat/m3-review-panel`，已推送），独立终审 t11 已 pass；本文只拥有「M3 遗留清单、修复计划、下一个会话怎么开始」。行为与契约决策见 [M3 收口修复决策](../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)（提案已按生命周期迁入 `implemented/`）；交付事实见 [M3 结果](M3_RESULT.md)「M3-FIX 收口」、[PANEL_RESULT](PANEL_RESULT.md)「M3-FIX 真机补验」与 [M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md)。M3L-1..6 已全部有证据；M3L-7..12 保持原归属；M3L-13（合入 `main`）需用户明确授权，本阶段未做。
+- 收口证据：四条命令 `npm run check` 0、`npm test` 330/330、`npm run typecheck` 0、`npm run build` 0；真实宿主 E2E `m3-004629a6-c7de-48c1-92e9-99c474eae1a1` 15/15、`tempRepoRemoved=true`；失败路径实测 `m3-565e31d8-…`（fixture 被 finally 删除、原始 error 保留）。最终 commit 与截图见 `.dsh-cowork/e2e/M3_DOCS_READY.json`。
 - 原则：**M3 自己产生的遗留，在 M3-FIX 内修完，不拖到 M4**；宿主/M4 约束不伪装成 M3 遗留，但必须写明原因与重估触发，不能只写「以后再说」。每一项都要有判定面、验证命令和独立复查。
 - 基线事实：`main` 未动（`90f41cd`）；分支 HEAD `cd1fe9e`；四条命令 309/309、check/typecheck/build 0；真实宿主 E2E `m3-d06cc6a6-…` 15/15；截图在 `.dsh-cowork/e2e/panel-m3/`（gitignored）；真实 `.dsh-cowork` 数据已恢复；profile patch 已还原（`dsh-cowork` 仍是 disabled 条目）；当前进程内插件是 runtime 注入，宿主重启后需重新注入。
 
@@ -72,7 +73,7 @@
 - 真实宿主 M3 E2E 重跑：`POST /dsh-cowork/e2e/m3/run` → 轮询 `status` 到 done，15/15；证据 `.dsh-cowork/e2e/M3_E2E.json`，失败也能自清理（M3L-2）。
 - 独立复查：实现者不得自审；至少一个独立 verifier（跑命令）+ 一个独立 reviewer（读代码/证据/文档），轮数上限 2–3，第一轮走全链路，第二轮只增量；blocker/high/medium 必须关，low 可记录但要写触发。
 - 提交与推送：按 Stage 分 commit；全绿后 push `fix/m3-closeout`；**`main` 的合并/推送需用户明确授权**。
-- 收口：把 `2026-11-05-m3-closeout-fixes.md` 从 `proposed/` 迁入 `implemented/` 并按模板改写为现在时；更新 `M3_DOCS_READY.json`（commit 必须等于 HEAD，screenshots 非空，写清新的未验证项），再让 reviewer 复审。
+- 收口（已完成）：`2026-11-05-m3-closeout-fixes.md` 已按生命周期从 `proposed/` 迁入 `implemented/` 并改写为现在时；`M3_DOCS_READY.json` 在最终提交后重写（commit 等于 HEAD、screenshots 非空、记录实际手段与未核实项），再让 reviewer 复审。
 
 ## 下个会话怎么开始（runbook）
 
