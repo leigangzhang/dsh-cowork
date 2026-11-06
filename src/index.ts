@@ -16,6 +16,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import z from '@deepseek-ai/schemastery'
+import type { CoworkApiHost, CoworkApiPorts } from './api.js'
+import { registerCoworkApi } from './api.js'
 import type { HealthView, ProbeConfig, ProbeHost } from './probe-engine.js'
 import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
 import { MEMORY_FILES, MEMORY_KINDS, memoryFilePath, parseMemoryFile, renderMemoryBlock } from './memory.js'
@@ -28,7 +30,7 @@ import { isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } 
 import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
-import { findProjectRootSync } from './store.js'
+import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
 import type { CoworkToolDeps } from './tools.js'
 import { registerCoworkTools } from './tools.js'
 
@@ -156,6 +158,18 @@ function renderProjectMemory(repoPath: string): MemoryRender | null {
   return { text, digest: createHash('sha1').update(text).digest('hex') }
 }
 
+/**
+ * One row of the host's session listing as it exists at runtime. The shared
+ * `SessionSlicePorts['sessions'].list` type models rows as `{ sessionId,
+ * running }` only; the real summary also carries `cwd` (SessionSummary in the
+ * host API catalog). Declared locally instead of widening the shared slice,
+ * which other tools depend on.
+ */
+interface HostSessionListRow {
+  sessionId: string
+  cwd?: string
+}
+
 /** Register the probe preset, tool, routes, and event feed; clean all of them up on dispose. */
 export function apply(ctx: Context, config: Config): void {
   const host = ctx as unknown as ProbeHost
@@ -188,6 +202,19 @@ export function apply(ctx: Context, config: Config): void {
     clock: () => new Date(),
     resolveRepoPath: () => probeConfig.repoPath,
   }
+
+  // M2 panel: read-only HTTP routes over the host connection service. The
+  // project root is derived from the session's own cwd, never from the request.
+  const panelPorts: CoworkApiPorts = {
+    // Metadata only: `inspect` also reads the session event log and hung the
+    // panel requests on running or large sessions.
+    listSessions: () => assembly.sessionController.list() as Promise<{
+      items: readonly HostSessionListRow[]
+    }>,
+    findProjectRoot,
+    createStore: (repoPath) => new ProjectStore({ repoPath }),
+  }
+  registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
 
   // Risk 3: a preset registered at runtime, owned by this fiber's lifetime.
   ctx.effect(() => {

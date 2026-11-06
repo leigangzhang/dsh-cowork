@@ -23,6 +23,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | M3 从哪开始、先验证什么、怎样算完成 | [M3_HANDOFF.md](M3_HANDOFF.md) |
 | Cowork 面板能挂在右侧栏的哪个 slot、多宽、用哪些 token | [PANEL_RECON.md](PANEL_RECON.md) |
 | Cowork 右侧栏面板怎么实现、先验证什么 | [PANEL_HANDOFF.md](PANEL_HANDOFF.md) |
+| Cowork 面板交付了什么、真实宿主证据与未验证项 | [PANEL_RESULT.md](PANEL_RESULT.md) |
 | 哪个文件可以发布 | [publish.json](publish.json) |
 | 决策记录怎么写、为什么写 | [.agents/notes/README.md](../.agents/notes/README.md) |
 | 一个改动欠哪些证据 | [tools/workflow.json](../tools/workflow.json) |
@@ -48,6 +49,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/M3_HANDOFF.md` | guide | M3 实施入口：探针、顺序、陷阱、完成定义 |
 | `docs/PANEL_RECON.md` | record | 面板落点、宽度、主题 token、打包与热更新事实 |
 | `docs/PANEL_HANDOFF.md` | guide | 面板实施入口：客户端探针、API 契约、验收 |
+| `docs/PANEL_RESULT.md` | record | 面板交付面、真实宿主证据、未验证项、合并注意与回滚 |
 | `docs/publish.json` | switch | 唯一发布开关 |
 | `tools/workflow.json` | machinery | surface 与证据命令 |
 | `.agents/notes/` | records | 决策记录与模板 |
