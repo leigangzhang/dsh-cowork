@@ -47,6 +47,16 @@ const THREAD_ID_PATTERN = /^[A-Za-z0-9_-]+$/
 /** Upper bound on captured git output; a runaway diff should fail, not OOM. */
 const GIT_MAX_BUFFER = 8 * 1024 * 1024
 
+/**
+ * Upper bound on stderr copied into an outcome's `details`.
+ *
+ * Failure details travel to a model-facing tool result, so a verbose git error
+ * must never become an unbounded string. Anything longer is truncated and
+ * marked; the marker is part of the value, so a reader cannot mistake a clipped
+ * message for the complete one.
+ */
+export const STDERR_DETAIL_LIMIT = 2000
+
 /** The branch a fresh checkout starts from unless the caller names another. */
 const DEFAULT_BASE_REF = 'HEAD'
 
@@ -204,9 +214,25 @@ function guardPaths(repoPath: string, threadId: string): GuardSuccess | GuardFai
   }
 }
 
-/** Human-readable stderr, never an empty string. */
+/** Message of an unknown thrown value, for outcomes that map a real error. */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** stderr bounded for `details`, with an explicit marker when text was dropped. */
+function detailStderr(stderr: string): { stderr: string; stderrTruncated: boolean } {
+  const text = stderr.trim()
+  if (text.length <= STDERR_DETAIL_LIMIT) return { stderr: text, stderrTruncated: false }
+  const dropped = text.length - STDERR_DETAIL_LIMIT
+  return {
+    stderr: `${text.slice(0, STDERR_DETAIL_LIMIT)}…[truncated ${dropped} chars]`,
+    stderrTruncated: true,
+  }
+}
+
+/** Human-readable stderr, never an empty string and never unbounded. */
 function describeFailure(result: GitResult): string {
-  const stderr = result.stderr.trim()
+  const stderr = detailStderr(result.stderr).stderr
   return stderr.length > 0 ? stderr : `git exited with code ${result.code}`
 }
 
@@ -253,7 +279,7 @@ export async function createCheckout(
       ok: false,
       code: CHECKOUT_ERROR.invalidBaseRef,
       message: `cannot resolve base ref "${baseRef}": ${describeFailure(resolved)}`,
-      details: { baseRef, stderr: resolved.stderr, exitCode: resolved.code },
+      details: { baseRef, ...detailStderr(resolved.stderr), exitCode: resolved.code },
     }
   }
   const baseCommit = resolved.stdout.trim()
@@ -266,7 +292,21 @@ export async function createCheckout(
     }
   }
 
-  mkdirSync(dirname(guard.checkoutPath), { recursive: true, mode: DIR_MODE })
+  const parentPath = dirname(guard.checkoutPath)
+  try {
+    mkdirSync(parentPath, { recursive: true, mode: DIR_MODE })
+  } catch (error) {
+    return {
+      ok: false,
+      code: CHECKOUT_ERROR.createFailed,
+      message: `cannot create checkout directory ${parentPath}: ${messageOf(error)}`,
+      details: {
+        path: guard.checkoutPath,
+        parentPath,
+        reason: messageOf(error),
+      },
+    }
+  }
 
   const cloned = await deps.runGit(
     ['clone', '--local', guard.repoPath, guard.checkoutPath],
@@ -280,7 +320,7 @@ export async function createCheckout(
       message: `git clone --local failed: ${describeFailure(cloned)}`,
       details: {
         path: guard.checkoutPath,
-        stderr: cloned.stderr,
+        ...detailStderr(cloned.stderr),
         exitCode: cloned.code,
         ...(cleanupError === null ? {} : { cleanupError }),
       },
@@ -300,7 +340,7 @@ export async function createCheckout(
       details: {
         path: guard.checkoutPath,
         branch: guard.branch,
-        stderr: switched.stderr,
+        ...detailStderr(switched.stderr),
         exitCode: switched.code,
         ...(cleanupError === null ? {} : { cleanupError }),
       },
@@ -372,6 +412,12 @@ export async function inspectCheckout(
  * is kept so the thread can resolve and retry. Any other merge failure aborts
  * only when a merge is actually in progress (`MERGE_HEAD` exists), preserving
  * the repository state otherwise.
+ *
+ * The abort itself is checked: a failed `git merge --abort` leaves the main
+ * repository mid-merge, so it is reported as {@link CHECKOUT_ERROR.gitFailed}
+ * with the abort stage and both stderr values, never as a clean conflict or
+ * merge failure. Every stderr copied into `details` is truncated to
+ * {@link STDERR_DETAIL_LIMIT} and marked when text was dropped.
  */
 export async function mergeCheckout(
   deps: CheckoutDeps,
@@ -402,7 +448,7 @@ export async function mergeCheckout(
       ok: false,
       code: CHECKOUT_ERROR.gitFailed,
       message: `git status failed in ${guard.checkoutPath}: ${describeFailure(status)}`,
-      details: { path: guard.checkoutPath, stderr: status.stderr, exitCode: status.code },
+      details: { path: guard.checkoutPath, ...detailStderr(status.stderr), exitCode: status.code },
     }
   }
   if (status.stdout.trim().length > 0) {
@@ -425,7 +471,7 @@ export async function mergeCheckout(
         ok: false,
         code: CHECKOUT_ERROR.mergeFailed,
         message: `cannot delete stale branch ${guard.branch}: ${describeFailure(deleted)}`,
-        details: { branch: guard.branch, stage: 'delete-stale-branch', stderr: deleted.stderr },
+        details: { branch: guard.branch, stage: 'delete-stale-branch', ...detailStderr(deleted.stderr) },
       }
     }
   }
@@ -442,7 +488,7 @@ export async function mergeCheckout(
       details: {
         branch: guard.branch,
         stage: 'fetch',
-        stderr: fetched.stderr,
+        ...detailStderr(fetched.stderr),
         exitCode: fetched.code,
       },
     }
@@ -477,7 +523,30 @@ export async function mergeCheckout(
       : []
 
   if (conflictFiles.length > 0) {
-    await deps.runGit(['merge', '--abort'], guard.repoPath)
+    const aborted = await deps.runGit(['merge', '--abort'], guard.repoPath)
+    if (aborted.code !== 0) {
+      // Reporting a conflict here would claim a cleanup that did not happen.
+      const abortStderr = detailStderr(aborted.stderr)
+      const mergeStderr = detailStderr(merged.stderr)
+      return {
+        ok: false,
+        code: CHECKOUT_ERROR.gitFailed,
+        message: `merge of ${guard.branch} conflicts in ${conflictFiles.length} file(s) and git merge --abort failed: ${describeFailure(aborted)}`,
+        details: {
+          branch: guard.branch,
+          stage: 'abort',
+          mergeStage: 'conflict',
+          aborted: false,
+          conflictFiles,
+          stderr: abortStderr.stderr,
+          stderrTruncated: abortStderr.stderrTruncated,
+          exitCode: aborted.code,
+          mergeExitCode: merged.code,
+          mergeStderr: mergeStderr.stderr,
+          mergeStderrTruncated: mergeStderr.stderrTruncated,
+        },
+      }
+    }
     return {
       ok: false,
       code: CHECKOUT_ERROR.mergeConflict,
@@ -485,7 +554,7 @@ export async function mergeCheckout(
       details: {
         branch: guard.branch,
         conflictFiles,
-        stderr: merged.stderr,
+        ...detailStderr(merged.stderr),
         exitCode: merged.code,
       },
     }
@@ -497,7 +566,30 @@ export async function mergeCheckout(
   )
   const mergeInProgress = mergeHead.code === 0
   if (mergeInProgress) {
-    await deps.runGit(['merge', '--abort'], guard.repoPath)
+    const aborted = await deps.runGit(['merge', '--abort'], guard.repoPath)
+    if (aborted.code !== 0) {
+      // The merge is still in progress in the main repository; say so instead
+      // of reporting a clean merge failure.
+      const abortStderr = detailStderr(aborted.stderr)
+      const mergeStderr = detailStderr(merged.stderr)
+      return {
+        ok: false,
+        code: CHECKOUT_ERROR.gitFailed,
+        message: `git merge --no-ff ${guard.branch} failed and git merge --abort failed: ${describeFailure(aborted)}`,
+        details: {
+          branch: guard.branch,
+          stage: 'abort',
+          mergeStage: 'merge',
+          aborted: false,
+          stderr: abortStderr.stderr,
+          stderrTruncated: abortStderr.stderrTruncated,
+          exitCode: aborted.code,
+          mergeExitCode: merged.code,
+          mergeStderr: mergeStderr.stderr,
+          mergeStderrTruncated: mergeStderr.stderrTruncated,
+        },
+      }
+    }
   }
   return {
     ok: false,
@@ -507,7 +599,7 @@ export async function mergeCheckout(
       branch: guard.branch,
       stage: 'merge',
       aborted: mergeInProgress,
-      stderr: merged.stderr,
+      ...detailStderr(merged.stderr),
       exitCode: merged.code,
     },
   }
@@ -556,7 +648,7 @@ export async function removeCheckout(
         ok: false,
         code: CHECKOUT_ERROR.gitFailed,
         message: `cannot delete branch ${guard.branch}: ${describeFailure(deleted)}`,
-        details: { branch: guard.branch, stderr: deleted.stderr, exitCode: deleted.code },
+        details: { branch: guard.branch, ...detailStderr(deleted.stderr), exitCode: deleted.code },
       }
     }
     branchDeleted = true
