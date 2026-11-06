@@ -13,6 +13,7 @@ import {
   findProjectRootSync,
   handoffFileName,
   projectIdFor,
+  reviewFileName,
 } from '../src/store.ts'
 
 const execFileAsync = promisify(execFile)
@@ -61,6 +62,28 @@ const handoff = (overrides = {}) => ({
   nextStep: null,
   createdAt: CREATED_AT,
   deliveredAt: null,
+  ...overrides,
+})
+
+/** A review record with the given overrides. */
+const review = (overrides = {}) => ({
+  version: 1,
+  threadId: 'session-a',
+  reviewerSessionId: 'session-reviewer',
+  verdict: 'needs_revision',
+  summary: 'one fix before merge',
+  findings: [
+    {
+      id: 'F1',
+      severity: 'high',
+      problem: 'the merge gate can be skipped',
+      requiredFix: 'route the merge through checkMergeGate',
+      file: 'src/tools.ts',
+      line: 42,
+    },
+  ],
+  verification: [{ command: 'node --test tests/store.test.mjs', exitCode: 0, evidence: 'pass 30' }],
+  createdAt: CREATED_AT,
   ...overrides,
 })
 
@@ -416,6 +439,11 @@ test('readIndex reads a pre-M2 index that still says worktreePath', async () => 
     const index = await store.readIndex()
     assert.equal(index.threads[0].checkoutPath, '/legacy/wt')
     assert.equal('worktreePath' in index.threads[0], false)
+    // M3 review fields: a pre-M3 index has none of them, so every one reads null.
+    for (const field of ['reviewStatus', 'reviewRequestedAt', 'reviewedAt', 'reviewerSessionId', 'latestReviewPath']) {
+      assert.equal(index.threads[0][field], null, field)
+      assert.equal(field in index.threads[0], true, `${field} is filled, not absent`)
+    }
 
     // Neither field means "no checkout", not a corrupt index.
     const plain = { ...legacyThread, threadId: 'session-plain' }
@@ -527,5 +555,179 @@ test('projectIdFor prefers a normalized origin remote and hashes the path otherw
   await withTempDir(async (plainPath) => {
     const expected = createHash('sha256').update(await realpath(plainPath)).digest('hex').slice(0, 12)
     assert.equal(await projectIdFor(plainPath), expected)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// M3 reviews
+// ---------------------------------------------------------------------------
+
+test('reviewFileName stamps UTC with milliseconds, like a handoff', () => {
+  assert.equal(
+    reviewFileName('session-x', new Date('2026-11-05T03:04:05.006Z')),
+    'session-x-20261105T030405006Z.json',
+  )
+  assert.equal(
+    reviewFileName('session-x', new Date('2026-01-02T03:04:05.006+08:00')),
+    'session-x-20260101T190405006Z.json',
+  )
+})
+
+test('writeReview stores one file under reviews/ and refuses to overwrite it', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const record = review()
+
+    const written = await store.writeReview(record)
+
+    assert.equal(written.fileName, reviewFileName(record.threadId, new Date(record.createdAt)))
+    assert.equal(written.filePath, join(store.reviewsDir, written.fileName))
+    assert.deepEqual(written.record, record)
+    assert.deepEqual(await store.readReview(written.filePath), record)
+    assert.equal(await modeOf(store.reviewsDir), 0o700)
+    assert.equal(await modeOf(written.filePath), 0o600)
+    assert.deepEqual(await store.listReviews(), [written])
+
+    // A second verdict for the same thread and instant must not overwrite evidence.
+    await rejectsStore(store.writeReview(record), 'store/review-exists', written.filePath)
+    assert.deepEqual(await store.listReviews(), [written])
+  })
+})
+
+test('listReviews orders by createdAt, then by file name', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const newer = review({ createdAt: '2026-11-05T05:00:00.000Z', verdict: 'pass', findings: [] })
+    const older = review({ createdAt: '2026-11-05T04:00:00.000Z' })
+
+    // Written out of order on purpose: the listing sorts records, not writes.
+    await store.writeReview(newer)
+    await store.writeReview(older)
+
+    const listed = await store.listReviews()
+    assert.deepEqual(listed.map((file) => file.record.verdict), ['needs_revision', 'pass'])
+    assert.deepEqual(listed.map((file) => file.record.createdAt), [older.createdAt, newer.createdAt])
+    // An absent reviews directory is an empty list, not an error.
+    assert.deepEqual(await new ProjectStore({ repoPath: join(repoPath, 'empty') }).listReviews(), [])
+  })
+})
+
+test('writeReview rejects an invalid record without writing a file', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+
+    await rejectsStore(store.writeReview(review({ findings: [] })), 'store/invalid-review', 'findings')
+    await rejectsStore(store.writeReview(review({ verdict: 'pending' })), 'store/invalid-review', 'verdict')
+    await rejectsStore(store.writeReview(review({ version: 2 })), 'store/invalid-review', 'version')
+    await rejectsStore(store.writeReview(review({ createdAt: 'yesterday' })), 'store/invalid-review', 'createdAt')
+    await rejectsStore(
+      store.writeReview(review({ findings: [{ id: 'F1', severity: 'fatal', problem: 'x', requiredFix: 'y' }] })),
+      'store/invalid-review',
+      'severity',
+    )
+
+    assert.deepEqual(await store.listReviews(), [])
+  })
+})
+
+test('a damaged review file is reported as store/corrupt, never skipped', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const written = await store.writeReview(review())
+
+    await writeFile(written.filePath, '{ not json', 'utf8')
+    await rejectsStore(store.readReview(written.filePath), 'store/corrupt', written.filePath)
+    await rejectsStore(store.listReviews(), 'store/corrupt', written.filePath)
+
+    // Valid JSON that breaks the schema is corrupt too.
+    await writeFile(written.filePath, JSON.stringify({ version: 1, threadId: 'session-a' }), 'utf8')
+    await rejectsStore(store.readReview(written.filePath), 'store/corrupt', 'review.verdict')
+  })
+})
+
+test('updateThread writes the M3 review fields and leaves the rest alone', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    await store.initIndex('session-master')
+    const added = await store.addThread(thread())
+    assert.equal(added.threads[0].reviewStatus, null)
+    assert.equal(added.threads[0].reviewRequestedAt, null)
+    assert.equal(added.threads[0].reviewedAt, null)
+    assert.equal(added.threads[0].reviewerSessionId, null)
+    assert.equal(added.threads[0].latestReviewPath, null)
+
+    const record = review()
+    const updated = await store.updateThread('session-a', {
+      status: 'done',
+      reviewStatus: 'needs_revision',
+      reviewRequestedAt: '2026-11-05T03:00:00.000Z',
+      reviewedAt: record.createdAt,
+      reviewerSessionId: record.reviewerSessionId,
+      latestReviewPath: '/repo/.dsh-cowork/reviews/session-a.json',
+    })
+
+    const updatedThread = updated.threads[0]
+    assert.equal(updatedThread.status, 'done')
+    assert.equal(updatedThread.reviewStatus, 'needs_revision')
+    assert.equal(updatedThread.reviewRequestedAt, '2026-11-05T03:00:00.000Z')
+    assert.equal(updatedThread.reviewedAt, record.createdAt)
+    assert.equal(updatedThread.reviewerSessionId, 'session-reviewer')
+    assert.equal(updatedThread.latestReviewPath, '/repo/.dsh-cowork/reviews/session-a.json')
+    // The sparse-patch rule still holds: absent fields keep their stored value.
+    assert.equal(updatedThread.createdAt, CREATED_AT)
+    assert.equal(updatedThread.lastHandoffAt, null)
+
+    // A bad review state is refused before the index is rewritten.
+    await rejectsStore(
+      store.updateThread('session-a', { reviewStatus: 'approved' }),
+      'store/invalid',
+      'reviewStatus',
+    )
+  })
+})
+
+test('latestReviews reports the newest review per thread and degrades unreadable files', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const older = await store.writeReview(review({ createdAt: '2026-11-05T04:00:00.000Z' }))
+    const newer = await store.writeReview(
+      review({ createdAt: '2026-11-05T05:00:00.000Z', verdict: 'pass', findings: [] }),
+    )
+    const other = await store.writeReview(
+      review({ threadId: 'session-b', createdAt: '2026-11-05T04:30:00.000Z', verdict: 'reject' }),
+    )
+
+    const threads = [
+      { threadId: 'session-a', latestReviewPath: newer.filePath },
+      { threadId: 'session-b', latestReviewPath: other.filePath },
+      { threadId: 'session-missing', latestReviewPath: null },
+    ]
+    const rows = await store.latestReviews(threads)
+    assert.deepEqual(rows, [
+      {
+        threadId: 'session-a',
+        verdict: 'pass',
+        summary: newer.record.summary,
+        reviewedAt: newer.record.createdAt,
+        filePath: newer.filePath,
+      },
+      {
+        threadId: 'session-b',
+        verdict: 'reject',
+        summary: other.record.summary,
+        reviewedAt: other.record.createdAt,
+        filePath: other.filePath,
+      },
+    ])
+    assert.equal(older.record.verdict, 'needs_revision')
+
+    // A damaged review file must not fail the projection: the index pointer is used.
+    await writeFile(newer.filePath, '{ nope', 'utf8')
+    const degraded = await store.latestReviews(threads)
+    assert.deepEqual(degraded.map((row) => row.threadId), ['session-b'])
+
+    // A missing pointer and a missing file both mean "no review".
+    const empty = await store.latestReviews([{ threadId: 'session-a', latestReviewPath: join(repoPath, 'gone.json') }])
+    assert.deepEqual(empty, [])
   })
 })

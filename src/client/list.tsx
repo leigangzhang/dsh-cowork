@@ -18,7 +18,7 @@ import {
   statusLabel,
   statusTone,
 } from './model.ts'
-import { StatusDot } from './chips.tsx'
+import { ReviewBadge, StatusDot } from './chips.tsx'
 
 export interface ThreadListProps {
   readonly threads: readonly PanelThread[]
@@ -99,6 +99,9 @@ export function ThreadList({ threads, selectedId, nowMs, onSelect }: ThreadListP
               <span className="cw-row-status">
                 <StatusDot tone={statusTone(thread.status)} />
                 <span className="cw-status-text">{statusLabel(thread.status)}</span>
+                {thread.reviewStatus === null
+                  ? null
+                  : <ReviewBadge status={thread.reviewStatus} reviewedAt={thread.reviewedAt} />}
               </span>
               <span className="cw-row-time" title={formatLocalTimestamp(thread.updatedAt)}>
                 {formatRelativeTime(thread.updatedAt, nowMs)}

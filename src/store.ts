@@ -1,6 +1,7 @@
 /**
- * Project store: the single writer of `<repo>/.dsh-cowork/index.json` and of
- * every handoff file under `<repo>/.dsh-cowork/handoffs/`.
+ * Project store: the single writer of `<repo>/.dsh-cowork/index.json`, of
+ * every handoff file under `<repo>/.dsh-cowork/handoffs/`, and of every review
+ * file under `<repo>/.dsh-cowork/reviews/`.
  *
  * Writers serialize through `withFileLock` on `.dsh-cowork/.write.lock`; each
  * replacement is `writeFileAtomic` (exclusive-create random-suffix sibling +
@@ -21,6 +22,7 @@ import { mkdir, open, readFile, readdir, realpath, stat } from 'node:fs/promises
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import type { ReviewRecord, ReviewStatus } from './review.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -30,10 +32,14 @@ const PROJECT_DIR_NAME = '.dsh-cowork'
 const INDEX_FILE_NAME = 'index.json'
 /** Handoff directory name inside the project directory. */
 const HANDOFFS_DIR_NAME = 'handoffs'
-/** The one writer lock every index and handoff write takes. */
+/** Review directory name inside the project directory. */
+const REVIEWS_DIR_NAME = 'reviews'
+/** The one writer lock every index, handoff, and review write takes. */
 const LOCK_FILE_NAME = '.write.lock'
 /** Handoff file suffix. */
 const HANDOFF_SUFFIX = '.json'
+/** Review file suffix. */
+const REVIEW_SUFFIX = '.json'
 /** On-disk schema version this module reads and writes. */
 const STORE_VERSION = 1
 /** How long a writer waits for the project lock before failing. */
@@ -64,6 +70,20 @@ export interface ThreadRecord {
   createdAt: string
   updatedAt: string
   lastHandoffAt: string | null
+  /**
+   * Review state of the thread. Indexes written before M3 have none of these
+   * fields; {@link normalizeThreadDocument} fills every one with `null`, so a
+   * loaded record always carries the keys.
+   */
+  reviewStatus: ReviewStatus | null
+  /** When the current review request was opened. */
+  reviewRequestedAt: string | null
+  /** When the current verdict was recorded. */
+  reviewedAt: string | null
+  /** Session id of the reviewer the thread's review was requested from. */
+  reviewerSessionId: string | null
+  /** Absolute path of the newest review file, or null. */
+  latestReviewPath: string | null
 }
 
 /** The project index document (`<repo>/.dsh-cowork/index.json`). */
@@ -110,6 +130,22 @@ export interface HandoffFile {
   record: HandoffRecord
 }
 
+/** A review record together with where it lives. */
+export interface ReviewFile {
+  filePath: string
+  fileName: string
+  record: ReviewRecord
+}
+
+/** The newest verdict of one thread, as the status view reports it. */
+export interface LatestReview {
+  threadId: string
+  verdict: ReviewRecord['verdict']
+  summary: string
+  reviewedAt: string
+  filePath: string
+}
+
 /** A store failure carrying a stable code and, when relevant, the offending file. */
 export class StoreError extends Error {
   readonly code: string
@@ -143,6 +179,13 @@ const THREAD_STATUSES: readonly ThreadStatus[] = [
 ]
 
 const HANDOFF_STATUSES: readonly HandoffStatus[] = ['awaiting_review', 'blocked', 'done']
+
+/**
+ * Review states a thread record may carry. Duplicated from src/review.ts on
+ * purpose: this store is imported by `node --test`, which does not rewrite the
+ * `./review.js` value specifier, so the only link may be type-only.
+ */
+const THREAD_REVIEW_STATUSES: readonly ReviewStatus[] = ['pending', 'pass', 'needs_revision', 'reject']
 
 /** Whether a value is a JSON object (not null, not an array). */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -182,6 +225,25 @@ function threadProblems(thread: unknown, where: string): string[] {
   if (thread.lastHandoffAt !== null && !isIsoDate(thread.lastHandoffAt)) {
     problems.push(`${where}.lastHandoffAt must be an ISO 8601 timestamp or null`)
   }
+  // M3 review fields: absent keys are accepted (an in-memory record may come
+  // from a caller that predates them); a present value must be valid.
+  if (
+    thread.reviewStatus !== undefined &&
+    thread.reviewStatus !== null &&
+    !THREAD_REVIEW_STATUSES.includes(thread.reviewStatus as ReviewStatus)
+  ) {
+    problems.push(`${where}.reviewStatus must be one of ${THREAD_REVIEW_STATUSES.join('|')} or null`)
+  }
+  for (const field of ['reviewRequestedAt', 'reviewedAt'] as const) {
+    if (thread[field] !== undefined && thread[field] !== null && !isIsoDate(thread[field])) {
+      problems.push(`${where}.${field} must be an ISO 8601 timestamp or null`)
+    }
+  }
+  for (const field of ['reviewerSessionId', 'latestReviewPath'] as const) {
+    if (thread[field] !== undefined && thread[field] !== null && !isNonEmptyString(thread[field])) {
+      problems.push(`${where}.${field} must be a non-empty string or null`)
+    }
+  }
   return problems
 }
 
@@ -195,7 +257,16 @@ function normalizeThreadDocument(thread: unknown): unknown {
   if (!isRecord(thread)) return thread
   const { worktreePath, checkoutPath, ...rest } = thread
   const adopted = checkoutPath === undefined ? worktreePath : checkoutPath
-  return { ...rest, checkoutPath: adopted === undefined ? null : adopted }
+  const nullWhenAbsent = (value: unknown): unknown => (value === undefined ? null : value)
+  return {
+    ...rest,
+    checkoutPath: adopted === undefined ? null : adopted,
+    reviewStatus: nullWhenAbsent(rest.reviewStatus),
+    reviewRequestedAt: nullWhenAbsent(rest.reviewRequestedAt),
+    reviewedAt: nullWhenAbsent(rest.reviewedAt),
+    reviewerSessionId: nullWhenAbsent(rest.reviewerSessionId),
+    latestReviewPath: nullWhenAbsent(rest.latestReviewPath),
+  }
 }
 
 /** Normalize every thread of a raw index document; other fields pass through. */
@@ -262,6 +333,76 @@ function handoffProblems(record: unknown): string[] {
   if (record.deliveredAt !== null && !isIsoDate(record.deliveredAt)) {
     problems.push('handoff.deliveredAt must be an ISO 8601 timestamp or null')
   }
+  return problems
+}
+
+/**
+ * Schema problems of a review record, mirroring `validateReviewInput` in
+ * src/review.ts (kept here for the type-only-import rule above): a stored
+ * review must be as strict as the input that produced it.
+ */
+function reviewProblems(record: unknown): string[] {
+  if (!isRecord(record)) return ['review must be a JSON object']
+  const problems: string[] = []
+  if (record.version !== STORE_VERSION) problems.push(`review.version must be ${STORE_VERSION}`)
+  if (!isNonEmptyString(record.threadId)) problems.push('review.threadId must be a non-empty string')
+  if (!isNonEmptyString(record.reviewerSessionId)) {
+    problems.push('review.reviewerSessionId must be a non-empty string')
+  }
+  const verdicts: readonly ReviewStatus[] = ['pass', 'needs_revision', 'reject']
+  if (!verdicts.includes(record.verdict as ReviewStatus)) {
+    problems.push(`review.verdict must be one of ${verdicts.join('|')}`)
+  }
+  if (!isNonEmptyString(record.summary)) problems.push('review.summary must be a non-empty string')
+  if (!Array.isArray(record.findings)) {
+    problems.push('review.findings must be an array')
+  } else {
+    if (record.verdict !== 'pass' && record.findings.length === 0) {
+      problems.push(`review.findings must not be empty for ${String(record.verdict)}`)
+    }
+    record.findings.forEach((finding, position) => {
+      const where = `review.findings[${position}]`
+      if (!isRecord(finding)) {
+        problems.push(`${where} must be an object`)
+        return
+      }
+      if (!isNonEmptyString(finding.id)) problems.push(`${where}.id must be a non-empty string`)
+      const severities = ['blocker', 'high', 'medium', 'low']
+      if (!severities.includes(finding.severity as string)) {
+        problems.push(`${where}.severity must be one of ${severities.join('|')}`)
+      }
+      if (!isNonEmptyString(finding.problem)) {
+        problems.push(`${where}.problem must be a non-empty string`)
+      }
+      if (!isNonEmptyString(finding.requiredFix)) {
+        problems.push(`${where}.requiredFix must be a non-empty string`)
+      }
+      if (finding.file !== undefined && !isNonEmptyString(finding.file)) {
+        problems.push(`${where}.file must be a non-empty string when present`)
+      }
+      if (
+        finding.line !== undefined &&
+        (!Number.isInteger(finding.line) || (finding.line as number) < 1)
+      ) {
+        problems.push(`${where}.line must be a positive integer when present`)
+      }
+    })
+  }
+  if (!Array.isArray(record.verification)) {
+    problems.push('review.verification must be an array')
+  } else {
+    record.verification.forEach((row, position) => {
+      const where = `review.verification[${position}]`
+      if (!isRecord(row)) {
+        problems.push(`${where} must be an object`)
+        return
+      }
+      if (!isNonEmptyString(row.command)) problems.push(`${where}.command must be a non-empty string`)
+      if (!Number.isInteger(row.exitCode)) problems.push(`${where}.exitCode must be an integer`)
+      if (typeof row.evidence !== 'string') problems.push(`${where}.evidence must be a string`)
+    })
+  }
+  if (!isIsoDate(record.createdAt)) problems.push('review.createdAt must be an ISO 8601 timestamp')
   return problems
 }
 
@@ -334,6 +475,8 @@ export class ProjectStore {
   readonly projectDir: string
   /** `<repo>/.dsh-cowork/handoffs`. */
   readonly handoffsDir: string
+  /** `<repo>/.dsh-cowork/reviews`. */
+  readonly reviewsDir: string
   /** `<repo>/.dsh-cowork/index.json`. */
   readonly indexFile: string
   /** `<repo>/.dsh-cowork/.write.lock` (the writers' lock; `withFileLock` owns the sibling). */
@@ -345,6 +488,7 @@ export class ProjectStore {
     this.repoPath = resolve(options.repoPath)
     this.projectDir = join(this.repoPath, PROJECT_DIR_NAME)
     this.handoffsDir = join(this.projectDir, HANDOFFS_DIR_NAME)
+    this.reviewsDir = join(this.projectDir, REVIEWS_DIR_NAME)
     this.indexFile = join(this.projectDir, INDEX_FILE_NAME)
     this.lockFile = join(this.projectDir, LOCK_FILE_NAME)
     this.clock = options.clock ?? ((): Date => new Date())
@@ -444,19 +588,29 @@ export class ProjectStore {
 
   /** Append one thread record; a duplicate `threadId` is rejected. */
   async addThread(record: ThreadRecord): Promise<ProjectIndex> {
-    const problems = threadProblems(record, 'thread')
+    // A caller may hand in a record that predates the M3 review fields; the
+    // index it writes always carries them as null, so a read is never partial.
+    const complete: ThreadRecord = {
+      ...record,
+      reviewStatus: record.reviewStatus ?? null,
+      reviewRequestedAt: record.reviewRequestedAt ?? null,
+      reviewedAt: record.reviewedAt ?? null,
+      reviewerSessionId: record.reviewerSessionId ?? null,
+      latestReviewPath: record.latestReviewPath ?? null,
+    }
+    const problems = threadProblems(complete, 'thread')
     if (problems.length > 0) {
       throw new StoreError('store/invalid-thread', problemMessage('thread record is invalid', this.indexFile, problems), this.indexFile)
     }
     return this.mutateIndex((index) => {
-      if (index.threads.some((thread) => thread.threadId === record.threadId)) {
+      if (index.threads.some((thread) => thread.threadId === complete.threadId)) {
         throw new StoreError(
           'store/thread-exists',
-          `thread already exists in ${this.indexFile}: ${record.threadId}`,
+          `thread already exists in ${this.indexFile}: ${complete.threadId}`,
           this.indexFile,
         )
       }
-      return { ...index, threads: [...index.threads, record] }
+      return { ...index, threads: [...index.threads, complete] }
     })
   }
 
@@ -464,7 +618,20 @@ export class ProjectStore {
   async updateThread(
     threadId: string,
     patch: Partial<
-      Pick<ThreadRecord, 'subject' | 'status' | 'cwd' | 'checkoutPath' | 'updatedAt' | 'lastHandoffAt'>
+      Pick<
+        ThreadRecord,
+        | 'subject'
+        | 'status'
+        | 'cwd'
+        | 'checkoutPath'
+        | 'updatedAt'
+        | 'lastHandoffAt'
+        | 'reviewStatus'
+        | 'reviewRequestedAt'
+        | 'reviewedAt'
+        | 'reviewerSessionId'
+        | 'latestReviewPath'
+      >
     >,
   ): Promise<ProjectIndex> {
     return this.mutateIndex((index) => {
@@ -487,6 +654,14 @@ export class ProjectStore {
         createdAt: current.createdAt,
         updatedAt: patch.updatedAt ?? this.now().toISOString(),
         lastHandoffAt: patch.lastHandoffAt === undefined ? current.lastHandoffAt : patch.lastHandoffAt,
+        reviewStatus: patch.reviewStatus === undefined ? current.reviewStatus : patch.reviewStatus,
+        reviewRequestedAt:
+          patch.reviewRequestedAt === undefined ? current.reviewRequestedAt : patch.reviewRequestedAt,
+        reviewedAt: patch.reviewedAt === undefined ? current.reviewedAt : patch.reviewedAt,
+        reviewerSessionId:
+          patch.reviewerSessionId === undefined ? current.reviewerSessionId : patch.reviewerSessionId,
+        latestReviewPath:
+          patch.latestReviewPath === undefined ? current.latestReviewPath : patch.latestReviewPath,
       }
       const threads = index.threads.map((thread, at) => (at === position ? merged : thread))
       return { ...index, threads }
@@ -616,6 +791,117 @@ export class ProjectStore {
     })
   }
 
+  /**
+   * Every review file, ordered by `createdAt` epoch (then by file name). A
+   * missing reviews directory is an empty list; a review file this store
+   * cannot validate raises `store/corrupt` rather than being skipped.
+   */
+  async listReviews(): Promise<ReviewFile[]> {
+    let names: string[]
+    try {
+      names = await readdir(this.reviewsDir)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return []
+      throw error
+    }
+    const files: ReviewFile[] = []
+    for (const fileName of names.filter((name) => name.endsWith(REVIEW_SUFFIX)).sort()) {
+      const filePath = join(this.reviewsDir, fileName)
+      files.push({ filePath, fileName, record: await this.readReview(filePath) })
+    }
+    return files.sort((left, right) => {
+      const delta = Date.parse(left.record.createdAt) - Date.parse(right.record.createdAt)
+      if (delta !== 0) return delta
+      return left.fileName.localeCompare(right.fileName)
+    })
+  }
+
+  /**
+   * Newest verdict per thread. A review file this store cannot read means "that
+   * thread has no review" for this projection (its index pointer is tried
+   * instead), not a failed status call; the index itself still fails in
+   * {@link readIndex}.
+   */
+  async latestReviews(
+    threads: ReadonlyArray<{ threadId: string; latestReviewPath: string | null }>,
+  ): Promise<LatestReview[]> {
+    let files: ReviewFile[] = []
+    try {
+      files = await this.listReviews()
+    } catch {
+      files = []
+    }
+    // listReviews is ascending by createdAt, so the last write per thread wins.
+    const newest = new Map<string, ReviewFile>()
+    for (const file of files) newest.set(file.record.threadId, file)
+    const rows: LatestReview[] = []
+    for (const thread of threads) {
+      let file = newest.get(thread.threadId) ?? null
+      const path = thread.latestReviewPath
+      if (file === null && path !== null) {
+        try {
+          file = { filePath: path, fileName: basename(path), record: await this.readReview(path) }
+        } catch {
+          file = null
+        }
+      }
+      if (file === null) continue
+      const { verdict, summary, createdAt } = file.record
+      rows.push({ threadId: thread.threadId, verdict, summary, reviewedAt: createdAt, filePath: file.filePath })
+    }
+    return rows
+  }
+
+  /** Read and validate one review file. */
+  async readReview(filePath: string): Promise<ReviewRecord> {
+    const absolute = isAbsolute(filePath) ? filePath : resolve(this.repoPath, filePath)
+    const text = await readDocument(absolute, 'review file')
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch (error) {
+      throw new StoreError(
+        'store/corrupt',
+        `${absolute}: invalid JSON (${(error as Error).message})`,
+        absolute,
+      )
+    }
+    const problems = reviewProblems(parsed)
+    if (problems.length > 0) {
+      throw new StoreError('store/corrupt', problemMessage('review is invalid', absolute, problems), absolute)
+    }
+    return parsed as ReviewRecord
+  }
+
+  /**
+   * Write one review file under the project lock. The file name comes from the
+   * record's own `createdAt`, so it is predictable; a second write to the same
+   * name is rejected (`store/review-exists`) instead of overwriting a verdict
+   * the index may already point at.
+   */
+  async writeReview(record: ReviewRecord): Promise<ReviewFile> {
+    const problems = reviewProblems(record)
+    if (problems.length > 0) {
+      throw new StoreError(
+        'store/invalid-review',
+        problemMessage('review record is invalid', this.reviewsDir, problems),
+        this.reviewsDir,
+      )
+    }
+    const name = reviewFileName(record.threadId, new Date(record.createdAt))
+    await this.ensureProjectDir()
+    await mkdir(this.reviewsDir, { recursive: true, mode: DIR_MODE })
+    return this.withLock(async () => {
+      const filePath = join(this.reviewsDir, name)
+      if ((await readTextIfPresent(filePath)) !== undefined) {
+        throw new StoreError('store/review-exists', `review file already exists: ${filePath}`, filePath)
+      }
+      await this.writeJson(filePath, record)
+      return { filePath, fileName: name, record }
+    })
+  }
+
   /** Create the project directory once, before any lock or write touches it. */
   private async ensureProjectDir(): Promise<void> {
     await mkdir(this.projectDir, { recursive: true, mode: DIR_MODE })
@@ -637,6 +923,11 @@ export class ProjectStore {
 /** The file name of one handoff: `<threadId>-YYYYMMDDTHHmmssSSSZ.json` in UTC. */
 export function handoffFileName(threadId: string, createdAt: Date): string {
   return `${threadId}-${handoffStamp(createdAt)}${HANDOFF_SUFFIX}`
+}
+
+/** The file name of one review: the handoff stamp format, under the reviews directory. */
+export function reviewFileName(threadId: string, createdAt: Date): string {
+  return `${threadId}-${handoffStamp(createdAt)}${REVIEW_SUFFIX}`
 }
 
 /** The `git remote get-url origin` value, or `undefined` when there is no usable remote. */

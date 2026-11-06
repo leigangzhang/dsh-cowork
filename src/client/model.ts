@@ -7,7 +7,12 @@
  * rendering anything. This module must stay React-free (no JSX, no `react`
  * import) so it can be loaded by `node --test` through type stripping.
  */
-import type { PanelCounts, PanelThreadStatus } from '../api-contract.ts'
+import type {
+  PanelCounts,
+  PanelReviewSeverity,
+  PanelReviewStatus,
+  PanelThreadStatus,
+} from '../api-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 
 /** Layout switch: above this measured width the panel splits into two columns. */
@@ -123,6 +128,74 @@ export const STATUS_TONES: Record<PanelThreadStatus, StatusTone> = {
 /** Tone of one status value; unknown values fall back to the neutral dot. */
 export function statusTone(status: PanelThreadStatus): StatusTone {
   return STATUS_TONES[status] ?? 'idle'
+}
+
+/** Chinese labels for the four review states; the badge always shows one. */
+export const REVIEW_STATUS_LABELS: Record<PanelReviewStatus, string> = {
+  pending: '审查中',
+  pass: '审查通过',
+  needs_revision: '需修改',
+  reject: '已拒绝',
+}
+
+/** Label of one review state; unknown values stay visible instead of vanishing. */
+export function reviewStatusLabel(status: PanelReviewStatus): string {
+  return REVIEW_STATUS_LABELS[status] ?? String(status)
+}
+
+/** Review badge tones, resolved to public theme tokens in `styles.ts`. */
+export const REVIEW_STATUS_TONES: Record<PanelReviewStatus, StatusTone> = {
+  pending: 'warn',
+  pass: 'success',
+  needs_revision: 'warn',
+  reject: 'error',
+}
+
+/** Tone of one review state; unknown values fall back to the neutral dot. */
+export function reviewStatusTone(status: PanelReviewStatus): StatusTone {
+  return REVIEW_STATUS_TONES[status] ?? 'idle'
+}
+
+/** Chinese labels for finding severities, most serious first. */
+export const FINDING_SEVERITY_LABELS: Record<PanelReviewSeverity, string> = {
+  blocker: '阻断',
+  high: '高',
+  medium: '中',
+  low: '低',
+}
+
+/** Label of one finding severity; the text always accompanies the tone. */
+export function findingSeverityLabel(severity: PanelReviewSeverity): string {
+  return FINDING_SEVERITY_LABELS[severity] ?? String(severity)
+}
+
+/** Finding tones: blockers and highs are errors, mediums warnings, lows neutral. */
+export const FINDING_SEVERITY_TONES: Record<PanelReviewSeverity, StatusTone> = {
+  blocker: 'error',
+  high: 'error',
+  medium: 'warn',
+  low: 'idle',
+}
+
+/** Tone of one finding severity; unknown values fall back to neutral. */
+export function findingSeverityTone(severity: PanelReviewSeverity): StatusTone {
+  return FINDING_SEVERITY_TONES[severity] ?? 'idle'
+}
+
+/**
+ * Tooltip of a review badge: the state, the absolute review time when there is
+ * one, and the finding count when the review carries findings. The visible
+ * badge text stays short; the title carries the detail.
+ */
+export function reviewBadgeTitle(
+  status: PanelReviewStatus,
+  reviewedAt: string | null,
+  findingCount = 0,
+): string {
+  const parts = [reviewStatusLabel(status)]
+  if (reviewedAt !== null && reviewedAt.trim() !== '') parts.push(formatLocalTimestamp(reviewedAt))
+  if (findingCount > 0) parts.push(`${findingCount} 条 finding`)
+  return parts.join(' · ')
 }
 
 /** Header chip order: work in flight first, brand-new threads last. */
@@ -299,6 +372,46 @@ export function openSessionMessage(threadId: string): string {
 export function openSessionFailureMessage(reason: string): string {
   const suffix = reason.trim().length === 0 ? '' : `（${reason.trim()}）`
   return `打开 thread 会话失败${suffix}`
+}
+
+/** Shown in the review section when the thread has never been sent to review. */
+export function reviewAbsentMessage(): string {
+  return '尚无 review；master 调用 cowork_review_request 后出现。'
+}
+
+/** Shown while a reviewer session exists but has not delivered a verdict yet. */
+export function reviewPendingMessage(): string {
+  return '审查中；review 会话给出 verdict 后，这里会显示结果。'
+}
+
+/**
+ * Shown when the index records a verdict but the review file itself is not
+ * loaded (still loading, or removed after it was written). Saying so beats
+ * claiming there is no review at all.
+ */
+export function reviewDetailUnavailableMessage(status: PanelReviewStatus): string {
+  return `review 详情不可用；索引记录为「${reviewStatusLabel(status)}」，review 文件可能已被移除。`
+}
+
+/** Why the review-session button is disabled: no reviewer session was recorded. */
+export function reviewOpenUnavailableMessage(): string {
+  return '这个 thread 还没有 review 会话；master 调用 cowork_review_request 后可以在这里打开。'
+}
+
+/** Receipt after asking the host to show the review session. */
+export function openReviewSessionMessage(reviewerSessionId: string): string {
+  return `已切换到 review 会话 ${shortThreadId(reviewerSessionId)}`
+}
+
+/** Action receipt shown when the workspace service is unavailable for reviews. */
+export function openReviewSessionUnavailableMessage(): string {
+  return '当前宿主没有提供会话导航服务，无法打开 review 会话。'
+}
+
+/** Receipt after the host refused to open the review session. */
+export function openReviewSessionFailureMessage(reason: string): string {
+  const suffix = reason.trim().length === 0 ? '' : `（${reason.trim()}）`
+  return `打开 review 会话失败${suffix}`
 }
 
 /**

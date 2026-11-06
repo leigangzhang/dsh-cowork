@@ -76,6 +76,23 @@ function handoffFile(threadId, createdAt, fileName, overrides = {}) {
   }
 }
 
+function reviewRecord(overrides = {}) {
+  return {
+    version: 1,
+    threadId: 't1',
+    reviewerSessionId: 'reviewer-session',
+    verdict: 'needs_revision',
+    summary: 'two findings need work',
+    findings: [
+      { id: 'F1', severity: 'high', problem: 'missing guard', requiredFix: 'add the guard', file: 'src/api.ts', line: 12 },
+      { id: 'F2', severity: 'low', problem: 'typo', requiredFix: 'rename' },
+    ],
+    verification: [{ command: 'node --test', exitCode: 0, evidence: '65 passed' }],
+    createdAt: '2026-01-03T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
 test('buildOverview drops archived threads and keeps the panel order', () => {
   const index = projectIndex([
     thread({ threadId: 'done-1', status: 'done', updatedAt: '2026-01-09T00:00:00.000Z' }),
@@ -285,8 +302,11 @@ function fakeConnection() {
 function fakePorts(options = {}) {
   const storeCalls = []
   const roots = []
+  const reviewReads = []
   const counters = { listCalls: 0 }
   const sessions = options.sessions ?? [{ sessionId: 'session-1', cwd: '/repo' }]
+  const reviewFiles = options.reviewFiles ?? {}
+  const reviewTexts = options.reviewTexts ?? {}
   const storePort = {
     async hasIndex() {
       storeCalls.push('hasIndex')
@@ -302,7 +322,25 @@ function fakePorts(options = {}) {
       if (options.handoffError !== undefined) throw options.handoffError
       return options.handoffs ?? []
     },
+    async readReview(filePath) {
+      storeCalls.push('readReview')
+      reviewReads.push(filePath)
+      if (options.reviewError !== undefined) throw options.reviewError
+      if (!Object.hasOwn(reviewFiles, filePath)) {
+        throw new store.StoreError('store/not-found', `review file not found: ${filePath}`, filePath)
+      }
+      return reviewFiles[filePath]
+    },
+    async readText(absPath) {
+      storeCalls.push('readText')
+      reviewReads.push(absPath)
+      if (options.readTextError !== undefined) throw options.readTextError
+      return Object.hasOwn(reviewTexts, absPath) ? reviewTexts[absPath] : null
+    },
   }
+  // A host whose store predates the review reader: the route must fall back to
+  // the project's own text read instead of failing the handoff.
+  if (options.omitReadReview === true) delete storePort.readReview
   const ports = {
     // Deliberately no `inspectSession`: the routes must resolve the cwd from
     // session metadata, so any regression back to `inspect` fails the test with
@@ -321,7 +359,7 @@ function fakePorts(options = {}) {
       return storePort
     },
   }
-  return { ports, storeCalls, roots, counters }
+  return { ports, storeCalls, roots, counters, reviewReads }
 }
 
 async function registerRoutes(portBag) {
@@ -567,6 +605,207 @@ test('handoff route serves the latest handoff of the requested thread', async ()
   assert.equal(body.handoff.record.threadId, 't1')
 })
 
+test('overview maps the index review fields and degrades older or odd rows to null', () => {
+  const index = projectIndex([
+    thread({
+      threadId: 'reviewed',
+      status: 'awaiting_review',
+      reviewStatus: 'needs_revision',
+      reviewedAt: '2026-01-03T00:00:00.000Z',
+      reviewerSessionId: 'reviewer-1',
+      latestReviewPath: '/repo/.dsh-cowork/reviews/t1-a.json',
+    }),
+    // An index written before M3 has none of the review fields.
+    thread({ threadId: 'legacy', status: 'active' }),
+    // A hand-written index may carry values the union does not allow.
+    thread({
+      threadId: 'odd',
+      status: 'done',
+      reviewStatus: 'passing',
+      reviewedAt: 42,
+      reviewerSessionId: '   ',
+    }),
+  ])
+  const overview = api.buildOverview(index, '/repo')
+  const reviewed = overview.threads.find((row) => row.threadId === 'reviewed')
+  assert.equal(reviewed.reviewStatus, 'needs_revision')
+  assert.equal(reviewed.reviewedAt, '2026-01-03T00:00:00.000Z')
+  assert.equal(reviewed.reviewerSessionId, 'reviewer-1')
+
+  const legacy = overview.threads.find((row) => row.threadId === 'legacy')
+  assert.equal(legacy.reviewStatus, null)
+  assert.equal(legacy.reviewedAt, null)
+  assert.equal(legacy.reviewerSessionId, null)
+
+  const odd = overview.threads.find((row) => row.threadId === 'odd')
+  assert.equal(odd.reviewStatus, null, 'an unknown review state is no review')
+  assert.equal(odd.reviewedAt, null, 'a non-string timestamp is no timestamp')
+  assert.equal(odd.reviewerSessionId, null, 'a blank session id is no session')
+
+  // Review state never enters the counts or the sort.
+  assert.deepEqual(overview.counts, { new: 0, active: 1, awaiting_review: 1, blocked: 0, done: 1 })
+  assert.deepEqual(
+    overview.threads.map((row) => row.threadId),
+    ['reviewed', 'legacy', 'odd'],
+    'the panel order stays status-then-recency',
+  )
+})
+
+test('handoff route returns the review its index pointer names', async () => {
+  const pointer = '/repo/.dsh-cowork/reviews/t1-b.json'
+  const portBag = fakePorts({
+    handoffs: [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')],
+    index: projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })]),
+    reviewFiles: { [pointer]: reviewRecord() },
+  })
+  const { routes } = await registerRoutes(portBag)
+  const response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  const body = await response.json()
+  assert.equal(body.handoff.review.filePath, pointer)
+  assert.equal(body.handoff.review.record.verdict, 'needs_revision')
+  assert.equal(body.handoff.review.record.summary, 'two findings need work')
+  assert.equal(body.handoff.review.record.reviewerSessionId, 'reviewer-session')
+  assert.equal(body.handoff.review.record.createdAt, '2026-01-03T00:00:00.000Z')
+  assert.deepEqual(body.handoff.review.record.findings.map((row) => row.id), ['F1', 'F2'])
+  assert.equal(body.handoff.review.record.findings[0].line, 12)
+  assert.deepEqual(body.handoff.review.record.verification, [
+    { command: 'node --test', exitCode: 0, evidence: '65 passed' },
+  ])
+  assert.deepEqual(portBag.reviewReads, [pointer], 'only the pointed file is read, never a directory guess')
+})
+
+test('handoff review is null without a pointer, with a null pointer, or when the file is gone', async () => {
+  const handoffAt = '2026-01-02T00:00:00.000Z'
+  const handoffs = [handoffFile('t1', handoffAt, 't1-a.json')]
+
+  // 1. Legacy index: the field itself is missing.
+  let portBag = fakePorts({ handoffs, index: projectIndex([thread({ threadId: 't1' })]) })
+  let { routes } = await registerRoutes(portBag)
+  let response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).handoff.review, null)
+  assert.deepEqual(portBag.reviewReads, [], 'no pointer means no read at all')
+
+  // 2. Explicit null pointer.
+  portBag = fakePorts({
+    handoffs,
+    index: projectIndex([thread({ threadId: 't1', latestReviewPath: null })]),
+  })
+  ;({ routes } = await registerRoutes(portBag))
+  response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).handoff.review, null)
+
+  // 3. Pointer kept, file removed after the verdict: still a usable handoff.
+  portBag = fakePorts({
+    handoffs,
+    index: projectIndex([thread({ threadId: 't1', latestReviewPath: '/repo/.dsh-cowork/reviews/gone.json' })]),
+  })
+  ;({ routes } = await registerRoutes(portBag))
+  response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.handoff.review, null)
+  assert.equal(body.handoff.filePath, '/repo/.dsh-cowork/handoffs/t1-a.json', 'the handoff still renders')
+})
+
+test('a store without readReview falls back to the project text read', async () => {
+  const pointer = '/repo/.dsh-cowork/reviews/t1-a.json'
+  const portBag = fakePorts({
+    handoffs: [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')],
+    index: projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })]),
+    omitReadReview: true,
+    reviewTexts: { [pointer]: JSON.stringify(reviewRecord({ verdict: 'pass' })) },
+  })
+  const { routes } = await registerRoutes(portBag)
+  const response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.handoff.review.record.verdict, 'pass')
+  assert.equal(body.handoff.review.filePath, pointer)
+})
+
+test('a missing fallback file is no review, not an error', async () => {
+  const pointer = '/repo/.dsh-cowork/reviews/t1-a.json'
+  const portBag = fakePorts({
+    handoffs: [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')],
+    index: projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })]),
+    omitReadReview: true,
+  })
+  const { routes } = await registerRoutes(portBag)
+  const response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).handoff.review, null)
+})
+
+test('a damaged review document is store/corrupt, other read failures stay internal', async () => {
+  const pointer = '/repo/.dsh-cowork/reviews/t1-a.json'
+  const handoffs = [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')]
+  const index = projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })])
+
+  // A document without a valid verdict cannot be labelled: report the file.
+  let portBag = fakePorts({
+    handoffs,
+    index,
+    reviewFiles: { [pointer]: { verdict: 'pending', summary: 'x', reviewerSessionId: 'r', createdAt: 'nope' } },
+  })
+  let { routes } = await registerRoutes(portBag)
+  let response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 500)
+  let body = await response.json()
+  assert.equal(body.error.code, 'store/corrupt')
+  assert.equal(body.error.path, pointer)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+
+  // A typed store error keeps its corrupt mapping.
+  portBag = fakePorts({
+    handoffs,
+    index,
+    reviewError: new store.StoreError('store/corrupt', 'review JSON is invalid', pointer),
+  })
+  ;({ routes } = await registerRoutes(portBag))
+  response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 500)
+  body = await response.json()
+  assert.deepEqual(body.error, { code: 'store/corrupt', message: 'review JSON is invalid', path: pointer })
+
+  // Anything else degrades to internal, like every other unexpected read.
+  portBag = fakePorts({ handoffs, index, reviewError: new Error('disk on fire') })
+  ;({ routes } = await registerRoutes(portBag))
+  response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 500)
+  body = await response.json()
+  assert.deepEqual(body.error, { code: 'internal', message: 'disk on fire' })
+})
+
+test('a malformed fallback review document is store/corrupt', async () => {
+  const pointer = '/repo/.dsh-cowork/reviews/t1-a.json'
+  const portBag = fakePorts({
+    handoffs: [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')],
+    index: projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })]),
+    omitReadReview: true,
+    reviewTexts: { [pointer]: '{not json' },
+  })
+  const { routes } = await registerRoutes(portBag)
+  const response = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(response.status, 500)
+  const body = await response.json()
+  assert.equal(body.error.code, 'store/corrupt')
+  assert.equal(body.error.path, pointer)
+})
+
 test('handoff route reports a thread without a handoff', async () => {
   const portBag = fakePorts({ handoffs: [handoffFile('other', '2026-01-01T00:00:00.000Z', 'other-a.json')] })
   const { routes } = await registerRoutes(portBag)
@@ -589,6 +828,6 @@ test('neither route ever calls a store write', async () => {
     routes.get(contract.HANDOFF_PATH).fetch(handoffRequest('?sessionId=session-1&threadId=t1')),
   ])
   assert.deepEqual(results.map((response) => response.status), [200, 200])
-  const allowed = new Set(['hasIndex', 'readIndex', 'listHandoffs'])
+  const allowed = new Set(['hasIndex', 'readIndex', 'listHandoffs', 'readReview', 'readText'])
   for (const call of portBag.storeCalls) assert.ok(allowed.has(call), `unexpected store call: ${call}`)
 })
