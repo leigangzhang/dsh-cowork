@@ -51,6 +51,7 @@ import {
   isStrictlyInside,
   lastSeq,
   memoryVisibilityChecks,
+  memoryVisiblePrompt,
   messageOf,
   observeGit,
   parseIndex,
@@ -484,7 +485,9 @@ export class M2E2ERunner {
       step,
       thread,
       'thread',
-      `Do not call any tool. Reply with exactly this one line and nothing else: ${MEMORY_TEXT}`,
+      // Title-only prompt: the expected text lives in the system prompt's
+      // memory block, never in the prompt (see memoryVisiblePrompt).
+      memoryVisiblePrompt(),
     )
     const reply = await this.poll('thread reply containing the constraint text', async () => {
       const text = this.assistantTextSince(thread, prompt.fromSeq)

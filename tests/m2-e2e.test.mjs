@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url'
 import {
   MAX_ASSISTANT_TEXT,
   MEMORY_TEXT,
+  MEMORY_TITLE,
   STEP_IDS,
   evidenceDocument,
   memoryVisibilityChecks,
+  memoryVisiblePrompt,
   statusView,
 } from '../src/m2-e2e-support.ts'
 
@@ -107,6 +109,26 @@ test('the evidence document has host identity by role and no machine name', () =
   const serialized = JSON.stringify(document)
   assert.equal(serialized.includes(hostname()), false)
   assert.equal(serialized.includes('hostname'), false)
+})
+
+test('the model-visible prompt never carries the expected constraint text', () => {
+  const prompt = memoryVisiblePrompt()
+
+  // A prompt holding the expected text would let the model copy it back without
+  // the memory ever reaching its system prompt; the step would prove nothing.
+  assert.equal(prompt.includes(MEMORY_TEXT), false)
+  assert.equal(prompt.includes('M2-E2E-CONSTRAINT-7F3A'), false)
+  assert.equal(prompt.includes('所有提交信息用中文'), false)
+
+  assert.match(prompt, /Do not call any tool/)
+  assert.match(prompt, /system prompt/)
+  assert.equal(prompt.includes(MEMORY_TITLE), true)
+  assert.equal(memoryVisiblePrompt('另一条约束').includes('另一条约束'), true)
+})
+
+test('the E2E constraint is unguessable but still searchable', () => {
+  assert.ok(MEMORY_TEXT.startsWith('M2-E2E-CONSTRAINT-7F3A: '))
+  assert.ok(MEMORY_TEXT.includes('提交信息'))
 })
 
 test('memoryVisibilityChecks accepts an exact, tool-free reply', () => {

@@ -271,8 +271,32 @@ export const MERGE_TOOL = 'cowork_checkout_merge'
 export const MASTER_DONE = 'Reply DONE.'
 export const FIXTURE_SUBJECT_1 = 'E2E 隔离线程'
 export const FIXTURE_SUBJECT_2 = 'E2E 冲突线程'
+/** Title of the constraint the E2E writes; the only memory hint a prompt gets. */
 export const MEMORY_TITLE = 'E2E 约束'
-export const MEMORY_TEXT = '所有提交信息用中文'
+
+/**
+ * Text of the E2E constraint.
+ *
+ * The `M2-E2E-CONSTRAINT-7F3A` nonce makes the value unguessable: a model that
+ * never saw the memory block cannot reproduce it from prior knowledge, so a
+ * verbatim reply is evidence that the block reached the system prompt. It keeps
+ * 提交信息 so the cross-thread memory search query still matches.
+ */
+export const MEMORY_TEXT = 'M2-E2E-CONSTRAINT-7F3A: 所有提交信息用中文'
+
+/**
+ * Prompt for the model-visible memory step.
+ *
+ * It names only the constraint's title and where it lives (the system prompt).
+ * It must never interpolate {@link MEMORY_TEXT} or any other expected reply: a
+ * prompt carrying the expected text would let a model copy it back without the
+ * memory ever reaching its system prompt, and the step would prove nothing.
+ */
+export function memoryVisiblePrompt(memoryTitle: string = MEMORY_TITLE): string {
+  return `Do not call any tool. The project memory is already rendered in your system prompt. `
+    + `Find the constraint titled "${memoryTitle}" there and reply with its text `
+    + 'verbatim, on one line, with nothing else.'
+}
 
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
