@@ -30,6 +30,7 @@ import {
   planReviewRequest,
   planReviewVerdict,
   reviewStateOf,
+  shouldRemoveFixture,
   stepFailureState,
 } from '../src/m3-e2e-support.ts'
 
@@ -253,6 +254,44 @@ test('a step error maps to the terminal failed state with its step id', () => {
     state: 'failed',
     error: 'step merge-b: plain text',
   })
+})
+
+test('shouldRemoveFixture deletes only after a terminal run state', () => {
+  assert.equal(shouldRemoveFixture('done'), true)
+  assert.equal(shouldRemoveFixture('failed'), true)
+  assert.equal(shouldRemoveFixture('running'), false)
+})
+
+test('the run finally persists evidence before deleting the fixture', () => {
+  const source = readFileSync(driverPath, 'utf8')
+  const finallyAt = source.indexOf('} finally {')
+  assert.notEqual(finallyAt, -1, 'execute() must keep a finally block')
+  const end = source.indexOf('this.releaseSessions()', finallyAt)
+  assert.ok(end > finallyAt, 'the finally block must still release sessions')
+  const block = source.slice(finallyAt, end)
+
+  const persistAt = block.indexOf('await this.persist(run)')
+  const deleteAt = block.indexOf('this.removeFixture(run)')
+  assert.notEqual(persistAt, -1, 'the finally must persist the evidence')
+  assert.notEqual(deleteAt, -1, 'the finally must delete the fixture')
+  assert.ok(persistAt < deleteAt, 'evidence must be persisted before the fixture is deleted')
+  assert.ok(block.indexOf('safeArchiveSessions(') < persistAt, 'archive first, then persist')
+  assert.match(block, /shouldRemoveFixture\(run\.state\)/, 'the delete is guarded by the pure helper')
+})
+
+test('the fixture delete records its error without rewriting the run error', () => {
+  const source = readFileSync(driverPath, 'utf8')
+  const start = source.indexOf('private async removeFixture')
+  const end = source.indexOf('private async persist', start)
+  assert.ok(start !== -1 && end > start, 'removeFixture must live in the driver')
+  const body = source.slice(start, end)
+
+  assert.match(body, /rm\(this\.fixturePath, \{ recursive: true, force: true \}\)/)
+  assert.equal(body.includes('`delete fixture: ${messageOf(error)}`'), true)
+  assert.equal(body.includes('run.cleanup = { ...run.cleanup, errors:'), true)
+  assert.match(body, /await this\.persist\(run\)/, 'a failed delete is persisted again')
+  assert.equal(/run\.state\s*=/.test(body), false, 'the delete must not rewrite run.state')
+  assert.equal(/run\.error\s*=/.test(body), false, 'the delete must not rewrite run.error')
 })
 
 test('the runner exposes start, resolve, attachEvents, and dispose', () => {
