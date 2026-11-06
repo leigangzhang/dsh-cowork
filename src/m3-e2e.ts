@@ -59,6 +59,7 @@ import {
   runGit,
   runView,
   sleep,
+  shouldRemoveFixture,
   stepFailureState,
   stableJson,
   stringOrNull,
@@ -216,6 +217,9 @@ export class M3E2ERunner {
       run.endedAt = isoNow()
       await this.safeArchiveSessions(run)
       await this.persist(run)
+      // Evidence is on disk before the fixture goes away, and the delete cannot
+      // change the terminal state: a failed run keeps its original error.
+      if (shouldRemoveFixture(run.state)) await this.removeFixture(run)
       this.releaseSessions()
     }
   }
@@ -752,6 +756,22 @@ export class M3E2ERunner {
       }
     }
     if (errors.length > 0) run.cleanup = { ...run.cleanup, autoArchiveErrors: errors }
+  }
+
+  /**
+   * Delete the fixture after the evidence file has been written. `rm(force)`
+   * makes the second delete (after a successful `stepCleanup`) a no-op. A
+   * failed delete is appended to `cleanup.errors` and persisted again; it never
+   * rewrites `run.state`/`run.error`, so the original run error stays reported.
+   */
+  private async removeFixture(run: MutableRun): Promise<void> {
+    try {
+      await rm(this.fixturePath, { recursive: true, force: true })
+    } catch (error) {
+      const previous: unknown[] = Array.isArray(run.cleanup.errors) ? run.cleanup.errors as unknown[] : []
+      run.cleanup = { ...run.cleanup, errors: [...previous, `delete fixture: ${messageOf(error)}`] }
+      await this.persist(run)
+    }
   }
 
   private async persist(run: MutableRun): Promise<void> {

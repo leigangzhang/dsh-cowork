@@ -259,6 +259,17 @@ export function stepFailureState(stepId: string, error: unknown): { state: 'fail
   return { state: 'failed', error: `step ${stepId}: ${messageOf(error)}` }
 }
 
+/**
+ * Whether the run-end `finally` must delete the fixture directory. A run that
+ * is still `running` keeps its fixture; `done` and `failed` both drop it, so a
+ * failed run cannot leave `.dsh-cowork/e2e/m3-repo/README.md` behind for
+ * `npm run check` to scan (KI-13). Pure by design so the three states stay
+ * testable without a host and the policy lives in one place.
+ */
+export function shouldRemoveFixture(state: M3RunState): boolean {
+  return state === 'done' || state === 'failed'
+}
+
 export function reviewPreamble(input: ReviewPromptInput, command: string): string[] {
   return [
     'This is the M3 E2E fixture run. Act as the independent reviewer; never modify an implementation file.',
