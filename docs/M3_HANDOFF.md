@@ -1,14 +1,14 @@
 # M3 交接文档
 
-- 状态：**已交付（2026-11-05），一项未验证**。host review 门禁在真实宿主 E2E 15/15 步通过；面板 review code 已交付；**带 review 状态的真实 Chrome 截图未取得**（宿主 `/api/session/list` 在大量会话下 >60 s 不返回，面板停在 loading），如实留在 [M3 结果](M3_RESULT.md) 与 [KNOWN_ISSUES](KNOWN_ISSUES.md)。
+- 状态：**已交付（2026-11-05），M3A1–M3A9 全部有证据**。host review 门禁在真实宿主 E2E 15/15 步通过；面板 review 呈现已取得分栏与 ≤480 两档真实 Chrome 截图（M3A8 通过）。
 - 适用：接手 M3 之后维护的 agent 或人。范围：review 门禁 + 只读面板 + review 状态在面板的呈现。
-- 事实源：[PLAN](PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与已定决策；[M3 结果](M3_RESULT.md) 拥有交付面、E2E 证据、限制与回滚；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有探针与真机阻塞事实；[面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RESULT](PANEL_RESULT.md)、[PANEL_RECON](PANEL_RECON.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有 M2 行为；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN](PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与已定决策；[M3 结果](M3_RESULT.md) 拥有交付面、E2E 证据、限制与回滚；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有探针与真机取证过程；[面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RESULT](PANEL_RESULT.md)、[PANEL_RECON](PANEL_RECON.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有 M2 行为；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## 交付后状态（2026-11-05）
 
 - 代码/证据基线：`feat/m3-review-panel`，review 门禁与 E2E 驱动在 `d95fb82`；真实宿主 E2E run `m3-d06cc6a6-3a97-4d3d-8cfc-92a2220ad1f7`，15/15、两次合并（`2aa02856`、`6981bb94`）。四条命令 309/309、typecheck/build exit 0。
 - 已交付：`cowork_review_request` / `cowork_review_verdict`、`cowork-reviewer` preset（无 tool-fs）、reviews 存储、verdict 路由、needs_revision 退回、merge pass 门禁 + override、overview/handoff review 字段、面板徽章/审查详情/打开 review 会话。
-- **仍缺**：面板两档真实 Chrome 截图（F1）。阻塞是宿主 API 延迟，不是面板代码；重试步骤见 [M3 P0 探针](M3_PROBE_RESULT.md)「失败与经验」与 KI-12。重试成功后补截图并更新 [M3 结果](M3_RESULT.md) 的 M3A8 行。
+- **真机验收**：重启宿主 + clean re-inject 后，原包 client 加载；fixture（pass / needs_revision / pending / reject / none）在真实 Chrome 分栏与 900 宽（右栏 <480）两档截图，列表徽章、chips 与 needs_revision findings 详情都可见。截图在 `.dsh-cowork/e2e/panel-m3/`；证据与限制见 [M3 结果](M3_RESULT.md) M3A6/M3A8。
 - 环境注记：同名包 client 在本进程内不生效（KI-11）；真机复现需临时改名包或重启宿主。失败 E2E 会留下 `.dsh-cowork/e2e/m3-repo` 夹具，重跑 `npm run check` 前先清理（KI-13）。
 
 > 下面「交付前的事实」「第一步：P0 探针」「实施顺序」是交付前的原始记录，保留作历史；完成状态以上文与 [M3 结果](M3_RESULT.md) 为准。
@@ -69,7 +69,7 @@
 
 - M3A1–M3A8 全部有证据；PLAN §6 M3 三条验收全过（独立 review verdict、needs_revision 退回、侧栏项目/thread 树与状态徽章、handoff 预览）。
 - 四条命令全绿；真实宿主 E2E 通过；面板七状态与两档宽度可复现。
-- 实际收口：M3A1–M3A7、M3A9 通过；**M3A8（两档真实 Chrome 截图）未通过**，原因与重试条件见 [M3 结果](M3_RESULT.md) 与 KI-12。
+- 实际收口：M3A1–M3A9 全部通过；M3A8 的两档截图在 `.dsh-cowork/e2e/panel-m3/`，深色主题与部分动作点击仍未逐项真机验证（见 [PANEL_RESULT](PANEL_RESULT.md)）。
 - M3 结果与限制入 docs；提案迁入 `implemented/` 并保持 current；`docs/publish.json` 分类正确。
 
 ## 回滚

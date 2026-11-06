@@ -52,7 +52,7 @@ M2 交付了项目记忆、thread 隔离 clone 与结构化 handoff，但「谁�
 ## Consequences
 
 - 真实宿主 E2E 已证明 review 门禁闭环：15/15 步、thread A pass → 合并、thread B needs_revision → 修复 → 复审 pass → 合并；review 文件先于索引、自审拒绝、findings 投递均成立。
-- **面板两档真实 Chrome 截图未取得**（M3A8 未通过）：同进程同名包 client 不生效，临时改名包能加载 client 并打开 tab，但宿主 `/api/session/list` 在大量会话下 >60 s 不返回，面板 API 依赖它解析 sessionId→cwd，面板停在 loading。这是宿主事实（KI-12），不是面板代码错误；重试需宿主重启或会话列表恢复。
+- **面板两档真实 Chrome 截图已取得**（M3A8 通过）：重启宿主并 clean re-inject 后，原包 client 加载；fixture 下 overview/handoff 都来自真实宿主，分栏与 900 宽（右栏 <480）截图保存于 `.dsh-cowork/e2e/panel-m3/`。早先的面板 API 悬挂是 reload 留下旧 fiber 所致（clean re-inject 后即恢复），不是面板代码错误；大会话列表冷启动仍偏慢（KI-12）。
 - reviewer 仍可用 bash 写文件；工具面已去 write/edit，但 bash 不是只读沙箱（KI/结果限制）。
 - 合并覆盖可绕过 review；理由进 git 提交信息，M3 不做用户二次确认（后续可收紧）。
 - `cowork` 会话仍能看到 profile 全局 dev_*/host 工具；M3 只把「禁止使用」写进 master persona，没有硬限制（KI-10）。
@@ -67,7 +67,7 @@ M2 交付了项目记忆、thread 隔离 clone 与结构化 handoff，但「谁�
 - [M3A3] pass/needs_revision/reject 路由与 findings 投递 — `source`、`tests`：`verdictTransition`；E2E thread A/B；`tests/review.test.mjs`。
 - [M3A4] 合并默认 pass、`allowUnreviewed+overrideReason` 可覆盖且理由进提交 — `source`、`tests`：`src/tools.ts` merge 门禁；`tests/review.test.mjs`；E2E 两次 pass 合并。
 - [M3A5] `cowork-reviewer` 可创建、无 `tool-fs`、真实运行验证命令 — `packaging`：`src/presets.ts`；E2E reviewer 运行 `test -f` 并写 verdict。
-- [M3A6] overview/handoff review 字段、旧索引兼容、面板徽章/详情/跳转 — `source`、`tests`：`tests/api-contract.test.mjs`、`tests/api.test.mjs`、`tests/panel-model.test.mjs`；真机数据往返**未验证**（见 Consequences）。
+- [M3A6] overview/handoff review 字段、旧索引兼容、面板徽章/详情/跳转 — `source`、`tests`：`tests/api-contract.test.mjs`、`tests/api.test.mjs`、`tests/panel-model.test.mjs`；真实宿主截图 `01-split-review-states.jpg` / `02-drill-list.jpg` / `03-drill-needs-revision.jpg`。
 - [M3A7] 真实宿主 E2E 两轮 review 与合并 — `tests`：run `m3-d06cc6a6-3a97-4d3d-8cfc-92a2220ad1f7`，15/15，merge commits `2aa02856` / `6981bb94`。
-- [M3A8] 两档真实 Chrome 截图 — **未通过**：无截图；阻塞与重试条件见 `docs/M3_PROBE_RESULT.md` 与 KI-12 — `source`
+- [M3A8] 两档真实 Chrome 截图 — `source`：`.dsh-cowork/e2e/panel-m3/01-split-review-states.jpg`（分栏）与 `02-drill-list.jpg` / `03-drill-needs-revision.jpg`（900 宽、右栏 <480 钻取），显示 review 徽章、chips、findings 与 reviewer 验证。
 - [M3A9] 文档与发布 — `publication`：`docs/M3_RESULT.md`、`docs/M3_PROBE_RESULT.md`、PLAN/KNOWN_ISSUES/PANEL_RESULT/M3_HANDOFF 同步、`docs/publish.json` 分类、本记录迁入 implemented；`npm run check` 通过。

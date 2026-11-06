@@ -1,6 +1,6 @@
 # M3 结果：独立 review 门禁与面板 review 呈现
 
-- 结论：**host 侧 M3 已交付并在真实宿主验证**——`cowork_review_request` / `cowork_review_verdict`、独立 `cowork-reviewer` 会话、`reviews/` 存储、verdict 状态路由、`needs_revision` 退回、`pass` 合并门禁与显式覆盖，全部在真实宿主 E2E 中跑通（15/15 步，两次合并）。**面板侧 code 已交付**（overview/handoff review 字段、徽章、审查详情、打开 review 会话），但**真实 Chrome 带 review 状态的截图未取得**：宿主在大量会话下 `/api/session/list` 持续 >60 s 不返回，面板停在 loading；本项按未验证记录，不作为通过。
+- 结论：**host 侧 M3 已交付并在真实宿主验证**——`cowork_review_request` / `cowork_review_verdict`、独立 `cowork-reviewer` 会话、`reviews/` 存储、verdict 状态路由、`needs_revision` 退回、`pass` 合并门禁与显式覆盖，全部在真实宿主 E2E 中跑通（15/15 步，两次合并）。**面板侧也已在真实 Chrome 验证**：overview/handoff review 字段、review 徽章、审查详情、打开 review 会话在分栏与 ≤480 钻取两档都取得截图（`.dsh-cowork/e2e/panel-m3/01-split-review-states.jpg`、`02-drill-list.jpg`、`03-drill-needs-revision.jpg`）。
 - 分支与字节：`feat/m3-review-panel`，代码/证据基线 `d95fb82`（含 t8）；M3 文档与交接的提交见 `.dsh-cowork/e2e/M3_DOCS_READY.json` 的 `commit`（写该 marker 时的 HEAD）。
 - 依据：[M3 提案](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有范围与决策；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有本轮探针与失败；[M3 交接](M3_HANDOFF.md) 拥有从哪继续；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有明确不修项。
 
@@ -32,11 +32,11 @@
 - 关键证据字段：thread A pass review 文件 + 索引 `done/pass` + merge commit `2aa02856ba903cd8e72705a561cae19a2f89a926` + 主仓 `e2e-a.txt=M3-E2E-PASS`；thread B 首轮 `needs_revision`（finding `M3-E2E-1`）+ 索引 `active` + findings 投递，修复后二轮 `pass` + merge commit `6981bb94aced9b60fe390a944775f4f5e31e0417` + `e2e-b.txt=M3-E2E-FIXED`；cleanup 存档 3 个 reviewer session、review 文件原文、最终索引与 2 条 merge commit、`tempRepoRemoved=true`。
 - 观察到的产品行为：t8 人格更新后，master 在收到 handoff 的自主回合里**自己调用** `cowork_review_request`；E2E 用 `planReviewRequest` adopt 它，未重复请求；reviewer 的确定性 verdict 指令以 `mode:'steer'` 在首轮判定前送达。
 
-## 面板（code 交付，真机数据未验证）
+## 面板（真机验证：分栏与 ≤480 钻取）
 
 - 字段：`/api/cowork.overview` 返回 `reviewStatus/reviewedAt/reviewerSessionId`；`/api/cowork.handoff` 返回 `review.record/filePath`；缺字段/指针文件删除为 null，坏文档 `store/corrupt`；仍只读、无 POST。
 - 客户端：徽章带可见文本与 title 时间；详情审查区展示 verdict、reviewedAt、reviewer 短 id、summary、findings（severity/problem/requiredFix/file:line）、reviewer verification、review 文件绝对路径；`reviewerSessionId` 存在时「打开 review 会话」可用（`uiWorkspace.openSession`）。
-- 真机：临时改名包（同源码、只改包名/client loader id）在真实 Chrome 加载成功，底栏「打开 Cowork 面板」与 `Cowork` tab 出现，tab 打开后渲染 header 与 loading 骨架；**带 review 状态的数据截图未取得**（见下）。
+- 真机：重启宿主并 clean re-inject 后，原包 client 在真实 Chrome 加载成功（底栏「打开 Cowork 面板」出现）；应用 fixture 后 overview 返回 5 个 thread 与 chips（进行中 2 / 待审查 1 / 受阻 1 / 已完成 1 / 新建 0），列表同时显示「审查中 / 已拒绝 / 需修改 / 审查通过」徽章；needs_revision 详情显示 summary、两条 findings（severity/problem/requiredFix/file:line）、reviewer 验证、review 文件绝对路径与「打开 review 会话」。截图见 `.dsh-cowork/e2e/panel-m3/`：`01-split-review-states.jpg`（分栏列表 + pending review 区）、`02-drill-list.jpg`（≤480 列表）、`03-drill-needs-revision.jpg`（≤480 详情 + findings）。
 
 ## 四条命令（最终代码字节）
 
@@ -51,14 +51,14 @@
 | M3A3 pass/needs_revision/reject 路由与 findings 投递 | 通过 | E2E thread A/B；`tests/review.test.mjs` |
 | M3A4 合并默认 pass + 显式覆盖 | 通过（host 行为） | `src/tools.ts` merge 门禁；`tests/review.test.mjs`；E2E 两次 pass 合并 |
 | M3A5 reviewer preset 可创建、无 tool-fs、真实跑验证 | 通过 | E2E reviewer 运行 `test -f` 并写 verdict；`src/presets.ts` |
-| M3A6 overview/handoff review 字段、旧索引兼容、面板徽章/详情/跳转 | code 通过，**真机数据未验证** | `tests/api*.test.mjs`、`tests/panel-model.test.mjs`；真机仅到 loading |
+| M3A6 overview/handoff review 字段、旧索引兼容、面板徽章/详情/跳转 | 通过 | `tests/api*.test.mjs`、`tests/panel-model.test.mjs`；真机截图 `01`/`02`/`03`（review 徽章、findings、review 文件、打开 review 会话按钮） |
 | M3A7 真实宿主 E2E：pass→合并、needs_revision→修复→复审→合并 | 通过 | 上面的 run 15/15 |
-| M3A8 两档真实 Chrome 截图 | **未通过** | 见「限制」；无截图文件 |
+| M3A8 两档真实 Chrome 截图 | 通过 | `.dsh-cowork/e2e/panel-m3/01-split-review-states.jpg`（1458×824 分栏）、`02-drill-list.jpg` 与 `03-drill-needs-revision.jpg`（900×900 下右侧栏 <480 钻取） |
 | M3A9 文档与发布 | 通过 | 本文、`M3_PROBE_RESULT`、PLAN/KNOWN_ISSUES/PANEL_RESULT/M3_HANDOFF 同步、publish 分类、提案迁入 implemented |
 
 ## 限制（不修项见 KNOWN_ISSUES）
 
-1. **面板真机数据往返未验证**：宿主在大量会话下 `/api/session/list` 单次 >60 s 不返回，面板 API 依赖它解析 sessionId→cwd，导致 overview/handoff 请求悬挂、面板一直 loading；本轮无法截图。重试条件：宿主重启或会话列表恢复后，用改名包重新截图。
+1. **旧 fiber 会让面板 API 悬挂**：首次重试时 self-heal/reload 留下了 pre-M3/旧 fiber，`/api/cowork.overview` 等请求 >25 s 不返回；clean uninject → clear routes → inject 后同一进程内 API 立即恢复（本次截图的 overview/handoff 都来自真实宿主）。宿主会话列表本身约 1.2 MB、冷启动约 17 s，仍偏慢（KI-12）。
 2. **同名包 client 不生效**：`client-modules` 的 pkgMeta 缓存按 loader name+baseUrl 缓存且不失效；本轮用临时改名包加载 client，交付包在当前进程内仍可能不加载 client，正式安装/重启后正常。
 3. **reviewer 仍可用 bash 写文件**：工具面已无 write/edit，但 bash 能写；靠 persona 与 review 文件证据约束，不是只读沙箱。
 4. **merge 覆盖可绕过 review**：默认 pass 门禁 + 显式 `allowUnreviewed+overrideReason`（理由进提交信息）；这是已定的可操作性取舍，不是审批流。
