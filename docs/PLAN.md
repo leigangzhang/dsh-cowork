@@ -378,6 +378,8 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 ### M4：单插件打包与发布
 
+方案与验证路径见 [M4 提案](../.agents/notes/proposed/feature/2026-11-05-m4-packaging.md) 与 [M4 交接](M4_HANDOFF.md)。
+
 验收：
 
 - 一个新 profile 只安装 `dsh-cowork` 一个包即可获得全部能力；

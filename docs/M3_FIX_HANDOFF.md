@@ -88,7 +88,7 @@
 
 ## 非本阶段项（不排进 M3-FIX）
 
-- M4：preset 持久化（KI-3）、单插件打包与正式安装（同时解决 client 缓存与重启后注入）。
+- M4：preset 持久化（KI-3）、单插件打包与正式安装（同时解决 client 缓存与重启后注入）。入口见 [M4 交接](M4_HANDOFF.md) 与 [M4 提案](../.agents/notes/proposed/feature/2026-11-05-m4-packaging.md)；M4 必须先过 M3-FIX。
 - 宿主/工具面：profile 全局 `dev_*` 工具（KI-10）、`client-modules` pkgMeta 不失效（KI-11）、merge 冲突人工解决（KI-4）、workspace-write 前提（KI-5）。
 - 已接受设计：reviewer 的 bash 写能力（M3L-7）、merge override（M3L-10）、截图/证据 gitignored（M3L-5 只保证可复现，不改变存储模式）。
 - 这些不是「忘了修」，而是归属明确；重估触发已写在各行/KNOWN_ISSUES，满足「不拖延」要求：本阶段只承接自己造成的问题。
