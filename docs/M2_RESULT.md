@@ -2,7 +2,7 @@
 
 - 结论：M2 交付 PLAN §6 的两项能力——项目记忆跨 thread 生效并注入每个 cowork agent 的 system prompt；写代码的 thread 在独立本地 clone 中工作，master 独占合并，冲突保留现场并置 `blocked`。工具面从 6 个扩到 9 个；真实宿主 E2E 在最终字节上 11/11 步通过，其中 `memory-visible` 用不可猜 nonce 证明约束确实进入模型可见的 system prompt。
 - 依据：P0 探针结论见 [M2-P0 结果](M2_PROBE_RESULT.md)；F 方案（每 thread 本地 clone）经用户确认；收口修复的决策与 F1–F8 证据归 [implemented bug-fix note](../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)。
-- E2E 证据容器：[`.dsh-cowork/e2e/M2_E2E.json`](../.dsh-cowork/e2e/M2_E2E.json)（gitignored），run `m2-a91984c0-4840-4bc0-bcd1-74fe22d0e679`，`state: done`、`error: null`、11/11 步 `passed`。
+- E2E 证据容器：本地 gitignored 文件 `.dsh-cowork/e2e/M2_E2E.json`，run `m2-a91984c0-4840-4bc0-bcd1-74fe22d0e679`，`state: done`、无 `error` 字段、11/11 步 `passed`。
 - 宿主：DSH Desktop 2.0.18 / 运行时 0.2.1-rc.2；插件 `@dsh-external/dsh-cowork` 以 `dev_inject_plugin` 注入。下文原始输出摘自证据文件的 `steps[].evidence`，只省略重复结构，字段值未改。
 
 ## 交付面
