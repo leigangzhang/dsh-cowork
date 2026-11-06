@@ -72,6 +72,14 @@
     {
       "pattern": "docs/PANEL_RESULT.md",
       "reason": "delivered Cowork panel surface and real-host evidence: what shipped, the wire contract, the client build chain, verified states, unverified items, and the M2 merge note; environment-bound evidence for contributors, not a user guide"
+    },
+    {
+      "pattern": "docs/M3_PROBE_RESULT.md",
+      "reason": "M3 P0 probe evidence: review-session closure and the panel review-field probe, including the real-Chrome client-cache and host-API-latency blockers; environment-bound evidence for contributors, not a user guide"
+    },
+    {
+      "pattern": "docs/M3_RESULT.md",
+      "reason": "M3 delivered surface and real-host E2E evidence (M3A1-M3A9), with the unverified panel screenshots, limitations, and rollback; environment-bound evidence for contributors, not a user-facing guide"
     }
   ]
 }

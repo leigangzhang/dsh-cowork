@@ -1,14 +1,23 @@
 # M3 交接文档
 
-- 状态：**预案，可开始**。M2 收口已按 [M2 修复交接](M2_FIX_HANDOFF.md) 完成：F1–F8 有证据，真实宿主 E2E 11/11 步通过，四条命令在最终字节上全绿（见 [M2 结果](M2_RESULT.md)）。
-- 适用：接手 M3 的 agent 或人。范围：review 门禁 + 只读面板 + review 状态在面板的呈现。
-- 事实源：[PLAN](PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 提案预案](../.agents/notes/proposed/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与待定决策；[面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RECON](PANEL_RECON.md)、[PANEL_HANDOFF](PANEL_HANDOFF.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有已交付行为；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪开始、先验证什么、怎样算完成」。
+- 状态：**已交付（2026-11-05），一项未验证**。host review 门禁在真实宿主 E2E 15/15 步通过；面板 review code 已交付；**带 review 状态的真实 Chrome 截图未取得**（宿主 `/api/session/list` 在大量会话下 >60 s 不返回，面板停在 loading），如实留在 [M3 结果](M3_RESULT.md) 与 [KNOWN_ISSUES](KNOWN_ISSUES.md)。
+- 适用：接手 M3 之后维护的 agent 或人。范围：review 门禁 + 只读面板 + review 状态在面板的呈现。
+- 事实源：[PLAN](PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与已定决策；[M3 结果](M3_RESULT.md) 拥有交付面、E2E 证据、限制与回滚；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有探针与真机阻塞事实；[面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RESULT](PANEL_RESULT.md)、[PANEL_RECON](PANEL_RECON.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有 M2 行为；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+
+## 交付后状态（2026-11-05）
+
+- 代码/证据基线：`feat/m3-review-panel`，review 门禁与 E2E 驱动在 `d95fb82`；真实宿主 E2E run `m3-d06cc6a6-3a97-4d3d-8cfc-92a2220ad1f7`，15/15、两次合并（`2aa02856`、`6981bb94`）。四条命令 309/309、typecheck/build exit 0。
+- 已交付：`cowork_review_request` / `cowork_review_verdict`、`cowork-reviewer` preset（无 tool-fs）、reviews 存储、verdict 路由、needs_revision 退回、merge pass 门禁 + override、overview/handoff review 字段、面板徽章/审查详情/打开 review 会话。
+- **仍缺**：面板两档真实 Chrome 截图（F1）。阻塞是宿主 API 延迟，不是面板代码；重试步骤见 [M3 P0 探针](M3_PROBE_RESULT.md)「失败与经验」与 KI-12。重试成功后补截图并更新 [M3 结果](M3_RESULT.md) 的 M3A8 行。
+- 环境注记：同名包 client 在本进程内不生效（KI-11）；真机复现需临时改名包或重启宿主。失败 E2E 会留下 `.dsh-cowork/e2e/m3-repo` 夹具，重跑 `npm run check` 前先清理（KI-13）。
+
+> 下面「第一步：P0 探针」「实施顺序」是交付前的原始计划，保留作历史；完成状态以上文与 [M3 结果](M3_RESULT.md) 为准。
 
 ## 先读什么
 
 1. [AGENTS.md](../AGENTS.md)：纪律、命令、no-multi-orchestrator。
 2. [PLAN](PLAN.md) §5.7 review、§5.8 工具面、§6 M3。
-3. [M3 提案预案](../.agents/notes/proposed/feature/2026-11-05-m3-review-panel.md)：范围、验收 id、待 M2 修复后定的决策。
+3. [M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md)：范围、验收 id、已定决策与后果。
 4. [M2 结果](M2_RESULT.md)、[M2 修复交接](M2_FIX_HANDOFF.md)、[KNOWN_ISSUES](KNOWN_ISSUES.md)：M2 的真实行为、收口修复、明确不修项。
 5. [面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RECON](PANEL_RECON.md)、[PANEL_HANDOFF](PANEL_HANDOFF.md)：面板落点、数据契约、客户端构建事实。
 6. [M1 结果](M1_RESULT.md)、[M0 探针](M0_PROBE_RESULT.md)：已证 API，不要重复验证。
@@ -60,6 +69,7 @@
 
 - M3A1–M3A8 全部有证据；PLAN §6 M3 三条验收全过（独立 review verdict、needs_revision 退回、侧栏项目/thread 树与状态徽章、handoff 预览）。
 - 四条命令全绿；真实宿主 E2E 通过；面板七状态与两档宽度可复现。
+- 实际收口：M3A1–M3A7、M3A9 通过；**M3A8（两档真实 Chrome 截图）未通过**，原因与重试条件见 [M3 结果](M3_RESULT.md) 与 KI-12。
 - M3 结果与限制入 docs；提案迁入 `implemented/` 并保持 current；`docs/publish.json` 分类正确。
 
 ## 回滚

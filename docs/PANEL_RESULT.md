@@ -1,5 +1,6 @@
 # Cowork 面板结果（M3 前端）
 
+- M3 追加：面板增加 review 只读呈现（徽章/审查详情/打开 review 会话）；真机数据往返因宿主 API 延迟未验证，见文末「M3 追加」。
 - 结论：右侧栏 `Cowork` 只读面板已交付——底栏入口 + session scope tab、>480 分栏 / ≤480 钻取、状态 chips 与优先级排序、详情（摘要 / 验证 / 变更文件 / 交接单绝对路径 / MASTER 原文）、两个只读 API（`/api/cowork.overview`、`/api/cowork.handoff`）与客户端构建链（借 DSH checkout 的 esbuild）。真实宿主上默认态、五状态夹具、错误、空、长列表均通过；钻取、深浅色、guide 与两个动作按钮未在真实宿主逐项点过（见「未验证」）。
 - 证据：截图落点 `.dsh-cowork/e2e/panel/*.jpg`（gitignored，本机保留）；命令与数值见下。
 - 环境：宿主 `dsh web`（web profile，0.2.1-rc.2，由 VS Code 扩展拉起）`http://127.0.0.1:3080`；Chrome 由 BrowserSkill 0.4.2 驱动；插件以 `dev_inject_plugin` 注入。
@@ -59,3 +60,12 @@
 
 - 代码：按提交 revert（`git log --oneline feat/cowork-panel`）。
 - 运行时：`dev_uninject_plugin dsh-cowork` 移除注入；`.dsh-cowork/` 是项目数据，保留（含本目录的 E2E 截图）。
+
+
+## M3 追加：review 只读呈现（2026-11-05）
+
+- 契约：`/api/cowork.overview` 的 thread 行追加 `reviewStatus`（`pending|pass|needs_revision|reject|null`）、`reviewedAt`、`reviewerSessionId`；`/api/cowork.handoff` 追加 `review:{record,filePath}|null`。仍只读、`no-store`，只按索引 `latestReviewPath` 读 review 文件，缺指针/文件已删为 null，坏文档 `store/corrupt`；未知字段忽略。见 [M3 结果](M3_RESULT.md)。
+- UI：列表行在状态旁显示 review 徽章（审查中/审查通过/需修改/已拒绝，带可见文本与时间 title）；详情「审查」区显示 verdict、reviewedAt、reviewer 短 id、summary、findings（severity/problem/requiredFix/file:line）、reviewer verification、review 文件绝对路径；`reviewerSessionId` 存在时提供「打开 review 会话」（`uiWorkspace.openSession`，失败/不可用有反馈）。
+- 离线证据：`tests/api-contract.test.mjs`、`tests/api.test.mjs`、`tests/panel-model.test.mjs` 覆盖字段映射、缺字段/坏指针降级、徽章标签与文案；`npm test` 309/309。
+- 真机：client bundle 仍需临时改名包才能加载（同名包 pkgMeta 缓存，见上文「同名换包不生效」）。改名包加载后，底栏「打开 Cowork 面板」与 `Cowork` tab 出现，tab 打开渲染 header 与 loading 骨架；但宿主 `/api/session/list` 单次 >60 s 不返回，`/api/cowork.overview`/`handoff` 一并悬挂，面板一直 loading。**带 pass / needs_revision / pending / reject 状态的真实 Chrome 截图未取得**，本项按未验证记录；重试条件与因果见 [M3 P0 探针](M3_PROBE_RESULT.md) 与 [KNOWN_ISSUES](KNOWN_ISSUES.md) KI-12。
+- 未验证（M3 新增）：真实数据下的 review 徽章视觉、findings 排版、「打开 review 会话」点击、两档宽度下的 review 详情。

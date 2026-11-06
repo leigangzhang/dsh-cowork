@@ -301,11 +301,11 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 ### 5.7 review
 
-- `cowork_review_request(threadId)` 创建独立 review 会话（普通会话 + `cowork-thread` 的只读工具面或专用 preset）；
-- reviewer 读 handoff 与真实文件，运行验证命令；
-- verdict：`pass / needs_revision / reject`；
-- `pass` 由 master 确认；`needs_revision` 退回原 thread，附 findings；
-- 实现者不得自审（复用 AgentTeams 质量门禁的语义，但不依赖其运行时）。
+- `cowork_review_request(threadId)`：master 或本项目 thread 调用；要求 thread `awaiting_review`；建独立 `cowork-reviewer` 会话（cwd 是主仓库，preset 校验 fail-closed，标题 `cowork review: <subject>`）；索引先写 `reviewStatus=pending` / `reviewerSessionId` / `reviewRequestedAt`，再投 review brief；prompt 失败回滚这三个字段并归档会话。
+- `cowork_review_verdict(threadId, verdict, summary, findings?, verification?)`：只接受该 thread 索引里的 `reviewerSessionId`；master/thread 调用被显式拒绝（自审）；review 文件 `<repo>/.dsh-cowork/reviews/<threadId>-<stamp>.json` 先写，再写索引 `reviewStatus` / `reviewedAt` / `latestReviewPath`。
+- verdict 路由：`pass → done`；`needs_revision → active` 并把 findings 投递给原 thread；`reject → blocked` 并投递；投递失败只进 `deliveryError`，不回滚 verdict。
+- 合并前置：`cowork_checkout_merge` 默认要求 `reviewStatus=pass`；master 用 `allowUnreviewed:true` + 非空 `overrideReason` 显式覆盖，理由清洗后进合并提交信息与响应。
+- `cowork-reviewer` preset 不挂 `tool-fs`（没有 read/write/edit），只给 bash + glob/grep；实现者不得自审（借 AgentTeams 语义，不引入其运行时）。
 
 ### 5.8 工具面
 
@@ -319,14 +319,17 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 | `cowork_handoff` | thread | 结构化汇报 |
 | `cowork_memory_search` | master/thread | 搜索项目记忆 |
 | `cowork_memory_write` | master/thread | 写项目记忆 |
-| `cowork_checkout_merge` | master | 合并 thread 分支并清理 clone/workspace/会话 |
+| `cowork_checkout_merge` | master | 合并 thread 分支并清理 clone/workspace/会话；默认要求 review pass，可显式覆盖 |
+| `cowork_review_request` | master/thread | 为 `awaiting_review` 的 thread 建独立 review 会话并写 pending |
+| `cowork_review_verdict` | 该 thread 的 review 会话 | 写 review 文件与索引，路由 pass/needs_revision/reject |
 
-`cowork_review_request` 仍未实现，属 M3。
+共 11 个工具；运行中另有 `cowork_probe` / `cowork_identity_probe` 两个探针工具，所以 `Tool.listTools` 能看到 13 个 `cowork_*`。
 
 ### 5.9 presets
 
 - `cowork-master`：路由者 persona，只读项目代码为主，禁止直接改实现文件，负责索引/决策/验收；
-- `cowork-thread`：feature owner persona，只做本 thread 范围，写代码前读 handoff，完成后必须 handoff。
+- `cowork-thread`：feature owner persona，只做本 thread 范围，写代码前读 handoff，完成后必须 handoff；
+- `cowork-reviewer`：独立 review persona，只读实现、实际运行验证命令、只调用一次 `cowork_review_verdict`；工具面只有 persona/agent-instructions/bash/搜索，没有 `tool-fs`。
 
 ---
 
