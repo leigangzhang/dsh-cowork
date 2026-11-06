@@ -1,16 +1,16 @@
 # M4 交接文档
 
-- 状态：**预案 + 预检（2026-11-05）**，M4 尚未开始。前置门是 **M3-FIX 完成**（见 [M3 修复交接](M3_FIX_HANDOFF.md)）；M3-FIX 未完成时不要开始 M4，否则会把面板超时、失败 E2E 清理、`tools.ts` 读预算等问题原样打进发布物。
+- 状态：**预案 + 预检（2026-11-05）**，M4 尚未开始。前置门 **M3-FIX 已完成（2026-11-06）**，见 [M3 修复交接](M3_FIX_HANDOFF.md) 与 [M3 结果](M3_RESULT.md)「M3-FIX 收口」；M4 从 M3-FIX 的最终提交开分支，不要把 M3-FIX 已修问题再带进发布物。
 - 适用：接手 M4（单插件打包与发布）的 agent 或人。范围：bundle 安装、preset 持久化、client 加载、安装/卸载路径、README 与发布验证；不包含 M5 记忆治理。
 - 事实源：[PLAN](PLAN.md) §6 M4 验收；[M4 提案](../.agents/notes/proposed/feature/2026-11-05-m4-packaging.md) 拥有分发形态、preset 方案与验收；[M3 结果](M3_RESULT.md)/[M3 修复交接](M3_FIX_HANDOFF.md) 拥有前置事实；[PANEL_RESULT](PANEL_RESULT.md) 拥有面板设计；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项。本文只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## 当前基线（写于 2026-11-05）
 
-- 分支 `feat/m3-review-panel`，HEAD 至少 `57a34d6`；M3 独立 review t11 pass（代码/真实宿主 E2E/文档/截图），`main` 未动。M3-FIX 尚未开始；M4 从 M3-FIX 的最终提交开 `feat/m4-packaging`（或等 M3-FIX 合入 `main` 后从 `main` 开）。
-- M3 交付证据：真实宿主 E2E run `m3-d06cc6a6-…` 15/15；`npm run check` 0、`npm test` 309/309、typecheck/build 0；截图 `.dsh-cowork/e2e/panel-m3/`（gitignored）。
+- 分支：M3-FIX 收口在 `fix/m3-closeout`（M3 原交付 `feat/m3-review-panel`，`main` 未由 M3/M3-FIX 改动）；M4 从 `fix/m3-closeout` 的最终提交开 `feat/m4-packaging`，或等用户授权合并 `main` 后从 `main` 开。
+- M3-FIX 交付证据：真实宿主 E2E run `m3-004629a6-c7de-48c1-92e9-99c474eae1a1` 15/15、`tempRepoRemoved=true`；失败路径实测 `m3-565e31d8-…`；`npm run check` 0、`npm test` 330/330、typecheck/build 0；面板补验截图 `04`–`06` 在 `.dsh-cowork/e2e/panel-m3/`（gitignored）。
 - 环境：DSH Desktop Web `http://127.0.0.1:3080`；`dsh` CLI `/Users/ray/bin/dsh`（0.2.1-rc.2）；DSH source checkout `/Users/ray/Workspace/deepseek-harness`（构建用 tsc/esbuild）；profiles `web`/`desktop`/`acp`；当前插件仍是 runtime 注入（`dev_inject_plugin`），重启后需重注入。
 - profile patch：`~/.dsh/profiles/web/cordis.patch.yml` 仍有 `- id: dsh-cowork disabled: true`（uninject 写入）与 `- id: dsh-cowork-panel disabled: true`；安装 bundle 前必须清理同名 disabled 条目，否则 bundle 插入的 `id: dsh-cowork` 行会被压住。
-- 数据：真实 `.dsh-cowork` 已恢复（一个 thread「路由演示」）；截图/fixture/backup 只在本地，`git status` 应只有 ignored 运行数据。M3 marker `.dsh-cowork/e2e/M3_DOCS_READY.json` 停在 `57a34d6`，M3-FIX 会重建自己的 marker；不要把旧 marker 当作 M4 证据。
+- 数据：真实 `.dsh-cowork` 已恢复（一个 thread「路由演示」）；截图/fixture/backup 只在本地，`git status` 应只有 ignored 运行数据。M3-FIX marker `.dsh-cowork/e2e/M3_DOCS_READY.json` 的 `commit` 等于 `fix/m3-closeout` 最终 HEAD，screenshots 含 `04`–`06`；M4 的 marker 应另写，不要把 M3-FIX marker 当 M4 证据。
 
 ## 已知事实（写代码前先读）
 
@@ -24,7 +24,7 @@
 
 按顺序做，每步记录命令、退出码、实际输出。失败就停，不要先写打包物。
 
-1. **M3-FIX 门**：`docs/M3_FIX_HANDOFF.md` 的 M3L-1..6 有证据；四条命令 + 真实 M3 E2E 15/15 + 独立 review pass；记录 M3-FIX HEAD。
+1. **M3-FIX 门（已完成）**：`docs/M3_FIX_HANDOFF.md` 的 M3L-1..6 已有证据；四条命令 + 真实 M3 E2E 15/15 + 独立 review pass；M3-FIX HEAD 见 `.dsh-cowork/e2e/M3_DOCS_READY.json`。M4 开工前只需复核该 marker 与 `git rev-parse HEAD` 一致（`node tools/check-evidence-marker.mjs`）。
 2. **安装目标**：不动用户 `web`/`desktop`。优先在现有 `~/.dsh` 下创建新 profile `m4probe`：
    - `dsh --profile m4probe --from-default-profile web`（以 CLI 实际行为为准；创建后确认 `~/.dsh/profiles/m4probe` 存在、`web` 未被改）；
    - 若新 profile 拿不到 LLM/账号，先记录实际错误；选项：复制 web profile 的非凭据设置 / 用 `DSH_HOME=/tmp/m4-home` 隔离 / 问用户。**不复制明文 token/凭据进仓库**。

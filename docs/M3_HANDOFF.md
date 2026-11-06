@@ -1,6 +1,6 @@
 # M3 交接文档
 
-- 状态：**M3 已交付（2026-11-05），M3A1–M3A9 全部有证据；M3-FIX 收口待开始**。host review 门禁在真实宿主 E2E 15/15 步通过；面板 review 呈现已取得分栏与 ≤480 两档真实 Chrome 截图（M3A8 通过）。M3 自己产生的遗留（面板 API 超时、失败 E2E 清理、tools.ts 拆分、剩余真机验证、fixture 可复现、marker 时序）全部在 [M3 修复交接](M3_FIX_HANDOFF.md) 的 M3-FIX 内修，不拖到 M4；行为与契约决策见 [M3 收口修复提案](../.agents/notes/proposed/bug-fix/2026-11-05-m3-closeout-fixes.md)。
+- 状态：**M3 与 M3-FIX 均已完成（2026-11-06）**，M3A1–M3A9 全部有证据。host review 门禁在真实宿主 E2E 15/15 步通过；面板 review 呈现已取得分栏、≤480、深色、pass/reject 详情与两个打开按钮的真实 Chrome 证据。M3 自己产生的六项遗留（面板 API 超时、失败 E2E 清理、tools.ts 拆分、剩余真机验证、fixture 可复现、marker 时序）已在 `fix/m3-closeout` 的 M3-FIX 内关闭；行为与契约决策见 [M3 收口修复决策](../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)。下一位只需看 [PLAN](PLAN.md) 与 [M4 交接](M4_HANDOFF.md)。
 - 适用：接手 M3 之后维护的 agent 或人。范围：review 门禁 + 只读面板 + review 状态在面板的呈现。
 - 事实源：[PLAN](PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与已定决策；[M3 结果](M3_RESULT.md) 拥有交付面、E2E 证据、限制与回滚；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有探针与真机取证过程；[面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RESULT](PANEL_RESULT.md)、[PANEL_RECON](PANEL_RECON.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有 M2 行为；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
@@ -9,7 +9,8 @@
 - 代码/证据基线：`feat/m3-review-panel`，review 门禁与 E2E 驱动在 `d95fb82`；真实宿主 E2E run `m3-d06cc6a6-3a97-4d3d-8cfc-92a2220ad1f7`，15/15、两次合并（`2aa02856`、`6981bb94`）。四条命令 309/309、typecheck/build exit 0。
 - 已交付：`cowork_review_request` / `cowork_review_verdict`、`cowork-reviewer` preset（无 tool-fs）、reviews 存储、verdict 路由、needs_revision 退回、merge pass 门禁 + override、overview/handoff review 字段、面板徽章/审查详情/打开 review 会话。
 - **真机验收**：重启宿主 + clean re-inject 后，原包 client 加载；fixture（pass / needs_revision / pending / reject / none）在真实 Chrome 分栏与 900 宽（右栏 <480）两档截图，列表徽章、chips 与 needs_revision findings 详情都可见。截图在 `.dsh-cowork/e2e/panel-m3/`；证据与限制见 [M3 结果](M3_RESULT.md) M3A6/M3A8。
-- 环境注记：同名包 client 在本进程内不生效（KI-11）；真机复现需临时改名包或重启宿主。失败 E2E 会留下 `.dsh-cowork/e2e/m3-repo` 夹具，重跑 `npm run check` 前先清理（KI-13）。
+- 环境注记：同名包 client 在本进程内不生效（KI-11）；真机复现需临时改名包、一次性清 pkgMeta 或重启宿主。**M3-FIX 起失败 E2E 会在 finally 删除 `.dsh-cowork/e2e/m3-repo` 夹具**（KI-13 已关闭）；M3-FIX 的最终真机证据与四条命令见 [M3 结果](M3_RESULT.md)「M3-FIX 收口」。
+- M3-FIX 收口基线：分支 `fix/m3-closeout`，四条命令 `npm test` 330/330、check/typecheck/build 0；真实宿主 E2E run `m3-004629a6-…` 15/15；证据 marker `.dsh-cowork/e2e/M3_DOCS_READY.json` 记录最终 commit 与截图。
 
 > 下面「交付前的事实」「第一步：P0 探针」「实施顺序」是交付前的原始记录，保留作历史；完成状态以上文与 [M3 结果](M3_RESULT.md) 为准。
 

@@ -197,6 +197,26 @@ test('unknown and missing errors stay retryable generic errors', () => {
   assert.equal(missing.code, null)
 })
 
+test('a session listing timeout is a retryable error that keeps its code', async () => {
+  // M3L-1: the API answers 504 + session/list-timeout when the host listing
+  // hangs. The panel needs no new branch: the code survives the client's error
+  // normalization and the generic error state offers a retry, which is exactly
+  // the hoped-for recovery.
+  const { PanelApiError, toPanelError } = await import('../src/client/api.ts')
+  const wireError = new PanelApiError(
+    'session/list-timeout',
+    'session listing did not answer within 30000 ms; retry the request',
+  )
+  const normalized = toPanelError(wireError)
+  assert.equal(normalized.code, 'session/list-timeout')
+  const notice = errorPresentation(normalized)
+  assert.equal(notice.kind, 'error')
+  assert.equal(notice.code, 'session/list-timeout')
+  assert.equal(notice.retry, true)
+  assert.equal(notice.path, null)
+  assert.match(notice.detail, /did not answer/)
+})
+
 test('list and subject length states have explicit thresholds', () => {
   assert.equal(LONG_LIST_THRESHOLD, 12)
   assert.equal(isLongList(12), false)

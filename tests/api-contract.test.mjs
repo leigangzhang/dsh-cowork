@@ -180,6 +180,9 @@ test('review state does not change the panel order, counts or default selection'
 test('isPanelError recognizes the shared error envelope only', () => {
   assert.equal(isPanelError({ ok: false, error: { code: 'internal', message: 'x' } }), true)
   assert.equal(isPanelError({ ok: false, error: { code: 'store/corrupt' } }), true)
+  // The M3L-1 timeout code rides the same envelope as every other failure; the
+  // 504 status lives in the HTTP layer, not in the body.
+  assert.equal(isPanelError({ ok: false, error: { code: 'session/list-timeout', message: 'x' } }), true)
   assert.equal(isPanelError({ ok: true }), false)
   assert.equal(isPanelError({ ok: false }), false, 'a bare ok:false is not the envelope')
   assert.equal(isPanelError({ ok: false, error: null }), false)

@@ -221,6 +221,7 @@ test('toErrorResponse maps every stable code to its status and envelope', () => 
     ['request/thread-required', 400],
     ['session/unknown', 400],
     ['session/cwd-unavailable', 400],
+    ['session/list-timeout', 504],
     ['project/not-initialized', 404],
     ['handoff/not-found', 404],
     ['store/corrupt', 500],
@@ -236,7 +237,9 @@ test('toErrorResponse maps every stable code to its status and envelope', () => 
   }
   assert.equal(api.panelErrorStatus('request/session-required'), 400)
   assert.equal(api.panelErrorStatus('handoff/not-found'), 404)
+  assert.equal(api.panelErrorStatus('session/list-timeout'), 504, 'a hung listing is a gateway timeout')
   assert.equal(api.panelErrorStatus('internal'), 500)
+  assert.equal(api.LIST_SESSIONS_TIMEOUT_MS, 30_000, 'production waits about 30 s, not forever')
   const pathless = api.toErrorResponse(new api.PanelApiError('session/unknown', 'who?'))
   assert.deepEqual(pathless.body, { ok: false, error: { code: 'session/unknown', message: 'who?' } })
 })
@@ -347,9 +350,28 @@ function fakePorts(options = {}) {
     // a TypeError instead of quietly passing.
     async listSessions() {
       counters.listCalls += 1
+      // A listing that answers late is still a valid answer when it beats the
+      // bound; the route must not turn a slow host into a failure by itself.
+      if (options.listDelayMs !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, options.listDelayMs))
+      }
       if (options.listError !== undefined) throw options.listError
+      // A host listing that never settles: the route must bound it instead of
+      // leaving the panel request pending forever.
+      if (options.listHangs === true) return new Promise(() => {})
+      // A listing that rejects only after the route has already answered 504.
+      if (options.listLateErrorAfterMs !== undefined) {
+        return new Promise((_resolve, reject) => {
+          setTimeout(
+            () => reject(options.listLateError ?? new Error('listing failed late')),
+            options.listLateErrorAfterMs,
+          )
+        })
+      }
       return { items: sessions }
     },
+    // Only present when a test injects it; production gets the 30 s default.
+    ...(options.listTimeoutMs === undefined ? {} : { listSessionsTimeoutMs: options.listTimeoutMs }),
     async findProjectRoot(startPath) {
       roots.push(startPath)
       return Object.hasOwn(options, 'root') ? options.root : '/repo'
@@ -517,6 +539,77 @@ test('a failing metadata listing is a host failure, not an unknown session', asy
     ok: false,
     error: { code: 'internal', message: 'session store unavailable' },
   })
+})
+
+test('a hung metadata listing answers 504 session/list-timeout on both routes', async () => {
+  const portBag = fakePorts({ listHangs: true, listTimeoutMs: 5 })
+  const { routes } = await registerRoutes(portBag)
+  const started = Date.now()
+
+  const overview = await routes.get(contract.OVERVIEW_PATH)
+    .fetch(overviewRequest('?sessionId=session-1'))
+  assert.equal(overview.status, 504)
+  assert.equal(overview.headers.get('cache-control'), 'no-store')
+  const overviewBody = await overview.json()
+  assert.equal(overviewBody.ok, false)
+  assert.equal(overviewBody.error.code, 'session/list-timeout')
+  assert.match(overviewBody.error.message, /5 ms/, 'the message names the waited duration')
+  assert.match(overviewBody.error.message, /retry/i, 'the message says the request is retryable')
+  assert.equal(Object.hasOwn(overviewBody.error, 'path'), false, 'a timeout names no file path')
+
+  const handoff = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(handoff.status, 504)
+  assert.equal(handoff.headers.get('cache-control'), 'no-store')
+  assert.equal((await handoff.json()).error.code, 'session/list-timeout')
+
+  assert.equal(portBag.counters.listCalls, 2, 'each route bounded its own listing call')
+  assert.ok(Date.now() - started < 1_000, 'the injected bound keeps the timeout path fast')
+  assert.deepEqual(portBag.roots, [], 'the timeout fires before cwd or store are touched')
+})
+
+test('a late rejection from a timed-out listing never becomes unhandled', async () => {
+  const unhandled = []
+  const onUnhandled = (reason) => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const portBag = fakePorts({
+      listLateErrorAfterMs: 20,
+      listLateError: new Error('listing failed after the 504'),
+      listTimeoutMs: 5,
+    })
+    const { routes } = await registerRoutes(portBag)
+    const response = await routes.get(contract.OVERVIEW_PATH)
+      .fetch(overviewRequest('?sessionId=session-1'))
+    assert.equal(response.status, 504)
+    assert.equal((await response.json()).error.code, 'session/list-timeout')
+    // Wait past the late rejection: the route already answered, so the original
+    // promise must have a handler attached or this becomes an unhandled rejection.
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    assert.deepEqual(unhandled, [], 'a late rejection after the timeout stays handled')
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
+})
+
+test('a slow but answering listing inside the bound still serves 200', async () => {
+  const portBag = fakePorts({
+    listDelayMs: 5,
+    listTimeoutMs: 50,
+    handoffs: [handoffFile('t1', '2026-01-01T00:00:00.000Z', 't1-a.json')],
+  })
+  const { routes } = await registerRoutes(portBag)
+
+  const overview = await routes.get(contract.OVERVIEW_PATH)
+    .fetch(overviewRequest('?sessionId=session-1'))
+  assert.equal(overview.status, 200)
+  assert.equal(overview.headers.get('cache-control'), 'no-store')
+
+  const handoff = await routes.get(contract.HANDOFF_PATH)
+    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
+  assert.equal(handoff.status, 200)
+  assert.equal(handoff.headers.get('cache-control'), 'no-store')
+  assert.equal(portBag.counters.listCalls, 2)
 })
 
 test('overview route reports a project that was never initialized with the searched cwd', async () => {

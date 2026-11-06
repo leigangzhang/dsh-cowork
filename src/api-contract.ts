@@ -202,6 +202,12 @@ export type PanelErrorCode =
   | 'request/thread-required'
   | 'session/unknown'
   | 'session/cwd-unavailable'
+  /**
+   * The host session listing did not answer within the panel's bound. This one
+   * is transient: the listing is a metadata read, so a retry can succeed once
+   * the host finishes loading its session list.
+   */
+  | 'session/list-timeout'
   | 'project/not-initialized'
   | 'handoff/not-found'
   | 'store/corrupt'
