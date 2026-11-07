@@ -4,6 +4,7 @@ import {
   ERROR_CODES,
   buildThreadBrief,
   checkRole,
+  claimMaster,
   failure,
   readCaller,
   routePayload,
@@ -81,6 +82,49 @@ test('a role refusal names the role, the caller, and the registered master', () 
   assert.deepEqual(denied.error.details, {
     role: 'master',
     sessionId: 'session-stranger',
+    masterSessionId: 'session-master',
+  })
+})
+
+test('claimMaster keeps the current master and rebinds only on an explicit takeOver', () => {
+  const project = index()
+  assert.deepEqual(claimMaster(caller(), project), { action: 'current' })
+  // The flag is redundant for the incumbent: it never causes a write.
+  assert.deepEqual(claimMaster(caller(), project, { takeOver: true }), { action: 'current' })
+
+  const stranger = caller({ sessionId: 'session-stranger' })
+  const denied = claimMaster(stranger, project)
+  assert.equal(denied?.ok, false)
+  assert.equal(denied.error.code, ERROR_CODES.roleForbidden)
+  assert.match(denied.error.message, /session-stranger/)
+  assert.match(denied.error.message, /takeOver: true/)
+  assert.deepEqual(denied.error.details, {
+    role: 'master',
+    sessionId: 'session-stranger',
+    masterSessionId: 'session-master',
+  })
+  // An explicit false is the same refusal, not a silent takeover.
+  assert.deepEqual(claimMaster(stranger, project, { takeOver: false }), denied)
+
+  assert.deepEqual(claimMaster(stranger, project, { takeOver: true }), {
+    action: 'takeover',
+    previousMasterSessionId: 'session-master',
+  })
+})
+
+test('a session recorded as a thread can never take over the master role', () => {
+  const project = index()
+  const threadCaller = caller({ sessionId: 'session-thread-1' })
+
+  const withoutFlag = claimMaster(threadCaller, project)
+  assert.equal(withoutFlag?.error.code, ERROR_CODES.roleForbidden)
+
+  const withFlag = claimMaster(threadCaller, project, { takeOver: true })
+  assert.equal(withFlag?.error.code, ERROR_CODES.roleForbidden)
+  assert.match(withFlag.error.message, /thread/)
+  assert.deepEqual(withFlag.error.details, {
+    role: 'master',
+    sessionId: 'session-thread-1',
     masterSessionId: 'session-master',
   })
 })

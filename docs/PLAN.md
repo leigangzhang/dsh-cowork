@@ -62,7 +62,8 @@ DSH 单会话长跑会出现：任务失焦、上下文退化导致推理质量�
 
 1. 用户在项目目录打开一个会话，选择 `cowork-master` preset；
 2. 发一条消息或调用 `cowork_project_init`；
-3. 插件在 `<repo>/.dsh-cowork/index.json` 建立项目索引，把当前会话登记为 master。
+3. 插件在 `<repo>/.dsh-cowork/index.json` 建立项目索引，把当前会话登记为 master；
+4. 索引已存在且 master 是别的会话时，默认拒绝；新会话可显式 `cowork_project_init({ takeOver: true })` 接管：只替换索引里的 `masterSessionId`，保留 `projectId` / `createdAt` / threads 与 handoff，响应返回前任 master；索引内登记为 thread 的会话不能接管。
 
 #### 路由与新建 thread
 
@@ -311,7 +312,7 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 | 工具 | 谁可用 | 作用 |
 |---|---|---|
-| `cowork_project_init` | master | 初始化项目索引 |
+| `cowork_project_init` | master | 初始化项目索引；`takeOver: true` 时显式接管已有项目 |
 | `cowork_project_status` | master/thread | 项目与线程概览，含各 thread checkout 摘要 |
 | `cowork_route` | master | 路由需求到 thread；`isolated: true` 时建 clone |
 | `cowork_thread_create` | master | 显式新建 thread；`isolated: true` 时建 clone |

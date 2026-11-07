@@ -73,7 +73,7 @@ dsh --profile m4probe --port 3091 --no-open
 
 ## 使用流程
 
-1. **初始化**：在 `cowork-master` 会话里，以目标仓库为 cwd 调用 `cowork_project_init`。它写 `.dsh-cowork/index.json`，把当前会话记为 master；幂等，换一个会话再调会被拒绝。
+1. **初始化**：在 `cowork-master` 会话里，以目标仓库为 cwd 调用 `cowork_project_init`。它写 `.dsh-cowork/index.json`，把当前会话记为 master；幂等。索引已属于别的会话时默认仍拒绝；确认要换人时，由新会话传 `takeOver: true` 显式接管——只替换索引里的 master 会话，保留项目 id、thread 与 handoff；索引里登记的 thread 会话不能接管。
 2. **路由或建 thread**：用户每提一个需求，master 用 `cowork_route({ intent })` 复用已有 thread 或新建；需要精确控制时用 `cowork_thread_create({ subject, brief })`。
 3. **thread 里工作**：thread 只改自己 subject 范围内的文件，结束（完成或阻塞）时调用 `cowork_handoff({ status, summary, verification, changedPaths })`。`status` 取 `awaiting_review` / `blocked` / `done`；`verification` 必填，每项是 `{ command, exitCode, evidence }`，只写真正跑过的检查；`changedPaths` 可选。没 handoff 的 thread 不算完成。
 4. **请求 review**：master 对 `awaiting_review` 的 thread 调用 `cowork_review_request({ threadId })`，插件创建独立 reviewer 会话并把 thread 标成 pending。

@@ -127,6 +127,43 @@ export function checkRole(
   )
 }
 
+/** What a caller may do with the master role when it opens the project. */
+export type MasterClaim =
+  | { action: 'current' }
+  | { action: 'takeover'; previousMasterSessionId: string }
+
+/**
+ * Decide whether `caller` may act as the project master, and whether it may
+ * take the role over from the session the index currently records.
+ *
+ * Taking over is deliberately explicit: a different session is refused unless
+ * the call passes `takeOver: true`, and a session the index records as a thread
+ * can never take over — a thread hands work back to the master instead of
+ * becoming one. This helper only decides; the store performs the write.
+ */
+export function claimMaster(
+  caller: CallerIdentity,
+  index: RoleIndexView,
+  options?: { takeOver?: boolean },
+): MasterClaim | ToolFailure {
+  if (caller.sessionId === index.masterSessionId) return { action: 'current' }
+  if (index.threads.some((thread) => thread.threadId === caller.sessionId)) {
+    return failure(
+      ERROR_CODES.roleForbidden,
+      `session ${caller.sessionId} is recorded as a thread of this project and cannot take over the master role; only the master owns the project`,
+      { role: 'master', sessionId: caller.sessionId, masterSessionId: index.masterSessionId },
+    )
+  }
+  if (options?.takeOver !== true) {
+    return failure(
+      ERROR_CODES.roleForbidden,
+      `this tool is restricted to the master session; session ${caller.sessionId} is not it (master is ${index.masterSessionId}); call cowork_project_init with takeOver: true to make this session the master`,
+      { role: 'master', sessionId: caller.sessionId, masterSessionId: index.masterSessionId },
+    )
+  }
+  return { action: 'takeover', previousMasterSessionId: index.masterSessionId }
+}
+
 /**
  * Branch prefix of a thread's private commits. Mirrors `CHECKOUT_BRANCH_PREFIX`
  * in src/checkout.ts; kept as a literal because this module imports nothing.

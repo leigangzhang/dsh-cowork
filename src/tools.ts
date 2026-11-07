@@ -42,6 +42,7 @@ import {
   ERROR_CODES,
   buildThreadBrief,
   checkRole,
+  claimMaster,
   failure,
   readCaller,
   routePayload,
@@ -469,25 +470,34 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
   const host = ctx as CoworkToolsHost
   const disposers: Array<() => void> = []
 
-  // 1) cowork_project_init — the only tool that may create a project, always at the caller's cwd.
+  // 1) cowork_project_init — the only tool that may create or rebind a project, always at the caller's cwd.
   disposers.push(host.tools.register(defineTool({
     name: 'cowork_project_init',
     description:
-      'Initialize the cowork project rooted at the caller cwd: write .dsh-cowork/index.json with the calling session as master and ensure the workspace. Idempotent; refuses a different master.',
-    parameters: {},
+      'Initialize the cowork project rooted at the caller cwd: write .dsh-cowork/index.json with the calling session as master and ensure the workspace. Idempotent; refuses a different master unless takeOver is true, which rebinds the project to the caller.',
+    parameters: {
+      takeOver: {
+        type: 'boolean',
+        description:
+          'Take the master role for this session when the index records a different master. Defaults to false: without it the call stays fail-closed. A session recorded as a thread can never take over.',
+      },
+    },
     output: { schema: { type: 'json' }, render: renderJson },
-    execute: async (_args, exec) => {
+    execute: async (args, exec) => {
       const caller = callerOf(exec)
       if (isFailure(caller)) return toJson(caller)
       try {
         const repoPath = caller.cwd
         const store = new ProjectStore({ repoPath, clock: deps.clock })
         const slice = makeSlice(deps)
-        // Idempotent by construction: an existing index keeps its master, and a
-        // different caller is refused here instead of overwriting it.
+        // Idempotent by construction: an existing index keeps its master unless
+        // the caller explicitly takes the role over.
         const initialized = await store.initIndex(caller.sessionId)
-        const denied = checkRole('master', caller, initialized.index)
-        if (denied !== null) return toJson(denied)
+        const claim = claimMaster(caller, initialized.index, { takeOver: args.takeOver === true })
+        if (isFailure(claim)) return toJson(claim)
+        const previousMasterSessionId = initialized.index.masterSessionId
+        const rebound = claim.action === 'takeover'
+        if (rebound) await store.rebindMaster(caller.sessionId)
         const index = await reconcileIndex(store)
         const workspaceId = await slice.resolveWorkspaceId(repoPath)
         return toJson(success({
@@ -496,6 +506,8 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
           masterSessionId: index.masterSessionId,
           workspaceId,
           created: initialized.created,
+          rebound,
+          previousMasterSessionId,
           index,
         }))
       } catch (error) {
