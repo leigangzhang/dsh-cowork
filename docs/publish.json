@@ -88,6 +88,10 @@
     {
       "pattern": "docs/M4_HANDOFF.md",
       "reason": "M4 packaging handoff: precondition gate on M3-FIX, current install/preset/bundle facts, P0 probes, implementation order, verification evidence, migration/uninstall traps, and completion/rollback for the next session; internal operational guidance"
+    },
+    {
+      "pattern": "docs/AGENTTEAM_INTEGRATION_RULES.md",
+      "reason": "Project-level AgentTeams integration/E2E rules: readiness as a task/event, fast contract tests before real E2E, one integration gate, warm host, scoped E2E, and closeout metrics; internal guidance for captains and members, not a user-facing guide"
     }
   ]
 }
