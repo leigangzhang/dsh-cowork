@@ -141,7 +141,7 @@ sequenceDiagram
    │ status 不是 awaiting_review？→ 到此为止（blocked / done）
    │ cowork_review_request(threadId)          ← master 或 thread 均可调
    │   门：仅 awaiting_review；reviewStatus = pending 时拒绝
-   ├─ 新建 cowork-reviewer 会话（无 tool-fs，物理只读）
+   ├─ 新建 cowork-reviewer 会话（无 tool-fs，故无 read/write/edit；bash 仍可写，只读靠 protocol，见 KI-15）
    ├─ 写索引：reviewStatus=pending、reviewerSessionId、reviewRequestedAt、reviewedAt=null
    ├─ brief = 最新 handoff 路径 + changedPaths + verification + checkoutPath
    └─ prompt reviewer
