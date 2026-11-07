@@ -100,6 +100,10 @@
     {
       "pattern": "docs/AGENTTEAM_INTEGRATION_RULES.md",
       "reason": "Project-level AgentTeams integration/E2E rules: readiness as a task/event, fast contract tests before real E2E, one integration gate, warm host, scoped E2E, and closeout metrics; internal guidance for captains and members, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/routing.md",
+      "reason": "Routing and thread-lifecycle diagrams for contributors: side-effect order, state ownership, and failure handling; the authoritative rules stay in src/router.ts, src/tools.ts, and docs/PLAN.md, so this illustration is internal review material rather than a published guide"
     }
   ]
 }

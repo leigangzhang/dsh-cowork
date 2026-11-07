@@ -30,6 +30,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 哪个文件可以发布 | [publish.json](publish.json) |
 | 决策记录怎么写、为什么写 | [.agents/notes/README.md](../.agents/notes/README.md) |
 | 一个改动欠哪些证据 | [tools/workflow.json](../tools/workflow.json) |
+| 一个需求怎么被路由、新建 thread、经 review 合并 | [routing.md](routing.md) |
 
 ## Every home, and what it owns
 
@@ -40,6 +41,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/PLAN.md` | plan | 产品范围、架构、里程碑 |
 | `docs/testing.md` | guide | 测试分层、证据、flake 政策 |
 | `docs/documentation.md` | guide | 文档种类、单一事实源、发布开关 |
+| `docs/routing.md` | guide | 路由判定、新建 thread、review 与合并的三张时序图 |
 | `docs/glossary.md` | reference | 术语含义与拼写 |
 | `docs/plain-language.md` | reference | 面向人的说法替换 |
 | `docs/M1_HANDOFF.md` | guide | M1 实施入口：读什么、先验证什么、完成定义 |
