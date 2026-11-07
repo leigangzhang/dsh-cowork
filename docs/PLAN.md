@@ -378,7 +378,7 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 ### M4：单插件打包与发布
 
-方案与验证路径见 [M4 提案](../.agents/notes/proposed/feature/2026-11-05-m4-packaging.md) 与 [M4 交接](M4_HANDOFF.md)。
+已完成（2026-11-07）：交付事实、M4A1–M4A8 证据与限制见 [M4 结果](M4_RESULT.md)；分发形态、preset 与 dev 门的选择见 [M4 决策](../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md)；下一会话的验证入口见 [M4 交接](M4_HANDOFF.md)。
 
 验收：
 

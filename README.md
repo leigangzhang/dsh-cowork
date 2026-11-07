@@ -158,7 +158,8 @@ npm run build              # host + client 构建
 | 想了解 | 看哪里 |
 |---|---|
 | 产品范围、架构、里程碑、验收 | [docs/PLAN.md](docs/PLAN.md) |
-| M4 打包与发布的交接、验收与回滚 | [docs/M4_HANDOFF.md](docs/M4_HANDOFF.md) |
+| M4 交付了什么、证据与限制在哪 | [docs/M4_RESULT.md](docs/M4_RESULT.md) |
+| M4 已完成，维护者怎么复核、从哪继续 | [docs/M4_HANDOFF.md](docs/M4_HANDOFF.md) |
 | 明确不修的问题与重估条件 | [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) |
 | 怎样才算验证过、证据怎么留 | [docs/testing.md](docs/testing.md) |
 | 文档种类、单一事实源、发布开关 | [docs/documentation.md](docs/documentation.md) |

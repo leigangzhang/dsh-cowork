@@ -1,8 +1,8 @@
 # M4-P0 探针结果（安装、持久化、client、dev 门）
 
-- 状态：**进行中（2026-11-07）**。P0 第 1–6 项已完成并有原始输出；第 7 项（默认 config 下探针/E2E 路由不可见）依赖 P2 的 `enableDevRoutes`，完成 P2 后在本文件补验。
+- 状态：**完成（2026-11-07）**。P0-1..7 都有实测输出；P0-F1 已修（`canonicalRepoPath` + 单测 + 15/15 E2E 重跑），P0-F2 已收口（`m4probe` 已删除、`m4verify` 待收口删除、测试会话由 runner 归档），P0-F3 是环境噪声。交付事实与逐条验收证据在 [M4 结果](M4_RESULT.md)；本文只留 P0 的命令、原始输出与结论。
 - 环境：分支 `feat/m4-packaging`（从 `fix/m3-closeout` 的 `5622759` 开）；DSH `0.2.1-rc.2`、Desktop `2.0.18`、node `v22.22.1`、darwin arm64；用户宿主 `http://127.0.0.1:3080`（`web` profile，dev 注入）；探针宿主 `http://127.0.0.1:3091`（`m4probe`，独立进程）；DSH source checkout `/Users/ray/Workspace/deepseek-harness`。
-- 本文只拥有 P0 的命令、输出与结论；分发形态与验收在 [M4 提案](../../../.agents/notes/proposed/feature/2026-11-05-m4-packaging.md)；交付事实在 `docs/M4_RESULT.md`。
+- 本文只拥有 P0 的命令、输出与结论；分发形态、preset 与 dev 门的选择在 [M4 决策](../../../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md)；交付事实与验收证据在 [M4 结果](M4_RESULT.md)。
 
 ## 前置门（M3-FIX）
 
@@ -44,16 +44,22 @@
 - 截图：`.dsh-cowork/e2e/m4-p0/01-installed-client-panel-empty.jpg`（2723×1539，gitignored）。
 - 结论：client 来自安装包，不依赖 dev 注入；KI-11 的“同进程同名包缓存”在安装 + 新进程路径不复现。旧进程验证不算数。
 
-## P0-F1 软链路径导致 E2E 断言失败（必须修）
+## P0-7 默认 config 下的 dev 面（完成）
+
+- 产品默认（profile patch 只覆盖 `repoPath`，不设 `enableDevRoutes`；patch 原文见 `/private/tmp/m4-e2e/profile-default.patch.yml`）：`/dsh-cowork/probe/*` 与 `/dsh-cowork/e2e/*` **全部 404**（路由未注册），`/api/cowork.overview` **401**（路由存在、trust fence 生效，不是 404）。
+- 证据：`.dsh-cowork/e2e/m4/02-default-config-routes.txt`（gitignored）；门是 `src/index.ts` 的 `Config.enableDevRoutes`（默认 `false`）。
+- 维护者覆盖 `enableDevRoutes: true` + `repoPath: /private/tmp/m4-e2e` 后，15/15 E2E 通过。安装后的完整默认面、面板与 E2E 证据在 [M4 结果](M4_RESULT.md)，本文不重复。
+
+## P0-F1 软链路径导致 E2E 断言失败（已修）
 
 - 失败断言：`review-a-pass` — “review file lives under the reviews directory”；实际路径 `/private/tmp/m4-e2e/.dsh-cowork/e2e/m3-repo/.dsh-cowork/reviews/...`，runner 期望前缀 `/tmp/m4-e2e/...`。
 - 因果：宿主把会话 cwd 规范化为真实路径（`/private/tmp`），而 `repoPath` 配置保留 `/tmp`；runner 的断言用配置前缀。产品工具按调用者 cwd 解析项目，不受影响。
-- 处置：P2 在启动时把 dev/E2E 的 `repoPath` 规范化为真实路径（存在才 realpath），加确定性单测；最终 E2E 在修复后重跑一次，不原样重试同一失败形状。
+- 处置（已修）：`canonicalRepoPath` 在 `src/probe-model.ts` 做 realpath（存在才规范），dev 配置的 `repoPath` 在 `src/index.ts` 启动时经过它；确定性单测 `tests/probe-model.test.mjs`（软链解析、缺失路径原样）与 `tests/dev-gate.test.mjs`（dev 软链 `repoPath`）钉住。最终 E2E 在修复后重跑一次 15/15（见 [M4 结果](M4_RESULT.md)「真实安装 E2E」），没有原样重试旧失败。
 
-## P0-F2 共享 home 的验证副作用（收尾必须处理）
+## P0-F2 共享 home 的验证副作用（已收口）
 
 - `m4probe` 与用户 `web` 共用 `~/.dsh`：3091 侧栏能读到用户全部会话（约 1.2 MB 列表），E2E 的测试会话也写入共享会话存储；失败 run 的会话已由 runner 归档，但测试会话目录仍在 `~/.dsh/sessions/`。
-- 收尾：归档/清理 M4 测试会话，删除 `m4probe` profile；确认 `web`/`desktop` manifest、patch 与真实 `.dsh-cowork` 数据未变。
+- 收口：`m4probe` 已删除；最终验证用的 `m4verify` 在最终验证结束后删除；测试会话由 runner 归档（E2E `cleanup.archived` 6 条，只归档不删除）；`web`/`desktop` 的 manifest、patch 与真实 `.dsh-cowork` 数据未变。
 
 ## P0-F3 本地 .marklingo 噪声
 
