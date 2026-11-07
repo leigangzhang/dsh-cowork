@@ -1,0 +1,6 @@
+# Bundle layer installed by `dsh plugin add`: mounts the cowork host plugin.
+# `name` is the installed package name, so the row resolves from the profile's
+# node_modules and shares one instance with the presets, tools, and client.
+- insert:
+    - id: dsh-cowork
+      name: '@dsh-external/dsh-cowork'

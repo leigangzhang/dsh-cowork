@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-cowork",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "DSH 项目式主从协作插件：master 主会话 + 可对话 thread + 项目记忆 + worktree + handoff + review",
   "private": true,
   "type": "module",
@@ -10,7 +10,10 @@
   "main": "./lib/index.js",
   "types": "./lib/types/index.d.ts",
   "files": [
-    "lib"
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
   ],
   "license": "MIT",
   "peerDependencies": {
@@ -50,6 +53,9 @@
         "@deepseek-ai/dsh-client-ui-workspace"
       ],
       "external": []
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
     }
   }
 }
