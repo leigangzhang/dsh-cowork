@@ -59,7 +59,7 @@
 ## P0-F2 共享 home 的验证副作用（已收口）
 
 - `m4probe` 与用户 `web` 共用 `~/.dsh`：3091 侧栏能读到用户全部会话（约 1.2 MB 列表），E2E 的测试会话也写入共享会话存储；失败 run 的会话已由 runner 归档，但测试会话目录仍在 `~/.dsh/sessions/`。
-- 收口：`m4probe` 已删除；最终验证用的 `m4verify` 在文档收口时删除；测试会话由 runner 归档（E2E `cleanup.archived` 6 条，只归档不删除）；`web`/`desktop` 的 manifest、patch 与真实 `.dsh-cowork` 数据未变。
+- 收口：`m4probe` 已删除；最终验证用的 `m4verify` 在最终验证结束后删除；测试会话由 runner 归档（E2E `cleanup.archived` 6 条，只归档不删除）；`web`/`desktop` 的 manifest、patch 与真实 `.dsh-cowork` 数据未变。
 
 ## P0-F3 本地 .marklingo 噪声
 

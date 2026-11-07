@@ -1,7 +1,7 @@
 # M4 结果：单插件打包与发布
 
 - 结论：**M4 已交付并在真实安装 profile 验证**。仓库现在是一个可安装的 bundle：`package.json` 声明 `dsh.bundle.patch`，`cordis.patch.yml` 只插一行 `id: dsh-cowork`；一个新的 profile 只装 `@dsh-external/dsh-cowork` 一个包（`m4verify`，`--from-default-profile web`），重启后 preset、11 个业务工具、面板 API 与真实 Chrome 面板都来自已安装包；默认配置下 dev/E2E 面关闭；已安装 profile 跑通 15/15 步真实 flow；卸载后项目数据保留。
-- 分支与提交：`feat/m4-packaging` 从 `fix/m3-closeout` 的 `5622759` 开。关键提交：`914f997`（bundle 层）、`9451efc`（packaging 契约测试）、`d3751ed`（dev 门 + `canonicalRepoPath`）、`46de4e3`（README 手册），集成合并 `bc00b59` / `e70d05d` / `9ceece7`。最终交付 HEAD 与 M4A8 的独立审查结论由收口 marker `.dsh-cowork/e2e/M4_DOCS_READY.json` 记录；本文不预写该结论。
+- 分支与提交：`feat/m4-packaging` 从 `fix/m3-closeout` 的 `5622759` 开。关键提交：`914f997`（bundle 层）、`9451efc`（packaging 契约测试）、`d3751ed`（dev 门 + `canonicalRepoPath`）、`46de4e3`（README 手册）、`1bb5b49`（preset 测试）、`5f9195e`（README 事实修正），集成合并 `bc00b59` / `e70d05d` / `9ceece7`。最终交付 HEAD 与 M4A8 的独立审查结论由收口 marker `.dsh-cowork/e2e/M4_DOCS_READY.json` 记录；本文不预写该结论。
 - 环境：DSH `0.2.1-rc.2`、Desktop `2.0.18`、node `v22.22.1`、darwin arm64；DSH source checkout `/Users/ray/Workspace/deepseek-harness`；验证 profile `m4verify`（独立进程，未动用户 `web`/`desktop`）。
 - 依据：[M4 决策](../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md) 拥有分发形态、preset 与 dev 门的选择；[M4-P0 探针](M4_PROBE_RESULT.md) 拥有探针命令与 P0-F1..F3；[M4 交接](M4_HANDOFF.md) 拥有下一会话的验证 runbook；[PLAN](PLAN.md) §6 M4 拥有验收条目；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项。本文只拥有交付面、逐条验收证据与限制。
 
@@ -16,13 +16,14 @@
 | [`src/probe-model.ts`](../src/probe-model.ts) | `canonicalRepoPath`：存在则 `realpath`，缺失原样返回（[L54](../src/probe-model.ts#L54)） |
 | [`tests/packaging.test.mjs`](../tests/packaging.test.mjs) | 钉住安装契约：身份与入口、`dsh.client` 平台与注入、`dsh.bundle.patch` 指向仓库内文件、`files` 恰好 lib/patch/README/LICENSE、patch 只有一行 insert、`npm pack` 只含运行时文件 |
 | [`tests/dev-gate.test.mjs`](../tests/dev-gate.test.mjs) | 钉住 dev 门：默认 `false`；`false` 保留业务面且不注册 dev 面；`true` 还原 M0/S0/M2/M3；软链 `repoPath` 规范化；dispose 释放 dev 监听 |
+| [`tests/presets.test.mjs`](../tests/presets.test.mjs) | 钉住三个 preset 的 id 与顺序、reviewer 无 `@deepseek-ai/dsh-tool-fs`、master/thread 有、row id 唯一与 persona prefix 非空（4 个用例） |
 
 ## 验收对照
 
 | id | 结果 | 证据 |
 |---|---|---|
 | M4A1 bundle 包在干净 profile 中安装成功，`--dump-config` 出现 cowork 层，不改动 base/web 既有行 | 通过 | `m4verify` 上 `dsh plugin --profile m4verify add ./dsh-external-dsh-cowork-0.1.0.tgz` exit 0；`--dump-config` 出现 `# == @dsh-external/dsh-cowork` 与 `- id: dsh-cowork`；`tests/packaging.test.mjs` 钉住清单与 patch 形状 |
-| M4A2 重启后三个 cowork preset 可选、工具面正确，`sessionController.create({agentPreset:'cowork-master'})` header 正确 | 通过 | 已安装 profile 的 15/15 E2E：`setup` 断言 preset 创建与 header；`tests/dev-gate.test.mjs` 证明 dev 门不影响 preset/业务工具；`src/presets.ts` 仍是唯一行清单 |
+| M4A2 重启后三个 cowork preset 可选、工具面正确，`sessionController.create({agentPreset:'cowork-master'})` header 正确 | 通过 | 已安装 profile 的 15/15 E2E：`setup` 断言 preset 创建与 header；`tests/presets.test.mjs`（reviewer 无 `tool-fs` 的直接回归）；`tests/dev-gate.test.mjs` 证明 dev 门不影响 preset/业务工具；`src/presets.ts` 仍是唯一行清单 |
 | M4A3 安装后的 client 在真实 Chrome 加载，底栏/tab/panel 可用，无 dev 注入 | 通过 | 面板证据见下「面板」；KI-11 的缓存例外只存在于 dev 注入器路径，安装 + 重启路径不复现 |
 | M4A4 安装后的 profile 跑通真实 flow（init/thread/handoff/review/needs_revision 退回/pass 合并） | 通过 | 下方「真实安装 E2E」，`m3-d5e44800-91d0-41d7-a6f6-e80a9ac5213e`，15/15 |
 | M4A5 卸载移除 bundle 层、保留 `.dsh-cowork` 数据；旧会话 preset 不可恢复写进文档 | 通过 | 下方「卸载」；[README](../README.md)「卸载与升级」写明旧会话恢复会失败 |
@@ -60,12 +61,12 @@
 ## 卸载
 
 - `dsh plugin --profile m4verify remove @dsh-external/dsh-cowork` exit 0 后，profile 的 bundles 回到 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`，`node_modules/@dsh-external/` 为空；profile 里残留的 `cordis.patch.yml` 只有 `repoPath` 覆盖，不提供 cowork 行。
-- 项目数据未变：卸载前后 `.dsh-cowork` 目录内容 hash 一致（E2E fixture 之外的真实项目数据）。
+- 项目数据未变：卸载前后 `/private/tmp/m4-e2e/.dsh-cowork` 的内容 hash 一致（该目录只剩 E2E 证据文件，fixture 已被 runner 删除）；卸载不写项目数据。
 - 旧会话后果：会话 header 仍记 `cowork-master`/`cowork-thread`/`cowork-reviewer`，preset 定义随包消失，恢复会失败；已写进 [README](../README.md)「卸载与升级」。
 
 ## 四条命令
 
-`npm run check` exit 0；`npm test` **342/342**；`npm run typecheck` exit 0；`npm run build` exit 0（`lib/client.js` 69 KB）。相对 M3-FIX 的 330 个用例，M4 新增 12 个（packaging 6 + dev-gate 5 + `canonicalRepoPath` 1）。最终提交上的复跑结果由收口 marker 记录。
+`npm run check` exit 0；`npm test` **346/346**；`npm run typecheck` exit 0；`npm run build` exit 0（`lib/client.js` 69 KB）。相对 M3-FIX 的 330 个用例，M4 新增 16 个（packaging 6 + dev-gate 5 + `canonicalRepoPath` 1 + presets 4）。最终提交上的复跑结果由收口 marker 记录。
 
 ## 限制（不修项见 KNOWN_ISSUES）
 
@@ -79,7 +80,7 @@
 
 ## 回滚
 
-- 代码：按提交 revert `914f997`、`9451efc`、`d3751ed`、`46de4e3` 及其集成合并；`main` 未由 M4 改动。
+- 代码：按提交 revert `914f997`、`9451efc`、`d3751ed`、`46de4e3` 及其集成合并，以及后续测试/文档提交；`main` 未由 M4 改动。
 - 安装：`dsh plugin --profile m4verify remove @dsh-external/dsh-cowork`，再删除 `m4verify` profile；不动 `web`/`desktop`。
 - 数据：`.dsh-cowork` 不随包删除；需要保留旧会话时先归档/导出，回滚代码不影响索引（version 仍为 1）。
 - 运行时回退：开发期可继续 `dev_inject_plugin /Users/ray/Workspace/dsh-cowork`，但那是 dev 路径，不是 M4 的验收路径。

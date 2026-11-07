@@ -7,7 +7,7 @@
 
 - 分支：`feat/m4-packaging`，从 `fix/m3-closeout` 的 `5622759` 开；关键提交 `914f997`（bundle 层）、`9451efc`（packaging 契约测试）、`d3751ed`（dev 门 + `canonicalRepoPath`）、`46de4e3`（README 手册），其后是文档收口提交。最终 HEAD 以收口 marker 的 `commit` 为准。
 - 包：`@dsh-external/dsh-cowork@0.1.0`，`private: true`；`npm pack` 产物 `dsh-external-dsh-cowork-0.1.0.tgz`，78 个文件，只含 `lib/**`、`cordis.patch.yml`、`README.md`、`LICENSE`、`package.json`。
-- 四条命令：`npm run check` exit 0；`npm test` 342/342；`npm run typecheck` exit 0；`npm run build` exit 0（`lib/client.js` 69 KB）。
+- 四条命令：`npm run check` exit 0；`npm test` 346/346；`npm run typecheck` exit 0；`npm run build` exit 0（`lib/client.js` 69 KB）。
 - 真实安装：profile `m4verify`（`--from-default-profile web`，只装本包），installed-profile E2E runId `m3-d5e44800-91d0-41d7-a6f6-e80a9ac5213e`，15/15，`host.pluginVersion=0.1.0`。证据与限制见 [M4 结果](M4_RESULT.md)。
 - 未动：用户 `web`/`desktop` profile、`main` 分支、npm registry。
 
