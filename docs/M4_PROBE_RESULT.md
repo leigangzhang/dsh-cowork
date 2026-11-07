@@ -2,7 +2,7 @@
 
 - 状态：**完成（2026-11-07）**。P0-1..7 都有实测输出；P0-F1 已修（`canonicalRepoPath` + 单测 + 15/15 E2E 重跑），P0-F2 已收口（`m4probe` 已删除、`m4verify` 待收口删除、测试会话由 runner 归档），P0-F3 是环境噪声。交付事实与逐条验收证据在 [M4 结果](M4_RESULT.md)；本文只留 P0 的命令、原始输出与结论。
 - 环境：分支 `feat/m4-packaging`（从 `fix/m3-closeout` 的 `5622759` 开）；DSH `0.2.1-rc.2`、Desktop `2.0.18`、node `v22.22.1`、darwin arm64；用户宿主 `http://127.0.0.1:3080`（`web` profile，dev 注入）；探针宿主 `http://127.0.0.1:3091`（`m4probe`，独立进程）；DSH source checkout `/Users/ray/Workspace/deepseek-harness`。
-- 本文只拥有 P0 的命令、输出与结论；分发形态、preset 与 dev 门的选择在 [M4 决策](../../../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md)；交付事实与验收证据在 [M4 结果](M4_RESULT.md)。
+- 本文只拥有 P0 的命令、输出与结论；分发形态、preset 与 dev 门的选择在 [M4 决策](../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md)；交付事实与验收证据在 [M4 结果](M4_RESULT.md)。
 
 ## 前置门（M3-FIX）
 
