@@ -55,12 +55,12 @@ dsh --profile m4probe --dump-config | grep -A2 '@dsh-external/dsh-cowork'
 dsh --profile m4probe --port 3091 --no-open
 ```
 
-浏览器打开 `http://127.0.0.1:3091`，新建会话时选 `cowork-master`。
+启动日志会打印形如 `dsh web: http://127.0.0.1:3091/?token=…` 的地址，用浏览器打开**这条带 token 的 URL**：token 用来换浏览器信任，不带 token 直接访问时 `/api` 返回 401。进去后新建会话，选 `cowork-master`。
 
 安装注意事项：
 
 - **不要把插件装进你正在用的 profile**（例如 `web`）：`dsh plugin add` 会改该 profile 的依赖与 bundles，必须重启才生效，出问题也不好回滚。新建专用 profile 最省事。
-- `--from-default-profile` 会用出厂模板**覆盖同名 profile**，所以名字要挑一个还没在用的。
+- `--from-default-profile` 只用来**新建** profile：目标名必须是尚未存在的 profile。同名已存在时 CLI 直接报错（`already exists; omit --from-default-profile to use it`），不会覆盖既有 profile；要使用现有 profile 就去掉这个参数。
 - 只承诺 tarball 安装。npm 包没有发布：本包 `private: true`，发布需要单独授权。也不要用 git 地址安装——git 装到的是源码仓库，里面没有预构建的 `lib/`，宿主加载不到入口。
 - 安装或升级后必须**重启 profile 进程**；旧进程不会热加载新 bundle。
 - 如果 `--dump-config` 里看不到 cowork 层，检查该 profile 的补丁里是否留了 `- id: dsh-cowork` 且 `disabled: true`；它会压住 bundle 写入的行，删掉后重装。
@@ -75,7 +75,7 @@ dsh --profile m4probe --port 3091 --no-open
 
 1. **初始化**：在 `cowork-master` 会话里，以目标仓库为 cwd 调用 `cowork_project_init`。它写 `.dsh-cowork/index.json`，把当前会话记为 master；幂等，换一个会话再调会被拒绝。
 2. **路由或建 thread**：用户每提一个需求，master 用 `cowork_route({ intent })` 复用已有 thread 或新建；需要精确控制时用 `cowork_thread_create({ subject, brief })`。
-3. **thread 里工作**：thread 只改自己 subject 范围内的文件，结束（完成或阻塞）时调用 `cowork_handoff({ status, summary, commandsRun, changedPaths })`。`status` 取 `awaiting_review` / `blocked` / `done`；没 handoff 的 thread 不算完成。
+3. **thread 里工作**：thread 只改自己 subject 范围内的文件，结束（完成或阻塞）时调用 `cowork_handoff({ status, summary, verification, changedPaths })`。`status` 取 `awaiting_review` / `blocked` / `done`；`verification` 必填，每项是 `{ command, exitCode, evidence }`，只写真正跑过的检查；`changedPaths` 可选。没 handoff 的 thread 不算完成。
 4. **请求 review**：master 对 `awaiting_review` 的 thread 调用 `cowork_review_request({ threadId })`，插件创建独立 reviewer 会话并把 thread 标成 pending。
 5. **出结论**：reviewer 读 handoff、改动的文件并自己复跑验证命令，然后写一次 `cowork_review_verdict({ threadId, verdict, summary, findings })`；`needs_revision` / `reject` 必须给出可执行的 findings。
 6. **合并**：只有 `verdict: pass` 才能让 master 调 `cowork_checkout_merge({ threadId })` 合并该 thread 的 clone。`needs_revision` 退回 thread 修复并重新 handoff、再次请求 review；`reject` 表示这个 thread 被阻塞。
@@ -168,4 +168,4 @@ npm run build              # host + client 构建
 
 ## 许可
 
-MIT，与 DeepSeek Harness 官方一致。
+MIT，见 [LICENSE](LICENSE)。
