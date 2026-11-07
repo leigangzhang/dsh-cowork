@@ -24,6 +24,11 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 - **Evidence per change, not all tests every time.** Decide the owning surface from [tools/workflow.json](tools/workflow.json); do not run the full suite unless the change crosses packaging or workflow surfaces.
 - **Never end a silent turn.** If a check is red, the final message names what is red and what was tried.
 
+## AgentTeams
+
+- Before creating an AgentTeams plan, read [docs/AGENTTEAM_INTEGRATION_RULES.md](docs/AGENTTEAM_INTEGRATION_RULES.md); it supplements the protocol and owns the integration/E2E rules.
+- Verification tasks depend on an `integration-ready` task (merge/build/health), never on 10s marker polling; one full gate per integrated commit, fast contract test before real E2E, docs-only changes skip E2E.
+
 ## Closing the gate
 
 - A check that cannot pass under any honest evidence is a gate defect. Report the defect with the exact call; do not bypass and do not report green.
