@@ -12,6 +12,7 @@ import {
   checkReviewRequest,
   checkVerdictCaller,
   formatRevisionMessage,
+  formatVerdictMessage,
   latestReviewFor,
   overrideCommitSuffix,
   planMerge,
@@ -419,6 +420,53 @@ test('the revision message lists every finding with file:line and asks for a new
   assert.match(message, /F2 \[low\] typo in the brief/)
   assert.match(message, /cowork_handoff again with status awaiting_review/)
   assert.match(message, /\.dsh-cowork\/reviews\//)
+})
+
+test('the verdict message tells the master the outcome, the findings, and the next step', () => {
+  const passed = buildReviewRecord(draft({ verdict: 'pass' }), CREATED_AT)
+  const passMessage = formatVerdictMessage(passed, {
+    subject: 'review me',
+    status: 'done',
+    reviewFilePath: '/repo/.dsh-cowork/reviews/session-thread-1.json',
+  })
+  assert.match(passMessage, /session-thread \("review me"\) returned pass/)
+  assert.match(passMessage, /Thread status is now done/)
+  assert.match(passMessage, /Findings: none\./)
+  assert.match(passMessage, /cowork_checkout_merge/)
+  assert.match(passMessage, /\/repo\/\.dsh-cowork\/reviews\/session-thread-1\.json/)
+
+  const revised = buildReviewRecord(
+    draft({ verdict: 'needs_revision', findings: [finding({ file: 'src/tools.ts', line: 42 })] }),
+    CREATED_AT,
+  )
+  const delivered = formatVerdictMessage(revised, {
+    subject: 'review me',
+    status: 'active',
+    reviewFilePath: '/repo/r.json',
+    threadDelivered: true,
+  })
+  assert.match(delivered, /returned needs_revision/)
+  assert.match(delivered, /F1 \[high\].*src\/tools\.ts:42/)
+  assert.match(delivered, /findings were delivered to the thread/)
+
+  const undelivered = formatVerdictMessage(revised, {
+    subject: 'review me',
+    status: 'active',
+    reviewFilePath: '/repo/r.json',
+    threadDelivered: false,
+  })
+  assert.match(undelivered, /could not be delivered to the thread/)
+
+  const rejected = buildReviewRecord(draft({ verdict: 'reject', findings: [finding()] }), CREATED_AT)
+  const blocked = formatVerdictMessage(rejected, {
+    subject: 'review me',
+    status: 'blocked',
+    reviewFilePath: '/repo/r.json',
+    threadDelivered: true,
+  })
+  assert.match(blocked, /returned reject/)
+  assert.match(blocked, /Thread status is now blocked/)
+  assert.match(blocked, /thread is blocked/)
 })
 
 test('latestReviewFor returns the newest record of one thread', () => {

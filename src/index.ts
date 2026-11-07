@@ -1,11 +1,12 @@
 /**
- * @dsh-external/dsh-cowork — M0 probe host plugin.
+ * @dsh-external/dsh-cowork host plugin.
  *
- * The plugin exists to prove the five API risks in docs/PLAN.md §3.2 against
- * the live host: a runtime agent preset, two queued wake turns, session and
- * workspace visibility, an atomic cross-session store, a worktree-backed
- * session, and the patchReload facts. It registers one read-only tool and
- * three loopback-only routes; probe runs are started and polled over HTTP.
+ * The business surface — the panel API, the eleven cowork tools, the three
+ * presets, and the project-memory prompt section — is always registered. The
+ * M0/S0/M2/M3 probe and E2E surfaces (two probe tools, two probe presets, the
+ * loopback-only start/status routes, and four session event feeds) only exist
+ * when `Config.enableDevRoutes` is true, so an installed profile does not
+ * expose them to users.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -28,7 +29,7 @@ import { M2E2ERunner } from './m2-e2e.js'
 import type { M2E2EHost } from './m2-e2e.js'
 import { M3E2ERunner, M3_E2E_RUN_PATH, M3_E2E_STATUS_PATH } from './m3-e2e.js'
 import type { M3E2EHost } from './m3-e2e.js'
-import { isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
+import { canonicalRepoPath, isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
@@ -71,6 +72,11 @@ export interface Config {
   storeRelativePath: string
   /** Probe worktree path, relative to `repoPath`. */
   worktreeRelativePath: string
+  /**
+   * Register the M0/S0/M2/M3 probe and E2E surfaces. Off by default: an
+   * installed profile keeps only the business tools, presets, and panel API.
+   */
+  enableDevRoutes: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -78,6 +84,7 @@ export const Config: z<Config> = z.object({
   promptTimeoutMs: z.number().min(30_000).max(600_000).default(120_000),
   storeRelativePath: z.string().default('.dsh-cowork/probe/store.json'),
   worktreeRelativePath: z.string().default('.dsh-cowork/worktrees/probe'),
+  enableDevRoutes: z.boolean().default(false),
 })
 
 /** Host services this plugin cannot activate without. */
@@ -172,14 +179,30 @@ interface HostSessionListRow {
   cwd?: string
 }
 
-/** Register the probe preset, tool, routes, and event feed; clean all of them up on dispose. */
-export function apply(ctx: Context, config: Config): void {
+/** Dev-probe knobs, read only when {@link Config.enableDevRoutes} is on. */
+interface DevSurfaceOptions {
+  /** Configured repository path, before symlink canonicalization. */
+  repoPath: string
+  promptTimeoutMs: number
+  storeRelativePath: string
+  worktreeRelativePath: string
+}
+
+/**
+ * Register the M0/S0/M2/M3 probe and E2E surfaces: two probe tools, two probe
+ * presets, the loopback-only start/status routes, and the four session event
+ * feeds. Every registration is an effect owned by this fiber, so an unload
+ * leaves neither a route nor a listener behind.
+ */
+function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
   const host = ctx as unknown as ProbeHost
   const probeConfig: ProbeConfig = {
-    repoPath: config.repoPath === '' ? defaultRepoPath() : resolve(config.repoPath),
-    promptTimeoutMs: config.promptTimeoutMs,
-    storeRelativePath: config.storeRelativePath,
-    worktreeRelativePath: config.worktreeRelativePath,
+    // The host canonicalizes a session cwd (/tmp → /private/tmp on macOS); the
+    // probe must compare against the same real path or its assertions fail.
+    repoPath: canonicalRepoPath(options.repoPath),
+    promptTimeoutMs: options.promptTimeoutMs,
+    storeRelativePath: options.storeRelativePath,
+    worktreeRelativePath: options.worktreeRelativePath,
   }
   const runner = new ProbeRunner(host, probeConfig, PLUGIN_NAME, PLUGIN_VERSION)
   const s0 = new S0Runner(ctx as unknown as S0Host, {
@@ -203,29 +226,6 @@ export function apply(ctx: Context, config: Config): void {
     pluginVersion: PLUGIN_VERSION,
     log: (message) => ctx.logger?.info?.(`[${PLUGIN_NAME}] ${message}`),
   })
-
-  // M1 assembly services: one dependency bag for the presets and the six tools.
-  const assembly = ctx as unknown as CoworkAssemblyHost
-  const coworkDeps: CoworkToolDeps = {
-    sessionController: assembly.sessionController,
-    workspaceRegistry: assembly.workspaceRegistry,
-    agentPresets: assembly.agentPresets,
-    clock: () => new Date(),
-    resolveRepoPath: () => probeConfig.repoPath,
-  }
-
-  // M2 panel: read-only HTTP routes over the host connection service. The
-  // project root is derived from the session's own cwd, never from the request.
-  const panelPorts: CoworkApiPorts = {
-    // Metadata only: `inspect` also reads the session event log and hung the
-    // panel requests on running or large sessions.
-    listSessions: () => assembly.sessionController.list() as Promise<{
-      items: readonly HostSessionListRow[]
-    }>,
-    findProjectRoot,
-    createStore: (repoPath) => new ProjectStore({ repoPath }),
-  }
-  registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
 
   // Risk 3: a preset registered at runtime, owned by this fiber's lifetime.
   ctx.effect(() => {
@@ -494,7 +494,51 @@ export function apply(ctx: Context, config: Config): void {
     m3e2e.dispose()
   }, 'dsh-cowork: probe runners')
 
-  // M1: the two runtime presets and the six cowork tools, owned by this fiber.
+  ctx.logger?.info?.(`[${PLUGIN_NAME}] M0 probe ready at ${HEALTH_PATH} (repo ${probeConfig.repoPath})`)
+  ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 S0 probe ready at ${S0_RUN_PATH}`)
+}
+
+/** Register the business surface, plus the opt-in dev probe surface when enabled. */
+export function apply(ctx: Context, config: Config): void {
+  // M1 assembly services: one dependency bag for the presets and the eleven tools.
+  const assembly = ctx as unknown as CoworkAssemblyHost
+  // Business repo path: identical in both dev modes and unchanged from M0-M3.
+  // Only the dev probe canonicalizes it, because only the probe compares paths
+  // against a host session cwd.
+  const repoPath = config.repoPath === '' ? defaultRepoPath() : resolve(config.repoPath)
+  const coworkDeps: CoworkToolDeps = {
+    sessionController: assembly.sessionController,
+    workspaceRegistry: assembly.workspaceRegistry,
+    agentPresets: assembly.agentPresets,
+    clock: () => new Date(),
+    resolveRepoPath: () => repoPath,
+  }
+
+  // M2 panel: read-only HTTP routes over the host connection service. The
+  // project root is derived from the session's own cwd, never from the request.
+  const panelPorts: CoworkApiPorts = {
+    // Metadata only: `inspect` also reads the session event log and hung the
+    // panel requests on running or large sessions.
+    listSessions: () => assembly.sessionController.list() as Promise<{
+      items: readonly HostSessionListRow[]
+    }>,
+    findProjectRoot,
+    createStore: (repoPath) => new ProjectStore({ repoPath }),
+  }
+  registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
+
+  // Dev surfaces are opt-in: an installed profile never exposes the probe
+  // routes, the probe tools, the probe presets, or the session event feeds.
+  if (config.enableDevRoutes) {
+    registerDevSurfaces(ctx, {
+      repoPath,
+      promptTimeoutMs: config.promptTimeoutMs,
+      storeRelativePath: config.storeRelativePath,
+      worktreeRelativePath: config.worktreeRelativePath,
+    })
+  }
+
+  // M1: the three runtime presets and the eleven cowork tools, owned by this fiber.
   ctx.effect(() => registerPresets(coworkDeps.agentPresets).then((disposers) => async () => {
     for (const dispose of disposers) await dispose()
   }), 'dsh-cowork: cowork presets')
@@ -536,7 +580,5 @@ export function apply(ctx: Context, config: Config): void {
     return () => registration.dispose()
   }, 'dsh-cowork: project memory prompt')
 
-  ctx.logger?.info?.(`[${PLUGIN_NAME}] M0 probe ready at ${HEALTH_PATH} (repo ${probeConfig.repoPath})`)
-  ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 S0 probe ready at ${S0_RUN_PATH}`)
-  ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 tools + presets ready`)
+  ctx.logger?.info?.(`[${PLUGIN_NAME}] cowork tools, presets, and panel ready`)
 }

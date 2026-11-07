@@ -152,6 +152,45 @@ test('initIndex creates the index once and never replaces the master', async () 
   })
 })
 
+test('rebindMaster moves the master and keeps every other field of the project record', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({
+      repoPath,
+      clock: clockAt(CREATED_AT),
+      projectId: 'github.com-owner-repo',
+    })
+    await store.initIndex('session-master')
+    await store.addThread(thread({ threadId: 'session-thread', subject: 'keep me' }))
+    const before = await store.readIndex()
+
+    const rebound = await store.rebindMaster('session-new')
+    assert.equal(rebound.masterSessionId, 'session-new')
+    assert.equal(rebound.projectId, before.projectId)
+    assert.equal(rebound.createdAt, before.createdAt)
+    assert.deepEqual(rebound.threads, before.threads)
+
+    const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
+    assert.deepEqual(onDisk, rebound)
+    assert.match(await readFile(store.indexFile, 'utf8'), /\n$/)
+    assert.equal(await modeOf(store.indexFile), 0o600)
+    assert.deepEqual(residue(await readdir(store.projectDir)), [])
+
+    // The same id is a no-op that still returns the committed index.
+    const again = await store.rebindMaster('session-new')
+    assert.deepEqual(again, rebound)
+  })
+})
+
+test('rebindMaster refuses a missing index without creating the project directory', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    await rejectsStore(store.rebindMaster('session-new'), 'store/not-found', store.indexFile)
+    assert.equal(await store.hasIndex(), false)
+    assert.deepEqual(await readdir(store.projectDir).catch(() => []), [])
+    await rejectsStore(store.rebindMaster('   '), 'store/invalid', 'masterSessionId')
+  })
+})
+
 test('readIndex reports a missing or damaged index without rebuilding it', async () => {
   await withTempDir(async (repoPath) => {
     const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })

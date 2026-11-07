@@ -87,11 +87,27 @@
     },
     {
       "pattern": "docs/M4_HANDOFF.md",
-      "reason": "M4 packaging handoff: precondition gate on M3-FIX, current install/preset/bundle facts, P0 probes, implementation order, verification evidence, migration/uninstall traps, and completion/rollback for the next session; internal operational guidance"
+      "reason": "completed M4 handoff and next-session runbook: final baseline, maintainer verification steps (build/pack/profile/install/uninstall), traps, M5 starting point, and rollback; internal because it is session-specific operational guidance, not a user guide"
+    },
+    {
+      "pattern": "docs/M4_RESULT.md",
+      "reason": "M4 delivered surface (bundle manifest, dev gate, canonicalRepoPath) and installed-profile evidence: the m4verify runId, 15/15 steps, pack manifest, uninstall result, and the environment-bound Chrome panel/default-route artifacts; internal because it is environment- and version-bound evidence for contributors, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M4_PROBE_RESULT.md",
+      "reason": "M4-P0 probe evidence: bundle-patch assembly, tarball install, runtime preset persistence, real-Chrome client load, and the /tmp-to-/private/tmp path finding, with environment-bound raw output for contributors, not a user-facing guide"
     },
     {
       "pattern": "docs/AGENTTEAM_INTEGRATION_RULES.md",
       "reason": "Project-level AgentTeams integration/E2E rules: readiness as a task/event, fast contract tests before real E2E, one integration gate, warm host, scoped E2E, and closeout metrics; internal guidance for captains and members, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/routing.md",
+      "reason": "Routing and thread-lifecycle diagrams for contributors: side-effect order, state ownership, and failure handling; the authoritative rules stay in src/router.ts, src/tools.ts, and docs/PLAN.md, so this illustration is internal review material rather than a published guide"
+    },
+    {
+      "pattern": "docs/context.md",
+      "reason": "Project-context illustration for contributors: the shared .dsh-cowork disk surface, memory injection timing, handoff up/down paths, and the four session isolation modes; the authoritative rules stay in src/ and docs/PLAN.md, so this route map is internal review material rather than a published guide"
     }
   ]
 }

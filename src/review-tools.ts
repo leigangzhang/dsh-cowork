@@ -21,6 +21,7 @@ import {
   buildReviewRecord,
   checkReviewRequest,
   formatRevisionMessage,
+  formatVerdictMessage,
   prepareVerdict,
   verdictTransition,
 } from './review.js'
@@ -177,7 +178,7 @@ export function registerReviewTools(ctx: unknown, deps: ReviewToolsDeps): Array<
   disposers.push(host.tools.register(defineTool({
     name: 'cowork_review_verdict',
     description:
-      'Record the independent review verdict for one thread. Only the reviewer session named on the thread may call this; needs_revision and reject need at least one finding.',
+      'Record the independent review verdict for one thread and deliver it to the master session (every verdict, pass included); needs_revision and reject also deliver the findings to the thread. Only the reviewer session named on the thread may call this.',
     parameters: {
       threadId: { type: 'string', required: true, description: 'Thread under review.' },
       verdict: { type: 'string', required: true, enum: ['pass', 'needs_revision', 'reject'], description: 'pass accepts; needs_revision reopens the thread with findings; reject blocks it.' },
@@ -237,7 +238,26 @@ export function registerReviewTools(ctx: unknown, deps: ReviewToolsDeps): Array<
             deliveryError = describeError(error)
           }
         }
-        return toJson(success({ verdict: record.verdict, status: transition.status, thread: latest === null ? null : threadView(latest), reviewFilePath: file.filePath, reviewedAt: record.createdAt, delivered, deliveryError }))
+        // The master ended its turn after requesting the review; without this
+        // prompt no verdict — pass included — ever reaches it.
+        let masterDelivered = false
+        let masterDeliveryError: string | null = null
+        try {
+          const prompted = await opened.slice.promptSession(
+            opened.index.masterSessionId,
+            formatVerdictMessage(record, {
+              subject: thread.subject,
+              status: transition.status,
+              reviewFilePath: file.filePath,
+              threadDelivered: transition.deliverToThread ? delivered : undefined,
+            }),
+          )
+          masterDelivered = prompted.accepted
+          if (!prompted.accepted) masterDeliveryError = 'the host did not accept the verdict message'
+        } catch (error) {
+          masterDeliveryError = describeError(error)
+        }
+        return toJson(success({ verdict: record.verdict, status: transition.status, thread: latest === null ? null : threadView(latest), reviewFilePath: file.filePath, reviewedAt: record.createdAt, delivered, deliveryError, masterDelivered, masterDeliveryError }))
       } catch (error) {
         return toJson(mapError(error))
       }

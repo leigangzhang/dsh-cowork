@@ -62,7 +62,8 @@ DSH 单会话长跑会出现：任务失焦、上下文退化导致推理质量�
 
 1. 用户在项目目录打开一个会话，选择 `cowork-master` preset；
 2. 发一条消息或调用 `cowork_project_init`；
-3. 插件在 `<repo>/.dsh-cowork/index.json` 建立项目索引，把当前会话登记为 master。
+3. 插件在 `<repo>/.dsh-cowork/index.json` 建立项目索引，把当前会话登记为 master；
+4. 索引已存在且 master 是别的会话时，默认拒绝；新会话可显式 `cowork_project_init({ takeOver: true })` 接管：只替换索引里的 `masterSessionId`，保留 `projectId` / `createdAt` / threads 与 handoff，响应返回前任 master；索引内登记为 thread 的会话不能接管。
 
 #### 路由与新建 thread
 
@@ -303,7 +304,7 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 - `cowork_review_request(threadId)`：master 或本项目 thread 调用；要求 thread `awaiting_review`；建独立 `cowork-reviewer` 会话（cwd 是主仓库，preset 校验 fail-closed，标题 `cowork review: <subject>`）；索引先写 `reviewStatus=pending` / `reviewerSessionId` / `reviewRequestedAt`，再投 review brief；prompt 失败回滚这三个字段并归档会话。
 - `cowork_review_verdict(threadId, verdict, summary, findings?, verification?)`：只接受该 thread 索引里的 `reviewerSessionId`；master/thread 调用被显式拒绝（自审）；review 文件 `<repo>/.dsh-cowork/reviews/<threadId>-<stamp>.json` 先写，再写索引 `reviewStatus` / `reviewedAt` / `latestReviewPath`。
-- verdict 路由：`pass → done`；`needs_revision → active` 并把 findings 投递给原 thread；`reject → blocked` 并投递；投递失败只进 `deliveryError`，不回滚 verdict。
+- verdict 路由与投递：`pass → done`；`needs_revision → active` 并把 findings 投递给原 thread；`reject → blocked` 并投递。每次 verdict 都 prompt master（`pass` 也发），让它在 `cowork_review_request` 之后结束的回合被唤醒并执行下一步；thread 投递失败进 `deliveryError`、master 投递失败进 `masterDeliveryError`，两者都不回滚 verdict。
 - 合并前置：`cowork_checkout_merge` 默认要求 `reviewStatus=pass`；master 用 `allowUnreviewed:true` + 非空 `overrideReason` 显式覆盖，理由清洗后进合并提交信息与响应。
 - `cowork-reviewer` preset 不挂 `tool-fs`（没有 read/write/edit），只给 bash + glob/grep；实现者不得自审（借 AgentTeams 语义，不引入其运行时）。
 
@@ -311,7 +312,7 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 | 工具 | 谁可用 | 作用 |
 |---|---|---|
-| `cowork_project_init` | master | 初始化项目索引 |
+| `cowork_project_init` | master | 初始化项目索引；`takeOver: true` 时显式接管已有项目 |
 | `cowork_project_status` | master/thread | 项目与线程概览，含各 thread checkout 摘要 |
 | `cowork_route` | master | 路由需求到 thread；`isolated: true` 时建 clone |
 | `cowork_thread_create` | master | 显式新建 thread；`isolated: true` 时建 clone |
@@ -378,7 +379,7 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 ### M4：单插件打包与发布
 
-方案与验证路径见 [M4 提案](../.agents/notes/proposed/feature/2026-11-05-m4-packaging.md) 与 [M4 交接](M4_HANDOFF.md)。
+已完成（2026-11-07）：交付事实、M4A1–M4A8 证据与限制见 [M4 结果](M4_RESULT.md)；分发形态、preset 与 dev 门的选择见 [M4 决策](../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md)；下一会话的验证入口见 [M4 交接](M4_HANDOFF.md)。
 
 验收：
 

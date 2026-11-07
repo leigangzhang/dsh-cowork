@@ -564,6 +564,29 @@ export class ProjectStore {
   }
 
   /**
+   * Move the master role to `masterSessionId`, keeping `projectId`, `createdAt`
+   * and every thread exactly as they are. Last writer wins: the tool layer
+   * owns the authorization decision (`claimMaster`), this method owns the
+   * atomic swap under the project lock.
+   *
+   * A missing or damaged index is not repaired: it raises before the lock is
+   * taken so no lock file creates `.dsh-cowork/` for an uninitialized project.
+   */
+  async rebindMaster(masterSessionId: string): Promise<ProjectIndex> {
+    if (!isNonEmptyString(masterSessionId)) {
+      throw new StoreError('store/invalid', 'masterSessionId must be a non-empty string')
+    }
+    await this.readIndex()
+    return this.withLock(async () => {
+      const current = await this.readIndex()
+      if (current.masterSessionId === masterSessionId) return current
+      const next: ProjectIndex = { ...current, masterSessionId }
+      await this.writeJson(this.indexFile, next)
+      return next
+    })
+  }
+
+  /**
    * Run `mutator` against the current index under the project lock and persist
    * its result in one atomic write. Concurrent callers are serialized, so no
    * read-modify-write cycle can resurrect a replaced state.

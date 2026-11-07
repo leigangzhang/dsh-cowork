@@ -1,8 +1,10 @@
 /**
  * Pure M0-probe helpers: loopback admission, request parsing, turn/event
- * folding, and the on-disk store document. No host imports — the unit tests
- * run this file directly under `node --test` with type stripping.
+ * folding, path canonicalization, and the on-disk store document. No host
+ * imports — the unit tests run this file directly under `node --test` with
+ * type stripping.
  */
+import { realpathSync } from 'node:fs'
 
 /** One session event as the probe consumes it. */
 export interface ProbeEvent {
@@ -40,6 +42,21 @@ export function isLoopbackHost(host: string | undefined): boolean {
   if (host === undefined) return false
   const bare = host.replace(/:\d+$/, '')
   return bare === '127.0.0.1' || bare === 'localhost' || bare === '[::1]' || bare === '::1'
+}
+
+/**
+ * Resolve a repository path to its real path so it compares equal to a host
+ * session cwd, which macOS normalizes (`/tmp` → `/private/tmp`). A path that
+ * does not exist yet keeps its configured spelling: realpath cannot resolve a
+ * suffix that is not on disk, and failing here would break the probe config
+ * before it creates anything.
+ */
+export function canonicalRepoPath(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
 }
 
 /** Pathname of a request target, dropping the query. */
