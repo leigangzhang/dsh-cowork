@@ -48,7 +48,7 @@ Class: bug-fix
 
 - [MS1] `claimMaster` 四态：current 不写、stranger 未传 flag 拒绝且消息含接管提示、thread 带 flag 仍拒绝、stranger 带 flag 返回前任 master — `source`, `tests`
 - [MS2] `rebindMaster` 只替换 master 并保留 projectId/createdAt/threads；同 id 幂等；缺索引报 store/not-found 且不创建目录；文件 0600、无残留 — `source`, `tests`
-- [MS3] `cowork_project_init` 接受 `takeOver` 并在响应给出 `rebound` / `previousMasterSessionId`；typecheck 与 build 通过 — `source`, `packaging`
+- [MS3] `cowork_project_init` 暴露可选 `takeOver`，默认拒绝、显式接管、响应给出 `rebound` / `previousMasterSessionId` 由 host-free 契约测试 `tests/tools-init.test.mjs` 钉住；typecheck 与 build 通过 — `source`, `tests`, `packaging`
 - [MS4] README 与 PLAN 的接管说明与新参数一致；`npm run check` 通过 — `publication`
 - [MS5] 四命令：`npm run check`、`npm test`、`npm run typecheck`、`npm run build` 全绿（npm cache 指向可写临时目录） — `packaging`, `publication`
 - [MS6] 真机（2026-11-07）：备份后把真实索引从 `session-65c8337f…` 接管到本会话，`cowork_project_status` 返回 ok，`cowork_thread_create` 真实建出 `session-bc935d5b…`（session header preset `cowork-thread`、索引 `status=new`）；旧会话随即失去项目权限。备份 `.dsh-cowork/e2e/rebind-backup-20261107T101037Z.json`（与改前索引 sha256 一致） — `source`, `packaging`
