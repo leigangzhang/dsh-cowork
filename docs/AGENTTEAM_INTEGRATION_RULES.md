@@ -1,7 +1,7 @@
 # AgentTeams 集成与 E2E 规则（项目级）
 
 - 状态：生效（2026-11-06）。本文件是 [AGENTS.md](../AGENTS.md) 的扩展，适用于本仓库所有 AgentTeams 运行；队长在创建计划前读本文。它补充而不推翻 AgentTeams 协议/质量门禁；与用户明确指令冲突时按用户指令，并在任务描述里记录例外。
-- 基线：M3 主会话 + 5 个子会话中，verifier 等待 **1,080.3s**（集成 marker 694.5s + E2E 385.8s），其中两次失败 E2E 占 301.5s。目标不是减少验证，而是减少排队、轮询、重复跑和失败重跑。
+- 基线：M3 主会话 + 5 个子会话中，verifier 等待 **1,080.3s**（集成 marker 694.5s + E2E 385.8s），其中两次失败 E2E 占 301.5s；同一轮浏览器 797.1s（103 次，`bsk_session` 61 次）、面板 fixture 567.3s（5 次，离群 302.9/220.7s）。目标不是减少验证，而是减少排队、轮询、重复跑和失败重跑。
 
 ## R1 就绪是任务/事件，不是文件轮询
 
@@ -47,6 +47,22 @@
 - 每次 AgentTeams 收口记录：`integration-ready` 开始/结束、marker 等待、E2E 尝试与耗时、四命令次数、inject 次数、失败原因。
 - 若规则没有降低等待，保留旧流程并记录原因；不要为了指标伪造证据。
 - 指标目标：verifier 等待 ≤300s（基线 1,080.3s；marker ≤60s、失败 E2E 0）；团队“等待/后台”≤800s（基线 1,453.6s）。
+- 浏览器/面板验证目标：单次验证 `bsk_session` ≤10（基线 61）、无 >60s 的 sleep/API 等待；fixture apply/restore 各 ≤5s（基线离群 302.9/220.7s），真实数据 hash/线程数恢复。
+
+## R8 浏览器验证：先修宿主，再动浏览器
+
+- 开始前确认 health 200、`/api/cowork.overview` 200、BrowserSkill 扩展 connected；不满足先修宿主/clean inject，不要用重启浏览器掩盖后端故障。
+- 每次验证复用一个长生命周期 session/tab；不要每步 stop/start；reload/extension 失败最多重开一次，并记录原因。
+- 用专用小 profile/会话/测试 repo，不加载用户 1.2MB 的 session 列表和长 transcript；选择器优先 `data-testid`/稳定 CSS；目标移动时 sync 一次再点，不盲目重试。
+- 截图是证据，不要反复 inspect 同一状态；结束主动 stop。
+- 验收：单次验证 `bsk_session` ≤10（基线 61）、无 >60s 的 sleep/API 等待、截图齐全、结束 stop。
+
+## R9 面板 fixture：隔离、原子、可恢复
+
+- 不在宿主正在服务 panel 请求时直接改真实 `.dsh-cowork`；优先 fixture repo / 独立 DSH_HOME/profile/port，或先停宿主；否则 apply/restore 必须一次完成并校验 hash。
+- fixture 脚本只写 fixture 数据目录，直接 fs 写入，不调用 host API、不等待 project lock；apply 前备份、restore 幂等；数据目录不写 Markdown（KI-13）。
+- 302.9s/220.7s 的离群值是宿主 event loop/结果投递延迟，不是 fixture I/O；先修 health/API，再测 apply/restore。
+- 验收：apply/restore 各 ≤5s（基线离群 302.9/220.7s）、真实 index 恢复（hash/线程数）、截图来自 fixture 视图。
 
 ## 反模式
 
@@ -56,6 +72,8 @@
 - 文档-only 变更也跑完整 E2E。
 - 每轮集成都 clean uninject→inject，或让旧 fiber 继续服务。
 - 队长串行读文件/跑检查，把并行预检拖成串行门禁。
+- 宿主 API 还挂着就反复重启浏览器/重开 session。
+- 在 live `.dsh-cowork` 上反复 apply/restore，或让 fixture 等 host lock/60s sleep。
 
 ## DAG 模板（质量模式）
 
