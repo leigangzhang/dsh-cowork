@@ -104,6 +104,10 @@
     {
       "pattern": "docs/routing.md",
       "reason": "Routing and thread-lifecycle diagrams for contributors: side-effect order, state ownership, and failure handling; the authoritative rules stay in src/router.ts, src/tools.ts, and docs/PLAN.md, so this illustration is internal review material rather than a published guide"
+    },
+    {
+      "pattern": "docs/context.md",
+      "reason": "Project-context illustration for contributors: the shared .dsh-cowork disk surface, memory injection timing, handoff up/down paths, and the four session isolation modes; the authoritative rules stay in src/ and docs/PLAN.md, so this route map is internal review material rather than a published guide"
     }
   ]
 }
