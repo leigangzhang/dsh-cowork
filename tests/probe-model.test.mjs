@@ -1,7 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   buildStoreDocument,
+  canonicalRepoPath,
   isLoopbackAddress,
   isLoopbackHost,
   parseStoreDocument,
@@ -66,6 +70,25 @@ test('summarizeEvents reports an error turn without inventing text', () => {
   ])
   assert.equal(summary.reason, 'error')
   assert.equal(summary.text, '')
+})
+
+test('canonicalRepoPath resolves a symlink and passes a missing path through', () => {
+  // A fresh temp directory per run keeps the fixture deterministic; the
+  // expectation is realpath(real), not the literal path, because macOS also
+  // canonicalizes the temp root itself (`/var` → `/private/var`).
+  const root = mkdtempSync(join(tmpdir(), 'dsh-cowork-canonical-'))
+  try {
+    const real = join(root, 'real')
+    mkdirSync(real)
+    const link = join(root, 'link')
+    symlinkSync(real, link)
+    assert.equal(canonicalRepoPath(link), realpathSync(real))
+    assert.equal(canonicalRepoPath(link), realpathSync(link))
+    const missing = join(root, 'not-created-yet')
+    assert.equal(canonicalRepoPath(missing), missing)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('the store document round-trips and rejects malformed input', () => {
