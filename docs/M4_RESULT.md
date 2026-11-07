@@ -55,7 +55,7 @@
 
 ## 打包产物
 
-- `npm run build` 后 `npm pack` → `dsh-external-dsh-cowork-0.1.0.tgz`：**78 个文件、249,566 B**；内容只有 `lib/**`（含 `.js.map`）、`cordis.patch.yml`、`README.md`、`LICENSE`、`package.json`；`tools/`、`tests/`、`docs/`、`.dsh-cowork/` 均不进包。
+- `npm run build` 后 `npm pack` → `dsh-external-dsh-cowork-0.1.0.tgz`：**78 个文件**（最终 HEAD 实测 253,278 B；字节数随 README 与构建产物浮动，不作为契约）；内容只有 `lib/**`（含 `.js.map`）、`cordis.patch.yml`、`README.md`、`LICENSE`、`package.json`；`tools/`、`tests/`、`docs/`、`.dsh-cowork/` 均不进包。
 - 该 tarball 在干净 profile 中安装、重启、跑 E2E 均通过（上面的 run）。`tests/packaging.test.mjs` 用 `npm pack --dry-run --json` 检查清单（只读，不写产物）。
 
 ## 卸载
