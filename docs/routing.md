@@ -155,6 +155,7 @@ sequenceDiagram
    └─ 再改索引：status ← pass:done / needs_revision:active / reject:blocked
                  reviewStatus = verdict、reviewedAt、latestReviewPath
                  needs_revision 与 reject 还把 findings 投回 thread
+   ├─ 再把 verdict 投递给 master（pass 也发；响应里 delivered / masterDelivered 分开）
    ▼
  master
    │ pass → cowork_checkout_merge(threadId)     ← 只有 isolated thread 才有 clone
@@ -175,6 +176,8 @@ sequenceDiagram
 | `pass` | `done` | 否 |
 | `needs_revision` | `active` | 是 |
 | `reject` | `blocked` | 是 |
+
+每次 verdict 都会 `prompt` master（含 `pass`），让它从 `cowork_review_request` 之后结束的回合中醒来；`needs_revision` / `reject` 另外把 findings 投回 thread。master 投递失败只进 `masterDeliveryError`，不回滚 verdict（重放缺口见 KI-17）。
 
 ## 4. 谁在什么时候写哪个字段
 

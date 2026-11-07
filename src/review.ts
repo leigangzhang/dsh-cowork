@@ -587,6 +587,51 @@ export function formatRevisionMessage(record: ReviewRecord, threadId: string): s
   return lines.join('\n')
 }
 
+/**
+ * The message a verdict delivers to the master. The master ends its turn after
+ * `cowork_review_request`, so without this prompt nobody wakes it when the
+ * independent reviewer finishes; every verdict is delivered, including `pass`.
+ * `status` is the thread status after the transition, and `threadDelivered`
+ * reports whether the revision/reject message reached the thread, so the master
+ * is never told the findings were delivered when they were not.
+ */
+export function formatVerdictMessage(
+  record: ReviewRecord,
+  input: {
+    subject: string
+    status: 'done' | 'active' | 'blocked'
+    reviewFilePath: string
+    threadDelivered?: boolean
+  },
+): string {
+  const lines = [
+    `The independent review of thread ${record.threadId} ("${input.subject}") returned ${record.verdict}.`,
+    `Thread status is now ${input.status}.`,
+    `Summary: ${record.summary}`,
+  ]
+  if (record.findings.length === 0) {
+    lines.push('Findings: none.')
+  } else {
+    lines.push(`Findings (${record.findings.length}):`)
+    for (const finding of record.findings) lines.push(findingLine(finding))
+  }
+  if (record.verdict === 'pass') {
+    lines.push(
+      'Next: the thread is done. If it has an isolated checkout, merge it with cowork_checkout_merge; otherwise accept the work and continue.',
+    )
+  } else if (record.verdict === 'needs_revision') {
+    lines.push(
+      input.threadDelivered === false
+        ? 'Next: the revision message could not be delivered to the thread; prompt it with the findings, then wait for its next handoff and request the next review.'
+        : 'Next: the findings were delivered to the thread. Wait for its next handoff, then request the next review.',
+    )
+  } else {
+    lines.push('Next: the thread is blocked. Report it and decide whether to replan the work.')
+  }
+  lines.push(`The full review record is saved at ${input.reviewFilePath}.`)
+  return lines.join('\n')
+}
+
 /** The newest review of one thread among already-listed review files, or null. */
 export function latestReviewFor(
   files: ReadonlyArray<{ record: ReviewRecord }>,

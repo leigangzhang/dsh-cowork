@@ -77,8 +77,8 @@ dsh --profile m4probe --port 3091 --no-open
 2. **路由或建 thread**：用户每提一个需求，master 用 `cowork_route({ intent })` 复用已有 thread 或新建；需要精确控制时用 `cowork_thread_create({ subject, brief })`。
 3. **thread 里工作**：thread 只改自己 subject 范围内的文件，结束（完成或阻塞）时调用 `cowork_handoff({ status, summary, verification, changedPaths })`。`status` 取 `awaiting_review` / `blocked` / `done`；`verification` 必填，每项是 `{ command, exitCode, evidence }`，只写真正跑过的检查；`changedPaths` 可选。没 handoff 的 thread 不算完成。
 4. **请求 review**：master 对 `awaiting_review` 的 thread 调用 `cowork_review_request({ threadId })`，插件创建独立 reviewer 会话并把 thread 标成 pending。
-5. **出结论**：reviewer 读 handoff、改动的文件并自己复跑验证命令，然后写一次 `cowork_review_verdict({ threadId, verdict, summary, findings })`；`needs_revision` / `reject` 必须给出可执行的 findings。
-6. **合并**：只有 `verdict: pass` 才能让 master 调 `cowork_checkout_merge({ threadId })` 合并该 thread 的 clone。`needs_revision` 退回 thread 修复并重新 handoff、再次请求 review；`reject` 表示这个 thread 被阻塞。
+5. **出结论**：reviewer 读 handoff、改动的文件并自己复跑验证命令，然后写一次 `cowork_review_verdict({ threadId, verdict, summary, findings })`；`needs_revision` / `reject` 必须给出可执行的 findings。写完后插件把 verdict 作为消息投递给 master（`pass` 也投递），`needs_revision` / `reject` 同时把 findings 投给原 thread。
+6. **合并或退回**：master 收到 `pass` 后，有 clone 的 thread 调 `cowork_checkout_merge({ threadId })` 合并，共享工作区的 thread 直接验收。`needs_revision` 退回 thread 修复并重新 handoff、再次请求 review；`reject` 表示这个 thread 被阻塞。
 7. **看板**：Web UI 右侧栏的 Cowork 面板读同一份索引（`/api/cowork.overview`），用来确认 thread 状态、待办 review 与最终 verdict。
 
 ## 数据落点

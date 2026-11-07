@@ -304,7 +304,7 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 - `cowork_review_request(threadId)`：master 或本项目 thread 调用；要求 thread `awaiting_review`；建独立 `cowork-reviewer` 会话（cwd 是主仓库，preset 校验 fail-closed，标题 `cowork review: <subject>`）；索引先写 `reviewStatus=pending` / `reviewerSessionId` / `reviewRequestedAt`，再投 review brief；prompt 失败回滚这三个字段并归档会话。
 - `cowork_review_verdict(threadId, verdict, summary, findings?, verification?)`：只接受该 thread 索引里的 `reviewerSessionId`；master/thread 调用被显式拒绝（自审）；review 文件 `<repo>/.dsh-cowork/reviews/<threadId>-<stamp>.json` 先写，再写索引 `reviewStatus` / `reviewedAt` / `latestReviewPath`。
-- verdict 路由：`pass → done`；`needs_revision → active` 并把 findings 投递给原 thread；`reject → blocked` 并投递；投递失败只进 `deliveryError`，不回滚 verdict。
+- verdict 路由与投递：`pass → done`；`needs_revision → active` 并把 findings 投递给原 thread；`reject → blocked` 并投递。每次 verdict 都 prompt master（`pass` 也发），让它在 `cowork_review_request` 之后结束的回合被唤醒并执行下一步；thread 投递失败进 `deliveryError`、master 投递失败进 `masterDeliveryError`，两者都不回滚 verdict。
 - 合并前置：`cowork_checkout_merge` 默认要求 `reviewStatus=pass`；master 用 `allowUnreviewed:true` + 非空 `overrideReason` 显式覆盖，理由清洗后进合并提交信息与响应。
 - `cowork-reviewer` preset 不挂 `tool-fs`（没有 read/write/edit），只给 bash + glob/grep；实现者不得自审（借 AgentTeams 语义，不引入其运行时）。
 
