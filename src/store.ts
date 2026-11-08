@@ -16,13 +16,35 @@
  * trust is a defect the caller has to see.
  */
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { mkdir, open, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type { ReviewRecord, ReviewStatus } from './review.js'
+import {
+  ACTIVITY_MAX_BYTES,
+  ACTIVITY_MAX_EVENTS,
+  INDEX_VERSION_V2,
+  INBOX_MAX_ITEMS,
+  activityEventProblems,
+  handoffRecordProblems,
+  inboxItemProblems,
+  normalizeProjectIndexV1,
+  normalizeProjectIndexV2,
+  projectIndexV1Problems,
+  projectIndexV2Problems,
+  reviewRecordProblems,
+  threadV1Problems,
+} from './store-schema.js'
+import { MigrationError, applyLegacyView, legacyViewOf, migrateV1ToV2 } from './store-migration.js'
+import type { ActivityEvent, ActivityType, InboxItem, ProjectIndexV2 } from './store-schema.js'
+import type {
+  ArchiveFailure,
+  MigrationReport,
+  PendingReviewerArchive,
+} from './store-migration.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -30,6 +52,12 @@ const execFileAsync = promisify(execFile)
 const PROJECT_DIR_NAME = '.dsh-cowork'
 /** Index file name inside the project directory. */
 const INDEX_FILE_NAME = 'index.json'
+/** Pre-migration index backup: the original v1 document, written once. */
+const BACKUP_FILE_NAME = 'index.v1.backup.json'
+/** Activity stream file name inside the project directory. */
+const ACTIVITY_FILE_NAME = 'activity.jsonl'
+/** Master inbox file name inside the project directory. */
+const INBOX_FILE_NAME = 'inbox.json'
 /** Handoff directory name inside the project directory. */
 const HANDOFFS_DIR_NAME = 'handoffs'
 /** Review directory name inside the project directory. */
@@ -40,8 +68,6 @@ const LOCK_FILE_NAME = '.write.lock'
 const HANDOFF_SUFFIX = '.json'
 /** Review file suffix. */
 const REVIEW_SUFFIX = '.json'
-/** On-disk schema version this module reads and writes. */
-const STORE_VERSION = 1
 /** How long a writer waits for the project lock before failing. */
 const LOCK_WAIT_MS = 5000
 /** File mode for every file this store writes. */
@@ -50,6 +76,18 @@ const FILE_MODE = 0o600
 const DIR_MODE = 0o700
 /** Length of the repository-path project id fallback. */
 const PROJECT_ID_HASH_LENGTH = 12
+/** How many activity events a read returns when the caller does not say. */
+const ACTIVITY_READ_LIMIT = 50
+
+/** Every lifecycle a thread may carry; `tests/api-contract.test.mjs` pins this list. */
+const THREAD_STATUSES: readonly ThreadStatus[] = [
+  'new',
+  'active',
+  'awaiting_review',
+  'done',
+  'blocked',
+  'archived',
+]
 
 /** Lifecycle of one thread as recorded in the project index. */
 export type ThreadStatus = 'new' | 'active' | 'awaiting_review' | 'done' | 'blocked' | 'archived'
@@ -167,25 +205,14 @@ export interface ProjectStoreOptions {
   clock?: () => Date
   /** Explicit project id; defaults to `projectIdFor(repoPath)` on first init. */
   projectId?: string
+  /**
+   * Host port used to archive the reviewer of an in-flight v1 review while the
+   * index migrates. M7 wires no host into the store (`src/tools.ts` and
+   * `src/index.ts` are frozen), so a migration records `archiveFailures` and
+   * still writes v2 instead of claiming the review was safely cancelled.
+   */
+  archiveSession?: (sessionId: string, options?: { stopActivity?: boolean }) => Promise<void>
 }
-
-const THREAD_STATUSES: readonly ThreadStatus[] = [
-  'new',
-  'active',
-  'awaiting_review',
-  'done',
-  'blocked',
-  'archived',
-]
-
-const HANDOFF_STATUSES: readonly HandoffStatus[] = ['awaiting_review', 'blocked', 'done']
-
-/**
- * Review states a thread record may carry. Duplicated from src/review.ts on
- * purpose: this store is imported by `node --test`, which does not rewrite the
- * `./review.js` value specifier, so the only link may be type-only.
- */
-const THREAD_REVIEW_STATUSES: readonly ReviewStatus[] = ['pending', 'pass', 'needs_revision', 'reject']
 
 /** Whether a value is a JSON object (not null, not an array). */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -200,210 +227,6 @@ function isNonEmptyString(value: unknown): value is string {
 /** Whether a value is a string that `Date.parse` accepts. */
 function isIsoDate(value: unknown): value is string {
   return typeof value === 'string' && !Number.isNaN(Date.parse(value))
-}
-
-/** Whether a value is an array of strings. */
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === 'string')
-}
-
-/** Schema problems of one thread record, addressed by `where`. */
-function threadProblems(thread: unknown, where: string): string[] {
-  if (!isRecord(thread)) return [`${where} must be an object`]
-  const problems: string[] = []
-  if (!isNonEmptyString(thread.threadId)) problems.push(`${where}.threadId must be a non-empty string`)
-  if (typeof thread.subject !== 'string') problems.push(`${where}.subject must be a string`)
-  if (!THREAD_STATUSES.includes(thread.status as ThreadStatus)) {
-    problems.push(`${where}.status must be one of ${THREAD_STATUSES.join('|')}`)
-  }
-  if (!isNonEmptyString(thread.cwd)) problems.push(`${where}.cwd must be a non-empty string`)
-  if (thread.checkoutPath !== null && typeof thread.checkoutPath !== 'string') {
-    problems.push(`${where}.checkoutPath must be a string or null`)
-  }
-  if (!isIsoDate(thread.createdAt)) problems.push(`${where}.createdAt must be an ISO 8601 timestamp`)
-  if (!isIsoDate(thread.updatedAt)) problems.push(`${where}.updatedAt must be an ISO 8601 timestamp`)
-  if (thread.lastHandoffAt !== null && !isIsoDate(thread.lastHandoffAt)) {
-    problems.push(`${where}.lastHandoffAt must be an ISO 8601 timestamp or null`)
-  }
-  // M3 review fields: absent keys are accepted (an in-memory record may come
-  // from a caller that predates them); a present value must be valid.
-  if (
-    thread.reviewStatus !== undefined &&
-    thread.reviewStatus !== null &&
-    !THREAD_REVIEW_STATUSES.includes(thread.reviewStatus as ReviewStatus)
-  ) {
-    problems.push(`${where}.reviewStatus must be one of ${THREAD_REVIEW_STATUSES.join('|')} or null`)
-  }
-  for (const field of ['reviewRequestedAt', 'reviewedAt'] as const) {
-    if (thread[field] !== undefined && thread[field] !== null && !isIsoDate(thread[field])) {
-      problems.push(`${where}.${field} must be an ISO 8601 timestamp or null`)
-    }
-  }
-  for (const field of ['reviewerSessionId', 'latestReviewPath'] as const) {
-    if (thread[field] !== undefined && thread[field] !== null && !isNonEmptyString(thread[field])) {
-      problems.push(`${where}.${field} must be a non-empty string or null`)
-    }
-  }
-  return problems
-}
-
-/**
- * Read one thread record into the current shape: M2 renamed `worktreePath` to
- * `checkoutPath`, and an index written before that rename must still load. The
- * legacy key is consumed here (never copied forward), so a validated record and
- * every rewrite carry `checkoutPath` only.
- */
-function normalizeThreadDocument(thread: unknown): unknown {
-  if (!isRecord(thread)) return thread
-  const { worktreePath, checkoutPath, ...rest } = thread
-  const adopted = checkoutPath === undefined ? worktreePath : checkoutPath
-  const nullWhenAbsent = (value: unknown): unknown => (value === undefined ? null : value)
-  return {
-    ...rest,
-    checkoutPath: adopted === undefined ? null : adopted,
-    reviewStatus: nullWhenAbsent(rest.reviewStatus),
-    reviewRequestedAt: nullWhenAbsent(rest.reviewRequestedAt),
-    reviewedAt: nullWhenAbsent(rest.reviewedAt),
-    reviewerSessionId: nullWhenAbsent(rest.reviewerSessionId),
-    latestReviewPath: nullWhenAbsent(rest.latestReviewPath),
-  }
-}
-
-/** Normalize every thread of a raw index document; other fields pass through. */
-function normalizeIndexDocument(index: unknown): unknown {
-  if (!isRecord(index) || !Array.isArray(index.threads)) return index
-  return { ...index, threads: index.threads.map(normalizeThreadDocument) }
-}
-
-/** Schema problems of a project index document. */
-function indexProblems(index: unknown): string[] {
-  if (!isRecord(index)) return ['index must be a JSON object']
-  const problems: string[] = []
-  if (index.version !== STORE_VERSION) problems.push(`index.version must be ${STORE_VERSION}`)
-  if (!isNonEmptyString(index.projectId)) problems.push('index.projectId must be a non-empty string')
-  if (!isNonEmptyString(index.masterSessionId)) {
-    problems.push('index.masterSessionId must be a non-empty string')
-  }
-  if (!isIsoDate(index.createdAt)) problems.push('index.createdAt must be an ISO 8601 timestamp')
-  if (!Array.isArray(index.threads)) {
-    problems.push('index.threads must be an array')
-  } else {
-    index.threads.forEach((thread, position) => {
-      problems.push(...threadProblems(thread, `index.threads[${position}]`))
-    })
-  }
-  return problems
-}
-
-/** Schema problems of a handoff record this store is asked to persist. */
-function handoffProblems(record: unknown): string[] {
-  if (!isRecord(record)) return ['handoff must be a JSON object']
-  const problems: string[] = []
-  if (record.version !== STORE_VERSION) problems.push(`handoff.version must be ${STORE_VERSION}`)
-  if (!isNonEmptyString(record.threadId)) problems.push('handoff.threadId must be a non-empty string')
-  if (!isNonEmptyString(record.masterSessionId)) {
-    problems.push('handoff.masterSessionId must be a non-empty string')
-  }
-  if (!HANDOFF_STATUSES.includes(record.status as HandoffStatus)) {
-    problems.push(`handoff.status must be one of ${HANDOFF_STATUSES.join('|')}`)
-  }
-  if (!isNonEmptyString(record.subject)) problems.push('handoff.subject must be a non-empty string')
-  if (!isNonEmptyString(record.summary)) problems.push('handoff.summary must be a non-empty string')
-  for (const field of ['decisions', 'changedPaths', 'artifacts', 'openIssues'] as const) {
-    if (!isStringArray(record[field])) problems.push(`handoff.${field} must be an array of strings`)
-  }
-  if (!Array.isArray(record.verification) || record.verification.length === 0) {
-    problems.push('handoff.verification must be a non-empty array')
-  } else {
-    record.verification.forEach((row, position) => {
-      const where = `handoff.verification[${position}]`
-      if (!isRecord(row)) {
-        problems.push(`${where} must be an object`)
-        return
-      }
-      if (!isNonEmptyString(row.command)) problems.push(`${where}.command must be a non-empty string`)
-      if (!Number.isInteger(row.exitCode)) problems.push(`${where}.exitCode must be an integer`)
-      if (typeof row.evidence !== 'string') problems.push(`${where}.evidence must be a string`)
-    })
-  }
-  if (record.nextStep !== null && typeof record.nextStep !== 'string') {
-    problems.push('handoff.nextStep must be a string or null')
-  }
-  if (!isIsoDate(record.createdAt)) problems.push('handoff.createdAt must be an ISO 8601 timestamp')
-  if (record.deliveredAt !== null && !isIsoDate(record.deliveredAt)) {
-    problems.push('handoff.deliveredAt must be an ISO 8601 timestamp or null')
-  }
-  return problems
-}
-
-/**
- * Schema problems of a review record, mirroring `validateReviewInput` in
- * src/review.ts (kept here for the type-only-import rule above): a stored
- * review must be as strict as the input that produced it.
- */
-function reviewProblems(record: unknown): string[] {
-  if (!isRecord(record)) return ['review must be a JSON object']
-  const problems: string[] = []
-  if (record.version !== STORE_VERSION) problems.push(`review.version must be ${STORE_VERSION}`)
-  if (!isNonEmptyString(record.threadId)) problems.push('review.threadId must be a non-empty string')
-  if (!isNonEmptyString(record.reviewerSessionId)) {
-    problems.push('review.reviewerSessionId must be a non-empty string')
-  }
-  const verdicts: readonly ReviewStatus[] = ['pass', 'needs_revision', 'reject']
-  if (!verdicts.includes(record.verdict as ReviewStatus)) {
-    problems.push(`review.verdict must be one of ${verdicts.join('|')}`)
-  }
-  if (!isNonEmptyString(record.summary)) problems.push('review.summary must be a non-empty string')
-  if (!Array.isArray(record.findings)) {
-    problems.push('review.findings must be an array')
-  } else {
-    if (record.verdict !== 'pass' && record.findings.length === 0) {
-      problems.push(`review.findings must not be empty for ${String(record.verdict)}`)
-    }
-    record.findings.forEach((finding, position) => {
-      const where = `review.findings[${position}]`
-      if (!isRecord(finding)) {
-        problems.push(`${where} must be an object`)
-        return
-      }
-      if (!isNonEmptyString(finding.id)) problems.push(`${where}.id must be a non-empty string`)
-      const severities = ['blocker', 'high', 'medium', 'low']
-      if (!severities.includes(finding.severity as string)) {
-        problems.push(`${where}.severity must be one of ${severities.join('|')}`)
-      }
-      if (!isNonEmptyString(finding.problem)) {
-        problems.push(`${where}.problem must be a non-empty string`)
-      }
-      if (!isNonEmptyString(finding.requiredFix)) {
-        problems.push(`${where}.requiredFix must be a non-empty string`)
-      }
-      if (finding.file !== undefined && !isNonEmptyString(finding.file)) {
-        problems.push(`${where}.file must be a non-empty string when present`)
-      }
-      if (
-        finding.line !== undefined &&
-        (!Number.isInteger(finding.line) || (finding.line as number) < 1)
-      ) {
-        problems.push(`${where}.line must be a positive integer when present`)
-      }
-    })
-  }
-  if (!Array.isArray(record.verification)) {
-    problems.push('review.verification must be an array')
-  } else {
-    record.verification.forEach((row, position) => {
-      const where = `review.verification[${position}]`
-      if (!isRecord(row)) {
-        problems.push(`${where} must be an object`)
-        return
-      }
-      if (!isNonEmptyString(row.command)) problems.push(`${where}.command must be a non-empty string`)
-      if (!Number.isInteger(row.exitCode)) problems.push(`${where}.exitCode must be an integer`)
-      if (typeof row.evidence !== 'string') problems.push(`${where}.evidence must be a string`)
-    })
-  }
-  if (!isIsoDate(record.createdAt)) problems.push('review.createdAt must be an ISO 8601 timestamp')
-  return problems
 }
 
 /** The error message body for a set of schema problems. */
@@ -449,6 +272,59 @@ async function readDocument(filePath: string, label: string): Promise<string> {
   }
 }
 
+/**
+ * One read of the activity stream: valid events oldest first, and how many
+ * lines were skipped because they were not valid events.
+ */
+export interface ReadActivityResult {
+  events: ActivityEvent[]
+  skippedLines: number
+}
+
+/** Schema problems of a whole inbox document, addressed by item position. */
+function inboxProblems(items: readonly unknown[]): string[] {
+  const problems: string[] = []
+  items.forEach((item, position) => {
+    for (const problem of inboxItemProblems(item)) {
+      problems.push(`inbox[${position}]${problem.slice('inbox'.length)}`)
+    }
+  })
+  return problems
+}
+
+/** A message for one failure, without carrying a stack into a report. */
+function describeFailure(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** Serialized size of one activity line, including its newline. */
+function activityLineBytes(event: ActivityEvent): number {
+  return Buffer.byteLength(JSON.stringify(event), 'utf8') + 1
+}
+
+/** Serialize the activity stream as JSON Lines, one event per line. */
+function serializeActivityEvents(events: readonly ActivityEvent[]): string {
+  return events.map((event) => `${JSON.stringify(event)}\n`).join('')
+}
+
+/**
+ * Keep the newest events within both bounds: at most
+ * {@link ACTIVITY_MAX_EVENTS} events and at most {@link ACTIVITY_MAX_BYTES}
+ * serialized bytes. The oldest events are dropped first.
+ */
+function trimActivityEvents(events: readonly ActivityEvent[]): ActivityEvent[] {
+  let first = 0
+  let bytes = events.reduce((total, event) => total + activityLineBytes(event), 0)
+  while (
+    first < events.length &&
+    (events.length - first > ACTIVITY_MAX_EVENTS || bytes > ACTIVITY_MAX_BYTES)
+  ) {
+    bytes -= activityLineBytes(events[first])
+    first += 1
+  }
+  return events.slice(first)
+}
+
 /** Format a timestamp as the handoff filename stamp `YYYYMMDDTHHmmssSSSZ` in UTC. */
 function handoffStamp(createdAt: Date): string {
   if (Number.isNaN(createdAt.getTime())) {
@@ -479,10 +355,18 @@ export class ProjectStore {
   readonly reviewsDir: string
   /** `<repo>/.dsh-cowork/index.json`. */
   readonly indexFile: string
+  /** `<repo>/.dsh-cowork/index.v1.backup.json` (written once, before the first migration). */
+  readonly backupFile: string
+  /** `<repo>/.dsh-cowork/activity.jsonl`. */
+  readonly activityFile: string
+  /** `<repo>/.dsh-cowork/inbox.json`. */
+  readonly inboxFile: string
   /** `<repo>/.dsh-cowork/.write.lock` (the writers' lock; `withFileLock` owns the sibling). */
   readonly lockFile: string
   private readonly clock: () => Date
   private readonly explicitProjectId: string | undefined
+  private readonly archiveSession: ProjectStoreOptions['archiveSession']
+  private migrationReport: MigrationReport | null = null
 
   constructor(options: ProjectStoreOptions) {
     this.repoPath = resolve(options.repoPath)
@@ -490,9 +374,13 @@ export class ProjectStore {
     this.handoffsDir = join(this.projectDir, HANDOFFS_DIR_NAME)
     this.reviewsDir = join(this.projectDir, REVIEWS_DIR_NAME)
     this.indexFile = join(this.projectDir, INDEX_FILE_NAME)
+    this.backupFile = join(this.projectDir, BACKUP_FILE_NAME)
+    this.activityFile = join(this.projectDir, ACTIVITY_FILE_NAME)
+    this.inboxFile = join(this.projectDir, INBOX_FILE_NAME)
     this.lockFile = join(this.projectDir, LOCK_FILE_NAME)
     this.clock = options.clock ?? ((): Date => new Date())
     this.explicitProjectId = options.projectId
+    this.archiveSession = options.archiveSession
   }
 
   /** Value of the injected clock, used for every timestamp this store stamps. */
@@ -512,21 +400,32 @@ export class ProjectStore {
     }
   }
 
-  /** Read and validate the project index. Never rebuilds a missing or damaged index. */
+  /**
+   * Read the project index as the v1-shaped view every M7 caller still uses.
+   * A v2 document is validated as is; a v1 document is migrated in memory only —
+   * a read never writes the file, never creates a backup, and never archives a
+   * reviewer. A damaged document, or an unknown v1 status, is `store/corrupt`.
+   */
   async readIndex(): Promise<ProjectIndex> {
     const text = await readDocument(this.indexFile, 'project index')
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(text)
-    } catch (error) {
-      throw new StoreError(
-        'store/corrupt',
-        `${this.indexFile}: invalid JSON (${(error as Error).message})`,
-        this.indexFile,
-      )
+    const parsed = this.parseIndexText(text)
+    if (isRecord(parsed) && parsed.version === INDEX_VERSION_V2) {
+      const document = normalizeProjectIndexV2(parsed) as ProjectIndexV2
+      const problems = projectIndexV2Problems(document)
+      if (problems.length > 0) {
+        throw new StoreError(
+          'store/corrupt',
+          problemMessage('project index is invalid', this.indexFile, problems),
+          this.indexFile,
+        )
+      }
+      return legacyViewOf(document)
     }
-    const normalized = normalizeIndexDocument(parsed)
-    const problems = indexProblems(normalized)
+    // A v1 document is read as it is: a pure read never migrates, so the
+    // compatibility view must not pretend an in-flight review was cancelled.
+    // Only a write path migrates (and archives the reviewer).
+    const normalized = normalizeProjectIndexV1(parsed)
+    const problems = projectIndexV1Problems(normalized)
     if (problems.length > 0) {
       throw new StoreError(
         'store/corrupt',
@@ -535,6 +434,16 @@ export class ProjectStore {
       )
     }
     return normalized as ProjectIndex
+  }
+
+  /**
+   * The report of the most recent on-write v1 → v2 migration, or null when this
+   * store has not migrated anything. `archiveFailures` names every reviewer the
+   * host port could not archive; an empty list means the migration had nothing
+   * to archive or archived it successfully.
+   */
+  get lastMigrationReport(): MigrationReport | null {
+    return this.migrationReport
   }
 
   /**
@@ -551,15 +460,16 @@ export class ProjectStore {
       // Re-check under the lock: another writer may have initialized meanwhile.
       if (await this.hasIndex()) return { index: await this.readIndex(), created: false }
       const projectId = this.explicitProjectId ?? (await projectIdFor(this.repoPath))
-      const index: ProjectIndex = {
-        version: STORE_VERSION,
+      const document: ProjectIndexV2 = {
+        version: INDEX_VERSION_V2,
         projectId,
         masterSessionId,
         createdAt: this.now().toISOString(),
-        threads: [],
+        topics: [],
+        workItems: [],
       }
-      await this.writeJson(this.indexFile, index)
-      return { index, created: true }
+      await this.writeJson(this.indexFile, document)
+      return { index: legacyViewOf(document), created: true }
     })
   }
 
@@ -576,13 +486,15 @@ export class ProjectStore {
     if (!isNonEmptyString(masterSessionId)) {
       throw new StoreError('store/invalid', 'masterSessionId must be a non-empty string')
     }
+    // Fail closed before the lock so no lock file creates `.dsh-cowork/` for an
+    // uninitialized project; the write path re-reads (and migrates) under the lock.
     await this.readIndex()
     return this.withLock(async () => {
-      const current = await this.readIndex()
-      if (current.masterSessionId === masterSessionId) return current
-      const next: ProjectIndex = { ...current, masterSessionId }
+      const current = await this.readIndexForWrite()
+      if (current.masterSessionId === masterSessionId) return legacyViewOf(current)
+      const next: ProjectIndexV2 = { ...current, masterSessionId }
       await this.writeJson(this.indexFile, next)
-      return next
+      return legacyViewOf(next)
     })
   }
 
@@ -594,9 +506,14 @@ export class ProjectStore {
   async mutateIndex(mutator: (index: ProjectIndex) => ProjectIndex): Promise<ProjectIndex> {
     await this.ensureProjectDir()
     return this.withLock(async () => {
-      const current = await this.readIndex()
-      const next = mutator(current)
-      const problems = indexProblems(next)
+      const base = await this.readIndexForWrite()
+      const mutated = mutator(legacyViewOf(base))
+      // The view is the whole document: a topic it omits is deleted, a thread it
+      // adds becomes a new topic, and every v2-only field of a surviving topic
+      // is inherited from `base`. M7 keeps `workItems` empty, so a topic deletion
+      // has no work item to cascade to (M8 owns that lifecycle rule).
+      const next = applyLegacyView(base, mutated)
+      const problems = projectIndexV2Problems(next)
       if (problems.length > 0) {
         throw new StoreError(
           'store/invalid',
@@ -605,7 +522,7 @@ export class ProjectStore {
         )
       }
       await this.writeJson(this.indexFile, next)
-      return next
+      return legacyViewOf(next)
     })
   }
 
@@ -621,7 +538,7 @@ export class ProjectStore {
       reviewerSessionId: record.reviewerSessionId ?? null,
       latestReviewPath: record.latestReviewPath ?? null,
     }
-    const problems = threadProblems(complete, 'thread')
+    const problems = threadV1Problems(complete, 'thread')
     if (problems.length > 0) {
       throw new StoreError('store/invalid-thread', problemMessage('thread record is invalid', this.indexFile, problems), this.indexFile)
     }
@@ -657,6 +574,13 @@ export class ProjectStore {
       >
     >,
   ): Promise<ProjectIndex> {
+    if (patch.status !== undefined && !THREAD_STATUSES.includes(patch.status)) {
+      throw new StoreError(
+        'store/invalid',
+        `thread status must be one of ${THREAD_STATUSES.join('|')}: ${patch.status}`,
+        this.indexFile,
+      )
+    }
     return this.mutateIndex((index) => {
       const position = index.threads.findIndex((thread) => thread.threadId === threadId)
       if (position < 0) {
@@ -688,6 +612,76 @@ export class ProjectStore {
       }
       const threads = index.threads.map((thread, at) => (at === position ? merged : thread))
       return { ...index, threads }
+    })
+  }
+
+  /** Append one event to `activity.jsonl`, trimming the stream to its bounds. */
+  async appendActivity(event: ActivityEvent): Promise<void> {
+    const problems = activityEventProblems(event)
+    if (problems.length > 0) {
+      throw new StoreError(
+        'store/invalid-activity',
+        problemMessage('activity event is invalid', this.activityFile, problems),
+        this.activityFile,
+      )
+    }
+    await this.ensureProjectDir()
+    await this.withLock(() => this.appendActivityLocked(event))
+  }
+
+  /**
+   * The newest `limit` activity events, oldest first, together with the number
+   * of lines that were not valid events. A missing file is an empty stream; a
+   * damaged line is skipped, never a whole-file failure, so one bad append
+   * cannot take the history down.
+   */
+  async readActivity(limit = ACTIVITY_READ_LIMIT): Promise<ReadActivityResult> {
+    const { events, skippedLines } = await this.readActivityLocked()
+    return { events: limit > 0 ? events.slice(-limit) : [], skippedLines }
+  }
+
+  /** Every inbox item, oldest first. A damaged file is `store/corrupt`. */
+  async readInbox(): Promise<InboxItem[]> {
+    const text = await readTextIfPresent(this.inboxFile)
+    if (text === undefined) return []
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch (error) {
+      throw new StoreError(
+        'store/corrupt',
+        `${this.inboxFile}: invalid JSON (${(error as Error).message})`,
+        this.inboxFile,
+      )
+    }
+    if (!Array.isArray(parsed)) {
+      throw new StoreError('store/corrupt', `${this.inboxFile}: inbox must be a JSON array`, this.inboxFile)
+    }
+    const problems = inboxProblems(parsed)
+    if (problems.length > 0) {
+      throw new StoreError('store/corrupt', problemMessage('inbox is invalid', this.inboxFile, problems), this.inboxFile)
+    }
+    return parsed as InboxItem[]
+  }
+
+  /**
+   * Replace the inbox with `items`, keeping the newest {@link INBOX_MAX_ITEMS}.
+   * M7 owns the file only: merging several pending events into one message and
+   * replaying an undelivered one are M8 rules and are not implemented here.
+   */
+  async writeInbox(items: InboxItem[]): Promise<InboxItem[]> {
+    if (!Array.isArray(items)) {
+      throw new StoreError('store/invalid-inbox', 'inbox must be an array of items', this.inboxFile)
+    }
+    const problems = inboxProblems(items)
+    if (problems.length > 0) {
+      throw new StoreError('store/invalid-inbox', problemMessage('inbox is invalid', this.inboxFile, problems), this.inboxFile)
+    }
+    const kept = items.slice(-INBOX_MAX_ITEMS)
+    await this.ensureProjectDir()
+    return this.withLock(async () => {
+      await this.writeJson(this.inboxFile, kept)
+      return kept
     })
   }
 
@@ -758,7 +752,7 @@ export class ProjectStore {
         absolute,
       )
     }
-    const problems = handoffProblems(parsed)
+    const problems = handoffRecordProblems(parsed)
     if (problems.length > 0) {
       throw new StoreError(
         'store/corrupt',
@@ -776,7 +770,7 @@ export class ProjectStore {
    * of truth.
    */
   async writeHandoff(record: HandoffRecord, fileName?: string): Promise<HandoffFile> {
-    const problems = handoffProblems(record)
+    const problems = handoffRecordProblems(record)
     if (problems.length > 0) {
       throw new StoreError(
         'store/invalid-handoff',
@@ -890,7 +884,7 @@ export class ProjectStore {
         absolute,
       )
     }
-    const problems = reviewProblems(parsed)
+    const problems = reviewRecordProblems(parsed)
     if (problems.length > 0) {
       throw new StoreError('store/corrupt', problemMessage('review is invalid', absolute, problems), absolute)
     }
@@ -904,7 +898,7 @@ export class ProjectStore {
    * the index may already point at.
    */
   async writeReview(record: ReviewRecord): Promise<ReviewFile> {
-    const problems = reviewProblems(record)
+    const problems = reviewRecordProblems(record)
     if (problems.length > 0) {
       throw new StoreError(
         'store/invalid-review',
@@ -940,6 +934,173 @@ export class ProjectStore {
     const content = `${JSON.stringify(value, null, 2)}\n`
     await writeFileAtomic(filePath, content, { mode: FILE_MODE, dirMode: DIR_MODE })
     await fsyncDirectory(dirname(filePath))
+  }
+
+  /** Parse one index document, reporting damaged JSON with its path. */
+  private parseIndexText(text: string): unknown {
+    try {
+      return JSON.parse(text)
+    } catch (error) {
+      throw new StoreError(
+        'store/corrupt',
+        `${this.indexFile}: invalid JSON (${(error as Error).message})`,
+        this.indexFile,
+      )
+    }
+  }
+
+  /**
+   * Read the index inside the write lock, migrating a v1 document as one
+   * transaction before anything else touches it: validate the migrated v2
+   * document, copy the original v1 bytes to `index.v1.backup.json` (never
+   * overwriting an earlier backup), archive the reviewers of the in-flight
+   * reviews the migration cancels, and only then replace `index.json` with v2.
+   *
+   * A failure before the replacement leaves both the backup and the original
+   * file exactly as they were and raises `store/corrupt`. A failed archive is
+   * recorded instead: the reviewer pointer is already cleared, so the migration
+   * must not pretend the review was safely cancelled, but it also must not leave
+   * the index half-migrated.
+   */
+  private async readIndexForWrite(): Promise<ProjectIndexV2> {
+    const originalText = await readDocument(this.indexFile, 'project index')
+    const parsed = this.parseIndexText(originalText)
+    let migrated: { document: ProjectIndexV2; report: MigrationReport }
+    try {
+      migrated = migrateV1ToV2(parsed)
+    } catch (error) {
+      if (error instanceof MigrationError) {
+        throw new StoreError(
+          'store/corrupt',
+          problemMessage('project index cannot be migrated', this.indexFile, [error.message]),
+          this.indexFile,
+        )
+      }
+      throw error
+    }
+    const problems = projectIndexV2Problems(migrated.document)
+    if (problems.length > 0) {
+      throw new StoreError(
+        'store/corrupt',
+        problemMessage('migrated project index is invalid', this.indexFile, problems),
+        this.indexFile,
+      )
+    }
+    if (!migrated.report.migrated) return migrated.document
+
+    try {
+      await this.writeMigrationBackup(originalText)
+      migrated.report.archiveFailures = await this.archivePendingReviewers(
+        migrated.report.pendingReviewerArchives,
+      )
+      this.migrationReport = migrated.report
+      await this.recordMigrationActivity(migrated.report)
+      await this.writeJson(this.indexFile, migrated.document)
+    } catch (error) {
+      // The backup and the original v1 document are both still on disk: report
+      // the failure instead of retrying into a silently rebuilt index.
+      throw new StoreError(
+        'store/corrupt',
+        problemMessage('project index migration failed', this.indexFile, [describeFailure(error)]),
+        this.indexFile,
+      )
+    }
+    return migrated.document
+  }
+
+  /** Copy the original v1 index text once, before `index.json` becomes v2. */
+  private async writeMigrationBackup(originalText: string): Promise<void> {
+    if ((await readTextIfPresent(this.backupFile)) !== undefined) return
+    await writeFileAtomic(this.backupFile, originalText, { mode: FILE_MODE, dirMode: DIR_MODE })
+    await fsyncDirectory(this.projectDir)
+  }
+
+  /** Archive the reviewers of the v1 reviews the migration cancelled. */
+  private async archivePendingReviewers(
+    pending: readonly PendingReviewerArchive[],
+  ): Promise<ArchiveFailure[]> {
+    const failures: ArchiveFailure[] = []
+    for (const entry of pending) {
+      try {
+        if (this.archiveSession === undefined) {
+          throw new Error('no archiveSession port is wired into ProjectStore')
+        }
+        await this.archiveSession(entry.reviewerSessionId, { stopActivity: true })
+      } catch (error) {
+        failures.push({ ...entry, message: describeFailure(error) })
+      }
+    }
+    return failures
+  }
+
+  /** Record the migration, plus one error event per reviewer left un-archived. */
+  private async recordMigrationActivity(report: MigrationReport): Promise<void> {
+    const archived = report.pendingReviewerArchives.filter(
+      (entry) =>
+        !report.archiveFailures.some(
+          (failure) => failure.topicId === entry.topicId && failure.reviewerSessionId === entry.reviewerSessionId,
+        ),
+    )
+    await this.appendActivityLocked(
+      this.activityEvent('status-changed', null, `migrated project index to v${report.toVersion}`, {
+        fromVersion: report.fromVersion,
+        statusCounts: report.statusCounts,
+        archivedReviewers: archived.map((entry) => entry.reviewerSessionId),
+      }),
+    )
+    for (const failure of report.archiveFailures) {
+      await this.appendActivityLocked(
+        this.activityEvent('error', failure.topicId, `could not archive reviewer ${failure.reviewerSessionId}`, {
+          topicId: failure.topicId,
+          reviewerSessionId: failure.reviewerSessionId,
+          message: failure.message,
+        }),
+      )
+    }
+  }
+
+  /** Build one activity event stamped with the injected clock. */
+  private activityEvent(
+    type: ActivityType,
+    topicId: string | null,
+    summary: string,
+    details: Record<string, unknown>,
+  ): ActivityEvent {
+    return { eventId: randomUUID(), time: this.now().toISOString(), type, topicId, summary, details }
+  }
+
+  /** Read the activity stream without taking the lock. */
+  private async readActivityLocked(): Promise<ReadActivityResult> {
+    const text = (await readTextIfPresent(this.activityFile)) ?? ''
+    const events: ActivityEvent[] = []
+    let skippedLines = 0
+    for (const line of text.split('\n')) {
+      if (line.trim() === '') continue
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(line)
+      } catch {
+        skippedLines += 1
+        continue
+      }
+      if (activityEventProblems(parsed).length > 0) {
+        skippedLines += 1
+        continue
+      }
+      events.push(parsed as ActivityEvent)
+    }
+    return { events, skippedLines }
+  }
+
+  /** Append one event and rewrite the trimmed stream (the caller holds the lock). */
+  private async appendActivityLocked(event: ActivityEvent): Promise<void> {
+    const { events } = await this.readActivityLocked()
+    const kept = trimActivityEvents([...events, event])
+    await writeFileAtomic(this.activityFile, serializeActivityEvents(kept), {
+      mode: FILE_MODE,
+      dirMode: DIR_MODE,
+    })
+    await fsyncDirectory(this.projectDir)
   }
 }
 

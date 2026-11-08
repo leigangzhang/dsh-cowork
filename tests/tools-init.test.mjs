@@ -139,7 +139,9 @@ test('cowork_project_init keeps a different session fail-closed until takeOver i
 
     const onDisk = JSON.parse(await readFile(join(repoPath, '.dsh-cowork', 'index.json'), 'utf8'))
     assert.equal(onDisk.masterSessionId, 'session-b')
-    assert.deepEqual(onDisk.threads.map((entry) => entry.threadId), ['session-thread'])
+    assert.equal(onDisk.version, 2)
+    assert.deepEqual(onDisk.topics.map((topic) => topic.topicId), ['session-thread'])
+    assert.equal('threads' in onDisk, false)
 
     // A session the index records as a thread can never take over.
     const threadDenied = await init.execute({ takeOver: true }, fakeExec('session-thread', repoPath))
