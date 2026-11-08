@@ -8,11 +8,16 @@ import {
   CHECKOUT_ERROR,
   CHECKOUT_ROOT_RELATIVE,
   STDERR_DETAIL_LIMIT,
+  WORK_ITEM_BRANCH_PREFIX,
+  WORK_ITEM_ROOT_RELATIVE,
   checkoutPaths,
   createCheckout,
   inspectCheckout,
   mergeCheckout,
   removeCheckout,
+  threadIsolationTarget,
+  workItemCheckoutPaths,
+  workItemIsolationTarget,
 } from '../src/checkout.ts'
 
 /** A real temporary repository root; cleanup is registered on the test. */
@@ -593,4 +598,200 @@ test('createCheckout maps a mkdirSync failure to createFailed without throwing',
   assert.match(result.details.reason, /ENOTDIR/)
   assert.equal(existsSync(target), false)
   assert.equal(git.calls.length, 1)
+})
+
+// ---------------------------------------------------------------------------
+// isolation targets: work items share the clone implementation with threads
+// ---------------------------------------------------------------------------
+
+test('workItemCheckoutPaths maps a work-item id to its clone path and branch', () => {
+  assert.deepEqual(workItemCheckoutPaths('/repo', 'wi-A_1'), {
+    repoPath: '/repo',
+    workItemId: 'wi-A_1',
+    path: '/repo/.dsh-cowork/workitems/wi-A_1',
+    branch: 'cowork/wi-A_1',
+  })
+  assert.equal(WORK_ITEM_ROOT_RELATIVE, '.dsh-cowork/workitems')
+  assert.equal(WORK_ITEM_BRANCH_PREFIX, 'cowork/')
+})
+
+test('threadIsolationTarget keeps the M4 thread defaults', () => {
+  assert.deepEqual(threadIsolationTarget('t1'), {
+    id: 't1',
+    rootRelative: '.dsh-cowork/threads',
+    branchPrefix: 'cowork/',
+  })
+  assert.deepEqual(workItemIsolationTarget('wi-1'), {
+    id: 'wi-1',
+    rootRelative: '.dsh-cowork/workitems',
+    branchPrefix: 'cowork/',
+  })
+})
+
+test('createCheckout with a work-item target clones under workitems and branches cowork/<id>', async (t) => {
+  const repo = makeRepo(t)
+  const git = fakeGit(ok('abc123\n'), ok(''), ok(''))
+  const target = join(repo, WORK_ITEM_ROOT_RELATIVE, 'wi-1')
+
+  const result = await createCheckout(
+    { runGit: git.runGit },
+    { repoPath: repo, target: workItemIsolationTarget('wi-1') },
+  )
+
+  assert.deepEqual(result, {
+    ok: true,
+    path: target,
+    branch: 'cowork/wi-1',
+    baseCommit: 'abc123',
+  })
+  assert.deepEqual(git.calls, [
+    { args: ['rev-parse', '--verify', 'HEAD^{commit}'], cwd: repo },
+    { args: ['clone', '--local', repo, target], cwd: repo },
+    { args: ['checkout', '-b', 'cowork/wi-1', 'abc123'], cwd: target },
+  ])
+})
+
+test('an explicit thread target is the same request as the legacy threadId', async (t) => {
+  const repo = makeRepo(t)
+  const git = fakeGit(ok('abc123\n'), ok(''), ok(''))
+
+  const result = await createCheckout(
+    { runGit: git.runGit },
+    { repoPath: repo, target: threadIsolationTarget('t1') },
+  )
+
+  assert.deepEqual(result, {
+    ok: true,
+    path: join(repo, CHECKOUT_ROOT_RELATIVE, 't1'),
+    branch: 'cowork/t1',
+    baseCommit: 'abc123',
+  })
+})
+
+test('createCheckout refuses a target whose root escapes the repository', async (t) => {
+  const repo = makeRepo(t)
+  for (const rootRelative of ['../outside', '/tmp/outside', '', '.']) {
+    const git = fakeGit()
+    const result = await createCheckout(
+      { runGit: git.runGit },
+      { repoPath: repo, target: { id: 'wi-1', rootRelative, branchPrefix: 'cowork/' } },
+    )
+    assert.equal(result.ok, false, rootRelative)
+    assert.equal(result.code, CHECKOUT_ERROR.pathGuard, rootRelative)
+    assert.equal(git.calls.length, 0, rootRelative)
+  }
+})
+
+test('checkout operations reject an invalid target id or an ambiguous selector', async (t) => {
+  const repo = makeRepo(t)
+  for (const target of [workItemIsolationTarget('../escape'), workItemIsolationTarget('a/b'), workItemIsolationTarget('')]) {
+    const git = fakeGit()
+    const created = await createCheckout({ runGit: git.runGit }, { repoPath: repo, target })
+    assert.equal(created.ok, false, target.id)
+    assert.equal(created.code, CHECKOUT_ERROR.pathGuard, target.id)
+    assert.equal(git.calls.length, 0, target.id)
+  }
+
+  const ambiguous = await createCheckout(
+    { runGit: fakeGit().runGit },
+    { repoPath: repo, threadId: 't1', target: workItemIsolationTarget('wi-1') },
+  )
+  assert.equal(ambiguous.ok, false)
+  assert.equal(ambiguous.code, CHECKOUT_ERROR.pathGuard)
+  assert.match(ambiguous.message, /either threadId or target/)
+
+  const missing = await removeCheckout({ runGit: fakeGit().runGit }, { repoPath: repo })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.code, CHECKOUT_ERROR.pathGuard)
+  assert.match(missing.message, /threadId or target is required/)
+})
+
+test('createCheckout rejects a work-item checkout path that realpath escapes the workitems root', async (t) => {
+  const repo = makeRepo(t)
+  const outside = mkdtempSync(join(tmpdir(), 'cowork-outside-'))
+  t.after(() => rmSync(outside, { recursive: true, force: true }))
+  const root = join(repo, WORK_ITEM_ROOT_RELATIVE)
+  mkdirSync(root, { recursive: true })
+  symlinkSync(outside, join(root, 'escape'))
+
+  const git = fakeGit()
+  const result = await createCheckout(
+    { runGit: git.runGit },
+    { repoPath: repo, target: workItemIsolationTarget('escape') },
+  )
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, CHECKOUT_ERROR.pathGuard)
+  assert.equal(git.calls.length, 0)
+})
+
+test('inspectCheckout reads a work-item clone through its target', async (t) => {
+  const repo = makeRepo(t)
+  const paths = workItemCheckoutPaths(repo, 'wi-2')
+  mkdirSync(paths.path, { recursive: true })
+  const git = fakeGit(ok(''), ok('cowork/wi-2\n'), ok('deadbeef\n'), ok('2\n'))
+
+  const status = await inspectCheckout(
+    { runGit: git.runGit },
+    {
+      repoPath: repo,
+      target: workItemIsolationTarget('wi-2'),
+      baseCommit: 'base123',
+    },
+  )
+
+  assert.deepEqual(status, {
+    exists: true,
+    dirty: false,
+    branch: 'cowork/wi-2',
+    head: 'deadbeef',
+    commitsAhead: 2,
+  })
+  assert.equal(git.calls[0].cwd, paths.path)
+  assert.deepEqual(git.calls.at(-1), { args: ['rev-list', '--count', 'base123..HEAD'], cwd: paths.path })
+})
+
+test('mergeCheckout merges a work-item branch with the id in the default message', async (t) => {
+  const repo = makeRepo(t)
+  const paths = workItemCheckoutPaths(repo, 'wi-3')
+  mkdirSync(paths.path, { recursive: true })
+  const git = fakeGit(ok(''), failed('', 1), ok(''), ok(''), ok('merge789\n'))
+
+  const result = await mergeCheckout(
+    { runGit: git.runGit },
+    { repoPath: repo, target: workItemIsolationTarget('wi-3') },
+  )
+
+  assert.deepEqual(result, {
+    ok: true,
+    merged: true,
+    commit: 'merge789',
+    conflictFiles: [],
+    branch: 'cowork/wi-3',
+  })
+  assert.deepEqual(git.calls[2].args, [
+    'fetch',
+    paths.path,
+    '+refs/heads/cowork/wi-3:refs/heads/cowork/wi-3',
+  ])
+  assert.deepEqual(git.calls[3].args, ['merge', '--no-ff', 'cowork/wi-3', '-m', 'cowork: merge wi-3'])
+})
+
+test('removeCheckout deletes a work-item clone and its branch through its target', async (t) => {
+  const repo = makeRepo(t)
+  const paths = workItemCheckoutPaths(repo, 'wi-4')
+  mkdirSync(paths.path, { recursive: true })
+  const git = fakeGit(ok('refs/heads/cowork/wi-4\n'), ok(''))
+
+  const result = await removeCheckout(
+    { runGit: git.runGit },
+    { repoPath: repo, target: workItemIsolationTarget('wi-4') },
+  )
+
+  assert.deepEqual(result, { ok: true, removed: true, branchDeleted: true })
+  assert.equal(existsSync(paths.path), false)
+  assert.deepEqual(git.calls, [
+    { args: ['rev-parse', '--verify', 'refs/heads/cowork/wi-4'], cwd: repo },
+    { args: ['branch', '-D', 'cowork/wi-4'], cwd: repo },
+  ])
 })
