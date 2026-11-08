@@ -18,56 +18,55 @@
  *    the revision message sent back to the thread.
  */
 import type { ToolFailure } from './tool-model.js'
+import type {
+  ReviewFinding,
+  ReviewRecord,
+  ReviewSeverity,
+  ReviewStatus,
+  ReviewThreadStatus,
+  ReviewVerdict,
+  ReviewVerification,
+} from './store-schema.js'
 
-/** Preset id of the read-only reviewer session. */
-export const REVIEWER_PRESET_ID = 'cowork-reviewer'
+/**
+ * The legacy verdict-only review model now lives in `src/store-schema.ts` — one
+ * home that outlives this module. It is re-exported here (type-only, so nothing
+ * is loaded at runtime) until M10.3 deletes `src/review.ts`, so every existing
+ * importer keeps working.
+ */
+export type {
+  ReviewFinding,
+  ReviewRecord,
+  ReviewSeverity,
+  ReviewStatus,
+  ReviewThreadStatus,
+  ReviewVerdict,
+  ReviewVerification,
+} from './store-schema.js'
 
-/** Lifecycle of a review request, stored on the thread record. */
+/**
+ * Deprecated shadow of `presets.ts`'s canonical preset id. The definition moved
+ * there in M10.1; this copy exists so `node --test` can keep importing this
+ * module without a resolve hook (a value re-export of `./presets.js` fails:
+ * Node's type stripping does not retry a relative `.js` as `.ts`). The
+ * annotation pins it to the canonical constant, so changing that value turns
+ * `npm run typecheck` red. M10.3 deletes this file.
+ */
+export const REVIEWER_PRESET_ID: typeof import('./presets.js').REVIEWER_PRESET_ID = 'cowork-reviewer'
+
+/**
+ * Legacy shadow of `store-schema.ts`'s canonical vocabulary arrays, kept as
+ * runtime values for the same `node --test` reason as above. The drift between
+ * these and the canonical lists is pinned by `tests/review-request.test.mjs`.
+ */
 export const REVIEW_STATUSES = ['pending', 'pass', 'needs_revision', 'reject'] as const
-export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
-
-/** The verdicts a reviewer may return. `pending` is a request state, not a verdict. */
+/** Legacy shadow of `REVIEW_VERDICTS` in src/store-schema.ts. */
 export const REVIEW_VERDICTS = ['pass', 'needs_revision', 'reject'] as const
-export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number]
-
-/** Finding severities, most severe first. */
+/** Legacy shadow of `REVIEW_SEVERITIES` in src/store-schema.ts. */
 export const REVIEW_SEVERITIES = ['blocker', 'high', 'medium', 'low'] as const
-export type ReviewSeverity = (typeof REVIEW_SEVERITIES)[number]
-
-/** Thread statuses the gates in this module understand. Mirrors store.ts. */
-export type ReviewThreadStatus = 'new' | 'active' | 'awaiting_review' | 'done' | 'blocked' | 'archived'
 
 /** Upper bound of a cleaned override reason, in characters. */
 export const MAX_OVERRIDE_REASON_LENGTH = 200
-
-/** One required fix a review names. */
-export interface ReviewFinding {
-  id: string
-  severity: ReviewSeverity
-  problem: string
-  requiredFix: string
-  file?: string
-  line?: number
-}
-
-/** One check the reviewer actually ran. */
-export interface ReviewVerification {
-  command: string
-  exitCode: number
-  evidence: string
-}
-
-/** One review document (`<repo>/.dsh-cowork/reviews/<threadId>-<stamp>.json`). */
-export interface ReviewRecord {
-  version: 1
-  threadId: string
-  reviewerSessionId: string
-  verdict: ReviewVerdict
-  summary: string
-  findings: ReviewFinding[]
-  verification: ReviewVerification[]
-  createdAt: string
-}
 
 /** The validated review without the fields the store stamps. */
 export interface ReviewDraft {
