@@ -6,10 +6,11 @@
 
 ## 交付结果（2026-11-08）
 
-- **分支与代码 HEAD**：`feat/m9-routing-tools-presets`，代码 HEAD `569d485`（`569d485d910748769cf16a26d80185b0841c93e6`）。`6379712` 之后只追加两个只改注释/测试注释的提交：`d43c75d`+`5c856c4`（dev-gate 注释 eleven/three → fourteen/four）与 `73084b4`+`569d485`（presets 注释：新会话用 `cowork-topic`、`cowork-thread` 只服务存量会话），596 与字节不变；记录迁移、本文件与 `publish.json` 分类是其后的文档提交（只改 `.md`/`.json`）。**不要**在该分支继续开发 M10，从合并后的 `main` 或该 HEAD 新建阶段分支。
-- **验证基线**：`npm test` **596 tests / 596 pass / 0 fail / 0 cancelled / 0 skipped / 0 todo**，exit 0；`npm run typecheck`、`npm run build`、`npm run check`（`check-invariants: ok`）均 exit 0。M9 之前基线 485 pass，新增/改写 111 条。
-- **代码形态（`569d485` 上复核不变）**：`src/tools.ts` **2,489 B**（只做 14 个工具的注册编排）；`src/store.ts` **48,590 B**（余量约 562 B）；`src/**/*.ts` 最大 `src/m2-e2e.ts` 49,923 B；新增 `src/routing.ts`、`src/router-model.ts`、`src/llm-port.ts`、`src/tool-runtime.ts`、`src/project-tools.ts`、`src/topic-tools.ts`、`src/route-tools.ts`、`src/memory-tools.ts`、`src/checkout-tools.ts`；删除 `src/router.ts` 与 `tests/router.test.mjs`。
-- **范围**：`git diff --name-only 7b9a6a5..569d485` 恰为 39 个文件（20 src + 19 tests；`6379712..569d485` 的四个提交只改 `tests/dev-gate.test.mjs` 与 `src/presets.ts` 的注释），无 `docs/**`、`presets/**`、`src/client/**`、`src/api*.ts`。完整交付清单与 A1–A9 证据见 [M9_RESULT](M9_RESULT.md)。
+- **分支与代码 HEAD**：`feat/m9-routing-tools-presets`，代码 HEAD `a741e65`（`a741e65773c53588c44e851d9fdccec4b90972a0`）。`6379712` 之后只追加三个只改注释/测试注释的修复：`d43c75d`+`5c856c4`（dev-gate 注释 eleven/three → fourteen/four）、`73084b4`+`569d485`（presets 注释：新会话用 `cowork-topic`、`cowork-thread` 只服务存量会话）、`462bdb9`+`a741e65`（project-tools 兼容窗口注释：payload 只返回计数、明细留内部）。596 不变，字节只在 `src/project-tools.ts` 上因注释 +197 B（11,359 → 11,556）；记录迁移与 M9_RESULT/HANDOFF 初版由 `45094ae` 集成（只改 `.md`/`.json`），本任务的 HEAD 同步在其后。**不要**在该分支继续开发 M10，从合并后的 `main` 或该 HEAD 新建阶段分支。
+- **验证基线**：`npm test` **596 tests / 596 pass / 0 fail / 0 cancelled / 0 skipped / 0 todo**，exit 0；`npm run typecheck`、`npm run build`、`npm run check`（`check-invariants: ok`）均 exit 0；最终代码 HEAD `a741e65` 上收口后终局验证复跑，四项结果一致。M9 之前基线 485 pass，新增/改写 111 条。
+- **代码形态（`a741e65` 上复核；`src/project-tools.ts` 为 11,556 B，其余不变）**：`src/tools.ts` **2,489 B**（只做 14 个工具的注册编排）；`src/store.ts` **48,590 B**（余量约 562 B）；`src/**/*.ts` 最大 `src/m2-e2e.ts` 49,923 B；新增 `src/routing.ts`、`src/router-model.ts`、`src/llm-port.ts`、`src/tool-runtime.ts`、`src/project-tools.ts`、`src/topic-tools.ts`、`src/route-tools.ts`、`src/memory-tools.ts`、`src/checkout-tools.ts`；删除 `src/router.ts` 与 `tests/router.test.mjs`。
+- **范围**：`git diff --name-only 7b9a6a5..a741e65` 共 50 个文件——代码 39 个（20 src + 19 tests），另 11 个是收口文档/记录（`docs/**` 与 `.agents/notes/**`）。代码部分无 `presets/**`、`src/client/**`、`src/api*.ts`；`6379712..a741e65` 只追加注释/测试注释与收口文档。完整交付清单与 A1–A9 证据见 [M9_RESULT](M9_RESULT.md)。
+- **收口前已修复（不是遗留）**：三处过时/不精确注释在收口前修掉——`d43c75d`（dev-gate 计数注释）、`73084b4`（presets 新会话说明）、`462bdb9`（project-tools 兼容窗口注释：payload 只返回 attempted/delivered/failed 计数、per-handoff 失败明细留内部，M10 移除兼容窗口时替换）；都只改注释，不改行为，不入 KNOWN_ISSUES。
 
 ## 交付后的状态（M10 的起点）
 
