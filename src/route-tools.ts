@@ -45,6 +45,7 @@ import {
   truncateText,
 } from './tool-runtime.js'
 import { ERROR_CODES, TOPIC_ERROR_CODES, buildThreadBrief, checkRole, failure, success } from './tool-model.js'
+import { activeWorkItemCount } from './work-item.js'
 
 /** Most candidates the route payload and its activity details carry. */
 const ROUTE_PAYLOAD_CANDIDATES = 3
@@ -230,6 +231,7 @@ async function route(
       idleAfterMs: deps.idleAfterMs ?? DEFAULT_IDLE_AFTER_MS,
       resolveAfterMs: deps.resolveAfterMs ?? DEFAULT_RESOLVE_AFTER_MS,
       now,
+      activeWorkItemsOf: (topicId, document) => activeWorkItemCount(document, topicId),
     })
     const document = await opened.store.readIndexDocument()
 

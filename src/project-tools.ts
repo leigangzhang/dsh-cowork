@@ -4,22 +4,22 @@
  *
  * `project_status` is the read point the lifecycle rules were waiting for: it
  * evaluates every topic lazily before reading, then returns a bounded summary
- * (counts, at most 50 topics, at most 10 undelivered inbox items, the activity
- * tail, the compatibility handoff replay, and the inbox replay result). It
- * never returns the full index, the full handoff/review set, or checkout rows.
+ * (topics and counts, at most 50 topics, at most 10 undelivered inbox items,
+ * the activity tail, the inbox replay result, and work-item/review counts). M10
+ * removed the handoff compatibility replay: old handoff files are read-only and
+ * no longer repaired into the index from a status read. It never returns the
+ * full index, the full handoff/review set, or checkout rows.
  *
  * Everything host-specific lives in `src/tool-runtime.ts`; this module only
  * declares the two tools and the shapes they return.
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { describeError } from './checkout-teardown.js'
-import { replayPendingHandoffs } from './handoff.js'
-import { Inbox, InboxMarkError } from './inbox.js'
-import type { ActivityEvent, InboxItem, TopicRecordV2, TopicStatus } from './store-schema.js'
+import type { ActivityEvent, InboxItem, TopicRecordV2, TopicStatus, WorkItemRecordV2 } from './store-schema.js'
 import type { CoworkToolDeps } from './tool-runtime.js'
 import {
   callerOf,
+  deliverInbox,
   evaluateProjectLifecycle,
   isFailure,
   makeSlice,
@@ -27,11 +27,11 @@ import {
   nowOf,
   openProject,
   projectStoreFor,
-  reconcileIndex,
   renderJson,
   toJson,
 } from './tool-runtime.js'
 import { DEFAULT_IDLE_AFTER_MS, DEFAULT_RESOLVE_AFTER_MS } from './topic.js'
+import { activeWorkItemCount } from './work-item.js'
 import { checkRole, claimMaster, success } from './tool-model.js'
 
 /** Most topics one status response lists. */
@@ -51,8 +51,8 @@ function truncate(text: string, limit: number): string {
   return points.length <= limit ? text : points.slice(0, limit).join('')
 }
 
-/** One bounded topic row. */
-function topicStatusView(topic: TopicRecordV2): {
+/** One bounded topic row, with the per-topic facts a master decides on. */
+function topicStatusView(topic: TopicRecordV2, activeWorkItems: number, reviewsPending: number): {
   topicId: string
   title: string
   status: TopicStatus
@@ -65,6 +65,8 @@ function topicStatusView(topic: TopicRecordV2): {
   updatedAt: string
   resolvedAt: string | null
   resolvedBy: 'user' | 'master' | null
+  activeWorkItems: number
+  reviewsPending: number
 } {
   return {
     topicId: topic.topicId,
@@ -79,7 +81,27 @@ function topicStatusView(topic: TopicRecordV2): {
     updatedAt: topic.updatedAt,
     resolvedAt: topic.resolvedAt,
     resolvedBy: topic.resolvedBy,
+    activeWorkItems,
+    reviewsPending,
   }
+}
+
+/** Work items in flight, by status; the mergeable counts stay separate. */
+function workItemCountsOf(workItems: readonly WorkItemRecordV2[]): {
+  total: number
+  active: number
+  reviewing: number
+  merged: number
+  abandoned: number
+} {
+  const counts = { total: workItems.length, active: 0, reviewing: 0, merged: 0, abandoned: 0 }
+  for (const workItem of workItems) counts[workItem.status] += 1
+  return counts
+}
+
+/** Pending review requests: each topic carries at most one (`reviewStatus`). */
+function reviewsPendingOf(topic: TopicRecordV2): number {
+  return topic.reviewStatus === 'pending' ? 1 : 0
 }
 
 /** One bounded undelivered inbox row. */
@@ -150,7 +172,9 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
         const previousMasterSessionId = initialized.index.masterSessionId
         const rebound = claim.action === 'takeover'
         if (rebound) await store.rebindMaster(caller.sessionId)
-        const index = await reconcileIndex(store)
+        // Read-only legacy view for the payload: M10 removed the reconcile
+        // write, so init no longer repairs the index from handoff files.
+        const index = await store.readIndex()
         const workspaceId = await slice.resolveWorkspaceId(repoPath)
         return toJson(success({
           projectId: index.projectId,
@@ -172,7 +196,7 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
   disposers.push(host.tools.register(defineTool({
     name: 'cowork_project_status',
     description:
-      'Read a bounded cowork project summary: counts and up to 50 topics, undelivered inbox items, the activity tail, and the results of replaying undelivered handoffs and inbox items. Evaluates idle/resolved lazily; never returns the full index or every handoff/review.',
+      'Read a bounded cowork project summary: topic and work-item counts, up to 50 topics with their in-flight work items and pending reviews, undelivered inbox items, the activity tail, and the result of replaying undelivered inbox items. Evaluates idle/resolved lazily; never returns the full index, every handoff, or every review.',
     parameters: {},
     output: { schema: { type: 'json' }, render: renderJson },
     execute: async (_args, exec) => {
@@ -191,18 +215,7 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
           idleAfterMs: deps.idleAfterMs ?? DEFAULT_IDLE_AFTER_MS,
           resolveAfterMs: deps.resolveAfterMs ?? DEFAULT_RESOLVE_AFTER_MS,
           now,
-        })
-
-        // Compatibility window (removed in M10): repair an index that lags a
-        // handoff file and retry undelivered handoffs once. The replay result
-        // carries per-handoff failure detail internally, but this payload
-        // returns only the attempted/delivered/failed counts — never the
-        // handoff text or the failure detail.
-        const reconciled = await reconcileIndex(opened.store)
-        const handoffReplay = await replayPendingHandoffs({
-          store: opened.store,
-          promptMaster: (text) => opened.slice.promptSession(reconciled.masterSessionId, text),
-          clock: deps.clock,
+          activeWorkItemsOf: (topicId, document) => activeWorkItemCount(document, topicId),
         })
 
         const document = await opened.store.readIndexDocument()
@@ -212,23 +225,14 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
         // pending, and the replay result reports what was delivered.
         const inboxSnapshot = await opened.store.readInbox()
         const pendingInbox = inboxSnapshot.filter((item) => item.deliveredAt === null)
-        let inboxReplay: { delivered: number; failed: number; error?: string }
-        try {
-          const inbox = new Inbox({
-            store: opened.store,
-            clock: () => now,
-            deliver: async (text) => {
-              const prompted = await opened.slice.promptSession(masterSessionId, text)
-              if (!prompted.accepted) throw new Error('master did not accept the inbox batch')
-            },
-          })
-          const replayed = await inbox.replay()
-          inboxReplay = { delivered: replayed.delivered, failed: replayed.failed }
-        } catch (error) {
-          inboxReplay = error instanceof InboxMarkError
-            ? { delivered: error.delivered, failed: error.pendingIds.length, error: error.message }
-            : { delivered: 0, failed: pendingInbox.length, error: describeError(error) }
-        }
+        const inboxReplay = await deliverInbox({
+          store: opened.store,
+          deliver: async (text) => {
+            const prompted = await opened.slice.promptSession(masterSessionId, text)
+            if (!prompted.accepted) throw new Error('master did not accept the inbox batch')
+          },
+          clock: () => now,
+        })
 
         // Read one extra event to tell the tail apart from the whole stream.
         const activityRead = await opened.store.readActivity(STATUS_ACTIVITY_LIMIT + 1)
@@ -242,7 +246,13 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
           if (left.topicId === right.topicId) return 0
           return left.topicId < right.topicId ? -1 : 1
         })
-        const topics = sortedTopics.slice(0, STATUS_TOPIC_LIMIT).map(topicStatusView)
+        const topics = sortedTopics
+          .slice(0, STATUS_TOPIC_LIMIT)
+          .map((topic) => topicStatusView(
+            topic,
+            activeWorkItemCount(document, topic.topicId),
+            reviewsPendingOf(topic),
+          ))
 
         return toJson(success({
           project: {
@@ -252,6 +262,10 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
             createdAt: document.createdAt,
           },
           counts: countsOf(document.topics),
+          workItems: workItemCountsOf(document.workItems),
+          reviews: {
+            pending: document.topics.reduce((total, topic) => total + reviewsPendingOf(topic), 0),
+          },
           topics,
           inbox: {
             pendingTotal: pendingInbox.length,
@@ -262,11 +276,6 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
             evaluated: lifecycle.evaluated,
             changes: lifecycle.changes.slice(0, STATUS_LIFECYCLE_CHANGES_LIMIT),
             activityErrors: lifecycle.activityErrors,
-          },
-          handoffReplay: {
-            attempted: handoffReplay.attempted,
-            delivered: handoffReplay.delivered,
-            failed: handoffReplay.failed,
           },
           inboxReplay,
           truncated:

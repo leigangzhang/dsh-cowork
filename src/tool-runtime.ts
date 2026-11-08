@@ -20,13 +20,15 @@ import { execFile } from 'node:child_process'
 import { statusChangedActivity } from './activity.js'
 import type { CheckoutDeps, GitResult, GitRunner } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
+import { Inbox, InboxMarkError } from './inbox.js'
+import type { InboxEvent, InboxStore } from './inbox.js'
 import type { MemoryIo } from './memory.js'
 import type { PresetRegistryPort } from './presets.js'
 import { SessionSlice } from './session-slice.js'
 import type { SessionSlicePorts } from './session-slice.js'
 import type { LlmRoutingPort } from './router-model.js'
 import { ProjectStore, StoreError, findProjectRoot } from './store.js'
-import type { HandoffFile, ProjectIndex, ThreadRecord } from './store.js'
+import type { ProjectIndex, ThreadRecord } from './store.js'
 import type { ActivityEvent, ProjectIndexV2, TopicRecordV2, TopicStatus } from './store-schema.js'
 import { evaluateTopicLifecycle } from './topic.js'
 import { ERROR_CODES, failure, readCaller } from './tool-model.js'
@@ -143,6 +145,59 @@ export function nowOf(deps: CoworkToolDeps): Date {
   return deps.clock === undefined ? new Date() : deps.clock()
 }
 
+/**
+ * One inbox delivery pass as a value: enqueue the given events, flush
+ * everything undelivered, and never throw.
+ *
+ * A delivery failure must not turn a successful handoff into a failed tool
+ * result, so every failure mode is reported in the return value: a rejected
+ * batch leaves the items undelivered (`failed`), and a batch the master already
+ * received but whose `deliveredAt` could not be written is reported through
+ * {@link InboxMarkError}'s committed count and pending ids. The store keeps the
+ * items either way, so the next pass replays them.
+ */
+export interface InboxDeliveryOutcome {
+  delivered: number
+  failed: number
+  error?: string
+}
+
+/** What one {@link deliverInbox} call needs. */
+export interface DeliverInboxOptions {
+  store: InboxStore
+  /** Events to enqueue before flushing; omitted means "flush what is there". */
+  events?: readonly InboxEvent[]
+  /** Delivers one batch to the master; a throw or non-acceptance fails it. */
+  deliver: (text: string) => Promise<void>
+  clock: () => Date
+}
+
+export async function deliverInbox(options: DeliverInboxOptions): Promise<InboxDeliveryOutcome> {
+  const inbox = new Inbox({ store: options.store, deliver: options.deliver, clock: options.clock })
+  const events = options.events ?? []
+  try {
+    await inbox.enqueue(events)
+  } catch (error) {
+    return { delivered: 0, failed: events.length, error: describeError(error) }
+  }
+  try {
+    const flushed = await inbox.flush()
+    if (flushed.failed === 0) return { delivered: flushed.delivered, failed: 0 }
+    return {
+      delivered: flushed.delivered,
+      failed: flushed.failed,
+      error: 'master did not accept the inbox batch',
+    }
+  } catch (error) {
+    if (error instanceof InboxMarkError) {
+      return { delivered: error.delivered, failed: error.pendingIds.length, error: error.message }
+    }
+    // An unexpected throw (not a delivery rejection) leaves the counts unknown;
+    // the items stay in the file for the next pass either way.
+    return { delivered: 0, failed: 0, error: describeError(error) }
+  }
+}
+
 /** Build the session adapter over the injected host services. */
 export function makeSlice(deps: CoworkToolDeps): SessionSlice {
   return new SessionSlice({ sessions: deps.sessionController, workspaces: deps.workspaceRegistry })
@@ -243,43 +298,6 @@ export async function openProject(
   return { repoPath, store, slice: makeSlice(deps), index }
 }
 
-/** The newest handoff of one thread that is newer than the index already knows. */
-function newerHandoff(handoffs: readonly HandoffFile[], thread: ThreadRecord): HandoffFile | null {
-  const knownAt = thread.lastHandoffAt === null ? Number.NEGATIVE_INFINITY : Date.parse(thread.lastHandoffAt)
-  let newest: HandoffFile | null = null
-  for (const file of handoffs) {
-    if (file.record.threadId !== thread.threadId) continue
-    const createdAt = Date.parse(file.record.createdAt)
-    if (createdAt <= knownAt) continue
-    if (newest === null || createdAt > Date.parse(newest.record.createdAt)) newest = file
-  }
-  return newest
-}
-
-/**
- * Repair an index that lags behind the handoff files (the crash window between
- * "file written" and "index updated"). Epoch comparison, never filename
- * comparison; idempotent, because it rewrites `lastHandoffAt` to the same value
- * it read on the next call.
- */
-export async function reconcileIndex(store: ProjectStore): Promise<ProjectIndex> {
-  const [handoffs, index] = await Promise.all([store.listHandoffs(), store.readIndex()])
-  if (!index.threads.some((thread) => newerHandoff(handoffs, thread) !== null)) return index
-  return store.mutateIndex((current) => ({
-    ...current,
-    threads: current.threads.map((thread) => {
-      const newest = newerHandoff(handoffs, thread)
-      if (newest === null) return thread
-      return {
-        ...thread,
-        status: newest.record.status,
-        lastHandoffAt: newest.record.createdAt,
-        updatedAt: newest.record.createdAt,
-      }
-    }),
-  }))
-}
-
 /** The thread fields the tools expose. */
 export function threadView(thread: ThreadRecord): {
   threadId: string
@@ -368,8 +386,13 @@ export interface LifecycleOptions {
   idleAfterMs: number
   resolveAfterMs: number
   now: Date
-  /** M9 always passes 0; M10 forwards real active work-item counts. */
-  activeWorkItems?: number
+  /**
+   * Per-topic in-flight work-item count (M10, KI-24). It is called with the
+   * document re-read inside the project lock, so a topic cannot be resolved from
+   * a stale snapshot that predates a concurrent work-item creation. Absent means
+   * "no work items", which keeps unit fixtures without a work-item model valid.
+   */
+  activeWorkItemsOf?: (topicId: string, document: ProjectIndexV2) => number
 }
 
 /** The narrow store port the read point needs; `ProjectStore` satisfies it. */
@@ -393,7 +416,7 @@ export async function evaluateProjectLifecycle(
   options: LifecycleOptions,
 ): Promise<LifecycleEvaluation> {
   const nowMs = options.now.getTime()
-  const activeWorkItems = options.activeWorkItems ?? 0
+  const activeWorkItemsOf = options.activeWorkItemsOf ?? (() => 0)
   const changes: LifecycleChange[] = []
   let evaluated = 0
 
@@ -407,7 +430,7 @@ export async function evaluateProjectLifecycle(
         nowMs,
         idleAfterMs: options.idleAfterMs,
         resolveAfterMs: options.resolveAfterMs,
-        activeWorkItems,
+        activeWorkItems: activeWorkItemsOf(topic.topicId, document),
       })
       if (transition.kind === 'none') {
         topics.push(topic)

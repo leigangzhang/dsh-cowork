@@ -110,14 +110,26 @@ test('the thread alias registers exactly the topic rows and persona', () => {
   assert.equal(THREAD_PERSONA, TOPIC_PERSONA)
 })
 
-test('the topic persona states one topic per session, self-requested review, and handoff', () => {
+test('the topic persona states one topic per session, self-requested review, and a blocked|done handoff', () => {
   const persona = personaPrefixOf(presetById(TOPIC_PRESET_ID))
 
   assert.equal(typeof persona, 'string')
   assert.match(persona, /one topic per session/i)
-  assert.match(persona, /review requests/i)
+  assert.match(persona, /cowork_review_request/)
   assert.match(persona, /cowork_handoff/)
+  assert.match(persona, /blocked or done/)
   assert.match(persona, /evidence/i)
+  assert.equal(/awaiting_review/.test(persona), false)
+})
+
+test('the reviewer persona works from the request scope and does not read the handoff in full', () => {
+  const persona = personaPrefixOf(presetById(REVIEWER_PRESET_ID))
+
+  assert.match(persona, /review request/i)
+  assert.match(persona, /requestId/i)
+  assert.match(persona, /changed paths/i)
+  assert.match(persona, /do not read the handoff in full/i)
+  assert.match(persona, /evidence, not truth/i)
 })
 
 test('the reviewer preset keeps shell plus search, has no file tools, and states its scope boundary', () => {
