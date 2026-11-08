@@ -656,7 +656,7 @@ export function apply(ctx: Context, config: Config): void {
       `${PLUGIN_NAME}: reviewer.reclaim must be '${DEFAULT_REVIEWER_RECLAIM}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
     )
   }
-  // M1 assembly services: one dependency bag for the presets and the fourteen tools.
+  // M1 assembly services: one dependency bag for the presets and the fifteen tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: identical in both dev modes and unchanged from M0-M3.
   // Only the dev probe canonicalizes it, because only the probe compares paths
