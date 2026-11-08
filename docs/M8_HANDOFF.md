@@ -6,12 +6,14 @@
 
 ## M7 交付后的状态（2026-11-07）
 
-- **提交序列**：`9eeec16`（M7 基线）→ `73d4083`（store v2 读写、迁移事务、activity/inbox I/O）→ `a262273`（store 测试拆分）→ `ffd7c7f`（M7 迁移记录转 implemented）→ `6cb294c`（A1 宿主接线与 E2E `parseIndex` v2 兼容）→ `45c7616`（M7 收口文档：M6 交接链接、implemented 记录、KNOWN_ISSUES KI-18..22）。写作时分支为 `feat/m7-store-v2`、基线 `45c7616`；M7 的 PR 是否已合并以启动时的 `origin/main` 为准（见启动顺序），未合并时用该分支 HEAD 并记录实际 sha。
-- **验证基线**：`npm test` 429 pass / 0 fail / 0 skip / 0 todo；`npm run typecheck`、`npm run build`、`npm run check` 均 exit 0（在 `6cb294c` 上实测；`45c7616` 只改文档并复跑 `npm run check` 与 `npm test`）。
+- **提交序列**：`9eeec16`（M7 基线）→ `73d4083`（store v2 读写、迁移事务、activity/inbox I/O）→ `a262273`（store 测试拆分）→ `ffd7c7f`（M7 迁移记录转 implemented）→ `6cb294c`（A1 宿主接线与 E2E `parseIndex` v2 兼容）→ `45c7616`（M7 收口文档：M6 交接链接、implemented 记录、KNOWN_ISSUES KI-18..22）→ `d3daf89`（M8 执行提案与交接文档）→ `c1ebedf`（KNOWN_ISSUES 表格空行修复）→ 本文件所在提交（canonical 只读投影的边界说明）。
+- **基线**：M7 代码基线 `45c7616`；本交接与 M8 提案在 `d3daf89` 加入、`c1ebedf` 修正 KNOWN_ISSUES 空行。**未合并时，基线 = 本文件所在 PR 分支 HEAD（≥ `c1ebedf`，启动时记录实际 sha）；合并后用 `origin/main` 的 merge sha。** 不要用 `45c7616` 作为启动基线：那里没有本交接与提案。
+- **验证基线**：`npm test` 429 pass / 0 fail / 0 skip / 0 todo（在 `6cb294c` 上实测；`45c7616`、`d3daf89`、`c1ebedf` 与本次修复只改文档并复跑 `npm run check` 与 `npm test`）；`npm run typecheck`、`npm run build`、`npm run check` 均 exit 0。M8.1 新增测试后计数会增加，交接不预写未来数字。
 - **代码形态**：`src/store.ts` 47,351 B（审查线 49,152 B、硬上限 51,200 B）；`src/store-schema.ts` 26,360 B、`src/store-migration.ts` 19,192 B；`src/topic.ts`、`src/topic-events.ts`、`src/activity.ts`、`src/inbox.ts` 尚不存在。
 - **M7 已交付**：磁盘只写 v2（`topics[]`/`workItems[]`）、读兼容 v1；迁移事务含一次性备份 `index.v1.backup.json`（原 v1 字节、不覆盖）、归档被取消评审的 reviewer、原子写与目录 fsync、fail closed；activity.jsonl 追加/裁剪（500 条 / 524288 B）、坏行跳过、并发安全；inbox.json 读写、50 条上限、整文件损坏报 `store/corrupt`。
 - **A1 已接线**：`SessionSlicePorts['workspaces'].archiveSession` 支持 `{stopActivity}`，`SessionSlice` 透传；`src/tools.ts` 的单一 `projectStoreFor` helper 与 `src/index.ts` 的 `panelPorts.createStore` 都把 `workspaceRegistry.archiveSession` 注入 `ProjectStoreOptions.archiveSession`。host-free 测试（fake registry + 真实 `ProjectStore`）证明迁移以 `(reviewer,{stopActivity:true})` 归档。
 - **E2E 索引解析已兼容 v2**：`src/m2-e2e-support.ts` 与 `src/m3-e2e-support.ts` 的 `parseIndex` 对 v1 原样返回、对 v2 校验后经 `legacyViewOf` 投影；E2E 驱动本体未在真实宿主重跑。
+- **canonical v2 读投影用只读模式（M8.1 落地）**：M7 的 `migrateV1ToV2` 是写语义（`awaiting_review` → active + `awaitingReview=false`、清空 review 指针、reviewer 进 `pendingReviewerArchives`），直接拿它做读投影会与 `readIndex()` 不一致，也违背 M7「纯读不迁移」的意图（[M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md) 的「读时惰性迁移、下次写入才落盘」一段，写作时 :38）。M8.1 给 `migrateV1ToV2(document, options?)` 增加可选 `{cancelInFlightReviews?: boolean}`，**默认 `true` 保持写路径与 M7 测试不变**；`false` 时 `awaiting_review` 投影为 `active` + `awaitingReview=true`，保留 `reviewStatus`/`reviewerSessionId`，不产生待归档列表。`readIndexDocument` 用只读模式，`readIndexForWrite` 保持默认写模式。所以在 v1 磁盘上 `readIndexDocument` 与 `readIndex()` 语义一致（都保留在途评审）；只有第一次真实写入才取消评审、备份并归档 reviewer，M9 读取点可以直接使用只读投影。测试分两层：`tests/store-migration.test.mjs` 覆盖只读/写两种模式，`tests/store-v2.test.mjs` 覆盖 canonical 读写与首次写迁移。
 - **未迁移的真实数据**：仓库内 `.dsh-cowork/index.json`（gitignored）仍是 v1，未做真实迁移；真实宿主 E2E 与真实数据迁移归 M12（KI-22）。
 - **KI 归属**：KI-20（迁移 activity 先于 index 写）与 KI-19（迁移报告仅内存）归 M8；KI-18（兼容视图/legacy 字段）归 M9→M10→M12；KI-21（fsync 崩溃持久性）与 KI-22（真实 E2E/真实数据迁移）归 M12。
 
@@ -30,7 +32,7 @@
 ## 第一步：M8 的启动顺序
 
 1. `git fetch origin`。工作区必须干净；先跑一次 `git status --porcelain` 确认。
-2. 确定基线：若 M7 的 PR 已合并，从合并后的 `origin/main` 取实际 merge sha 作为基线；若尚未合并，用 `feat/m7-store-v2` 的 PR 分支 HEAD（写作时为 `45c7616`）。启动前把实际基线 sha 记进本交接的提交记录或 M8 提案的交付记录，不要凭推测。
+2. 确定基线：M7 代码基线是 `45c7616`；本交接与 M8 提案在 `d3daf89` 加入、`c1ebedf` 修正空行。**未合并时，基线 = 本文件所在 PR 分支 HEAD（≥ `c1ebedf`，启动时记录实际 sha）；合并后用 `origin/main` 的 merge sha。** 不要用 `45c7616` 启动，那里没有本交接与提案。启动后把实际基线 sha 记进本交接或 M8 提案的交付记录，不要凭推测。
 3. 从基线新建 `feat/m8-topic-lifecycle`；不要继续在 `feat/m7-store-v2` 上提交，不要 rebase/force 已有提交。
 4. 在新分支跑基线四命令：`npm test`（期望 429 pass / 0 fail）、`npm run typecheck`、`npm run build`、`npm run check`，全部 exit 0 才开始改代码。任何一个失败，先停下报告，不要带着红基线进 M8。
 5. 用新会话建新团队 `m8-topic-lifecycle`（`profile=impl-review`、`approval=automatic`，不复用 `m7-store-v2` 的团队状态）：implementation（写代码与测试，inScope 显式）→ verification（只跑命令，独立复跑四命令）→ review（只读终审，`reviewedTaskId`=implementation，verdict=pass 才收口）。
@@ -39,9 +41,9 @@
 ## M8 实施顺序
 
 1. **M8.1 — 纯函数与 store v2 文档 API**
-   - 范围（inScope）：`src/topic.ts`（新增，纯函数）、`src/store.ts`（只加 `readIndexDocument`/`mutateIndexDocument`，不改 v1 API 行为）、`tests/topic.test.mjs`（新增）、`tests/store-v2.test.mjs`（扩展 canonical 读写与锁内重读用例）。
-   - 先写：三态与两标记、idle 边界、五条件与 3 天边界（-1ms/恰好/+1ms，注入时钟）、重开清 resolved 字段、无撤销；store 的 v1 只读投影不写盘/不备份/不归档、首次写迁移、`mutateIndexDocument` 返回 `null` 不写。
-   - 证据：`node --test tests/topic.test.mjs tests/store-v2.test.mjs`；`npm run typecheck`。`src/store.ts` 一旦接近 49,152 B 立即停下报告拆分方案，不压行、不删测试。
+   - 范围（inScope）：`src/topic.ts`（新增，纯函数）、`src/store.ts`（只加 `readIndexDocument`/`mutateIndexDocument`，不改 v1 API 行为）、`src/store-migration.ts`（`migrateV1ToV2` 增加可选 `{cancelInFlightReviews}` 只读模式，默认值保持写语义）、`tests/topic.test.mjs`（新增）、`tests/store-v2.test.mjs`（canonical 读写、首次写迁移、锁内重读）、`tests/store-migration.test.mjs`（只读投影保留在途评审）。
+   - 先写：三态与两标记、idle 边界、五条件与 3 天边界（-1ms/恰好/+1ms，注入时钟）、重开清 resolved 字段、无撤销；store 的 canonical 读写（v1 只读投影保留在途评审、无备份/无归档、首次写才取消并归档）、`mutateIndexDocument` 返回 `null` 不写；`migrateV1ToV2` 的两种模式各有测试。
+   - 证据：`node --test tests/topic.test.mjs tests/store-v2.test.mjs tests/store-migration.test.mjs`；`npm run typecheck`。`src/store.ts` 一旦接近 49,152 B 立即停下报告拆分方案，不压行、不删测试。
 2. **M8.2 — 事件监听**
    - 范围：`src/topic-events.ts`（新增）、`tests/topic-events.test.mjs`（新增）、`src/index.ts`（只做装配与释放）。
    - 先写：`turn/end` 更新 `lastActiveAt` 并回 `active`；已解决 topic 的 `user/message` 触发重开并写 `topic-reopened`；锁内重读发现 `lastActiveAt` 已变化时放弃标记。
@@ -66,7 +68,7 @@
 
 - **`src/store.ts` 余量约 1.8 KB**：新增方法 + KI-20 顺序修改会同时吃预算。接近 49,152 B 时先停下报告拆分方案；不要把逻辑压进一行，不要删测试或放宽断言。
 - **v1 兼容层只减不增**：M8 的新代码一律用 canonical v2 读写；不要给 legacy 字段加新的写入者，也不要在 `topic.ts` 里复制一套 v1↔v2 状态映射（映射只在 `store-migration.ts`）。
-- **纯读不迁移**：`readIndexDocument` 对 v1 只在内存投影，不得写盘、备份或归档；第一次写才由 `readIndexForWrite` 执行迁移。写测试时要断言字节与 mtime。
+- **两种读语义在 v1 上一致**：`readIndex()` 和 `readIndexDocument()` 都保留在途评审（`awaiting_review`、`reviewStatus`、`reviewerSessionId` 原样）；`readIndexDocument` 只是在内存投影成 v2 形状，不写盘、不备份、不归档。只有 `readIndexForWrite`（默认 `cancelInFlightReviews:true`）在第一次真实写入时取消评审并归档。默认参数必须保持不变，否则写路径会漏归档；两种模式都要有测试（`tests/store-migration.test.mjs` 与 `tests/store-v2.test.mjs`）。
 - **锁内重读**：所有自动标记都必须走 `mutateIndexDocument`，并在 mutator 内比较 `lastActiveAt`；不要先读后写（会与用户新消息竞争，而自动标记无撤销）。
 - **`workItems` 在 M8 恒为 `[]`**：五条件里的「无 active 工作项」暂时恒真；M10 引入工作项时必须把真实计数传进 `topic.ts` 的评估输入，否则可能误标已解决。
 - **不要用后台定时器**：2 小时/3 天按惰性评估；读取点（project_status/route/面板）属于 M9/M11，M8 不改工具与面板。
@@ -93,3 +95,4 @@
 - `workItems` 条件在 M10 引入工作项后的行为（M8 恒为空）。
 - 读取点评估（`project_status`/`route`/面板 overview）由 M9/M11 接入，M8 内无法验证。
 - `fsync` 崩溃持久性（KI-21，M12）。
+- 只读投影与写路径两种模式在真实 v1 数据上的行为：M8.1 用 `os.tmpdir()` 测试覆盖，真实迁移演练在 M12（KI-22）。

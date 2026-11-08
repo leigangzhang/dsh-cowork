@@ -24,6 +24,8 @@ M8 的主需求规则由 [主题三态与已解决规则](../feature/2026-11-07-
 `src/store.ts` 新增两个公开方法，现有 v1 API 的签名与行为不变（`tools.ts`/`api.ts`/`handoff.ts`/`review-tools.ts` 仍走 v1 视图）：
 
 - `readIndexDocument(): Promise<ProjectIndexV2>`：磁盘是 v2 时用 `normalizeProjectIndexV2` + `projectIndexV2Problems` 校验后返回；磁盘是 v1 时用 `migrateV1ToV2` 在内存投影成 v2 返回——不写盘、不备份、不归档、不改 mtime。理由：M8 的纯规则必须在 v2 字段上工作；把迁移投影留在内存，仍保持「只有第一次写才落 v2 并执行备份/归档」。
+
+  **只读投影（M8.1 落地）。** M7 的 `migrateV1ToV2` 是写语义：`awaiting_review` → active + `awaitingReview=false`、清空 `reviewStatus`/`reviewerSessionId`、reviewer 进 `pendingReviewerArchives`。直接拿它做读投影会与 `readIndex()` 不一致，也违背 M7 对「读时惰性迁移」的否决（[M7 迁移实施记录](../../implemented/architecture/2026-11-07-store-v2-migration-plan.md) 的「读时惰性迁移、下次写入才落盘」一段，写作时 :38）。M8.1 给 `migrateV1ToV2(document, options?)` 增加可选 `{cancelInFlightReviews?: boolean}`：**默认 `true`，写路径与 M7 测试不变**；`false` 时 `awaiting_review` 投影为 `active` + `awaitingReview=true`，保留 `reviewStatus`/`reviewerSessionId`，不产生待归档列表。`readIndexDocument` 使用只读模式，`readIndexForWrite` 保持默认写模式。于是 v1 磁盘上 `readIndexDocument` 与 `readIndex()` 语义一致（都保留在途评审），只有第一次真实写入才取消评审、备份并归档 reviewer；M9 读取点可以直接使用只读投影。测试：`tests/store-migration.test.mjs` 覆盖只读/写两种模式，`tests/store-v2.test.mjs` 覆盖 canonical 读写与首次写迁移。
 - `mutateIndexDocument(mutator: (document: ProjectIndexV2) => ProjectIndexV2 | null): Promise<ProjectIndexV2>`：在项目锁内用现有的 `readIndexForWrite()` 拿到（必要时已迁移的）v2 文档 → 调用 mutator → 返回 `null` 表示放弃本次写入 → 否则 `projectIndexV2Problems` 校验后原子写 v2 并返回。mutator 拿到的是锁内重读的文档，这就是「评估前锁内重读、期间有新活动就放弃标记」的实现点，不需要额外的 API 或后台状态。
 
 预算：`src/store.ts` 现 47,351 B，审查线 49,152 B。新增代码必须守住 49,152 B；接近时先停下向队长报告（把纯投影/校验包装移到 `store-schema.ts`/`store-migration.ts`，或按文档 I/O 拆新模块），不压行、不删测试、不越过 51,200 B。
@@ -67,14 +69,15 @@ M8 只实现规则与 `turn/end` 钩子；`cowork_project_status`、`cowork_rout
 
 ## Acceptance criteria
 
-- [A1] store 增加 canonical v2 读写：`readIndexDocument` 对 v1 文档只在内存投影（磁盘字节/mtime 不变、无备份、无归档），`mutateIndexDocument` 首次写触发真实迁移并写 v2；mutator 返回 `null` 时不产生任何写盘 — `tests`：`tests/store-v2.test.mjs`（v2 读写/迁移投影）与派生到 `tests/store-document.test.mjs`
+- [A1] store 增加 canonical v2 读写：`readIndexDocument` 对 v1 文档用只读投影（保留在途评审，磁盘字节/mtime 不变、无备份、无归档），`mutateIndexDocument` 首次写触发真实迁移（默认写模式取消评审并归档）并写 v2；mutator 返回 `null` 时不产生任何写盘 — `tests`：`tests/store-v2.test.mjs`（canonical v1/v2 读写、锁内重读、写盘/mtime 断言）
 - [A2] 三态与两标记：`idle` 只在 `lastActiveAt` 超过 `idleAfterMs` 且无 `awaitingReview`/`blocked` 时生效；2 小时边界 -1ms/恰好/+1ms；新活动回 `active` — `tests`：`tests/topic.test.mjs`
 - [A3] 已解决五条件逐条缺失都不标记；全部满足才写 `resolvedBy='master'`、`resolvedAt`；3 天边界 -1ms/恰好/+1ms（注入时钟）；不提供撤销入口 — `tests`：`tests/topic.test.mjs`
-- [A4] 重开清空 `resolvedAt`/`resolvedBy`、回 `active` 并写 `topic-reopened`；`turn/end` 更新 `lastActiveAt` 并回 `active`；锁内重读到新 `lastActiveAt` 时放弃标记 — `tests`：`tests/topic.test.mjs`、`tests/topic-events.test.mjs`、`tests/activity.test.mjs`
+- [A4] 重开清空 `resolvedAt`/`resolvedBy`、回 `active` 并写 `topic-reopened`；`turn/end` 更新 `lastActiveAt` 并回 `active`；锁内重读到新 `lastActiveAt` 时放弃标记；评估读入用只读投影、写入经 `mutateIndexDocument` 的真实迁移 — `tests`：`tests/topic.test.mjs`、`tests/topic-events.test.mjs`、`tests/activity.test.mjs`
 - [A5] 活动业务事件含 `topic-reopened`；追加/读取复用 M7 的 500 条/524288 B 上限，损坏行仍跳过并计数 — `tests`：`tests/activity.test.mjs`
 - [A6] 收件箱：≤5 条合并、每条 ≤200 字、投递成功写 `deliveredAt`、失败保留并可重放、50 条上限与原子重写 — `tests`：`tests/inbox.test.mjs`
 - [A7] 迁移 activity 顺序修复：v2 落盘后 activity 失败不使迁移失败，`lastMigrationReport.activityFailure` 记录原因；重试不再重复归档或重复事件 — `tests`：`tests/store-v2.test.mjs`
 - [A8] 模块边界与预算：新模块按 §4.2；`src/store.ts` < 49,152 B；`npm run typecheck`/`build` 通过；不改 `tools.ts`/`api.ts`/`presets`/panel — `source`
+- [A9] `migrateV1ToV2` 的两种模式：默认写模式仍取消 `awaiting_review` 并产生待归档列表；只读模式保留 `awaitingReview=true`/`reviewStatus`/`reviewerSessionId` 且不产生待归档列表，v1 磁盘上 `readIndexDocument` 与 `readIndex()` 语义一致 — `tests`：`tests/store-migration.test.mjs`（只读投影测试）
 
 ## Risks
 
@@ -83,12 +86,13 @@ M8 只实现规则与 `turn/end` 钩子；`cowork_project_status`、`cowork_rout
 - 已解决条件里的「无 active 工作项」在 M8 恒真：`workItems` 由 M7 固定为 `[]`，工作项到 M10 才存在。M10 必须把真实计数传入 `topic.ts` 的评估输入，否则自动标记可能在有进行中工作时误触发。重审条件：M10 落地，或出现带 `active` 工作项却被标记 resolved 的主题。
 - KI-20 修复后，activity 写失败会被记录但不会重试；如果写 activity 的磁盘故障持续，面板与交接会缺少迁移事件（v2 索引与备份仍完整）。重审条件：真实环境出现 activity 持续写失败。
 - KI-19 保持内存报告：重启后无法回放 `archiveFailures` 的形状。M11 若要做归档失败明细，需要在 M11 重新评估（本阶段不落盘）。
+- 只读/写模式分叉：`migrateV1ToV2` 的默认值必须是 `cancelInFlightReviews:true`；若 M8.1 改了默认值，或在写路径误用只读模式，迁移会漏掉评审取消与 reviewer 归档，且 fail closed 路径不再触发。两种模式都要有测试（只读保留在途评审、写模式取消并产生待归档列表），并在 M8.2/M8.3 复用只读投影时保持这条边界。重审条件：默认值被改动，或真实迁移出现 reviewer 未归档。
 - 重开判定依赖 `user/message` 事件：探针 2 记录该事件字段在顶层、`userMessageSeen` helper 不可靠，实现必须以事件类型为准。重审条件：宿主改变 `user/message` 形状或不再发该事件。
 - 预算：`src/store.ts` 只余约 1.8 KB 到审查线；同时新增 store 方法与 KI-20 顺序修改可能触线。触线时停下报告拆分方案，不在本模块内压行。
 
 ## Delivery stages
 
-1. **M8.1**：`src/topic.ts` 纯函数 + `src/store.ts` canonical v2 读写 + `tests/topic.test.mjs`、`tests/store-v2.test.mjs` 扩展；`npm test`/`typecheck` 绿，`store.ts` 仍 < 49,152 B。
+1. **M8.1**：`src/topic.ts` 纯函数 + `src/store.ts` canonical v2 读写 + `src/store-migration.ts` 只读投影选项（默认保持写语义）+ `tests/topic.test.mjs`、`tests/store-v2.test.mjs`、`tests/store-migration.test.mjs` 扩展；`npm test`/`typecheck` 绿，`store.ts` 仍 < 49,152 B。
 2. **M8.2**：`src/topic-events.ts` + `tests/topic-events.test.mjs`；`turn/end`、重开、锁内重读都有测试；不挂真实宿主。
 3. **M8.3**：`src/activity.ts`（含 `topic-reopened` 与 `ACTIVITY_TYPES` 变更）+ `src/inbox.ts` + `tests/activity.test.mjs`、`tests/inbox.test.mjs` + KI-20 顺序修复及测试。
 4. **M8.4**：`npm test`、`npm run typecheck`、`npm run build`、`npm run check` 全绿；阶段结束停下等确认，不进 M9。
