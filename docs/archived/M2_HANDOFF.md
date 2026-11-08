@@ -1,18 +1,18 @@
 # M2 交接文档
 
-- 状态：M2 已交付并收口。F1–F8 在最终字节上全绿，收口决策与证据见 [implemented bug-fix note](../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md) 与 [M2 修复交接](M2_FIX_HANDOFF.md)；不修项见 [KNOWN_ISSUES](KNOWN_ISSUES.md)。交付面与证据在 [M2 结果](M2_RESULT.md)，调研结论在 [M2-P0 结果](M2_PROBE_RESULT.md)，M2 功能决策在 [implemented feature note](../.agents/notes/implemented/feature/2026-11-05-m2-memory-checkout.md)。
+- 状态：M2 已交付并收口。F1–F8 在最终字节上全绿，收口决策与证据见 [implemented bug-fix note](../../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md) 与 [M2 修复交接](M2_FIX_HANDOFF.md)；不修项见 [KNOWN_ISSUES](../KNOWN_ISSUES.md)。交付面与证据在 [M2 结果](M2_RESULT.md)，调研结论在 [M2-P0 结果](M2_PROBE_RESULT.md)，M2 功能决策在 [implemented feature note](../../.agents/notes/implemented/feature/2026-11-05-m2-memory-checkout.md)。
 - 适用：接手 M2 之后的维护者，或开始 M3（review 门禁 + 客户端面板）的 agent。
-- 事实源：[PLAN](PLAN.md) §5.5/§5.6/§5.8 与 §6 M2 拥有范围与验收；[M2 结果](M2_RESULT.md) 拥有已交付行为、证据与限制；[M2-P0 结果](M2_PROBE_RESULT.md) 拥有环境事实与原始输出；本文件只拥有“现在从哪开始、哪些坑已踩过、怎样算完成”。
+- 事实源：[PLAN](../PLAN.md) §5.5/§5.6/§5.8 与 §6 M2 拥有范围与验收；[M2 结果](M2_RESULT.md) 拥有已交付行为、证据与限制；[M2-P0 结果](M2_PROBE_RESULT.md) 拥有环境事实与原始输出；本文件只拥有“现在从哪开始、哪些坑已踩过、怎样算完成”。
 
 ## 先读什么
 
-1. [AGENTS.md](../AGENTS.md) 的纪律与命令。
-2. [PLAN](PLAN.md) §5.5 memory、§5.6 thread checkout、§5.8 工具面、§6 M2。
+1. [AGENTS.md](../../AGENTS.md) 的纪律与命令。
+2. [PLAN](../PLAN.md) §5.5 memory、§5.6 thread checkout、§5.8 工具面、§6 M2。
 3. [M2 结果](M2_RESULT.md)：9 个工具、记忆注入、状态机、E2E 证据、限制与回滚。
 4. [M2-P0 结果](M2_PROBE_RESULT.md)：会话绑定、记忆注入 seam、worktree/EPERM、clone 方案与合并链路。
 5. [M1 结果](M1_RESULT.md) 与 [M0 探针](M0_PROBE_RESULT.md)：已证 API，不要重复验证。
-6. [M2 修复交接](M2_FIX_HANDOFF.md) 与 [KNOWN_ISSUES](KNOWN_ISSUES.md)：已完成的收口记录与明确不修项。
-7. [.agents/notes/README.md](../.agents/notes/README.md)：决策记录的骨架与迁移规则。
+6. [M2 修复交接](M2_FIX_HANDOFF.md) 与 [KNOWN_ISSUES](../KNOWN_ISSUES.md)：已完成的收口记录与明确不修项。
+7. [.agents/notes/README.md](../../.agents/notes/README.md)：决策记录的骨架与迁移规则。
 
 ## 现在的事实
 
@@ -31,7 +31,7 @@
 2. **记忆注入时机**：agent 作用域的 system prompt 段落，每次 assembly 重新求值；brief 注入不再是退化路径。证据：[M2-P0 §2](M2_PROBE_RESULT.md)、`tests/memory-prompt.test.mjs`。
 3. **合并入口**：只允许 master，且 thread 状态 ∈ `{awaiting_review, done}`；冲突保留 clone、置 `blocked`，thread 解决后重试。证据：[M2 结果 · E2E](M2_RESULT.md)。
 4. **merge 后的 thread 状态**：`done` 且 `checkoutPath=null`（与提案早期“状态不变”不同，以实际交付为准）。证据：E2E `finalIndex` 两条线程均 `done`/`null`。
-5. **记忆去重/更新**：M2 只追加；去重、更新、删除、压缩已定为 M5 目标（[PLAN](PLAN.md) §6），不要顺手加。
+5. **记忆去重/更新**：M2 只追加；去重、更新、删除、压缩已定为 M5 目标（[PLAN](../PLAN.md) §6），不要顺手加。
 6. **是否保留 M0/S0 探针代码**：保留，避免改动已审查的装配面。
 
 ## 陷阱（M2 实测）
@@ -42,7 +42,7 @@
 - **干净判定包含 untracked**：`git status --porcelain` 非空即拒绝 merge；P0 实测 untracked 会让 `worktree remove` 失败，M2 的 merge 前置因此直接拒绝。
 - **先订阅、再补注册**：记忆 section 先接 `agent/created` 再遍历 `listAgents()`，否则热重载/后注册场景会漏 agent；dispose 必须释放所有 section disposer，否则热重载后旧 provider 残留。
 - **handoff 唤醒竞态**：thread handoff 会 prompt master；构造冲突场景时要在 thread 提交后立刻改主仓，避免 master 抢先合入（E2E 驱动已处理）。
-- **merge 已落地后 teardown 失败不可逆**：`cowork_checkout_merge` 仍返回 `ok:true`，失败步骤只进 `cleanupErrors`；不要因为清理错误重试 merge。用 `cowork_project_status` 对照残留现场（修复决策见 [implemented note](../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)）。
+- **merge 已落地后 teardown 失败不可逆**：`cowork_checkout_merge` 仍返回 `ok:true`，失败步骤只进 `cleanupErrors`；不要因为清理错误重试 merge。用 `cowork_project_status` 对照残留现场（修复决策见 [implemented note](../../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)）。
 
 ## 验证与证据
 
@@ -53,7 +53,7 @@
 
 ## 完成定义
 
-- M2 交付与收口完成：F1–F8 全绿，最终真实宿主 E2E run `m2-a91984c0-4840-4bc0-bcd1-74fe22d0e679` 11/11 步通过（M2A1–M2A8 的证据见 [M2 结果](M2_RESULT.md) 与 [feature note](../.agents/notes/implemented/feature/2026-11-05-m2-memory-checkout.md)；收口证据见 [bug-fix note](../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)）。
+- M2 交付与收口完成：F1–F8 全绿，最终真实宿主 E2E run `m2-a91984c0-4840-4bc0-bcd1-74fe22d0e679` 11/11 步通过（M2A1–M2A8 的证据见 [M2 结果](M2_RESULT.md) 与 [feature note](../../.agents/notes/implemented/feature/2026-11-05-m2-memory-checkout.md)；收口证据见 [bug-fix note](../../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)）。
 - 后续改动若触碰记忆/checkout：先读 [M2 结果 · 限制](M2_RESULT.md)，不要用单测通过替代真实宿主 E2E。
 - 不进入 M3 范围（review 门禁、客户端面板）；不引入第三方协作运行时；不改 `.dsh-cowork/` 已有证据。
 

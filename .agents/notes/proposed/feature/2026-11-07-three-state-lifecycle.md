@@ -66,7 +66,7 @@ Class: feature
 - 没有撤销：用户误开自动标记只能手动重开；重开会清空 resolved 字段并写事件，历史仍保留在 activity。重审条件：用户要求撤销或审计差异。
 - 会话事件总线不可用：`lastActiveAt` 只能按工具调用与读取更新，空闲/已解决精度下降。M6 探针必须回答；不可用时在文档标注，不假装准确。
 - 时间与时钟：测试与生产都用注入时钟；跨时区不影响 ISO 比较。重审条件：宿主提供独立时钟服务。
-- 迁移：v1 的 `done/archived` 直接转 `resolved`，`awaiting_review` 取消在途评审；迁移前必须备份。相关决定见 [索引 v2 与迁移](2026-11-07-topic-store-v2.md)。
+- 迁移：v1 的 `done/archived` 直接转 `resolved`，`awaiting_review` 取消在途评审；迁移前必须备份。相关决定见 [索引 v2 与迁移](../architecture/2026-11-07-topic-store-v2.md)。
 
 ## Delivery stages
 

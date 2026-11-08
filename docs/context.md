@@ -101,7 +101,7 @@ sequenceDiagram
 
 ## 4. 四类会话隔离矩阵
 
-隔离方式、clone 内容与 reviewer 工具面的来源：[PLAN.md](PLAN.md) §5.6–§5.7、[M2_PROBE_RESULT.md](M2_PROBE_RESULT.md) §5、[src/presets.ts](../src/presets.ts#L109-L122)。
+隔离方式、clone 内容与 reviewer 工具面的来源：[PLAN.md](PLAN.md) §5.6–§5.7、[M2_PROBE_RESULT.md](archived/M2_PROBE_RESULT.md) §5、[src/presets.ts](../src/presets.ts#L109-L122)。
 
 | 会话 | 工作目录与可见代码 | 写权限 | `cowork:memory` | 与其他会话共享 |
 |---|---|---|---|---|
@@ -114,4 +114,4 @@ sequenceDiagram
 
 - **记忆是拉取式快照**：写入不会通知或推送到已存在的会话；下一次 prompt assembly 才重新读取。实现入口见 [src/memory-prompt.ts](../src/memory-prompt.ts#L153-L169)。
 - **超预算条目只能检索回来**：注入块之外的记忆不会再被自动拼入，需用 `cowork_memory_search` 找回；预算规则见 [PLAN.md](PLAN.md) §5.5，检索实现见 [src/memory.ts](../src/memory.ts#L477-L490)。
-- **isolated thread 的共享退化**：它只能看到已提交代码，加上记忆与索引；clone 位于仓库内，所以 cwd 向上仍能命中索引，记忆由宿主侧按仓库根渲染。见 [M2_PROBE_RESULT.md](M2_PROBE_RESULT.md) §5 与 [src/store.ts](../src/store.ts#L1030-L1058)。
+- **isolated thread 的共享退化**：它只能看到已提交代码，加上记忆与索引；clone 位于仓库内，所以 cwd 向上仍能命中索引，记忆由宿主侧按仓库根渲染。见 [M2_PROBE_RESULT.md](archived/M2_PROBE_RESULT.md) §5 与 [src/store.ts](../src/store.ts#L1030-L1058)。

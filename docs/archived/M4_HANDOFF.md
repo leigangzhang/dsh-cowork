@@ -1,7 +1,7 @@
 # M4 交接：已完成交付与下一会话 runbook
 
 - 状态：**已完成（2026-11-07，`feat/m4-packaging`）**。M4A1–A7 的证据在 [M4 结果](M4_RESULT.md)；M4A8 的文档同步与本轮独立 verifier/reviewer 结论由收口 marker `.dsh-cowork/e2e/M4_DOCS_READY.json` 记录。本文只拥有「最终基线、怎样复核、从哪开始 M5、回滚」。
-- 事实源：[PLAN](PLAN.md) §6 M4/M5 拥有范围与验收；[M4 决策](../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md) 拥有分发形态、preset 与 dev 门的选择；[M4 结果](M4_RESULT.md) 拥有交付面、逐条证据与限制；[M4-P0 探针](M4_PROBE_RESULT.md) 拥有探针原始输出；[README](../README.md) 拥有面向用户的安装/使用/卸载；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项。
+- 事实源：[PLAN](../PLAN.md) §6 M4/M5 拥有范围与验收；[M4 决策](../../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md) 拥有分发形态、preset 与 dev 门的选择；[M4 结果](M4_RESULT.md) 拥有交付面、逐条证据与限制；[M4-P0 探针](M4_PROBE_RESULT.md) 拥有探针原始输出；[README](../../README.md) 拥有面向用户的安装/使用/卸载；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有不修项。
 
 ## 最终基线
 
@@ -13,7 +13,7 @@
 
 ## 可安装面与数据落点
 
-- 安装、选择 preset、使用流程、数据落点、卸载与升级、限制：见 [README](../README.md)。本文不复制这些事实。
+- 安装、选择 preset、使用流程、数据落点、卸载与升级、限制：见 [README](../../README.md)。本文不复制这些事实。
 - 一句话形态：装一个 bundle，`cordis.patch.yml` 插一行 `id: dsh-cowork`；项目数据只落 `<repo>/.dsh-cowork/`，插件不写 `~/.dsh` 的项目状态。
 
 ## 维护者验证步骤（全新 profile，按序）
@@ -50,7 +50,7 @@
 
 ## M5 起点
 
-- 范围与验收见 [PLAN](PLAN.md) §6 M5：记忆去重/合并/更新/删除、按相关性装填预算、可选语义检索适配器与可复现评测集。
+- 范围与验收见 [PLAN](../PLAN.md) §6 M5：记忆去重/合并/更新/删除、按相关性装填预算、可选语义检索适配器与可复现评测集。
 - 起点事实：M2 的追加式 `memory/*.md`、`cowork_memory_write/search`、`src/memory.ts` 与 `src/memory-prompt.ts` 是迁移基线；KI-2 记录当前限制与重估触发。
 - 先写 `.agents/notes/proposed/` 决策记录（方案、替代方案、评测口径），再动实现；M5 不改变 M4 的安装面，除非有新的决策记录。
 

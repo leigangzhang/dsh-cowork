@@ -1,7 +1,7 @@
 # M1 S0 探针结果
 
 - 结论：三个 S0 问题都有真实宿主证据。空 `plugins` preset 能完成一轮，但只能看到 profile 级全局工具，没有 bash/fs 等 preset-scoped 工具，因此不能直接当作 thread；`standard` 的 `plugins` 只能以 YAML 文本读到，结构化数组不可得；`exec.agent` 在 standard 与空 preset 两种组合下都可用。
-- 阅读顺序：[M1 交接](M1_HANDOFF.md) 的“第一步：S0 探针”；契约见已迁移的 [M1 决策记录](../.agents/notes/implemented/feature/2026-11-05-m1-master-thread-loop.md)。
+- 阅读顺序：[M1 交接](M1_HANDOFF.md) 的“第一步：S0 探针”；契约见已迁移的 [M1 决策记录](../../.agents/notes/implemented/feature/2026-11-05-m1-master-thread-loop.md)。
 - 宿主：DSH Desktop 2.0.18 / 运行时 0.2.1-rc.2，web profile `http://127.0.0.1:3080`，仓库 workspaceId `70ec5443-a9e2-4368-9cce-ae06d9babb9e`。
 - 引用运行：`s0-90864021-c5e9-421f-97b3-2d436ad7e482`，4 个阶段全 `passed`，创建 4 个会话。
 - 运行方式：`POST /dsh-cowork/probe/s0`，再 `GET /dsh-cowork/probe/s0-status?runId=<id>` 轮询；运行结束把 `last-s0-run.json` 与 `s0-runs/<runId>.json` 写入 `.dsh-cowork/probe/`（已 gitignore）。下文“原始输出”均摘自该接口的 `phases[].evidence`。

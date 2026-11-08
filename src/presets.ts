@@ -3,7 +3,7 @@
  * `cowork-thread`, and `cowork-reviewer`.
  *
  * Each preset is an explicit list of plugin rows, because S0 proved an empty
- * `plugins` list mounts no tools at all (docs/M1_S0_RESULT.md §1): the rows are
+ * `plugins` list mounts no tools at all (docs/archived/M1_S0_RESULT.md §1): the rows are
  * the same ones the S0 thread-smoke preset used successfully, extended with the
  * job/ask-user/todo/present rows a thread needs. The reviewer deliberately gets
  * a narrower surface: shell and search, never `tool-fs`, so it has no

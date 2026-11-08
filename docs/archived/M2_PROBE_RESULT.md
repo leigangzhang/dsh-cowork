@@ -3,7 +3,7 @@
 - 结论：M2 的四问都有答案。会话 cwd 只能在创建时决定，且创建后不能重绑到父 workspace；记忆可以在 agent 作用域的 system prompt 段落里按轮注入；`git worktree` 的合并语义可用，但 **thread 在 worktree 里无法 git 写**（沙箱 EPERM）；因此隔离实现采用 **F 方案：每 thread 一个本地 clone**（`git clone --local`），该决定经用户确认。
 - 宿主：DSH Desktop 2.0.18 / 运行时 0.2.1-rc.2，web profile `http://127.0.0.1:3080`；插件 `@dsh-external/dsh-cowork`（`dev_inject_plugin` 注入态）。
 - 探针方法：通过 dsh-super-injector 的 staging 工具在宿主进程内执行，未修改仓库文件；git 实验在 `/tmp` 夹具里跑。
-- 证据容器：[`.dsh-cowork/probe/m2-p0/P0_RESULT.json`](../.dsh-cowork/probe/m2-p0/P0_RESULT.json)（gitignored）。下文「原始输出」均摘自该文件的对应分组，字段值未改，只省略重复结构。
+- 证据容器：[`.dsh-cowork/probe/m2-p0/P0_RESULT.json`](../../.dsh-cowork/probe/m2-p0/P0_RESULT.json)（gitignored）。下文「原始输出」均摘自该文件的对应分组，字段值未改，只省略重复结构。
 - 复现：该探针没有 HTTP 路由，证据以 JSON 为准；具体分组与字段名在每节标题后给出。
 
 ## 0. 策略前提：workspace-write 是插件必须支持的最小权限

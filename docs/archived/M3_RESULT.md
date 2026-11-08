@@ -1,23 +1,23 @@
 # M3 结果：独立 review 门禁与面板 review 呈现
 
-- 结论：**host 侧 M3 已交付并在真实宿主验证**——`cowork_review_request` / `cowork_review_verdict`、独立 `cowork-reviewer` 会话、`reviews/` 存储、verdict 状态路由、`needs_revision` 退回、`pass` 合并门禁与显式覆盖，全部在真实宿主 E2E 中跑通（15/15 步，两次合并）。**面板侧也已在真实 Chrome 验证**：overview/handoff review 字段、review 徽章、审查详情、打开 review 会话在分栏与 ≤480 钻取两档都取得截图（`.dsh-cowork/e2e/panel-m3/01-split-review-states.jpg`、`02-drill-list.jpg`、`03-drill-needs-revision.jpg`）。**M3-FIX 收口已完成**：面板超时、失败 E2E 清理、tools 拆分、fixture/marker 工具与剩余真机证据均已关闭，详见文末「M3-FIX 收口」与 [决策记录](../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)。
+- 结论：**host 侧 M3 已交付并在真实宿主验证**——`cowork_review_request` / `cowork_review_verdict`、独立 `cowork-reviewer` 会话、`reviews/` 存储、verdict 状态路由、`needs_revision` 退回、`pass` 合并门禁与显式覆盖，全部在真实宿主 E2E 中跑通（15/15 步，两次合并）。**面板侧也已在真实 Chrome 验证**：overview/handoff review 字段、review 徽章、审查详情、打开 review 会话在分栏与 ≤480 钻取两档都取得截图（`.dsh-cowork/e2e/panel-m3/01-split-review-states.jpg`、`02-drill-list.jpg`、`03-drill-needs-revision.jpg`）。**M3-FIX 收口已完成**：面板超时、失败 E2E 清理、tools 拆分、fixture/marker 工具与剩余真机证据均已关闭，详见文末「M3-FIX 收口」与 [决策记录](../../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)。
 - 分支与字节：原 M3 交付分支 `feat/m3-review-panel`，代码/证据基线 `d95fb82`（含 t8）；M3-FIX 在 `fix/m3-closeout` 上收口，最终 commit 见 `.dsh-cowork/e2e/M3_DOCS_READY.json` 的 `commit`（写该 marker 时的 HEAD），四条命令 330/330。
-- 依据：[M3 提案](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有范围与决策；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有本轮探针与失败；[M3 交接](M3_HANDOFF.md) 拥有从哪继续；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有明确不修项。
+- 依据：[M3 提案](../../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有范围与决策；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有本轮探针与失败；[M3 交接](M3_HANDOFF.md) 拥有从哪继续；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有明确不修项。
 
 ## 交付面
 
 | 落点 | 职责 |
 |---|---|
-| [`src/review.ts`](../src/review.ts) | host-free 纯模型：review 输入校验、verdict→状态路由、verdict 调用者门（自审拒绝）、request 前置、merge 门禁与 override 清洗、review brief、退回消息 |
-| [`src/store.ts`](../src/store.ts) | `reviews/` 目录与 ReviewRecord 排他写/列表/读；索引可空 review 字段（`reviewStatus` / `reviewRequestedAt` / `reviewedAt` / `reviewerSessionId` / `latestReviewPath`），旧 `worktreePath`/缺字段索引读为 null |
-| [`src/tools.ts`](../src/tools.ts) | 第 10/11 个工具 `cowork_review_request` / `cowork_review_verdict`；`cowork_project_status` 附 `latestReviews`；`cowork_checkout_merge` 默认要求 `reviewStatus=pass`，`allowUnreviewed + overrideReason` 可覆盖 |
-| [`src/session-slice.ts`](../src/session-slice.ts) | `createReviewSession`：主仓库 workspace + preset 校验 fail-closed + `cowork review: ` 标题 |
-| [`src/presets.ts`](../src/presets.ts) | `cowork-reviewer` preset（persona + agent-instructions + tool-bash + tool-fs-search，**无 tool-fs**）；master persona 增加 handoff→review、禁 dev_*/host 工具、只 pass 可 merge |
-| [`src/api-contract.ts`](../src/api-contract.ts) / [`src/api.ts`](../src/api.ts) | overview thread 行追加 `reviewStatus/reviewedAt/reviewerSessionId`；handoff 追加 `review:{record,filePath}\|null`；仍只读、`no-store`、只按索引指针读 |
-| [`src/client/**`](../src/client/) | review 徽章（审查中/通过/需修改/已拒绝）、审查详情（summary/findings/verifier 验证/review 文件路径）、打开 review 会话 |
-| [`src/m3-e2e.ts`](../src/m3-e2e.ts) / [`src/m3-e2e-support.ts`](../src/m3-e2e-support.ts) | 真实宿主 15 步驱动：review pass→合并、needs_revision→修复→复审→合并；证据 `.dsh-cowork/e2e/M3_E2E.json` |
-| [`src/index.ts`](../src/index.ts) | `/dsh-cowork/e2e/m3/run` / `status` 两条 loopback 路由 |
-| [`tests/`](../tests/) | `review` / `m3-e2e` / store / session-slice / api / panel-model 覆盖；全量 330 用例（M3 交付时 309；M3-FIX 新增 21） |
+| [`src/review.ts`](../../src/review.ts) | host-free 纯模型：review 输入校验、verdict→状态路由、verdict 调用者门（自审拒绝）、request 前置、merge 门禁与 override 清洗、review brief、退回消息 |
+| [`src/store.ts`](../../src/store.ts) | `reviews/` 目录与 ReviewRecord 排他写/列表/读；索引可空 review 字段（`reviewStatus` / `reviewRequestedAt` / `reviewedAt` / `reviewerSessionId` / `latestReviewPath`），旧 `worktreePath`/缺字段索引读为 null |
+| [`src/tools.ts`](../../src/tools.ts) | 第 10/11 个工具 `cowork_review_request` / `cowork_review_verdict`；`cowork_project_status` 附 `latestReviews`；`cowork_checkout_merge` 默认要求 `reviewStatus=pass`，`allowUnreviewed + overrideReason` 可覆盖 |
+| [`src/session-slice.ts`](../../src/session-slice.ts) | `createReviewSession`：主仓库 workspace + preset 校验 fail-closed + `cowork review: ` 标题 |
+| [`src/presets.ts`](../../src/presets.ts) | `cowork-reviewer` preset（persona + agent-instructions + tool-bash + tool-fs-search，**无 tool-fs**）；master persona 增加 handoff→review、禁 dev_*/host 工具、只 pass 可 merge |
+| [`src/api-contract.ts`](../../src/api-contract.ts) / [`src/api.ts`](../../src/api.ts) | overview thread 行追加 `reviewStatus/reviewedAt/reviewerSessionId`；handoff 追加 `review:{record,filePath}\|null`；仍只读、`no-store`、只按索引指针读 |
+| [`src/client/**`](../../src/client) | review 徽章（审查中/通过/需修改/已拒绝）、审查详情（summary/findings/verifier 验证/review 文件路径）、打开 review 会话 |
+| [`src/m3-e2e.ts`](../../src/m3-e2e.ts) / [`src/m3-e2e-support.ts`](../../src/m3-e2e-support.ts) | 真实宿主 15 步驱动：review pass→合并、needs_revision→修复→复审→合并；证据 `.dsh-cowork/e2e/M3_E2E.json` |
+| [`src/index.ts`](../../src/index.ts) | `/dsh-cowork/e2e/m3/run` / `status` 两条 loopback 路由 |
+| [`tests/`](../../tests) | `review` / `m3-e2e` / store / session-slice / api / panel-model 覆盖；全量 330 用例（M3 交付时 309；M3-FIX 新增 21） |
 
 ## review 门禁（现在为真）
 
@@ -70,7 +70,7 @@
 
 ## M3-FIX 收口（2026-11-06）
 
-- 范围与决策：见 [M3 收口修复决策](../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)（本目录的提案已按生命周期迁入 implemented）。
+- 范围与决策：见 [M3 收口修复决策](../../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)（本目录的提案已按生命周期迁入 implemented）。
 - 代码：`src/api.ts` / `src/api-contract.ts` 的 30 s 有界等待与 `session/list-timeout` 504；`src/m3-e2e-support.ts` 的 `shouldRemoveFixture` 与 `src/m3-e2e.ts` 失败清理；`src/review-tools.ts` + `src/tools.ts` 装配；`tests/source-budget.test.mjs`。
 - 工具：`tools/panel-fixture.mjs`（apply/restore；备份在 `.dsh-cowork/e2e/panel-m3/backup`）与 `tools/check-evidence-marker.mjs`（commit==HEAD、screenshots 非空、status 合法；marker 缺失 exit 0）。
 - 真实宿主 E2E：`m3-004629a6-c7de-48c1-92e9-99c474eae1a1`，`state=done`、15/15、`tempRepoRemoved=true`、两次合并 `ee9f5a45605a69c5a9fa14db71245df625aa5643` / `89190c478e9a5c80b4ef0a12565c419cf4281cec`；失败路径 `m3-565e31d8-08c0-4247-b3ec-d3fef52dd51d` 在 `thread-a-create` 因 runner disposed 失败，fixture 被 finally 删除且证据保留原始 error（本地副本 `.dsh-cowork/e2e/M3_E2E.failure-cleanup.json`）。

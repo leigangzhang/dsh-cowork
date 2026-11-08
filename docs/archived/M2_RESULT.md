@@ -1,7 +1,7 @@
 # M2 结果：项目记忆与 thread checkout
 
 - 结论：M2 交付 PLAN §6 的两项能力——项目记忆跨 thread 生效并注入每个 cowork agent 的 system prompt；写代码的 thread 在独立本地 clone 中工作，master 独占合并，冲突保留现场并置 `blocked`。工具面从 6 个扩到 9 个；真实宿主 E2E 在最终字节上 11/11 步通过，其中 `memory-visible` 用不可猜 nonce 证明约束确实进入模型可见的 system prompt。
-- 依据：P0 探针结论见 [M2-P0 结果](M2_PROBE_RESULT.md)；F 方案（每 thread 本地 clone）经用户确认；收口修复的决策与 F1–F8 证据归 [implemented bug-fix note](../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)。
+- 依据：P0 探针结论见 [M2-P0 结果](M2_PROBE_RESULT.md)；F 方案（每 thread 本地 clone）经用户确认；收口修复的决策与 F1–F8 证据归 [implemented bug-fix note](../../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)。
 - E2E 证据容器：本地 gitignored 文件 `.dsh-cowork/e2e/M2_E2E.json`，run `m2-a91984c0-4840-4bc0-bcd1-74fe22d0e679`，`state: done`、无 `error` 字段、11/11 步 `passed`。
 - 宿主：DSH Desktop 2.0.18 / 运行时 0.2.1-rc.2；插件 `@dsh-external/dsh-cowork` 以 `dev_inject_plugin` 注入。下文原始输出摘自证据文件的 `steps[].evidence`，只省略重复结构，字段值未改。
 
@@ -9,16 +9,16 @@
 
 | 落点 | 职责 |
 |---|---|
-| [`src/memory.ts`](../src/memory.ts) | 记忆解析/校验/预算渲染/关键词检索/追加写；文件格式 `## 标题 + 正文 + (来源: …; ISO 时间)`；损坏文件带行号报错、不写入（`parseMemoryFile`、`validateMemoryEntry`、`renderMemoryBlock`、`searchMemory`、`appendMemoryEntry`）。时间策略与可注入时钟见模块注释与单测。 |
-| [`src/checkout.ts`](../src/checkout.ts) | thread checkout 的 git 适配器：clone/checkout/inspect/merge/remove；路径守卫、分支前缀 `cowork/`、30s 超时、参数数组。失败路径检查 `merge --abort` 退出码，`details.stderr` 统一截断并标记。 |
-| [`src/checkout-teardown.ts`](../src/checkout-teardown.ts) | merge 成功后的 teardown 编排：workspace resolve、clone 删除、workspace 删除、会话归档、索引更新各自独立捕获；索引更新最后且无条件执行。 |
-| [`src/memory-prompt.ts`](../src/memory-prompt.ts) | 在 agent 作用域注册 `cowork:memory` system prompt 段落（order 900、`interpolate:false`、按轮求值、digest 缓存）；null 渲染清空缓存，duplicate 计数按唯一 agent。 |
-| [`src/tool-model.ts`](../src/tool-model.ts) | 调用者身份、角色校验、错误包络、brief；M2 新增 13 个稳定错误码。 |
-| [`src/tools.ts`](../src/tools.ts) | 9 个 `cowork_*` 工具，含 `isolated` 创建与 `cowork_checkout_merge`；冲突状态更新错误进入 `statusUpdateError`。 |
-| [`src/store.ts`](../src/store.ts) | 索引唯一写者；`checkoutPath` 是 checkout 唯一事实源，旧索引 `worktreePath` 读兼容；记忆文件复用项目锁与原子写。 |
-| [`src/session-slice.ts`](../src/session-slice.ts) | 显式 sessionId + clone workspace 建会话；宿主返回不同 sessionId 时 fail-closed；删除 workspace、归档会话。 |
-| [`src/index.ts`](../src/index.ts) | 装配记忆注入、注册工具与 9 个工具面。 |
-| [`src/m2-e2e.ts`](../src/m2-e2e.ts) / [`src/m2-e2e-support.ts`](../src/m2-e2e-support.ts) | 真实宿主 E2E 驱动：11 步、证据原子写 `.dsh-cowork/e2e/M2_E2E.json`；两个文件均 ≤50 KB，证据 host 块不含 hostname。 |
+| [`src/memory.ts`](../../src/memory.ts) | 记忆解析/校验/预算渲染/关键词检索/追加写；文件格式 `## 标题 + 正文 + (来源: …; ISO 时间)`；损坏文件带行号报错、不写入（`parseMemoryFile`、`validateMemoryEntry`、`renderMemoryBlock`、`searchMemory`、`appendMemoryEntry`）。时间策略与可注入时钟见模块注释与单测。 |
+| [`src/checkout.ts`](../../src/checkout.ts) | thread checkout 的 git 适配器：clone/checkout/inspect/merge/remove；路径守卫、分支前缀 `cowork/`、30s 超时、参数数组。失败路径检查 `merge --abort` 退出码，`details.stderr` 统一截断并标记。 |
+| [`src/checkout-teardown.ts`](../../src/checkout-teardown.ts) | merge 成功后的 teardown 编排：workspace resolve、clone 删除、workspace 删除、会话归档、索引更新各自独立捕获；索引更新最后且无条件执行。 |
+| [`src/memory-prompt.ts`](../../src/memory-prompt.ts) | 在 agent 作用域注册 `cowork:memory` system prompt 段落（order 900、`interpolate:false`、按轮求值、digest 缓存）；null 渲染清空缓存，duplicate 计数按唯一 agent。 |
+| [`src/tool-model.ts`](../../src/tool-model.ts) | 调用者身份、角色校验、错误包络、brief；M2 新增 13 个稳定错误码。 |
+| [`src/tools.ts`](../../src/tools.ts) | 9 个 `cowork_*` 工具，含 `isolated` 创建与 `cowork_checkout_merge`；冲突状态更新错误进入 `statusUpdateError`。 |
+| [`src/store.ts`](../../src/store.ts) | 索引唯一写者；`checkoutPath` 是 checkout 唯一事实源，旧索引 `worktreePath` 读兼容；记忆文件复用项目锁与原子写。 |
+| [`src/session-slice.ts`](../../src/session-slice.ts) | 显式 sessionId + clone workspace 建会话；宿主返回不同 sessionId 时 fail-closed；删除 workspace、归档会话。 |
+| [`src/index.ts`](../../src/index.ts) | 装配记忆注入、注册工具与 9 个工具面。 |
+| [`src/m2-e2e.ts`](../../src/m2-e2e.ts) / [`src/m2-e2e-support.ts`](../../src/m2-e2e-support.ts) | 真实宿主 E2E 驱动：11 步、证据原子写 `.dsh-cowork/e2e/M2_E2E.json`；两个文件均 ≤50 KB，证据 host 块不含 hostname。 |
 
 ### 工具面
 
@@ -89,9 +89,9 @@ run `m2-a91984c0-4840-4bc0-bcd1-74fe22d0e679`：`setup → memory-write → isol
 
 ## 限制 / 已知问题
 
-**设计限制（不修，归 [KNOWN_ISSUES](KNOWN_ISSUES.md)）**：clone 成本与 thread 读不到主仓库、merge 冲突必须人工或 thread 解决、记忆只追加且关键词检索、preset 运行时注册、全部结论以 workspace-write 为策略前提。逐条影响与重估条件只写在 KNOWN_ISSUES，本文不复制。
+**设计限制（不修，归 [KNOWN_ISSUES](../KNOWN_ISSUES.md)）**：clone 成本与 thread 读不到主仓库、merge 冲突必须人工或 thread 解决、记忆只追加且关键词检索、preset 运行时注册、全部结论以 workspace-write 为策略前提。逐条影响与重估条件只写在 KNOWN_ISSUES，本文不复制。
 
-**M2 收口修复（已交付，归[implemented bug-fix note](../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)）**：合并 teardown 失败隔离、冲突 updateThread 错误可见、sessionId fail-closed、memory/checkout/memory-prompt 边界修复、E2E 驱动拆分与 hostname 去除，以及模型可见性证据补强均已落地；F1–F8 的详细证据在该 note，本文不复制。
+**M2 收口修复（已交付，归[implemented bug-fix note](../../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)）**：合并 teardown 失败隔离、冲突 updateThread 错误可见、sessionId fail-closed、memory/checkout/memory-prompt 边界修复、E2E 驱动拆分与 hostname 去除，以及模型可见性证据补强均已落地；F1–F8 的详细证据在该 note，本文不复制。
 
 **证据设施现状**：证据文件 `.dsh-cowork/e2e/M2_E2E.json` 是本地 gitignored 数据；host 块已无 hostname，但按本地可追溯性保留 `repoPath` 与 fixture 绝对路径，不提交、不发布。真实 Chrome 的宿主 GUI 截图保存在 `.dsh-cowork/e2e/browser/`（同样 gitignored）。
 

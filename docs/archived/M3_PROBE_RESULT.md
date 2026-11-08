@@ -1,7 +1,7 @@
 # M3 P0 探针结果：review 会话闭环与 review 字段
 
 - 结论：两项 P0 都已通过。**review 会话闭环**由真实宿主 E2E 证明（15/15 步，pass/needs_revision/复审/合并全部落地）；**面板 review 字段**在重启宿主并 clean re-inject 后，由真实 Chrome 取得分栏与 ≤480 两档截图，overview/handoff 都来自真实宿主（fixture 只替换项目数据）。早先“面板 API 悬挂”的根因是 reload 留下旧 fiber，不是面板代码或磁盘延迟。
-- 适用：M3 交付证据；面板真机限制同时写在 [M3 结果](M3_RESULT.md) 与 [KNOWN_ISSUES](KNOWN_ISSUES.md)。
+- 适用：M3 交付证据；面板真机限制同时写在 [M3 结果](M3_RESULT.md) 与 [KNOWN_ISSUES](../KNOWN_ISSUES.md)。
 - 环境：DSH Desktop 2.0.18 / 运行时 0.2.1-rc.2，web profile `http://127.0.0.1:3080`；插件 `@dsh-external/dsh-cowork` 以 `dev_inject_plugin` 注入；真实 Chrome 由 BrowserSkill 驱动。
 
 ## P0-1：review 会话闭环（通过）

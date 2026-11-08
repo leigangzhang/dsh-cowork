@@ -18,7 +18,7 @@
  *
  * Screenshots are listed but their bytes are not checked here: the marker is
  * written after the screenshots land, and the repository deliberately keeps
- * them out of git (see docs/M3_RESULT.md).
+ * them out of git (see docs/archived/M3_RESULT.md).
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'

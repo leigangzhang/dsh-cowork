@@ -1,8 +1,8 @@
 # M3 交接文档
 
-- 状态：**M3 与 M3-FIX 均已完成（2026-11-06）**，M3A1–M3A9 全部有证据。host review 门禁在真实宿主 E2E 15/15 步通过；面板 review 呈现已取得分栏、≤480、深色、pass/reject 详情与两个打开按钮的真实 Chrome 证据。M3 自己产生的六项遗留（面板 API 超时、失败 E2E 清理、tools.ts 拆分、剩余真机验证、fixture 可复现、marker 时序）已在 `fix/m3-closeout` 的 M3-FIX 内关闭；行为与契约决策见 [M3 收口修复决策](../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)。下一位只需看 [PLAN](PLAN.md) 与 [M4 交接](M4_HANDOFF.md)。
+- 状态：**M3 与 M3-FIX 均已完成（2026-11-06）**，M3A1–M3A9 全部有证据。host review 门禁在真实宿主 E2E 15/15 步通过；面板 review 呈现已取得分栏、≤480、深色、pass/reject 详情与两个打开按钮的真实 Chrome 证据。M3 自己产生的六项遗留（面板 API 超时、失败 E2E 清理、tools.ts 拆分、剩余真机验证、fixture 可复现、marker 时序）已在 `fix/m3-closeout` 的 M3-FIX 内关闭；行为与契约决策见 [M3 收口修复决策](../../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)。下一位只需看 [PLAN](../PLAN.md) 与 [M4 交接](M4_HANDOFF.md)。
 - 适用：接手 M3 之后维护的 agent 或人。范围：review 门禁 + 只读面板 + review 状态在面板的呈现。
-- 事实源：[PLAN](PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与已定决策；[M3 结果](M3_RESULT.md) 拥有交付面、E2E 证据、限制与回滚；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有探针与真机取证过程；[面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RESULT](PANEL_RESULT.md)、[PANEL_RECON](PANEL_RECON.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有 M2 行为；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN](../PLAN.md) §5.7/§5.8/§6 M3 拥有范围与验收；[M3 决策](../../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) 拥有本阶段范围与已定决策；[M3 结果](M3_RESULT.md) 拥有交付面、E2E 证据、限制与回滚；[M3 P0 探针](M3_PROBE_RESULT.md) 拥有探针与真机取证过程；[面板决策](../../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RESULT](PANEL_RESULT.md)、[PANEL_RECON](PANEL_RECON.md) 拥有面板设计与客户端事实；[M2 结果](M2_RESULT.md) 拥有 M2 行为；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有不修项；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## 交付后状态（2026-11-05）
 
@@ -16,11 +16,11 @@
 
 ## 先读什么
 
-1. [AGENTS.md](../AGENTS.md)：纪律、命令、no-multi-orchestrator。
-2. [PLAN](PLAN.md) §5.7 review、§5.8 工具面、§6 M3。
-3. [M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md)：范围、验收 id、已定决策与后果。
-4. [M2 结果](M2_RESULT.md)、[M2 修复交接](M2_FIX_HANDOFF.md)、[KNOWN_ISSUES](KNOWN_ISSUES.md)：M2 的真实行为、收口修复、明确不修项。
-5. [面板决策](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RECON](PANEL_RECON.md)、[PANEL_HANDOFF](PANEL_HANDOFF.md)：面板落点、数据契约、客户端构建事实。
+1. [AGENTS.md](../../AGENTS.md)：纪律、命令、no-multi-orchestrator。
+2. [PLAN](../PLAN.md) §5.7 review、§5.8 工具面、§6 M3。
+3. [M3 决策](../../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md)：范围、验收 id、已定决策与后果。
+4. [M2 结果](M2_RESULT.md)、[M2 修复交接](M2_FIX_HANDOFF.md)、[KNOWN_ISSUES](../KNOWN_ISSUES.md)：M2 的真实行为、收口修复、明确不修项。
+5. [面板决策](../../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)、[PANEL_RECON](PANEL_RECON.md)、[PANEL_HANDOFF](PANEL_HANDOFF.md)：面板落点、数据契约、客户端构建事实。
 6. [M1 结果](M1_RESULT.md)、[M0 探针](M0_PROBE_RESULT.md)：已证 API，不要重复验证。
 
 ## 交付前的事实（历史）
@@ -37,7 +37,7 @@
 2. **review 会话闭环**：用现有 `sessionController.create` 建独立会话、投递 handoff prompt、验证它能读主仓库、跑 verification 命令、把 verdict 写回（先用手写文件模拟存储）。
 3. **面板数据契约**：`/api/overview`、`/api/handoff` 的 loopback 只读 JSON 能返回 review 字段；旧字段语义不变、未知字段忽略。
 
-探针结论与原始输出写进 M3 提案与 `docs/M3_PROBE_RESULT.md`（新增时同步 `docs/publish.json`）；与假设冲突就改提案，不带着假设写实现。
+探针结论与原始输出写进 M3 提案与 `docs/archived/M3_PROBE_RESULT.md`（新增时同步 `docs/publish.json`）；与假设冲突就改提案，不带着假设写实现。
 
 ## 实施顺序
 
@@ -62,7 +62,7 @@
 - **reviewer 权限**：用工具面硬限制（不给 write/edit），不要只靠 persona；reviewer 需要 bash 跑验证命令，靠 protocol 约束不改文件。
 - **verdict 不可自证**：verdict 文件必须由 review 会话写，thread/master 不能代写；工具层拒绝自审。
 - **needs_revision 退回**：退回要 prompt 原 thread 并把 findings 带过去，不能只改索引状态。
-- **M2 已知限制**：合并 teardown 不是事务、冲突需人工解决、clone 成本与读边界（[KNOWN_ISSUES](KNOWN_ISSUES.md)）——review 流程要覆盖这些失败路径。
+- **M2 已知限制**：合并 teardown 不是事务、冲突需人工解决、clone 成本与读边界（[KNOWN_ISSUES](../KNOWN_ISSUES.md)）——review 流程要覆盖这些失败路径。
 - **并发写者**：动手前 `git fetch`；面板与 review 都改索引结构，只增字段、不重排；另一个会话可能在同步推进文档。
 - **no-multi-orchestrator**：review 语义借 AgentTeams，但不引入其运行时或子会话机制。
 

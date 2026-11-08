@@ -1,6 +1,6 @@
 # M3 收口修复交接
 
-- 状态：**已完成（2026-11-06，`fix/m3-closeout`）**。M3 代码/证据基线 `cd1fe9e`（`feat/m3-review-panel`，已推送），独立终审 t11 已 pass；本文只拥有「M3 遗留清单、修复计划、下一个会话怎么开始」。行为与契约决策见 [M3 收口修复决策](../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)（提案已按生命周期迁入 `implemented/`）；交付事实见 [M3 结果](M3_RESULT.md)「M3-FIX 收口」、[PANEL_RESULT](PANEL_RESULT.md)「M3-FIX 真机补验」与 [M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md)。M3L-1..6 已全部有证据；M3L-7..12 保持原归属；M3L-13（合入 `main`）需用户明确授权，本阶段未做。
+- 状态：**已完成（2026-11-06，`fix/m3-closeout`）**。M3 代码/证据基线 `cd1fe9e`（`feat/m3-review-panel`，已推送），独立终审 t11 已 pass；本文只拥有「M3 遗留清单、修复计划、下一个会话怎么开始」。行为与契约决策见 [M3 收口修复决策](../../.agents/notes/implemented/bug-fix/2026-11-05-m3-closeout-fixes.md)（提案已按生命周期迁入 `implemented/`）；交付事实见 [M3 结果](M3_RESULT.md)「M3-FIX 收口」、[PANEL_RESULT](PANEL_RESULT.md)「M3-FIX 真机补验」与 [M3 决策](../../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md)。M3L-1..6 已全部有证据；M3L-7..12 保持原归属；M3L-13（合入 `main`）需用户明确授权，本阶段未做。
 - 收口证据：四条命令 `npm run check` 0、`npm test` 330/330、`npm run typecheck` 0、`npm run build` 0；真实宿主 E2E `m3-004629a6-c7de-48c1-92e9-99c474eae1a1` 15/15、`tempRepoRemoved=true`；失败路径实测 `m3-565e31d8-…`（fixture 被 finally 删除、原始 error 保留）。最终 commit 与截图见 `.dsh-cowork/e2e/M3_DOCS_READY.json`。
 - 原则：**M3 自己产生的遗留，在 M3-FIX 内修完，不拖到 M4**；宿主/M4 约束不伪装成 M3 遗留，但必须写明原因与重估触发，不能只写「以后再说」。每一项都要有判定面、验证命令和独立复查。
 - 基线事实：`main` 未动（`90f41cd`）；分支 HEAD `cd1fe9e`；四条命令 309/309、check/typecheck/build 0；真实宿主 E2E `m3-d06cc6a6-…` 15/15；截图在 `.dsh-cowork/e2e/panel-m3/`（gitignored）；真实 `.dsh-cowork` 数据已恢复；profile patch 已还原（`dsh-cowork` 仍是 disabled 条目）；当前进程内插件是 runtime 注入，宿主重启后需重新注入。
@@ -33,7 +33,7 @@
 
 - 从 `feat/m3-review-panel` 的 `cd1fe9e` 开 `fix/m3-closeout`；不改写 `main`，不 force push。
 - 复跑基线：`npm run check` / `npm test` / `npm run typecheck` / `npm run build`；真实宿主 health 200，确认插件已注入（必要时 `dev_inject_plugin /Users/ray/Workspace/dsh-cowork`）。
-- 先读本文、[M3 结果](M3_RESULT.md)、[PLAN](PLAN.md) §5.7–§5.9、[KNOWN_ISSUES](KNOWN_ISSUES.md)、[M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md)。
+- 先读本文、[M3 结果](M3_RESULT.md)、[PLAN](../PLAN.md) §5.7–§5.9、[KNOWN_ISSUES](../KNOWN_ISSUES.md)、[M3 决策](../../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md)。
 
 ### Stage 1：M3L-1 面板 API 超时 + M3L-2 失败 E2E 清理
 
@@ -57,7 +57,7 @@
 
 ### Stage 3：M3L-5 fixture 工具迁入 + M3L-4 补真机验证
 
-- 把 `.dsh-cowork/e2e/panel-m3/fixture.mjs` 迁到 `tools/panel-fixture.mjs`（逻辑不变：apply 备份真实数据→写入 5 thread/3 review；restore 还原；退出码明确）。同步更新 `docs/M3_RESULT.md`/`PANEL_RESULT.md` 的路径。
+- 把 `.dsh-cowork/e2e/panel-m3/fixture.mjs` 迁到 `tools/panel-fixture.mjs`（逻辑不变：apply 备份真实数据→写入 5 thread/3 review；restore 还原；退出码明确）。同步更新 `docs/archived/M3_RESULT.md`/`PANEL_RESULT.md` 的路径。
 - 用 `tools/panel-fixture.mjs apply` 后，按 [M3 结果](M3_RESULT.md) 的真机步骤补：
   1. 深色主题：优先用 DSH 主题切换；若 BrowserSkill 无法改 `prefers-color-scheme`，用系统外观切换并记录实际手段，截 `04-dark-review-states.jpg`；
   2. 点击两个「打开会话」按钮，记录是否导航到目标会话（失败/不可用时的 toast 也算证据）；
@@ -77,7 +77,7 @@
 
 ## 下个会话怎么开始（runbook）
 
-1. **读**：本文 → [M3 结果](M3_RESULT.md) → [M3 决策](../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) → [PANEL_RESULT](PANEL_RESULT.md) → [KNOWN_ISSUES](KNOWN_ISSUES.md)。不要重读 M0/M1/M2 的探针。
+1. **读**：本文 → [M3 结果](M3_RESULT.md) → [M3 决策](../../.agents/notes/implemented/feature/2026-11-05-m3-review-panel.md) → [PANEL_RESULT](PANEL_RESULT.md) → [KNOWN_ISSUES](../KNOWN_ISSUES.md)。不要重读 M0/M1/M2 的探针。
 2. **环境**：`pwd` 确认仓库；`git fetch`；`git switch -c fix/m3-closeout cd1fe9e`；`git status` 应只有 ignored。宿主 `http://127.0.0.1:3080`；插件可能因宿主重启未加载：
    - `curl /dsh-cowork/probe/health` 404 → `dev_inject_plugin /Users/ray/Workspace/dsh-cowork`；
    - 页面 boot 里没有 client / 底栏没有「打开 Cowork 面板」→ 先 `dev_reload_package dsh-cowork`；仍不行就 clean `dev_uninject_plugin` → `dev_clear_routes /dsh-cowork` → `dev_inject_plugin`；不要用 reload 后的旧 fiber 下结论（M3 已踩过）。
@@ -89,7 +89,7 @@
 
 ## 非本阶段项（不排进 M3-FIX）
 
-- M4：preset 持久化（KI-3）、单插件打包与正式安装（同时解决 client 缓存与重启后注入）。入口见 [M4 交接](M4_HANDOFF.md) 与 [M4 决策](../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md)；M4 必须先过 M3-FIX。
+- M4：preset 持久化（KI-3）、单插件打包与正式安装（同时解决 client 缓存与重启后注入）。入口见 [M4 交接](M4_HANDOFF.md) 与 [M4 决策](../../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md)；M4 必须先过 M3-FIX。
 - 宿主/工具面：profile 全局 `dev_*` 工具（KI-10）、`client-modules` pkgMeta 不失效（KI-11）、merge 冲突人工解决（KI-4）、workspace-write 前提（KI-5）。
 - 已接受设计：reviewer 的 bash 写能力（M3L-7）、merge override（M3L-10）、截图/证据 gitignored（M3L-5 只保证可复现，不改变存储模式）。
 - 这些不是「忘了修」，而是归属明确；重估触发已写在各行/KNOWN_ISSUES，满足「不拖延」要求：本阶段只承接自己造成的问题。
