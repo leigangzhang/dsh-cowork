@@ -32,8 +32,13 @@ import type { ActivityEvent, ProjectIndexV2, WorkItemRecordV2, WorkItemStatus } 
 export { WORK_ITEM_STATUSES }
 export type { WorkItemStatus }
 
-/** A work-item id that is also usable as a directory and branch name. */
-export const WORK_ITEM_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
+/**
+ * A work-item id that is also usable as a directory and branch name. Kept
+ * identical to the checkout path guard's `TARGET_ID_PATTERN`
+ * (`src/checkout.ts`): a dotted id must fail here rather than pass this check
+ * and be refused later by `createCheckout`.
+ */
+export const WORK_ITEM_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
 /** Statuses that count as work in flight (PLAN-V0.2 §5.1: active + reviewing). */
 export const ACTIVE_WORK_ITEM_STATUSES = ['active', 'reviewing'] as const
 /** Statuses a work item may be merged from. */
@@ -50,6 +55,8 @@ export const WORK_ITEM_VIEW_COMMIT_MAX_CHARS = 64
 export function isValidWorkItemId(value: unknown): value is string {
   return typeof value === 'string'
     && WORK_ITEM_ID_PATTERN.test(value)
+    // The pattern already excludes dots; these stay as a second guard so a
+    // future widening cannot make `.`/`..` usable as a path segment.
     && value !== '.'
     && value !== '..'
 }

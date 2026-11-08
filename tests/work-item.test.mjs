@@ -88,10 +88,12 @@ test('only reviewing work items may be merged', () => {
 })
 
 test('a work-item id is usable as a directory and branch name', () => {
-  for (const valid of ['wi-1', 'wi_1.a-b', 'A'.repeat(128)]) {
+  for (const valid of ['wi-1', 'wi_1-a', 'A'.repeat(128)]) {
     assert.equal(isValidWorkItemId(valid), true, valid)
   }
-  for (const invalid of ['', 'wi 1', 'wi/1', 'wi\\1', '..', '.', 'A'.repeat(129), 42, null, undefined]) {
+  // The pattern is aligned with the checkout path guard's TARGET_ID_PATTERN:
+  // a dotted id is refused here, before any clone is attempted (R2).
+  for (const invalid of ['', 'wi 1', 'wi/1', 'wi\\1', 'wi.1', '.wi', 'wi.', '..', '.', 'A'.repeat(129), 42, null, undefined]) {
     assert.equal(isValidWorkItemId(invalid), false, String(invalid))
   }
 })
@@ -1170,18 +1172,21 @@ test('a duplicate work-item id is refused without a second clone', async (t) => 
 })
 
 test('an unusable generated id is refused before any clone', async (t) => {
-  const { repo } = initGitProject(t)
-  const store = await seedToolStore(repo)
-  const { deps } = toolDeps()
-  const tools = registerToolSet({ ...deps, newWorkItemId: () => '../wi' })
+  for (const generated of ['../wi', 'wi.1']) {
+    const { repo } = initGitProject(t)
+    const store = await seedToolStore(repo)
+    const { deps } = toolDeps()
+    const tools = registerToolSet({ ...deps, newWorkItemId: () => generated })
 
-  const result = await tools.create.execute({}, toolExec('session-topic', repo))
+    const result = await tools.create.execute({}, toolExec('session-topic', repo))
 
-  assert.equal(result.ok, false)
-  assert.equal(result.error.code, 'checkout/path-guard')
-  const document = await store.readIndexDocument()
-  assert.deepEqual(document.workItems, [])
-  assert.equal(existsSync(join(repo, '.dsh-cowork', 'workitems')), false)
+    assert.equal(result.ok, false, generated)
+    assert.equal(result.error.code, 'checkout/path-guard', generated)
+    assert.match(result.error.message, /not usable as a directory and branch name/)
+    const document = await store.readIndexDocument()
+    assert.deepEqual(document.workItems, [])
+    assert.equal(existsSync(join(repo, '.dsh-cowork', 'workitems')), false)
+  }
 })
 
 test('a clone failure leaves no clone and no index record', async (t) => {
