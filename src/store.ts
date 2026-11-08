@@ -29,6 +29,7 @@ import {
   INDEX_VERSION_V2,
   INBOX_MAX_ITEMS,
   activityEventProblems,
+  activityLineBytes,
   handoffRecordProblems,
   inboxItemProblems,
   normalizeProjectIndexV1,
@@ -36,10 +37,19 @@ import {
   projectIndexV1Problems,
   projectIndexV2Problems,
   reviewRecordProblems,
+  serializeActivityEvents,
   threadV1Problems,
+  trimActivityEvents,
 } from './store-schema.js'
 import { MigrationError, applyLegacyView, legacyViewOf, migrateV1ToV2 } from './store-migration.js'
-import type { ActivityEvent, ActivityType, InboxItem, ProjectIndexV2 } from './store-schema.js'
+import type {
+  ActivityEvent,
+  ActivityType,
+  InboxItem,
+  ProjectIndexV2,
+  ReadActivityResult,
+} from './store-schema.js'
+export type { ReadActivityResult } from './store-schema.js'
 import type {
   ArchiveFailure,
   MigrationReport,
@@ -272,15 +282,6 @@ async function readDocument(filePath: string, label: string): Promise<string> {
   }
 }
 
-/**
- * One read of the activity stream: valid events oldest first, and how many
- * lines were skipped because they were not valid events.
- */
-export interface ReadActivityResult {
-  events: ActivityEvent[]
-  skippedLines: number
-}
-
 /** Schema problems of a whole inbox document, addressed by item position. */
 function inboxProblems(items: readonly unknown[]): string[] {
   const problems: string[] = []
@@ -295,34 +296,6 @@ function inboxProblems(items: readonly unknown[]): string[] {
 /** A message for one failure, without carrying a stack into a report. */
 function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-/** Serialized size of one activity line, including its newline. */
-function activityLineBytes(event: ActivityEvent): number {
-  return Buffer.byteLength(JSON.stringify(event), 'utf8') + 1
-}
-
-/** Serialize the activity stream as JSON Lines, one event per line. */
-function serializeActivityEvents(events: readonly ActivityEvent[]): string {
-  return events.map((event) => `${JSON.stringify(event)}\n`).join('')
-}
-
-/**
- * Keep the newest events within both bounds: at most
- * {@link ACTIVITY_MAX_EVENTS} events and at most {@link ACTIVITY_MAX_BYTES}
- * serialized bytes. The oldest events are dropped first.
- */
-function trimActivityEvents(events: readonly ActivityEvent[]): ActivityEvent[] {
-  let first = 0
-  let bytes = events.reduce((total, event) => total + activityLineBytes(event), 0)
-  while (
-    first < events.length &&
-    (events.length - first > ACTIVITY_MAX_EVENTS || bytes > ACTIVITY_MAX_BYTES)
-  ) {
-    bytes -= activityLineBytes(events[first])
-    first += 1
-  }
-  return events.slice(first)
 }
 
 /** Format a timestamp as the handoff filename stamp `YYYYMMDDTHHmmssSSSZ` in UTC. */
@@ -471,7 +444,8 @@ export class ProjectStore {
    * The report of the most recent on-write v1 → v2 migration, or null when this
    * store has not migrated anything. `archiveFailures` names every reviewer the
    * host port could not archive; an empty list means the migration had nothing
-   * to archive or archived it successfully.
+   * to archive or archived it successfully. `activityFailure` names why the
+   * migration activity row could not be written, or is null.
    */
   get lastMigrationReport(): MigrationReport | null {
     return this.migrationReport
@@ -1003,7 +977,9 @@ export class ProjectStore {
    * file exactly as they were and raises `store/corrupt`. A failed archive is
    * recorded instead: the reviewer pointer is already cleared, so the migration
    * must not pretend the review was safely cancelled, but it also must not leave
-   * the index half-migrated.
+   * the index half-migrated. The activity record is appended only after v2 is
+   * on disk; its failure is reported as `activityFailure` and never undoes the
+   * migration (KI-20).
    */
   private async readIndexForWrite(): Promise<ProjectIndexV2> {
     const originalText = await readDocument(this.indexFile, 'project index')
@@ -1036,8 +1012,6 @@ export class ProjectStore {
       migrated.report.archiveFailures = await this.archivePendingReviewers(
         migrated.report.pendingReviewerArchives,
       )
-      this.migrationReport = migrated.report
-      await this.recordMigrationActivity(migrated.report)
       await this.writeJson(this.indexFile, migrated.document)
     } catch (error) {
       // The backup and the original v1 document are both still on disk: report
@@ -1048,6 +1022,15 @@ export class ProjectStore {
         this.indexFile,
       )
     }
+    // KI-20: v2 is already committed. The activity record is evidence and must
+    // not roll the migration back; a retry sees v2 and never archives again, so
+    // report the append failure instead of rewriting a half-migrated index.
+    try {
+      await this.recordMigrationActivity(migrated.report)
+    } catch (error) {
+      migrated.report.activityFailure = describeFailure(error)
+    }
+    this.migrationReport = migrated.report
     return migrated.document
   }
 

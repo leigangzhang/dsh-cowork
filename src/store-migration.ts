@@ -105,6 +105,12 @@ export interface MigrationReport {
   pendingReviewerArchives: PendingReviewerArchive[]
   /** Filled by the store's migration entry; the pure function leaves it empty. */
   archiveFailures: ArchiveFailure[]
+  /**
+   * Why the migration activity record could not be appended, or null. The
+   * activity is evidence written after v2 is on disk (KI-20): its failure is
+   * reported here and never rolls the migration back.
+   */
+  activityFailure: string | null
   unknownFields: string[]
   legacyFieldsPreserved: string[]
 }
@@ -226,6 +232,7 @@ function migrateV2Document(document: Record<string, unknown>): MigrationResult {
       resolvedTopics: [],
       pendingReviewerArchives: [],
       archiveFailures: [],
+      activityFailure: null,
       unknownFields: [],
       legacyFieldsPreserved: [],
     },
@@ -292,6 +299,7 @@ function migrateV1Document(index: Record<string, unknown>, cancelInFlightReviews
       resolvedTopics,
       pendingReviewerArchives,
       archiveFailures: [],
+      activityFailure: null,
       unknownFields,
       legacyFieldsPreserved,
     },
