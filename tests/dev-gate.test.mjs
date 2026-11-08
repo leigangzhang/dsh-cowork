@@ -179,7 +179,7 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   assert.deepEqual(host.routes, [])
   assert.deepEqual(fetchPaths(host), sorted([OVERVIEW_PATH, HANDOFF_PATH]))
 
-  // Exactly the eleven business tools: the probe tools are absent.
+  // Exactly the fourteen business tools: the probe tools are absent.
   assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
 
   // The four runner session feeds are not attached; the business topic
@@ -187,7 +187,7 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   assert.equal(sessionListeners(host).length, 1)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 
-  // Only the three business presets; no probe preset rows.
+  // Only the four business presets; no probe preset rows.
   assert.deepEqual(presetIds(host), sorted(BUSINESS_PRESETS))
 
   // No dev-owned effect was registered either, so nothing can survive dispose.
