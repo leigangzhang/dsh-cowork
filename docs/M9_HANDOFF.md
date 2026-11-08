@@ -6,7 +6,7 @@
 
 ## M8 交付后的状态（2026-11-08）
 
-- **基线分支**：`feat/m8-topic-lifecycle`（从 `origin/main` 的 `06ff66b` 切出）。代码交付点 `3723359`；其后是只改 `.md` 的记录迁移、M8 交付结果与 M9 规划提交。分支已 push 到 `origin`，PR 由 M8 收口创建；**不要**在 M8 分支上继续开发。
+- **基线分支**：`feat/m8-topic-lifecycle`（从 `origin/main` 的 `06ff66b` 切出）。代码交付点 `3723359`；其后是只改 `.md` 的记录迁移、M8 交付结果与 M9 规划提交。分支已 push 到 `origin`，M8 PR 为 [#12](https://github.com/leigangzhang/dsh-cowork/pull/12)；**不要**在 M8 分支上继续开发。
 - **启动基线**：如果 M8 PR 已合并，用 `origin/main` 的 merge sha；未合并时，用 `origin/feat/m8-topic-lifecycle` 的 HEAD（启动时用 `git rev-parse` 记录实际 sha，不凭推测）。分支命名建议 `feat/m9-routing-tools-presets`。
 - **验证基线**：`npm test` **485 pass / 0 fail / 0 skip / 0 todo**；`npm run typecheck`、`npm run build`、`npm run check` 均 exit 0（M8 代码 HEAD 与文档提交上各跑过一次）。M9 新增测试后计数会增加，不预写未来数字。
 - **代码形态**：`src/store.ts` 48,524 B（审查线 49,152 B）；`src/tools.ts` 43,854 B（M9 必须拆分）；`src/router.ts` 7,660 B（M9 重写为 `src/routing.ts`）；`src/presets.ts` 8,460 B；`src/memory-prompt.ts` 7,519 B；`src/index.ts` 24,638 B。

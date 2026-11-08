@@ -7,7 +7,7 @@
 ## 交付基线
 
 - **分支**：`feat/m8-topic-lifecycle`（从基线 `06ff66b` 切出；M7 在 `06ff66b` 之前已合并）。
-- **代码 HEAD**：`3723359`（`37233599bbead144a29d52906f724c3d8b25cddc`）。记录迁移与交接是其后的只改 `.md` 提交（本文件无法写入自身 sha）；分支已推送到 `origin/feat/m8-topic-lifecycle`，是否合并 `main` 由 PR 评审决定。
+- **代码 HEAD**：`3723359`（`37233599bbead144a29d52906f724c3d8b25cddc`）。记录迁移与交接是其后的只改 `.md` 提交（本文件无法写入自身 sha）；分支已推送到 `origin/feat/m8-topic-lifecycle`，M8 PR 为 [#12](https://github.com/leigangzhang/dsh-cowork/pull/12)，是否合并 `main` 由 PR 评审决定。
 - **提交序列（`06ff66b..3723359`，按提交顺序）**：
   - M8.1：`3d5fa4f`（store canonical v2 读写）→ `2c7e489`（topic 三态纯函数）→ `d77b2e4`（v1 投影按 v2 schema fail closed）
   - M8.3（并行 worktree）：`641469d`（activity helper 移入 store-schema，腾预算）→ `19ec923`（activity 事件构造）→ `6dd8345`（inbox 合并/投递/重放）→ `2c9337d`（KI-20：先写 v2 再写迁移活动）
