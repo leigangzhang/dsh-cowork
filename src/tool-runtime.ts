@@ -58,6 +58,20 @@ export interface CurrentModelRoute {
   model: string
 }
 
+/**
+ * Isolation provider used to create an isolated work item (PLAN-V0.2 §4.5).
+ * M10 implements `clone` only; a different value fails the work-item tool with
+ * `workitem/provider-unsupported` instead of silently falling back.
+ */
+export const DEFAULT_ISOLATION_PROVIDER = 'clone'
+
+/**
+ * When a reviewer session is reclaimed (PLAN-V0.2 §5.4). M10 supports only
+ * `after-verdict` — reclaiming a reviewer any earlier blocks its turn before a
+ * verdict exists — and startup rejects every other value.
+ */
+export const DEFAULT_REVIEWER_RECLAIM = 'after-verdict'
+
 export interface CoworkToolDeps {
   sessionController: SessionSlicePorts['sessions']
   workspaceRegistry: SessionSlicePorts['workspaces']
@@ -70,6 +84,10 @@ export interface CoworkToolDeps {
   idleAfterMs?: number
   /** Silence after which a resolvable topic is resolved; defaults to `DEFAULT_RESOLVE_AFTER_MS`. */
   resolveAfterMs?: number
+  /** Work-item isolation provider; defaults to {@link DEFAULT_ISOLATION_PROVIDER}. */
+  isolationProvider?: string
+  /** Reviewer reclaim mode; defaults to {@link DEFAULT_REVIEWER_RECLAIM}. */
+  reviewerReclaim?: string
   /** Third-layer model routing settings (M9.2). */
   routing?: RoutingSettings
   /** Host LLM port for the third routing layer; absent means "unavailable". */
