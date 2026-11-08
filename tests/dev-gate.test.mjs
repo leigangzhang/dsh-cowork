@@ -51,8 +51,8 @@ const BUSINESS_TOOLS = [
   'cowork_thread_list',
 ]
 
-/** The three runtime presets every mode registers. */
-const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-thread']
+/** The four runtime presets every mode registers (thread is the deprecated topic alias). */
+const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-thread', 'cowork-topic']
 
 /** Probe-only tools, presets, and routes; all gated by `enableDevRoutes`. */
 const DEV_TOOLS = ['cowork_identity_probe', 'cowork_probe']
