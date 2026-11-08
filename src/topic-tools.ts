@@ -12,21 +12,25 @@
  * the v1 index view. In particular `cowork_handoff(done)` no longer maps the
  * old `done` thread state to `resolved`; it records the summary and delivery
  * confirmation and leaves the topic active.
+ *
+ * M10 narrowed the handoff to `blocked|done`: the file stays as an audit record
+ * but the master is no longer prompted with its full text; a `blocked` handoff
+ * only enqueues one bounded inbox item, and `done` records the digest and
+ * delivery confirmation. Reviews are requested by the topic through
+ * `cowork_review_request`, never by the master in response to a handoff.
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { buildActivityEvent } from './activity.js'
-import {
-  buildHandoffRecord,
-  formatMasterMessage,
-  validateHandoff,
-} from './handoff.js'
+import { buildHandoffRecord, validateHandoff } from './handoff.js'
+import { INBOX_SUMMARY_MAX_CHARS } from './inbox.js'
 import { TOPIC_PRESET_ID } from './presets.js'
 import type { TopicRecordV2 } from './store-schema.js'
 import type { CoworkToolDeps, JsonValue, ProjectRuntime } from './tool-runtime.js'
 import {
   BRIEF_MAX_CHARS,
   callerOf,
+  deliverInbox,
   isFailure,
   mapError,
   nowOf,
@@ -235,10 +239,19 @@ async function listTopics(_args: Record<string, unknown>, exec: unknown, deps: C
 }
 
 /**
- * The v2 handoff semantics: record the file, update the canonical topic, then
- * deliver. The index write happens before the prompt so a delivery failure
- * leaves a replayable handoff and an accurate topic.
+ * M10 handoff semantics: validate → write the audit file → update the canonical
+ * topic → (blocked only) deliver one bounded inbox item.
+ *
+ * The full handoff text is never prompted into the master turn: `done` records
+ * the digest and delivery confirmation, `blocked` sets the flag and wakes the
+ * master through the inbox. A delivery failure leaves the item undelivered for
+ * the next pass and is reported in `delivery`; it never fails the handoff,
+ * because the topic state and the audit file are already committed.
  */
+function blockedInboxSummary(topicId: string, summary: string): string {
+  return truncateText(`topic ${topicId} blocked: ${summary}`, INBOX_SUMMARY_MAX_CHARS)
+}
+
 async function handoff(args: Record<string, unknown>, exec: unknown, deps: CoworkToolDeps): Promise<JsonValue> {
   const caller = callerOf(exec)
   if (isFailure(caller)) return toJson(caller)
@@ -278,6 +291,8 @@ async function handoff(args: Record<string, unknown>, exec: unknown, deps: Cowor
     }
 
     const record = buildHandoffRecord(validation.value, now)
+    // Written before the index so a failed tool call never loses the report it
+    // was handed; the file is audit-only in M10.
     const file = await opened.store.writeHandoff(record)
 
     let updated: TopicRecordV2 | null = null
@@ -285,18 +300,13 @@ async function handoff(args: Record<string, unknown>, exec: unknown, deps: Cowor
       const existing = current.topics.find((entry) => entry.topicId === caller.sessionId)
       if (existing === undefined) return null
       const active = noteTopicActivity(existing, now.getTime())
-      const next: TopicRecordV2 = { ...active }
+      const next: TopicRecordV2 = { ...active, awaitingReview: false }
       if (record.status === 'done') {
         next.digest = truncateText(record.summary, 200)
         next.lastDeliveryConfirmedAt = record.createdAt
         next.blocked = false
-        next.awaitingReview = false
-      } else if (record.status === 'blocked') {
-        next.blocked = true
-        next.awaitingReview = false
       } else {
-        next.awaitingReview = true
-        next.blocked = false
+        next.blocked = true
       }
       updated = next
       return {
@@ -311,41 +321,28 @@ async function handoff(args: Record<string, unknown>, exec: unknown, deps: Cowor
       ))
     }
 
-    let delivered = false
-    let deliveryError: string | undefined
-    try {
-      const acceptance = await opened.slice.promptSession(
-        document.masterSessionId,
-        formatMasterMessage(record, file.filePath),
-      )
-      if (acceptance.accepted === true) {
-        delivered = true
-        try {
-          const marked = await opened.store.markHandoffDelivered(file.filePath, now.toISOString())
-          return toJson(success({
-            delivered,
-            filePath: file.filePath,
-            status: record.status,
-            record: marked.record,
-            topic: topicView(updated),
-          }))
-        } catch (error) {
-          deliveryError = error instanceof Error ? error.message : String(error)
-        }
-      } else {
-        deliveryError = 'master did not accept the handoff'
-      }
-    } catch (error) {
-      deliveryError = error instanceof Error ? error.message : String(error)
-    }
+    const delivery = record.status !== 'blocked'
+      ? null
+      : await deliverInbox({
+          store: opened.store,
+          events: [{
+            topicId: caller.sessionId,
+            kind: 'blocked',
+            summary: blockedInboxSummary(caller.sessionId, record.summary),
+          }],
+          deliver: async (text) => {
+            const prompted = await opened.slice.promptSession(document.masterSessionId, text)
+            if (!prompted.accepted) throw new Error('master did not accept the inbox batch')
+          },
+          clock: () => now,
+        })
 
     return toJson(success({
-      delivered,
-      filePath: file.filePath,
       status: record.status,
+      filePath: file.filePath,
       record,
-      ...(deliveryError === undefined ? {} : { deliveryError }),
       topic: topicView(updated),
+      delivery,
     }))
   } catch (error) {
     return toJson(mapError(error))
@@ -479,13 +476,13 @@ export function registerTopicTools(ctx: unknown, deps: CoworkToolDeps): Array<()
   disposers.push(host.tools.register(defineTool({
     name: 'cowork_handoff',
     description:
-      'Report this topic result to the master: status, summary, and the verification you ran. Topic only; a topic that stops without this has not finished. status awaiting_review is deprecated (M10 removes it).',
+      'Report this topic result to the master: status blocked or done, a summary, and the verification you ran. Topic only; a topic that stops without this has not finished. Request reviews separately with cowork_review_request.',
     parameters: {
       status: {
         type: 'string',
         required: true,
-        enum: ['awaiting_review', 'blocked', 'done'],
-        description: 'Topic state after this handoff; awaiting_review is deprecated.',
+        enum: ['blocked', 'done'],
+        description: 'Topic state after this handoff: done when finished, blocked when waiting for input.',
       },
       summary: { type: 'string', required: true, description: 'What was done, in one paragraph.' },
       verification: {

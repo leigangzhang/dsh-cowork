@@ -27,6 +27,8 @@ const { registerCoworkTools } = await import('../src/tools.ts')
 const { ProjectStore } = await import('../src/store.ts')
 const { TOPIC_LIST_LIMIT } = await import('../src/topic-tools.ts')
 const { ERROR_CODES, TOPIC_ERROR_CODES } = await import('../src/tool-model.ts')
+const { INBOX_SUMMARY_MAX_CHARS } = await import('../src/inbox.ts')
+const { deliverInbox } = await import('../src/tool-runtime.ts')
 
 const NOW_ISO = '2026-11-07T10:00:00.000Z'
 const NOW_MS = Date.parse(NOW_ISO)
@@ -304,7 +306,14 @@ test('cowork_topic_resolve is idempotent and records one status change', async (
 
 const HANDOFF_VERIFICATION = [{ command: 'npm test', exitCode: 0, evidence: 'ok' }]
 
-test('cowork_handoff(done) records the summary and delivery proof without resolving the topic', async () => {
+test('cowork_handoff exposes only blocked|done and no longer mentions awaiting_review', () => {
+  const handoff = tools(fakeDeps()).get('cowork_handoff')
+  assert.deepEqual([...handoff.parameters.properties.status.enum], ['blocked', 'done'])
+  assert.match(handoff.description, /blocked or done/)
+  assert.equal(/awaiting_review/.test(handoff.description), false)
+})
+
+test('cowork_handoff(done) records the summary and delivery confirmation without prompting the master', async () => {
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [
       topic({
@@ -326,8 +335,8 @@ test('cowork_handoff(done) records the summary and delivery proof without resolv
     }, fakeExec('session-thread', repoPath))
 
     assert.equal(result.ok, true)
-    assert.equal(result.delivered, true)
     assert.equal(result.status, 'done')
+    assert.equal(result.delivery, null, 'done does not notify the master')
     assert.equal(result.topic.status, 'active', 'noteTopicActivity returns the idle topic to active')
     assert.equal(result.topic.blocked, false)
     assert.equal(result.topic.awaitingReview, false)
@@ -339,18 +348,16 @@ test('cowork_handoff(done) records the summary and delivery proof without resolv
     assert.equal(document.topics[0].digest.length, 200)
     assert.equal(document.topics[0].lastDeliveryConfirmedAt, NOW_ISO, 'done confirms the delivery time')
 
-    assert.equal(deps.promptCalls.length, 1)
-    assert.equal(deps.promptCalls[0].sessionId, 'session-master')
-    assert.match(promptText(deps.promptCalls[0]), /status: done/)
+    assert.equal(deps.promptCalls.length, 0, 'the handoff text is no longer prompted into the master turn')
 
     const files = await store.listHandoffs()
     assert.equal(files.length, 1)
-    assert.equal(files[0].record.deliveredAt, NOW_ISO)
     assert.equal(files[0].record.status, 'done')
+    assert.equal(files[0].record.deliveredAt, null, 'the file is audit-only in M10, not a delivery ledger')
   })
 })
 
-test('cowork_handoff(blocked) sets blocked and clears awaitingReview; awaiting_review is the reverse', async () => {
+test('cowork_handoff(blocked) sets the flag and wakes the master through one bounded inbox item', async () => {
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [topic({ topicId: 'session-thread', status: 'idle' })])
     const deps = fakeDeps()
@@ -362,34 +369,66 @@ test('cowork_handoff(blocked) sets blocked and clears awaitingReview; awaiting_r
       summary: 'waiting for input',
       verification: HANDOFF_VERIFICATION,
     }, fakeExec('session-thread', repoPath))
+
     assert.equal(blocked.ok, true)
+    assert.equal(blocked.status, 'blocked')
+    assert.deepEqual(blocked.delivery, { delivered: 1, failed: 0 })
     assert.equal(blocked.topic.status, 'active')
     assert.equal(blocked.topic.blocked, true)
     assert.equal(blocked.topic.awaitingReview, false)
 
-    // The handoff file name is derived from createdAt: advance the clock so the
-    // second handoff is a distinct file, like any real second report.
-    fakeDepsClock.advance(deps)
-    const review = await handoff.execute({
-      status: 'awaiting_review',
-      summary: 'please review',
-      verification: HANDOFF_VERIFICATION,
-    }, fakeExec('session-thread', repoPath))
-    assert.equal(review.ok, true)
-    assert.equal(review.topic.awaitingReview, true)
-    assert.equal(review.topic.blocked, false)
-    assert.match(registry.get('cowork_handoff').description, /deprecated/)
-    assert.equal((await store.listHandoffs()).length, 2)
+    const inbox = await store.readInbox()
+    assert.equal(inbox.length, 1)
+    assert.equal(inbox[0].kind, 'blocked')
+    assert.equal(inbox[0].topicId, 'session-thread')
+    assert.equal(inbox[0].summary, 'topic session-thread blocked: waiting for input')
+    assert.equal(inbox[0].deliveredAt, NOW_ISO)
+
+    assert.equal(deps.promptCalls.length, 1)
+    assert.equal(deps.promptCalls[0].sessionId, 'session-master')
+    assert.match(promptText(deps.promptCalls[0]), /\[blocked\] topic session-thread blocked: waiting for input/)
+
+    // The tool boundary itself now rejects the old review status before any write.
+    await assert.rejects(
+      handoff.execute({
+        status: 'awaiting_review',
+        summary: 'please review',
+        verification: HANDOFF_VERIFICATION,
+      }, fakeExec('session-thread', repoPath)),
+      /must be one of \["blocked","done"\]/,
+    )
+    assert.equal((await store.listHandoffs()).length, 1)
   })
 })
 
-test('cowork_handoff refuses the master and keeps a failed delivery replayable', async () => {
+test('a blocked handoff bounds the inbox summary', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const deps = fakeDeps()
+
+    const result = await tools(deps).get('cowork_handoff').execute({
+      status: 'blocked',
+      summary: 'y'.repeat(5000),
+      verification: HANDOFF_VERIFICATION,
+    }, fakeExec('session-thread', repoPath))
+
+    assert.equal(result.ok, true)
+    const inbox = await store.readInbox()
+    assert.equal(inbox.length, 1)
+    assert.ok(
+      inbox[0].summary.length <= INBOX_SUMMARY_MAX_CHARS,
+      `inbox summary is ${inbox[0].summary.length} characters`,
+    )
+    assert.match(inbox[0].summary, /^topic session-thread blocked: /)
+  })
+})
+
+test('cowork_handoff refuses the master; a failed blocked delivery stays replayable and does not fail the handoff', async () => {
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
     const deps = fakeDeps()
     deps.promptAccepted = false
-    const registry = tools(deps)
-    const handoff = registry.get('cowork_handoff')
+    const handoff = tools(deps).get('cowork_handoff')
 
     const master = await handoff.execute({
       status: 'done',
@@ -400,17 +439,53 @@ test('cowork_handoff refuses the master and keeps a failed delivery replayable',
     assert.equal(master.error.code, ERROR_CODES.roleForbidden)
 
     const failed = await handoff.execute({
-      status: 'done',
+      status: 'blocked',
       summary: 'not delivered',
       verification: HANDOFF_VERIFICATION,
     }, fakeExec('session-thread', repoPath))
-    assert.equal(failed.ok, true)
-    assert.equal(failed.delivered, false)
-    assert.match(failed.deliveryError, /did not accept/)
-    assert.equal(failed.topic.status, 'active', 'the topic update still lands before delivery')
+    assert.equal(failed.ok, true, 'a delivery failure must not fail the handoff')
+    assert.equal(failed.topic.blocked, true)
+    assert.equal(failed.delivery.delivered, 0)
+    assert.equal(failed.delivery.failed, 1)
+    assert.match(failed.delivery.error, /did not accept/)
+
+    const inbox = await store.readInbox()
+    assert.equal(inbox.length, 1)
+    assert.equal(inbox[0].deliveredAt, null, 'the undelivered item stays for the next pass')
 
     const files = await store.listHandoffs()
     assert.equal(files.length, 1)
-    assert.equal(files[0].record.deliveredAt, null, 'an undelivered handoff stays replayable')
+    assert.equal(files[0].record.deliveredAt, null, 'the audit file is not a delivery ledger')
   })
+})
+
+test('deliverInbox reports an InboxMarkError as a value and never throws', async () => {
+  const item = {
+    id: 'item-1',
+    time: NOW_ISO,
+    topicId: 'session-thread',
+    kind: 'blocked',
+    summary: 'pending',
+    deliveredAt: null,
+  }
+  let writes = 0
+  const store = {
+    async readInbox() { return [item] },
+    async writeInbox(items) {
+      writes += 1
+      if (writes > 1) throw new Error('inbox is read-only')
+      return items
+    },
+  }
+
+  const outcome = await deliverInbox({
+    store,
+    events: [{ topicId: 'session-thread', kind: 'blocked', summary: 'new event' }],
+    deliver: async () => {},
+    clock: () => new Date(NOW_ISO),
+  })
+
+  assert.equal(outcome.delivered, 0)
+  assert.equal(outcome.failed, 1)
+  assert.match(outcome.error, /could not be marked delivered/)
 })
