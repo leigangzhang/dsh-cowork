@@ -20,7 +20,7 @@ Class: feature
 
 **第二层：结构化匹配。** 从输入里取出路径、模块名、符号、产品术语，与主题的 `scope`、`ownedPaths`、`aliases` 对照；返回分数和可解释的原因。这一层是确定的，不调用模型，且排除 `resolved` 主题。分数与阈值由 M9 实现，但「先结构化、后模型」是本决策的一部分。
 
-**第三层：模型兜底。** 只有第二层剩下 1–3 个候选且分不出高低时，调用 `ctx.llm.prepareCall`。输入只有用户这句话和候选的标题/范围/摘要（≤2k 字）；输出 `{topicId|null, confidence}`；`maxTokens` 小（默认 256）、超时 2 秒、关闭推理（使用模型支持的最低 `reasoningEffort`，或适配器 thinking=false，以 M6 探针为准）。模型失败或超时回退：最高结构化候选过底线则复用，否则新建。
+**第三层：模型兜底。** 只有第二层剩下 1–3 个候选且分不出高低时，调用 `ctx.llm.prepareCall`。输入只有用户这句话和候选的标题/范围/摘要（≤2k 字）；输出 `{topicId|null, confidence}`；`maxTokens` 小（默认 256）、超时 2 秒、关闭推理：`reasoningEffort="off"` 即适配器 `thinking.type="disabled"` 且不发送 `output_config`（M6 探针 1，见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §1）。模型失败或超时回退：最高结构化候选过底线则复用，否则新建。
 
 **低置信不弹选择。** 模型给出选择就执行；不让用户在弹窗里再选一次。如果选错，面板「移动到其他主题」把原意图写进目标主题的 `aliases`，并记录 `route-corrected` 事件；下次同样的说法更容易分对。
 
@@ -49,14 +49,14 @@ Class: feature
 ## Acceptance criteria
 
 - [A1] 第一层命中时不调用模型；第二层结构化匹配先于模型；只有 1–3 个候选且分不出高低才调用 `ctx.llm` — `tests`
-- [A2] 模型调用关闭推理、限制 `maxTokens`、有 2 秒超时；失败/超时按最高结构化候选或新建回退，不弹窗 — `tests`
+- [A2] 模型调用用 `reasoningEffort="off"` 关闭推理、限制 `maxTokens`、有 2 秒超时；失败/超时按最高结构化候选或新建回退，不弹窗 — `tests`
 - [A3] 低置信不产生用户选择请求；面板改投写入目标主题 `aliases` 并记录 `route-corrected` — `tests`
 - [A4] `resolved` 不进入自动候选；显式指定已解决主题时返回 `resolvedMatch` 并新建，不向已解决主题发消息 — `tests`
 - [A5] 路由事件只保存有界摘要；`brief` 有长度上限；不把整个意图写进 master 上下文 — `source`
 
 ## Risks
 
-- `ctx.llm` 的接口或关闭推理方式不符：M6 探针必须回答；不可用时关闭第三层，回退到结构化匹配/新建，不阻塞其他阶段。
+- `ctx.llm` 已由探针 1 确认可用，`reasoningEffort="off"` 等价关闭推理；若适配器未来变更或 `prepareCall` 失败，关闭第三层，回退到结构化匹配/新建，不阻塞其他阶段。
 - 模型调用增加延迟与成本：只在少数候选时调用，限制输入/输出与 2 秒超时；真实使用中需要记录调用率。重审条件：调用率持续偏高或每次路由明显变慢。
 - 别名污染：纠正写入的 token 可能过宽，导致以后误命中。缓解：别名有数量上限（50）、去重、只从纠正的原意图提取；面板可查看。重审条件：同一别名引发多次误路由。
 - `masterFocusTopicId` 过期：用户切回 master 后仍指向旧主题。缓解：第一层只作为默认，输入出现新主题信号或明确 `topicId` 时覆盖；面板打开主题时更新焦点。
@@ -64,7 +64,7 @@ Class: feature
 
 ## Delivery stages
 
-- M6：探针确认 `ctx.llm` 调用、关闭推理、超时；记录模型路由的观测性结果。
+- M6：探针 1 已确认 `ctx.llm.prepareCall`、`reasoningEffort="off"` 等价关闭推理、2 秒超时建议与失败回退；结论见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §1。
 - M9：实现三层路由、候选解释、`resolved` 排除、`brief`、自动标题与别名纠正。
 - M11：面板显示路由事件、改投操作；写 `masterFocusTopicId`。
 - M12：真实 E2E 中关闭模型路由跑确定性路径；另做一次模型路由观测。

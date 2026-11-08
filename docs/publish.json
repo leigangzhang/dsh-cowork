@@ -26,6 +26,10 @@
       "reason": "PLAN V0.2 (plugin 0.2.0): M6–M12 staged plan and acceptance for the topic-session model rewrite; V0.1 remains in docs/PLAN.md as the M0–M4 record"
     },
     {
+      "pattern": "docs/M6_PROBE_RESULT.md",
+      "reason": "M6 host probe results (LLM prepareCall and reasoning-off, session events, archive-then-prompt, reviewer reclaim, preset tool surface and per-agent policy, panel same-origin POST in real Chrome, clone readability): environment- and version-bound evidence for implementers and reviewers, not a user-facing guide"
+    },
+    {
       "pattern": ".agents/notes/*",
       "reason": "decision records and their templates; internal history, not a guide"
     },

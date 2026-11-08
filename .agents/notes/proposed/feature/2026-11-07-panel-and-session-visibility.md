@@ -12,7 +12,7 @@ M4 的侧栏把 master、thread、reviewer 都当普通会话平铺。两个使�
 
 ## Proposal
 
-**左侧栏。** 只保留 master。主题会话创建后从左侧栏隐藏：优先使用宿主/插件过滤接口；没有过滤时用 `workspaceRegistry.archiveSession` 的展示过滤。打开主题后仍保持隐藏；用户要通过 CoWork 面板进入，而不是在左侧栏找。若探针证明 archive 后不能正常打开或继续对话，则退回「主题会话保留在左侧栏」的降级形态，并记录限制，不假装隐藏成功。
+**左侧栏。** 只保留 master。主题会话创建后从左侧栏隐藏：优先使用宿主/插件过滤接口；没有过滤时用 `workspaceRegistry.archiveSession` 的展示过滤。M6 探针 3 已证明 archive 不是透明的「隐藏但可继续」：归档后 `prompt` 被接受，但 turn 以 `blocked` 结束、无 assistant 文本，归档期间消息不落盘；unarchive 后才恢复，且宿主没有 archive 之外的会话过滤/隐藏接口（见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §3）。因此 M11 只能在两条候选里选：**(a)** 打开前 `unarchiveSession`、离开后重新 `archiveSession`，打开期间主题会出现在左侧栏；**(b)** 采用 §8 已定义的降级形态，主题会话保留在左侧栏，只隐藏 reviewer。真实 UI 点击与客户端 `clearArchivedCurrent` 的行为在 M11 验证；不得声称「隐藏且可打开」已按原假设成立。
 
 **右侧栏。** CoWork 是右侧栏的一个 tab；默认 tab 仍是普通会话；CoWork 不自动打开，用户通过 footer 入口或 guide 进入。tab 里是主题列表、主题详情和活动流。不另开独立浮窗，也不占用主区做满页面板。
 
@@ -44,7 +44,7 @@ M4 的侧栏把 master、thread、reviewer 都当普通会话平铺。两个使�
 
 ## Acceptance criteria
 
-- [A1] 左侧栏只显示 master；主题会话隐藏且可通过 CoWork 打开；隐藏失败时有降级并记录 — `tests`
+- [A1] 左侧栏只显示 master；主题会话按 M6 结论的 (a) `unarchive→打开→重新 archive` 或 (b) 保留左侧栏、只隐藏 reviewer 之一处理，且可从 CoWork 打开并继续对话；限制写进文档 — `tests`
 - [A2] CoWork 是右侧栏 tab，默认 tab 仍是普通会话；CoWork 不自动打开；footer 入口可用 — `source`
 - [A3] 打开主题只切换主区，不新增左侧栏条目、不新开窗口；面包屑或左侧栏可回 master — `tests`
 - [A4] reviewer 不出现在列表；评审卡挂主题详情；verdict 后 reviewer 归档 — `tests`
@@ -53,13 +53,13 @@ M4 的侧栏把 master、thread、reviewer 都当普通会话平铺。两个使�
 ## Risks
 
 - archive 只是展示过滤，不是隔离；被隐藏的会话仍可能被其他入口看到。重审条件：宿主提供真正的会话过滤/分组接口。
-- archive 后 `openSession` 或 `prompt` 可能异常；M6 必须验证。不可用时退回左侧栏可见，并在 README 与 KI 里说明，不能假装成功。
+- archive 后 `prompt` 已验证不可用（turn `blocked`、消息不落盘）；`openSession` 本身不检查 archive，但客户端 `clearArchivedCurrent` 会在下一次列表 reconcile 清掉归档的 main 选择（真实 UI 未验证）。M11 按 (a)/(b) 之一实现，并在 README 与 KI 里说明，不能假装成功。
 - 写路由的同源/CSRF 检查可能误伤正常面板请求；用真实 Chrome 验证，错误信息要可读。
 - 面板重写范围大，可能超出 50 KiB 单文件预算；按 §4.2 拆分组件，先 API/类型后 UI。
 - 主题会话隐藏后，用户可能不知道它在哪；CoWork 的入口与面包屑必须清楚，M12 做可用性检查。
 
 ## Delivery stages
 
-- M6：探针确认 archive 后打开/prompt、面板写路由同源检查、CoWork tab 默认行为。
+- M6：探针 3 已确认 archive 后不能继续对话、没有替代过滤接口；探针 6 已确认面板写路由的同源检查；结论见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §3/§6，可见性候选 (a)/(b) 留给 M11 与用户决定。
 - M11：实现 v2 面板、主题列表/详情/活动、打开/已解决/重开/改投、reviewer 卡片。
 - M12：真实 Chrome 验证与截图，文档写明隐藏失败时的降级。

@@ -18,7 +18,7 @@ M4 的隔离单位是 thread：每个 isolated thread 一个本地 clone、一�
 
 **工作项。** 一个隔离执行单元对应一个 `WorkItemRecord`：`workItemId`、`topicId`、`path`、`branch`、`baseCommit`、`headCommit`、`status`（`active`/`reviewing`/`merged`/`abandoned`）、创建与更新时间。工作项由主题或 master 调用 `cowork_work_item_create` 创建；返回目录、分支、基提交。执行单元在各自目录里工作并提交。
 
-**隔离提供方。** v1 继续用现有的本地 clone（`<repo>/.dsh-cowork/workitems/<workItemId>`，分支 `cowork/<workItemId>`）。clone 已经由 M2 证明可写、可提交、可被 reviewer 读取；worktree 作为可选适配器后置，原因是 M2 的沙箱与 git 元数据位置问题需要单独探针，不在 v1 阻塞。隔离是「目录级」，不是硬沙箱；不把文件范围当成安全边界。
+**隔离提供方。** v1 继续用现有的本地 clone（`<repo>/.dsh-cowork/workitems/<workItemId>`，分支 `cowork/<workItemId>`）。M6 探针 7 已证明 reviewer 类会话（只有 bash/glob/grep、无 read/write/edit）能用 bash 读取 clone 内的 marker；探针用 `--no-hardlinks` 证明内容独立可读，产品实现是 `git clone --local`（`src/checkout.ts:312`），两者都把 `.git` 放在 clone 内。探针跑完即删除自己创建的 clone（`.dsh-cowork` 会被 publish-manifest 扫描，clone 里的 `.md` 会让 `npm run check` 变红），可由证据里的 head/marker 复现。worktree 作为可选适配器后置，原因是宿主的 `worktrees` 服务只有 `create`，`dsh-plugin-worktrees` 是给 agent 的工具面 + opportunistic 引擎，需要单独探针，不在 v1 阻塞（见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §7）。隔离是「目录级」，不是硬沙箱；不把文件范围当成安全边界。
 
 **创建与边界。** 主题是集成分支的负责人；执行单元不直接改主仓库，不自行合并。AgentTeams 成员共用父会话 cwd，进入隔离目录靠任务说明和 `cd`，是软规则；合并前主题/队长核对分支、HEAD、改动文件，合并独占。
 
@@ -62,6 +62,7 @@ M4 的隔离单位是 thread：每个 isolated thread 一个本地 clone、一�
 
 ## Delivery stages
 
+- M6：探针 7 已确认 reviewer 可读隔离 clone、worktree 不能直接作 v1 提供方；结论见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §7。
 - M7：`WorkItemRecord` 进入 v2 索引；迁移旧 `checkoutPath` 为 legacy 字段。
 - M9/M10：`cowork_work_item_create`、评审绑定、`cowork_checkout_merge`、冲突与清理。
 - M12：真实 E2E 验证隔离 clone、评审绑定、串行合并与主仓库不被误改。
