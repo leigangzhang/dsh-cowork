@@ -239,7 +239,8 @@ export function buildThreadBrief(input: {
   lines.push(
     'Scope: work only inside this topic. Do not modify files owned by other topics, and do not change the project index by hand — the cowork tools write it.',
     'Read the project index and the latest handoff with cowork_project_status before you start.',
-    'Before you stop (finished or blocked) you must call cowork_handoff with status (blocked|done; awaiting_review is deprecated), a summary, and verification: [{command, exitCode, evidence}] for every check you ran.',
+    'Before you stop (finished or blocked) you must call cowork_handoff with status blocked or done, a summary, and verification: [{command, exitCode, evidence}] for every check you ran.',
+    'When the work needs an independent review, call cowork_review_request yourself with the scope and the evidence you ran.',
   )
   return lines.join('\n')
 }

@@ -446,12 +446,22 @@ test('the runner steers the review request and the merge instead of waiting for 
   assert.equal(/waitAllIdle/.test(source), false, 'the combined idle wait is dead code')
 })
 
-test('the master persona routes a handoff into the review gate and rules out dev tools', () => {
-  const persona = readFileSync(join(here, '..', 'src', 'presets.ts'), 'utf8')
+test('the master persona leaves reviews to the topics and rules out dev tools', () => {
+  const source = readFileSync(join(here, '..', 'src', 'presets.ts'), 'utf8')
+  const persona = source.slice(
+    source.indexOf('export const MASTER_PERSONA'),
+    source.indexOf('export const TOPIC_PERSONA'),
+  )
 
-  assert.match(persona, /cowork_review_request/)
+  assert.match(persona, /cowork_project_status/)
   assert.match(persona, /dev_\*/)
   assert.match(persona, /reviewStatus is pass/)
   assert.match(persona, /allowUnreviewed true/)
   assert.match(persona, /needs_revision/)
+  assert.equal(
+    /cowork_review_request/.test(persona),
+    false,
+    'the master no longer orchestrates review requests',
+  )
+  assert.equal(/awaiting_review/.test(persona), false, 'the review-handoff state is gone')
 })
