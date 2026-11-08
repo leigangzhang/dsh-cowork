@@ -95,6 +95,7 @@
 ## 指针
 
 - M9 启动交接（历史，已回滚为启动文档）：[M9_HANDOFF.md](M9_HANDOFF.md)。
+- M10 启动交接：[M10_HANDOFF.md](M10_HANDOFF.md)。
 - M9 执行记录与备选：[2026-11-08-m9-routing-tools-presets-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)。
 - 路由需求规则：[2026-11-07-three-layer-routing.md](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
 - 角色模型（仍 proposed，M11 收口）：[2026-11-07-topic-session-model.md](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md)。
