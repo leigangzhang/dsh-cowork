@@ -442,8 +442,9 @@ export class ProjectStore {
         this.indexFile,
       )
     }
+    let projected: ProjectIndexV2
     try {
-      return migrateV1ToV2(normalized, { cancelInFlightReviews: false }).document
+      projected = migrateV1ToV2(normalized, { cancelInFlightReviews: false }).document
     } catch (error) {
       if (!(error instanceof MigrationError)) throw error
       throw new StoreError(
@@ -452,6 +453,18 @@ export class ProjectStore {
         this.indexFile,
       )
     }
+    // A v1 thread may carry unknown fields and the migration copies them onto
+    // the topic; one that shadows a v2 field (e.g. `digest: 123`) must not reach
+    // a caller as a canonical document.
+    const projectedProblems = projectIndexV2Problems(projected)
+    if (projectedProblems.length > 0) {
+      throw new StoreError(
+        'store/corrupt',
+        problemMessage('projected project index is invalid', this.indexFile, projectedProblems),
+        this.indexFile,
+      )
+    }
+    return projected
   }
 
   /**

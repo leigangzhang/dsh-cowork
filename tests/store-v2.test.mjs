@@ -703,6 +703,47 @@ test('readIndexDocument returns a validated v2 document as is', async () => {
   })
 })
 
+test('readIndexDocument fails closed when a v1 extension collides with a v2 field', async () => {
+  await withTempDir(async (repoPath) => {
+    const archived = []
+    const store = new ProjectStore({
+      repoPath,
+      clock: clockAt(CREATED_AT),
+      projectId: 'p',
+      async archiveSession(sessionId, options) {
+        archived.push({ sessionId, options })
+      },
+    })
+    // v1 validation tolerates unknown thread fields; this one shadows `digest`.
+    const original = await seedV1Index(store, [thread({ digest: 123 })])
+    const before = await stat(store.indexFile)
+
+    await rejectsStore(store.readIndexDocument(), 'store/corrupt', 'projected project index is invalid')
+    await rejectsStore(store.readIndex(), 'store/corrupt', store.indexFile)
+
+    assert.equal(await readFile(store.indexFile, 'utf8'), original)
+    assert.equal((await stat(store.indexFile)).mtimeMs, before.mtimeMs)
+    assert.equal(existsSync(store.backupFile), false)
+    assert.deepEqual(archived, [])
+  })
+})
+
+test('a non-colliding v1 extension still projects and survives on the topic', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    await seedV1Index(store, [thread({ 'x-note': 'keep' })])
+
+    const document = await store.readIndexDocument()
+    assert.equal(document.topics[0]['x-note'], 'keep')
+    assert.equal(document.topics[0].digest, '', 'the v2 default is not shadowed')
+
+    // The compatibility view is unchanged; dropping the extension there is the
+    // known, accepted difference between the two read shapes.
+    const view = await store.readIndex()
+    assert.equal(view.threads[0].status, 'new')
+  })
+})
+
 test('mutateIndexDocument reads under the lock and writes a validated v2 document', async () => {
   await withTempDir(async (repoPath) => {
     const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
