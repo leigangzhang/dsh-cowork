@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { tokenize } from '../src/router.ts'
+import { tokenize } from '../src/routing.ts'
 import {
   DEFAULT_MEMORY_BUDGET_TOKENS,
   DEFAULT_SEARCH_LIMIT,

@@ -16,7 +16,7 @@ import {
   searchMemory,
   validateMemoryEntry,
 } from './memory.js'
-import { tokenize } from './router.js'
+import { tokenize } from './routing.js'
 import type { CoworkToolDeps } from './tool-runtime.js'
 import {
   callerOf,

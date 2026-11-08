@@ -28,6 +28,7 @@ import { THREAD_PRESET_ID } from './presets.js'
 import type { PresetRegistryPort } from './presets.js'
 import { SessionSlice } from './session-slice.js'
 import type { SessionSlicePorts } from './session-slice.js'
+import type { LlmRoutingPort } from './router-model.js'
 import { ProjectStore, StoreError, findProjectRoot } from './store.js'
 import type { HandoffFile, ProjectIndex, ThreadRecord } from './store.js'
 import type { ActivityEvent, ProjectIndexV2, TopicRecordV2, TopicStatus } from './store-schema.js'
@@ -60,6 +61,12 @@ export interface RoutingSettings {
  * are optional so a hand-built deps object (tests, embedders) still works; the
  * defaults live in src/index.ts's normalized config and src/topic.ts.
  */
+/** The host's current default model route, as `agentDefaultModel` reports it. */
+export interface CurrentModelRoute {
+  provider: string
+  model: string
+}
+
 export interface CoworkToolDeps {
   sessionController: SessionSlicePorts['sessions']
   workspaceRegistry: SessionSlicePorts['workspaces']
@@ -72,8 +79,22 @@ export interface CoworkToolDeps {
   idleAfterMs?: number
   /** Silence after which a resolvable topic is resolved; defaults to `DEFAULT_RESOLVE_AFTER_MS`. */
   resolveAfterMs?: number
-  /** Third-layer model routing settings; M9.3a only carries them to M9.3b. */
+  /** Third-layer model routing settings (M9.2). */
   routing?: RoutingSettings
+  /** Host LLM port for the third routing layer; absent means "unavailable". */
+  llmRoutingPort?: LlmRoutingPort
+  /** The host's current default model, used when routing.provider/model are unset. */
+  currentModelRoute?: () => CurrentModelRoute | null
+}
+
+/** Longest `brief` a tool may carry into a new topic or route prompt. */
+export const BRIEF_MAX_CHARS = 2000
+
+/** Cut text to at most `limit` Unicode code points without splitting a pair. */
+export function truncateText(text: string, limit: number): string {
+  if (limit <= 0) return ''
+  const points = Array.from(text)
+  return points.length <= limit ? text : points.slice(0, limit).join('')
 }
 
 /** One resolved project plus the collaborators for one tool call. */
@@ -276,6 +297,43 @@ export function threadView(thread: ThreadRecord): {
     reviewedAt: thread.reviewedAt,
     reviewerSessionId: thread.reviewerSessionId,
     latestReviewPath: thread.latestReviewPath,
+  }
+}
+
+/** Most characters of a topic digest a bounded tool view carries. */
+export const TOPIC_VIEW_DIGEST_MAX_CHARS = 200
+
+/** The bounded topic row `cowork_topic_*` and `cowork_route` return. */
+export interface TopicView {
+  topicId: string
+  title: string
+  status: TopicStatus
+  blocked: boolean
+  awaitingReview: boolean
+  scope: string
+  ownedPaths: string[]
+  digest: string
+  lastActiveAt: string
+  updatedAt: string
+  resolvedAt: string | null
+  resolvedBy: 'user' | 'master' | null
+}
+
+/** Project one v2 topic onto the bounded tool view (digest cut to 200 points). */
+export function topicView(topic: TopicRecordV2): TopicView {
+  return {
+    topicId: topic.topicId,
+    title: topic.title,
+    status: topic.status,
+    blocked: topic.blocked,
+    awaitingReview: topic.awaitingReview,
+    scope: topic.scope,
+    ownedPaths: topic.ownedPaths,
+    digest: truncateText(topic.digest, TOPIC_VIEW_DIGEST_MAX_CHARS),
+    lastActiveAt: topic.lastActiveAt,
+    updatedAt: topic.updatedAt,
+    resolvedAt: topic.resolvedAt,
+    resolvedBy: topic.resolvedBy,
   }
 }
 

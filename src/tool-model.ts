@@ -42,6 +42,19 @@ export const ERROR_CODES = {
   reviewWriteFailed: 'review/write-failed',
 } as const
 
+/**
+ * Wire codes introduced by the M9.3b topic/route tools. Kept separate from the
+ * long-stable {@link ERROR_CODES} table so adding a new tool family does not
+ * rewrite the pinned compatibility list.
+ */
+export const TOPIC_ERROR_CODES = {
+  routeBriefTooLong: 'route/brief-too-long',
+  routeArgsConflict: 'route/args-conflict',
+  topicNotFound: 'topic/not-found',
+  topicTitleRequired: 'topic/title-required',
+  topicInvalidOwnedPaths: 'topic/invalid-owned-paths',
+} as const
+
 /** The one failure envelope every tool returns instead of throwing. */
 export interface ToolFailure {
   ok: false
