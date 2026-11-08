@@ -34,7 +34,8 @@ import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
 import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
-import type { LlmRoutingPort, RoutingModelRequest } from './router-model.js'
+import { createLlmRoutingPort } from './llm-port.js'
+import type { HostLlmLike } from './llm-port.js'
 import type { CoworkToolDeps, CurrentModelRoute } from './tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
 import { TopicEvents } from './topic-events.js'
@@ -571,24 +572,6 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 S0 probe ready at ${S0_RUN_PATH}`)
 }
 
-/** The host `llm` slice the routing port touches (structural, no app imports). */
-interface HostPreparedCall {
-  /** Detached call config; the stream request must repeat its fields. */
-  config: Record<string, unknown>
-  stream(options: Record<string, unknown>): AsyncIterable<HostStreamChunk>
-}
-
-interface HostLlmService {
-  prepareCall(config: Record<string, unknown>, signal?: AbortSignal): Promise<HostPreparedCall>
-}
-
-/** The raw stream chunks this assembly reads; everything else is ignored. */
-interface HostStreamChunk {
-  type?: unknown
-  text?: unknown
-  reason?: { kind?: unknown; failure?: { message?: unknown } } | null
-}
-
 /** The host default-model service slice (M9.3b). */
 interface HostAgentDefaultModel {
   currentSelection(): { provider?: unknown; model?: unknown } | null | undefined
@@ -602,48 +585,6 @@ function hostService<T>(ctx: Context, name: string): T | undefined {
     return get.call(ctx, name) as T | undefined
   } catch {
     return undefined
-  }
-}
-
-/**
- * Wire the host `llm` service into the routing port (M9.2). The port is
- * optional: without `llm` the third layer reports "unavailable" and the route
- * falls back to the structured candidates, never throwing into the tool.
- */
-function hostLlmPort(ctx: Context): LlmRoutingPort | undefined {
-  const llm = hostService<HostLlmService>(ctx, 'llm')
-  if (llm === undefined || llm === null || typeof llm.prepareCall !== 'function') return undefined
-  return {
-    async run(request: RoutingModelRequest, signal: AbortSignal): Promise<string> {
-      const prepared = await llm.prepareCall({
-        provider: request.provider,
-        model: request.model,
-        maxTokens: request.maxTokens,
-        reasoningEffort: request.reasoningEffort,
-      }, signal)
-      let text = ''
-      const chunks = prepared.stream({
-        ...prepared.config,
-        messages: [
-          { role: 'system', content: request.systemPrompt },
-          { role: 'user', content: request.userPrompt },
-        ],
-        signal,
-      })
-      for await (const chunk of chunks) {
-        if (chunk.type === 'text-delta' && typeof chunk.text === 'string') text += chunk.text
-        if (chunk.type === 'finish') {
-          const kind = chunk.reason?.kind
-          if (kind === 'error' || kind === 'aborted') {
-            const detail = chunk.reason?.failure?.message
-            throw new Error(
-              typeof detail === 'string' && detail !== '' ? detail : `model call finished with ${String(kind)}`,
-            )
-          }
-        }
-      }
-      return text
-    },
   }
 }
 
@@ -694,7 +635,7 @@ export function apply(ctx: Context, config: Config): void {
     routing: settings.routing,
     // M9.3b: the only host LLM entry point. Missing services leave the third
     // layer on its structured fallback; they never fail a route.
-    llmRoutingPort: hostLlmPort(ctx),
+    llmRoutingPort: createLlmRoutingPort(hostService<HostLlmLike>(ctx, 'llm')),
     currentModelRoute: hostCurrentModelRoute(ctx),
   }
 

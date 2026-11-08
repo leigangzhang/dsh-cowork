@@ -7,7 +7,6 @@ import {
   claimMaster,
   failure,
   readCaller,
-  routePayload,
   success,
 } from '../src/tool-model.ts'
 
@@ -147,11 +146,11 @@ test('failure and success build the one envelope shape the tools return', () => 
   assert.equal(merged.filePath, '/repo/h.json')
 })
 
-test('buildThreadBrief carries the project, the thread, the intent, and the handoff contract', () => {
+test('buildThreadBrief carries the project, the topic, the intent, and the handoff contract', () => {
   const brief = buildThreadBrief({
     repoPath: '/repo',
     subject: 'wire the store',
-    threadId: 'session-thread-1',
+    topicId: 'session-thread-1',
     intent: 'add a project store',
   })
   assert.match(brief, /\/repo/)
@@ -162,45 +161,16 @@ test('buildThreadBrief carries the project, the thread, the intent, and the hand
   assert.match(brief, /status/)
   assert.match(brief, /summary/)
   assert.match(brief, /verification/)
-  assert.match(brief, /other threads/)
-  assert.match(brief, /only inside this thread/)
+  assert.match(brief, /cowork topic session-thread-1/)
+  assert.match(brief, /other topics/)
+  assert.match(brief, /only inside this topic/)
+  assert.match(brief, /awaiting_review is deprecated/)
 
   // No intent means no intent line, and a blank intent is dropped too.
-  const withoutIntent = buildThreadBrief({ repoPath: '/repo', subject: 's', threadId: 't' })
+  const withoutIntent = buildThreadBrief({ repoPath: '/repo', subject: 's', topicId: 't' })
   assert.ok(!withoutIntent.includes('User intent'), withoutIntent)
-  const blankIntent = buildThreadBrief({ repoPath: '/repo', subject: 's', threadId: 't', intent: '   ' })
+  const blankIntent = buildThreadBrief({ repoPath: '/repo', subject: 's', topicId: 't', intent: '   ' })
   assert.ok(!blankIntent.includes('User intent'), blankIntent)
-})
-
-test('routePayload maps the three router decisions onto the tool payload', () => {
-  const candidates = [
-    { threadId: 'session-a', subject: 'store', status: 'active', score: 10 },
-    { threadId: 'session-b', subject: 'router', status: 'awaiting_review', score: 9 },
-  ]
-
-  const routed = routePayload({ action: 'reuse', threadId: 'session-a', score: 10, candidates })
-  assert.deepEqual(routed, {
-    action: 'routed',
-    threadId: 'session-a',
-    score: 10,
-    candidates: [
-      { threadId: 'session-a', subject: 'store', status: 'active', score: 10 },
-      { threadId: 'session-b', subject: 'router', status: 'awaiting_review', score: 9 },
-    ],
-  })
-
-  // `create` carries no thread id: the tool adds it once the session exists.
-  const created = routePayload({ action: 'create', candidates })
-  assert.equal(created.action, 'created')
-  assert.deepEqual(created.candidates, candidates)
-
-  const needsSubject = routePayload({ action: 'needs_subject', candidates })
-  assert.deepEqual(needsSubject, { action: 'needs_subject', candidates })
-
-  // Candidates are copied, so the caller cannot mutate a payload after the fact.
-  const payload = routePayload({ action: 'create', candidates })
-  candidates[0].score = 99
-  assert.equal(payload.candidates[0].score, 10)
 })
 
 test('ERROR_CODES keeps the wire strings stable', () => {

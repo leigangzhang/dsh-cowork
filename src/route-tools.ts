@@ -365,7 +365,7 @@ async function route(
         : buildThreadBrief({
           repoPath: opened.repoPath,
           subject: title,
-          threadId: topic.topicId,
+          topicId: topic.topicId,
           intent,
         }),
     )

@@ -118,6 +118,7 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
   const budgets = [
     ['src/tools.ts', TOOLS_SPLIT_HEADROOM_BYTES],
     ['src/tool-runtime.ts', READ_LIMIT_BYTES],
+    ['src/llm-port.ts', READ_LIMIT_BYTES],
     ['src/project-tools.ts', READ_LIMIT_BYTES],
     ['src/topic-tools.ts', READ_LIMIT_BYTES],
     ['src/route-tools.ts', READ_LIMIT_BYTES],
@@ -140,3 +141,18 @@ test('the legacy keyword router is gone and nothing imports it', () => {
   }
 })
 
+
+test('the host LLM adapter lives in src/llm-port.ts', () => {
+  const source = (file) => readFileSync(resolve(root, file), 'utf8')
+  const indexSource = source('src/index.ts')
+  const portSource = source('src/llm-port.ts')
+
+  assert.match(indexSource, /createLlmRoutingPort\(/, 'src/index.ts must use the extracted adapter')
+  assert.ok(
+    !indexSource.includes("role: 'system'") && !indexSource.includes("role: 'user'"),
+    'src/index.ts must not build model messages inline',
+  )
+  assert.match(portSource, /system: request\.systemPrompt/, 'the system prompt is top-level')
+  assert.match(portSource, /content: \[\{ type: 'text', text: request\.userPrompt \}\]/, 'the user body is a text block array')
+  assert.match(portSource, /signal,/)
+})
