@@ -59,7 +59,7 @@
     },
     {
       "pattern": "docs/AGENTTEAM_INTEGRATION_RULES.md",
-      "reason": "Project-level AgentTeams integration/E2E rules: readiness as a task/event, fast contract tests before real E2E, one integration gate, warm host, scoped E2E, and closeout metrics; internal guidance for captains and members, not a user-facing guide"
+      "reason": "Project-level AgentTeams rules: impact scanning, readiness as a task/event, fast contract tests before real E2E, one integration gate with bound artifact identity, executable reviewer policy, batched closeout, scoped E2E, delivery task and closeout metrics; internal guidance for captains and members, not a user-facing guide"
     },
     {
       "pattern": "docs/routing.md",
