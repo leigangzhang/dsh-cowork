@@ -23,8 +23,8 @@ export const TOPIC_PRESET_ID = 'cowork-topic'
 /**
  * Deprecated alias of {@link TOPIC_PRESET_ID}. Kept for one version so sessions
  * created before M9 keep their memory section and tools; it registers the exact
- * same rows. src/tools.ts still creates sessions with it until M9.3 switches to
- * `cowork-topic`.
+ * same rows. New sessions are created with `cowork-topic` by src/topic-tools.ts
+ * and src/route-tools.ts; this id only serves existing sessions.
  */
 export const THREAD_PRESET_ID = 'cowork-thread'
 /** Preset id of the read-only reviewer session; owned by src/review.ts. */
