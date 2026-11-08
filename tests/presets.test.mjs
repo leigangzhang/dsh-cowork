@@ -2,10 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { register } from 'node:module'
 
-// `src/presets.ts` imports its reviewer id from `./review.js` — the build's
-// specifier. Node's type stripping does not retry relative `.js` as `.ts`, so
-// this test installs the same small resolve hook tests/api.test.mjs uses. No
-// host is assembled here: the presets are plain data.
+// `src/presets.ts` is plain data with no sibling imports, but the rest of the
+// preset/assembly surface it is compared against uses the build's `.js`
+// specifiers. Node's type stripping does not retry relative `.js` as `.ts`, so
+// this test keeps the same small resolve hook tests/api.test.mjs uses. No host
+// is assembled here.
 const HOOK_SOURCE = [
   'export async function resolve(specifier, context, nextResolve) {',
   "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",

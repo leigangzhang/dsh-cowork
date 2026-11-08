@@ -12,7 +12,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { CHECKOUT_ERROR, mergeCheckout, removeCheckout } from './checkout.js'
 import { applyThreadStatus, teardownMergedCheckout } from './checkout-teardown.js'
-import { planMerge } from './review.js'
+import { checkLegacyThreadMerge } from './review-request.js'
 import type { ThreadRecord } from './store.js'
 import type { CoworkToolDeps } from './tool-runtime.js'
 import {
@@ -77,7 +77,7 @@ export function registerCheckoutTools(ctx: unknown, deps: CoworkToolDeps): Array
         }
 
         // The gate runs before the irreversible step.
-        const plan = planMerge({ threadId, reviewStatus: thread.reviewStatus }, {
+        const plan = checkLegacyThreadMerge({ threadId, reviewStatus: thread.reviewStatus }, {
           allowUnreviewed: args.allowUnreviewed === true,
           overrideReason: typeof args.overrideReason === 'string' ? args.overrideReason : '',
         })
