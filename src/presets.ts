@@ -14,7 +14,6 @@
  * at runtime (no profile patch), so the rows live here as data and the host
  * registry is injected through {@link PresetRegistryPort}.
  */
-import { REVIEWER_PRESET_ID } from './review.js'
 
 /** Preset id of the master session that routes and accepts work. */
 export const MASTER_PRESET_ID = 'cowork-master'
@@ -27,8 +26,12 @@ export const TOPIC_PRESET_ID = 'cowork-topic'
  * and src/route-tools.ts; this id only serves existing sessions.
  */
 export const THREAD_PRESET_ID = 'cowork-thread'
-/** Preset id of the read-only reviewer session; owned by src/review.ts. */
-export { REVIEWER_PRESET_ID }
+/**
+ * Preset id of the read-only reviewer session. M10.1 moved the definition here
+ * from `src/review.ts` (deleted in M10.3); `src/review.ts` still re-exports a
+ * type-pinned shadow for the legacy review-tool tests.
+ */
+export const REVIEWER_PRESET_ID = 'cowork-reviewer'
 
 /**
  * The master routes intents to topics, records decisions, and hands work to
