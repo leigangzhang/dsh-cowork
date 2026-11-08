@@ -29,6 +29,7 @@ import {
   INDEX_VERSION_V2,
   INBOX_MAX_ITEMS,
   activityEventProblems,
+  activityLineBytes,
   handoffRecordProblems,
   inboxItemProblems,
   normalizeProjectIndexV1,
@@ -36,10 +37,19 @@ import {
   projectIndexV1Problems,
   projectIndexV2Problems,
   reviewRecordProblems,
+  serializeActivityEvents,
   threadV1Problems,
+  trimActivityEvents,
 } from './store-schema.js'
 import { MigrationError, applyLegacyView, legacyViewOf, migrateV1ToV2 } from './store-migration.js'
-import type { ActivityEvent, ActivityType, InboxItem, ProjectIndexV2 } from './store-schema.js'
+import type {
+  ActivityEvent,
+  ActivityType,
+  InboxItem,
+  ProjectIndexV2,
+  ReadActivityResult,
+} from './store-schema.js'
+export type { ReadActivityResult } from './store-schema.js'
 import type {
   ArchiveFailure,
   MigrationReport,
@@ -272,15 +282,6 @@ async function readDocument(filePath: string, label: string): Promise<string> {
   }
 }
 
-/**
- * One read of the activity stream: valid events oldest first, and how many
- * lines were skipped because they were not valid events.
- */
-export interface ReadActivityResult {
-  events: ActivityEvent[]
-  skippedLines: number
-}
-
 /** Schema problems of a whole inbox document, addressed by item position. */
 function inboxProblems(items: readonly unknown[]): string[] {
   const problems: string[] = []
@@ -295,34 +296,6 @@ function inboxProblems(items: readonly unknown[]): string[] {
 /** A message for one failure, without carrying a stack into a report. */
 function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-/** Serialized size of one activity line, including its newline. */
-function activityLineBytes(event: ActivityEvent): number {
-  return Buffer.byteLength(JSON.stringify(event), 'utf8') + 1
-}
-
-/** Serialize the activity stream as JSON Lines, one event per line. */
-function serializeActivityEvents(events: readonly ActivityEvent[]): string {
-  return events.map((event) => `${JSON.stringify(event)}\n`).join('')
-}
-
-/**
- * Keep the newest events within both bounds: at most
- * {@link ACTIVITY_MAX_EVENTS} events and at most {@link ACTIVITY_MAX_BYTES}
- * serialized bytes. The oldest events are dropped first.
- */
-function trimActivityEvents(events: readonly ActivityEvent[]): ActivityEvent[] {
-  let first = 0
-  let bytes = events.reduce((total, event) => total + activityLineBytes(event), 0)
-  while (
-    first < events.length &&
-    (events.length - first > ACTIVITY_MAX_EVENTS || bytes > ACTIVITY_MAX_BYTES)
-  ) {
-    bytes -= activityLineBytes(events[first])
-    first += 1
-  }
-  return events.slice(first)
 }
 
 /** Format a timestamp as the handoff filename stamp `YYYYMMDDTHHmmssSSSZ` in UTC. */
