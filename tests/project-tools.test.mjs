@@ -424,6 +424,46 @@ test('project_status keeps a topic with active or reviewing work items from reso
   }
 })
 
+test('the status read point never auto-resolves a topic whose review needs revision (R1)', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [
+      topic({
+        topicId: 'topic-revise',
+        lastActiveAt: iso(NOW_MS - 4 * DAY_MS),
+        lastDeliveryConfirmedAt: iso(NOW_MS - 4 * DAY_MS),
+        digest: 'delivered work',
+        reviewStatus: 'needs_revision',
+      }),
+    ])
+
+    const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(result.counts.resolved, 0, 'a pending revision must not resolve')
+    assert.deepEqual(result.lifecycle.changes.filter((change) => change.to === 'resolved'), [])
+  })
+})
+
+test('the same stale topic with a passed review still resolves (R1 control)', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [
+      topic({
+        topicId: 'topic-passed',
+        lastActiveAt: iso(NOW_MS - 4 * DAY_MS),
+        lastDeliveryConfirmedAt: iso(NOW_MS - 4 * DAY_MS),
+        digest: 'delivered work',
+        reviewStatus: 'pass',
+      }),
+    ])
+
+    const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(result.counts.resolved, 1, 'the guard is specific to needs_revision')
+    assert.equal(result.topics[0].status, 'resolved')
+  })
+})
+
 test('project_init no longer reconciles a stale handoff into the index', async () => {
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [topic({ topicId: 'topic-stale' })])
