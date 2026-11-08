@@ -33,6 +33,8 @@ M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`chec
 | `checkoutPath` | `legacyCheckoutPath`（旧 clone 不自动转 work item） |
 | 旧 `handoffs/`、`reviews/` | 保留只读，不重写 |
 
+**归档在途 reviewer。** 迁移与回收里归档 reviewer 必须用 `archiveSession(id,{stopActivity:true})`：默认参数要求会话不活跃，运行中的 reviewer 会被拒绝（`WorkspaceActiveSessionError`；`dsh-workspace/lib/index.js:531-533`），而 `stopActivity` 会先停活动再写归档。新建 reviewer 的回收仍必须 after-verdict：创建后立即归档会让 turn 以 `blocked` 结束、拿不到 verdict（M6 探针 4，见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §4）。
+
 迁移失败保留备份并报 `store/corrupt`，不静默重建。迁移是单向的；回滚靠恢复备份并重装 `0.1.0`。
 
 **兼容别名。** 旧工具 `cowork_thread_create/list`、`cowork_checkout_merge(threadId)`、`cowork_review_request(threadId)` 保留一个版本，内部映射到 v2；旧 preset `cowork-thread` 保留，指向 topic 行。版本升到 `0.2.0`；README 与 M12 交接写明破坏性变更与迁移。
@@ -73,6 +75,7 @@ M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`chec
 
 ## Delivery stages
 
+- M6：探针 3/4 已确认 archive 语义与 reviewer 回收时机；结论见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §3/§4。
 - M7：实现 v2 schema、迁移、备份、activity/inbox 文件读写与锁；新增 store 测试。
 - M8：活动流裁剪、收件箱合并/重放接入生命周期。
 - M10：评审请求文件写入、verdict 合并到同一文件。

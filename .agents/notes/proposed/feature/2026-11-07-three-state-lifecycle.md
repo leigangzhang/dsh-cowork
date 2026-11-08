@@ -64,12 +64,13 @@ Class: feature
 
 - 自动标记误判：条件依赖 `lastDeliveryConfirmedAt` 与 `digest`，若主题没有写 `handoff(done)`，已解决不会被自动标记；这会让主题长期停在 idle。缓解：主题 persona 要求在完成时写 handoff；面板显示「未确认交付」。
 - 没有撤销：用户误开自动标记只能手动重开；重开会清空 resolved 字段并写事件，历史仍保留在 activity。重审条件：用户要求撤销或审计差异。
-- 会话事件总线不可用：`lastActiveAt` 只能按工具调用与读取更新，空闲/已解决精度下降。M6 探针必须回答；不可用时在文档标注，不假装准确。
+- 会话事件总线已由 M6 探针 2 确认可用于 `turn/end`：standard 会话连续两轮都收到 `turn/start`、`turn/end(completed)` 与 assistant 文本，`seq` 单调（限制：仅宿主进程内、每会话 500 条缓冲上限未验证，见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §2）。若宿主变更导致收不到，`lastActiveAt` 退回按工具调用与读取更新，并在文档标注，不假装准确。
 - 时间与时钟：测试与生产都用注入时钟；跨时区不影响 ISO 比较。重审条件：宿主提供独立时钟服务。
 - 迁移：v1 的 `done/archived` 直接转 `resolved`，`awaiting_review` 取消在途评审；迁移前必须备份。相关决定见 [索引 v2 与迁移](../architecture/2026-11-07-topic-store-v2.md)。
 
 ## Delivery stages
 
+- M6：探针 2 已确认 `session/event` 可用于 `turn/end`，探针 3 已确认 archive 的「不可继续」语义；结论见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md)。
 - M8：实现三态、标记、五条件、3 天/2 小时、重开、事件监听与锁内重读；新增 `tests/topic.test.mjs`。
 - M9：路由排除 resolved、返回 `resolvedMatch`；主题状态影响路由候选。
 - M11：面板显示状态、来源、已解决/重开操作。

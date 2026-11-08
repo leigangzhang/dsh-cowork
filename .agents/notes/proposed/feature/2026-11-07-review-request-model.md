@@ -23,7 +23,7 @@ M4 的评审由交接触发：只要主题进入 `awaiting_review`，master 或�
 
 **检查。** 插件在创建 reviewer 前做确定性检查：范围内有改动、`base` 是 `head` 的祖先、`path` 在仓库或该主题的隔离目录内、隔离目录工作区干净、`verification` 非空、没有同一主题的未决请求。任一不满足就返回明确错误，不创建 reviewer。
 
-**执行。** 每次请求新建一个独立 reviewer 会话，不继承主题对话，不共享上下文；verdict 完成后归档。每次请求都新建，不复用旧会话；上一轮的请求文件、问题与修复情况通过 `previousRequestId` 和评审说明带过去。
+**执行。** 每次请求新建一个独立 reviewer 会话，不继承主题对话，不共享上下文；verdict 完成后归档。M6 探针 4 证明创建后立即归档会让 turn 以 `blocked` 结束、reviewer 无法产出 verdict，因此回收默认必须是 after-verdict，禁止创建后立即归档（见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §4）。每次请求都新建，不复用旧会话；上一轮的请求文件、问题与修复情况通过 `previousRequestId` 和评审说明带过去。
 
 **verdict。** reviewer 调用 `cowork_review_verdict({requestId, verdict, findings, verification})`；插件校验调用者必须是该请求登记的 `reviewerSessionId`。`needs_revision` 只把 findings 投回主题，不唤醒 master；`pass` 更新主题与交付确认，如需合并则写 master 收件箱；`reject` 置 `blocked` 并写收件箱。
 
@@ -54,7 +54,7 @@ M4 的评审由交接触发：只要主题进入 `awaiting_review`，master 或�
 ## Acceptance criteria
 
 - [A1] 评审请求按最小字段校验；缺少 `purpose/base/head/path/verification`、`base` 不是 `head` 祖先、路径越界、脏工作区都返回稳定错误，且不创建 reviewer — `tests`
-- [A2] 每次请求新建 reviewer 会话；verdict 绑定 `requestId` 与 `reviewerSessionId`；verdict 后归档，不复用 — `tests`
+- [A2] 每次请求新建 reviewer 会话；verdict 绑定 `requestId` 与 `reviewerSessionId`；verdict 后归档，创建后不得立即归档（会 `blocked`），不复用 — `tests`
 - [A3] `needs_revision` 只投回主题，不 `prompt` master；`pass` 只有需要合并时才写收件箱；`reject` 置 blocked 并写收件箱 — `tests`
 - [A4] 分级 L0–L3 生效；L0/L1 不建评审会话；L2 才建独立 reviewer；L3 由人批准 — `tests`
 - [A5] AgentTeams 场景只保留一个评审负责人；该规则写进评审说明与文档，不在代码里重复评审 — `decisions`
@@ -63,13 +63,13 @@ M4 的评审由交接触发：只要主题进入 `awaiting_review`，master 或�
 
 - reviewer 只读是约定，bash 仍可写（KI-15）。重审条件：review 变成对外信任边界，或观察到 reviewer 修改被审文件。
 - 模型可以决定 `extra` 与说明，但不能删最小字段；如果模型反复遗漏必填，需要把错误文案与示例写进 persona。重审条件：真实会话里出现多次 `review/invalid`。
-- 会话隐藏与回收依赖宿主 archive 行为；M6 必须验证 verdict 后归档不影响记录。归档失败时保留会话并记录，不假装成功。
+- 会话隐藏与回收依赖宿主 archive 行为；M6 探针 4 已确认 verdict 后归档正常、创建后立即归档会被 `blocked`（结论见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §4）。归档失败时保留会话并记录，不假装成功。
 - 评审请求的 `head` 在评审期间可能移动；请求绑定提交，合并前必须重新校验同一 `head`。重审条件：出现过期 verdict 被合并。
 - 评审成本仍然存在；L2 的阈值需要真实数据校准。重审条件：评审会话数与 L2 请求数长期明显偏离，或文档改动仍被频繁评审。
 
 ## Delivery stages
 
-- M6：探针确认 reviewer 隐藏/回收、`ctx.llm` 与 session event；写本记录与评审模型相关的决策记录。
+- M6：探针 4 已确认回收必须 after-verdict（立即归档即 `blocked`），探针 1/2 已确认 `ctx.llm` 与 session event；结论见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md)。
 - M10：实现评审请求、reviewer 生命周期、verdict 绑定、分级、归档。
 - M11：面板显示评审卡、请求范围与 verdict，不显示 reviewer 列表行。
 - M12：真实 E2E 验证请求→reviewer→verdict→收件箱/主题的完整链路。

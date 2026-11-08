@@ -72,7 +72,7 @@ M0 已证明宿主 API 风险；M1 完成主从闭环；M2 完成项目记忆与
 
 1. 用户在仓库目录打开一个会话，选择 `cowork-master`；
 2. 调用 `cowork_project_init`（或发消息触发）；插件写 `index.json` v2，登记 master；
-3. 插件把 master 之外的主题会话从左侧栏隐藏（优先宿主/插件过滤，回退 archive），并把已有会话的可见性对齐；
+3. 插件登记 master；主题会话保留在左侧栏可见（2026-11-07 决策 (b)：archive 后会话无法继续对话），reviewer 隐藏；插件不调用 `archiveSession` 隐藏主题；
 4. 右侧栏 CoWork tab 可打开项目概览；默认 tab 仍是普通会话。
 
 #### 主会话输入与路由
@@ -140,7 +140,7 @@ resolved → active（用户手动打开并输入）
 
 ### 2.4 界面与会话可见性
 
-- 左侧栏：master 保留；主题会话隐藏；reviewer 隐藏。
+- 左侧栏：master 与主题会话都保留可见（M6 决策 (b)：archive 后不能继续对话，宿主也没有会话过滤接口）；reviewer 隐藏。
 - 右侧栏：CoWork 是一个 tab，默认 tab 仍是普通会话；tab 里是主题列表 + 详情 + 活动。
 - 主区：同一时间只显示一个会话。打开主题是切换主区，不是浮层，不是新窗口；master 保留在左侧栏，点它或面包屑返回。
 - reviewer 不作为列表行出现；评审结果以评审卡挂在主题详情。
@@ -158,18 +158,18 @@ resolved → active（用户手动打开并输入）
 | 创建会话 | `sessionController.create({ workspaceId, agentPreset })` 创建普通会话并挂到 workspace | M0 结果、`src/session-slice.ts` |
 | 唤醒会话 | `sessionController.prompt({ sessionId, mode:'queue', content })` | M0/M1 E2E |
 | 重命名 | `sessionController.rename` | `src/session-slice.ts` |
-| 归档/隐藏 | `workspaceRegistry.archiveSession` 是展示过滤；`archivedSessionIds` 可读 | `dsh-workspace/lib/index.js` |
+| 归档/隐藏 | `archiveSession` 是展示过滤且 `archivedSessionIds` 可读，但归档后 `prompt` 的 turn 以 `blocked` 结束、消息不落盘；unarchive 才恢复 | `dsh-workspace/lib/index.js`、[M6 探针结果](M6_PROBE_RESULT.md) §3 |
 | 打开会话 | 客户端 `uiWorkspace.openSession(sessionId)` 切换主区 | `src/client/contracts.ts` |
 | 面板 | 右侧栏 tab、`sidebar.right.pane.tab`、footer action 已可用 | `docs/archived/PANEL_RESULT.md` |
 | 会话事件 | 插件可订阅 `session/event`（E2E 已用） | `src/m3-e2e.ts` |
 | 模型调用 | `ctx.llm.prepareCall` 已由 `dsh-session-title-llm` 使用；可设 `maxTokens`、`reasoningEffort`、超时 | `dsh-session-title-llm/lib/index.js` |
 | 隔离 clone | 现有 per-thread clone 可用，路径在仓库内，reviewer 可读 | M2 结果、`src/checkout.ts` |
 
-### 3.2 仍需验证（M6）
+### 3.2 M6 探针问题（结论见 [M6 探针结果](M6_PROBE_RESULT.md)）
 
 1. 插件通过 `ctx.get('llm')` 调用 `prepareCall` 的最小可用参数；最低 `reasoningEffort` 是否等价于关闭推理；没有服务时的回退。
 2. 生产插件能否稳定收到 `session/event` 的 `turn/start`/`turn/end` 和用户消息。
-3. `archiveSession` 后 `openSession` 能否继续对话、`prompt` 能否正常流式运行；是否有比 archive 更好的宿主/插件过滤接口。
+3. `archiveSession` 后 `openSession` 能否继续对话、`prompt` 能否正常流式运行；是否有比 archive 更好的宿主/插件过滤接口。**M6 结论：不能继续（turn `blocked`、消息不落盘），unarchive 才恢复；没有 archive 之外的过滤接口——已导致 §2.2/§2.4/§5.9 改为降级方案 (b)。**
 4. reviewer 创建后立即归档能否继续跑完；不行则 verdict 后归档。
 5. master preset 去掉 `fs`/`bash` 后能否正常工作；全局工具是否仍可见；宿主是否有 per-agent tool policy。
 6. 面板同源 POST 写路由在真实 Chrome 中可用，且 CSRF/loopback 检查不误伤。
@@ -375,10 +375,10 @@ master → 插件：cowork_checkout_merge(workItemId)
 - `GET /api/cowork.topic?id=`：主题详情（工作项、评审请求、活动）。
 - `POST /api/cowork.topic.resolve`、`POST /api/cowork.topic.reopen`、`POST /api/cowork.route.move`：面板写操作；请求体含当前 `sessionId`；只允许该项目 master；沿用 loopback，增加 `Origin`/`Host` 同源与 JSON content-type 检查。
 - 面板：主题列表（状态/标记/摘要/最近活动）、详情（摘要、工作项、评审请求、活动、操作）、操作「打开/标记已解决/重新打开/移动到其他主题」；reviewer 不列出；评审卡挂详情。
-- 打开主题：`uiWorkspace.openSession(topicId)`；主区切换，不新增左侧栏条目；master 保留；面包屑返回。
+- 打开主题：`uiWorkspace.openSession(topicId)`；主区切换，不新增/移除左侧栏条目（主题本来可见）；master 保留；面包屑返回。会话已被用户归档时先 unarchive 再打开（容错，非常规路径）。
 - 右侧栏默认 tab 仍是普通会话；CoWork 不自动打开；footer 入口保留。
-- 左侧栏隐藏：优先宿主/插件过滤；没有则 `archiveSession`；打开后仍保持隐藏；`openSession` 必须可用（M6 验证）。
-- reviewer 隐藏：创建后立即归档（若探针允许），否则 verdict 后归档；失败记录，不假装成功。
+- 左侧栏策略：主题会话保留左侧栏（2026-11-07 决策 (b)：archive 后无法继续对话，且无会话过滤接口）；插件不用 `archiveSession` 隐藏主题；打开主题不需要 unarchive。
+- reviewer 隐藏：verdict 后归档（M6 探针 4：创建后立即归档会让 turn `blocked`）；失败记录，不假装成功。
 
 ### 5.10 配置默认值
 
@@ -390,9 +390,10 @@ master → 插件：cowork_checkout_merge(workItemId)
 | `routing.provider/model/effort` | 未设 | 未设时用 master 会话路由或跳过第三层 |
 | `routing.timeoutMs` | 2000 | 模型兜底超时 |
 | `routing.maxTokens` | 256 | 模型兜底输出上限 |
-| `visibility.mode` | auto | filter 优先，archive 回退 |
 | `isolation.provider` | clone | clone v1；worktree 后置 |
-| `reviewer.reclaim` | after-verdict | 立即归档不行时用 after-verdict |
+| `reviewer.reclaim` | after-verdict | M6 探针 4：立即归档会让 turn 变成 blocked |
+
+主题会话可见性不再有配置项：M6 决策 (b) 固定为保留左侧栏、只隐藏 reviewer。
 
 ---
 
@@ -473,11 +474,11 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 ### M11 HTTP API 与面板
 
-- 范围：`src/api-contract.ts` v2、`src/api.ts` 读写路由、`src/client/*` 重写；左侧栏隐藏、reviewer 隐藏、CoWork tab、打开/已解决/重开/改投。
+- 范围：`src/api-contract.ts` v2、`src/api.ts` 读写路由、`src/client/*` 重写；左侧栏策略（决策 (b)：主题保留可见、reviewer 隐藏）、CoWork tab、打开/已解决/重开/改投。
 - 依赖：M9、M10、M6 探针 5/6。
 - 完成标准：
   - 面板显示主题列表/详情/活动；无 thread 行、无 reviewer 行；reviewer 评审卡挂详情。
-  - 打开主题切换主区；面包屑回 master；左侧栏不新增条目。
+  - 打开主题切换主区；面包屑回 master；打开不新增/移除左侧栏条目；已归档会话先 unarchive 再打开。
   - 写路由同源/loopback 校验；错误状态可读。
   - 真实 Chrome 面板检查通过。
 - 证据：`tests/api-contract.test.mjs`、`tests/panel-model.test.mjs`、面板截图与 run 记录。
@@ -488,7 +489,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 - 范围：`README.md`、`docs/routing.md`、`docs/context.md`、`docs/glossary.md`、`docs/KNOWN_ISSUES.md`、`docs/publish.json`、`docs/M12_RESULT.md`、`docs/M12_HANDOFF.md`；`src/m12-e2e.ts`、`tests/m12-e2e.test.mjs`；版本 0.2.0；打包与本地安装/卸载。
 - 依赖：M7–M11。
 - 完成标准：
-  - 真实 E2E 全链路：master 初始化 → 路由新主题 → 主题隐藏并打开 → 提交评审 → reviewer 隐藏并 verdict → master 只收合并决定 → 已解决自动标记 → 无撤销 → 手动重开 → 已解决不自动接收 → 活动流 → 隔离 clone 合并。
+  - 真实 E2E 全链路：master 初始化 → 路由新主题 → 主题在左侧栏可见并经 CoWork 打开（决策 (b)） → 提交评审 → reviewer verdict 后归档 → master 只收合并决定 → 已解决自动标记 → 无撤销 → 手动重开 → 已解决不自动接收 → 活动流 → 隔离 clone 合并。
   - 面板真实 Chrome 验证。
   - `npm run check`、`npm run check:self-test`、`npm test`、`npm run typecheck`、`npm run build` 全绿；`npm pack` 与本地 profile 安装/卸载通过。
   - README 写明 0.2.0 破坏性变更、迁移、回滚。
@@ -529,7 +530,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 |---|---|---|---|
 | `ctx.llm` 接口或关闭推理方式不符 | 高 | M6 探针；关闭第三层或降级；模型路由不作为阻塞 | 模型路由不可用，或适配器变更 |
 | `session/event` 不向插件暴露 | 高 | 降级为工具/读取时更新；精度下降并记录 | 真实宿主收不到 turn 事件 |
-| archive 后不能打开/继续 | 高 | 改用宿主过滤；没有则保留主题可见（降级） | 打开主题失败或流式中断 |
+| archive 后不能打开/继续 | 高 | M6 探针 3 证实；用户 2026-11-07 决定采用降级 (b)：主题保留左侧栏、只隐藏 reviewer（见决策记录） | 宿主提供会话过滤接口，或侧栏噪音不可接受 |
 | master 全局工具无法硬隔离 | 中 | preset 去 fs/bash；文档；探针 host tool policy | master 调用宿主工具 |
 | 迁移丢数据 | 高 | 备份、fail closed、逐状态测试 | 迁移失败或用户报告 |
 | E2E 不稳定 | 中 | 事件驱动等待；短阈值；不用 sleep | 连续两次 flaky |
@@ -570,6 +571,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 - 本文件 `docs/PLAN-V0.2.md` 是 V0.2 的阶段计划；`docs/PLAN.md` 保持 V0.1（M0–M4），不覆盖；M5 记忆整理保留在 V0.1 与 `KNOWN_ISSUES` 中。
 - `docs/README.md` 与 `docs/publish.json` 在保存 V0.2 时已加入索引与 internal 分类；后续文档更新按 M12 执行。
 - `README.md`、`docs/routing.md`、`docs/context.md`、`docs/glossary.md`、`docs/KNOWN_ISSUES.md` 在 M12 按 V0.2 更新；`AGENTS.md` 的 thread→topic 表述在 M12 由用户确认后更新。
+- M6 已产出 `docs/M6_PROBE_RESULT.md` 与 `docs/M6_HANDOFF.md`；M11 的会话可见性按 2026-11-07 决策 (b) 执行（主题保留左侧栏）。
 - 历史交接 `docs/archived/M4_HANDOFF.md` 不改正文；新的 `docs/M12_HANDOFF.md` 说明 V0.2 起点与回滚。
 
 ### 10.2 交接说明

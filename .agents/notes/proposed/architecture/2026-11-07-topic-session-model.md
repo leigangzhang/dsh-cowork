@@ -23,7 +23,7 @@ M4 的插件已经能在真实宿主上运行，但两次真实使用暴露了�
 - 主题会话：一个主题的对话与执行入口；内部可以有多个执行单元；写摘要和证据；自己提交评审请求。不向其他主题发消息，不合并别人的分支。
 - reviewer：按一次评审请求独立复核；给出通过、需要修改、驳回；不改代码、不合并、不解决冲突、不安排任务。
 
-**master 的硬边界。** `cowork-master` preset 移除 `tool-fs`、`tool-fs-search`、`tool-bash`、`tool-jobs`、`present`，只保留 persona、agent-instructions、time-context、ask-user、todo。master 不能调用 `cowork_review_request`；插件在工具入口按会话 id 与索引记录拒绝。profile 级全局工具可能仍可见，这是部署限制，不能声称已经硬隔离；M6 探针检查宿主是否有 per-agent tool policy。
+**master 的硬边界。** `cowork-master` preset 移除 `tool-fs`、`tool-fs-search`、`tool-bash`、`tool-jobs`、`present`，只保留 persona、agent-instructions、time-context、ask-user、todo。master 不能调用 `cowork_review_request`；插件在工具入口按会话 id 与索引记录拒绝。宿主另有 per-agent 工具策略：preset 行决定该会话注册哪些工具，`agent.ctx.tools.restrict({deny})` 可以再掩宿主全局工具与 preset 继承名，但不能掩该 agent 自身注册的工具（M6 探针 5，见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §5）。两层叠加可以掩蔽已知的全局工具，但需要逐个命名，且不是声明式白名单隔离；master 的工具入口校验继续保留。
 
 **流程归属。** 主题完成或阻塞时写 `cowork_handoff({status:'done'|'blocked'})`；需要评审时由主题调用 `cowork_review_request`；插件做确定性检查后新建 reviewer；verdict 只回到插件和主题，只有需要 master 决定的事件才进入收件箱。master 不再逐条接收交接或评审全文。
 
@@ -46,20 +46,20 @@ M4 的插件已经能在真实宿主上运行，但两次真实使用暴露了�
 ## Acceptance criteria
 
 - [A1] 一个主题只对应一个普通 DSH 会话；`cowork_topic_create` 创建、`cowork_route` 复用或新建，旧 `cowork_thread_*` 名称只作为别名返回同样结果 — `tests`
-- [A2] `cowork-master` preset 不再挂载 fs/search/bash/jobs/present；master 调用 `cowork_review_request` 被拒绝 — `source`
+- [A2] `cowork-master` preset 不再挂载 fs/search/bash/jobs/present；宿主全局工具按需用 per-agent `restrict` 掩蔽；master 调用 `cowork_review_request` 被拒绝 — `source`
 - [A3] 主题完成或阻塞只调用 `cowork_handoff`；评审由主题调用 `cowork_review_request`；master 不再逐条接收交接或评审全文 — `tests`
 - [A4] 旧 thread 数据与会话可迁移为一个主题；`cowork-thread` preset 别名可用，新会话默认 `cowork-topic` — `tests`
 - [A5] 本记录与 `docs/PLAN-V0.2.md` 的角色、边界、阶段一致；不新增第二份架构计划 — `decisions`
 
 ## Risks
 
-- profile 级全局工具仍对 master 可见，边界只能靠 preset 行与工具内校验，无法宣称硬隔离。重审条件：宿主提供可用的 per-agent tool policy，或 master 再次调用宿主管理工具。
+- profile 级全局工具仍对 master 可见；M6 已确认可用的 per-agent `restrict` 只能按名掩蔽继承工具，插件需要在 master 创建后按需 restrict，且不能掩 agent 自身注册的工具。重审条件：宿主提供声明式 per-agent 工具策略，或 master 再次调用宿主管理工具。
 - 已存在的 `cowork-thread` 会话保留旧 preset 与旧提示词；新行为只对新会话生效。迁移期需要 README 与 M12 交接说明。
 - 「主题」与旧文档中的 `thread` 并存一个版本；若文档混用，读者会误判当前模型。重审条件：`0.3.0` 移除别名时统一清理。
 
 ## Delivery stages
 
-- M6：探针确认 master 工具面、会话事件与 archive 行为；写本记录与其余议题记录。
+- M6：探针 5 已确认 master preset 去掉 fs/bash 仍工作、工具面 = preset 行 + 宿主全局、`restrict` 边界；探针 2/3 已确认会话事件与 archive 行为；结论见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md)。
 - M7：v2 索引与迁移，topic 取代 thread 的持久化。
 - M9：`cowork-topic` / `cowork-master` preset、工具别名与角色守卫。
 - M11：面板把主题作为会话入口。
