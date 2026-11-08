@@ -35,7 +35,15 @@
     },
     {
       "pattern": "docs/M8_HANDOFF.md",
-      "reason": "M8 delivery record: baseline and commit sequence, shipped modules and store changes, four-command evidence and test counts, byte budgets, accepted deviations (F1-F3, v1 extensions, null mutator), completion-definition evidence, rollback, and unverified items for M9; internal engineering handoff, not a user-facing guide"
+      "reason": "M8 startup handoff (historical, baseline 06ff66b): post-M7 baseline, startup sequence, implementation order, evidence plan, pitfalls, completion definition, rollback, and unverified items; kept as the phase's original handoff, delivery evidence lives in docs/M8_RESULT.md"
+    },
+    {
+      "pattern": "docs/M8_RESULT.md",
+      "reason": "M8 delivery result: baseline and commit sequence, shipped modules and store changes, four-command evidence and test counts, byte budgets, accepted deviations (F1-F3, v1 extensions, null mutator), completion-definition evidence, rollback, and unverified items for M9; internal engineering record, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M9_HANDOFF.md",
+      "reason": "M9 stage handoff: post-M8 baseline, startup sequence, staged implementation plan, evidence, pitfalls, completion definition, rollback, and unverified items; internal engineering handoff for the next session, not a user-facing guide"
     },
     {
       "pattern": ".agents/notes/*",

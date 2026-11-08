@@ -542,7 +542,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 决策记录（M6 核对，每个议题一份）：
 
 - `.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md`
-- `.agents/notes/proposed/feature/2026-11-07-three-state-lifecycle.md`
+- `.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md`
 - `.agents/notes/proposed/feature/2026-11-07-review-request-model.md`
 - `.agents/notes/proposed/feature/2026-11-07-three-layer-routing.md`
 - `.agents/notes/proposed/architecture/2026-11-07-parallel-isolation-and-merge.md`
