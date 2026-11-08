@@ -168,6 +168,9 @@ test('initIndex creates the index once and never replaces the master', async () 
       projectId: 'github.com-owner-repo',
       masterSessionId: 'session-master',
       createdAt: CREATED_AT,
+      // M9.1 route targets: a fresh index has no focus and no route history.
+      masterFocusTopicId: null,
+      lastRouteTopicId: null,
       topics: [],
       workItems: [],
     })
