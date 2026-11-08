@@ -18,15 +18,23 @@ register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const {
   MASTER_PRESET_ID,
+  REVIEWER_PERSONA,
   REVIEWER_PRESET_ID,
+  THREAD_PERSONA,
   THREAD_PRESET_ID,
+  TOPIC_PERSONA,
+  TOPIC_PRESET_ID,
   presetDefinitions,
 } = await import('../src/presets.ts')
 
+const PERSONA = '@deepseek-ai/dsh-persona'
+const TOOL_ASK_USER = '@deepseek-ai/dsh-tool-ask-user'
+const TOOL_BASH = '@deepseek-ai/dsh-tool-bash'
 const TOOL_FS = '@deepseek-ai/dsh-tool-fs'
 const TOOL_FS_SEARCH = '@deepseek-ai/dsh-tool-fs-search'
-const TOOL_BASH = '@deepseek-ai/dsh-tool-bash'
-const PERSONA = '@deepseek-ai/dsh-persona'
+const TOOL_JOBS = '@deepseek-ai/dsh-tool-jobs'
+const TOOL_TODO = '@deepseek-ai/dsh-tool-todo'
+const PRESENT = '@deepseek-ai/dsh-tool-present'
 
 const presetById = (id) => {
   const preset = presetDefinitions().find((candidate) => candidate.id === id)
@@ -35,31 +43,97 @@ const presetById = (id) => {
 }
 
 const rowNames = (preset) => preset.plugins.map((row) => row.name)
+const personaPrefixOf = (preset) => preset.plugins.find((row) => row.id === 'persona')?.config?.prefix
 
-test('presetDefinitions returns exactly the three cowork presets, master first', () => {
+test('presetDefinitions returns four presets: master, topic, thread alias, reviewer', () => {
   const definitions = presetDefinitions()
+
+  assert.equal(definitions.length, 4)
   assert.deepEqual(
-    [...new Set(definitions.map((preset) => preset.id))].sort(),
-    [MASTER_PRESET_ID, REVIEWER_PRESET_ID, THREAD_PRESET_ID].sort(),
+    definitions.map((preset) => preset.id),
+    [MASTER_PRESET_ID, TOPIC_PRESET_ID, THREAD_PRESET_ID, REVIEWER_PRESET_ID],
   )
-  assert.equal(definitions.length, 3)
-  assert.equal(definitions[0].id, MASTER_PRESET_ID)
+  assert.equal(new Set(definitions.map((preset) => preset.id)).size, 4, 'preset ids must be unique')
+  assert.equal(definitions[0].id, MASTER_PRESET_ID, 'master must register first')
 })
 
-test('the reviewer preset has no tool-fs and keeps shell plus search', () => {
+test('the topic and thread ids are distinct constants and thread is marked deprecated', () => {
+  assert.equal(TOPIC_PRESET_ID, 'cowork-topic')
+  assert.equal(THREAD_PRESET_ID, 'cowork-thread')
+  assert.notEqual(TOPIC_PRESET_ID, THREAD_PRESET_ID)
+  assert.match(presetById(THREAD_PRESET_ID).description, /deprecated/i)
+  assert.match(presetById(THREAD_PRESET_ID).name, /deprecated/i)
+})
+
+test('the master preset keeps only persona, instructions, time, ask-user, and todo', () => {
+  const master = presetById(MASTER_PRESET_ID)
+
+  assert.deepEqual(rowNames(master), [
+    PERSONA,
+    '@deepseek-ai/dsh-agent-instructions',
+    '@deepseek-ai/dsh-time-context',
+    TOOL_ASK_USER,
+    TOOL_TODO,
+  ])
+  for (const removed of [TOOL_BASH, TOOL_FS, TOOL_FS_SEARCH, TOOL_JOBS, PRESENT]) {
+    assert.equal(rowNames(master).includes(removed), false, `master must not mount ${removed}`)
+  }
+})
+
+test('the topic preset keeps file, shell, search, job, ask-user, todo, and present tools', () => {
+  const names = rowNames(presetById(TOPIC_PRESET_ID))
+
+  for (const required of [
+    PERSONA,
+    '@deepseek-ai/dsh-agent-instructions',
+    '@deepseek-ai/dsh-time-context',
+    TOOL_BASH,
+    TOOL_FS,
+    TOOL_FS_SEARCH,
+    TOOL_JOBS,
+    TOOL_ASK_USER,
+    TOOL_TODO,
+    PRESENT,
+  ]) {
+    assert.equal(names.includes(required), true, `topic must mount ${required}`)
+  }
+  assert.equal(names.length, 10)
+})
+
+test('the thread alias registers exactly the topic rows and persona', () => {
+  const topic = presetById(TOPIC_PRESET_ID)
+  const thread = presetById(THREAD_PRESET_ID)
+
+  assert.deepEqual(thread.plugins, topic.plugins)
+  assert.equal(personaPrefixOf(thread), personaPrefixOf(topic))
+  assert.equal(THREAD_PERSONA, TOPIC_PERSONA)
+})
+
+test('the topic persona states one topic per session, self-requested review, and handoff', () => {
+  const persona = personaPrefixOf(presetById(TOPIC_PRESET_ID))
+
+  assert.equal(typeof persona, 'string')
+  assert.match(persona, /one topic per session/i)
+  assert.match(persona, /review requests/i)
+  assert.match(persona, /cowork_handoff/)
+  assert.match(persona, /evidence/i)
+})
+
+test('the reviewer preset keeps shell plus search, has no file tools, and states its scope boundary', () => {
   const reviewer = presetById(REVIEWER_PRESET_ID)
   const names = rowNames(reviewer)
-  // M4A2: the reviewer is physically read-only — no tool-fs means no read,
-  // write, or edit tool in its surface.
+
+  // M4A2/M9: the reviewer is physically read-only — no tool-fs means no read,
+  // write, or edit tool in its surface; the row list itself is unchanged.
+  assert.deepEqual(names, [PERSONA, '@deepseek-ai/dsh-agent-instructions', TOOL_BASH, TOOL_FS_SEARCH])
   assert.equal(names.includes(TOOL_FS), false)
   assert.equal(names.includes(TOOL_FS_SEARCH), true)
   assert.equal(names.includes(TOOL_BASH), true)
-})
 
-test('the master and thread presets keep tool-fs', () => {
-  for (const id of [MASTER_PRESET_ID, THREAD_PRESET_ID]) {
-    assert.equal(rowNames(presetById(id)).includes(TOOL_FS), true, `${id} must mount ${TOOL_FS}`)
-  }
+  assert.match(REVIEWER_PERSONA, /look only at the requested review scope/i)
+  assert.match(REVIEWER_PERSONA, /never merge/i)
+  assert.match(REVIEWER_PERSONA, /never resolve conflicts/i)
+  assert.match(REVIEWER_PERSONA, /只看请求范围，不合并、不解决冲突/)
 })
 
 test('every preset has unique row ids and a non-empty persona prefix', () => {
@@ -75,4 +149,18 @@ test('every preset has unique row ids and a non-empty persona prefix', () => {
     assert.equal(typeof prefix, 'string', `${preset.id} persona prefix must be a string`)
     assert.notEqual(prefix.trim(), '', `${preset.id} persona prefix must be non-empty`)
   }
+})
+
+test('presetDefinitions returns fresh row arrays so callers cannot mutate a shared definition', () => {
+  const first = presetDefinitions()
+  const second = presetDefinitions()
+
+  assert.notEqual(first, second)
+  for (let index = 0; index < first.length; index += 1) {
+    assert.notEqual(first[index].plugins, second[index].plugins, `${first[index].id} plugins array must be fresh`)
+  }
+
+  const topic = first.find((preset) => preset.id === TOPIC_PRESET_ID)
+  topic.plugins.length = 0
+  assert.equal(rowNames(presetById(TOPIC_PRESET_ID)).length, 10)
 })
