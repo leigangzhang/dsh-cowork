@@ -1,6 +1,6 @@
 # M9 交付结果
 
-- 状态：**M9 已交付（2026-11-08）**。三层路由、模型兜底、工具拆分/别名、主题与预设改名在 `feat/m9-routing-tools-presets` 上落地并通过独立验证；本文件记录交付基线、清单、证据、偏差、探针结论、回滚与未验证项，供下一个阶段（M10）接手。M9 启动时的交接见 [M9_HANDOFF.md](M9_HANDOFF.md)（已改为交付后版本，启动顺序保留为历史）。执行层的决定见 [M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)，路由需求规则见 [主会话到主题的三层路由](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
+- 状态：**M9 已交付（2026-11-08）**。三层路由、模型兜底、工具拆分/别名、主题与预设改名在 `feat/m9-routing-tools-presets` 上落地并通过独立验证；本文件记录交付基线、清单、证据、偏差、探针结论、回滚与未验证项，供下一个阶段（M10）接手。M9 启动时的交接见 [M9_HANDOFF.md](M9_HANDOFF.md)（已回滚为启动文档，不再承载交付记录）。执行层的决定见 [M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)，路由需求规则见 [主会话到主题的三层路由](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
 - 适用：接手 V0.2 M10（评审请求、reviewer 生命周期、工作项）的 agent 或人。范围：M9 的实际交付、验证证据、已知偏差与未验证项；不重新论证 M9 的决定。
 - 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§5.3/§5.7/§5.8/§5.10/§6 M9 拥有需求、工具角色表、配置默认值与验收；[M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md) 拥有模块边界与备选；[三层路由记录](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md) 拥有路由规则；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留问题归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
 
@@ -8,6 +8,7 @@
 
 - **分支**：`feat/m9-routing-tools-presets`，从 `origin/main` 的 M8 合并提交 `7b9a6a5` 切出。
 - **代码 HEAD**：`a741e65`（`a741e65773c53588c44e851d9fdccec4b90972a0`）。追加历史：`6379712`（A5 集成）→ `569d485`（dev-gate 与 presets 两处注释修复）→ `462bdb9`/`a741e65`（project-tools 兼容窗口注释修复，代码 HEAD）。三处都只改注释/测试注释：596 不变；前两处字节不变，第三处仅 `src/project-tools.ts` 注释 +197 B（11,359 → 11,556）。记录迁移与 M9_RESULT/HANDOFF 初版由 `45094ae` 集成（只改 `.md`/`.json`）；本任务的 HEAD 事实同步是其后的文档提交（本文件无法写入自身 sha）。
+- **文档分工**：M9 启动交接保留在 [M9_HANDOFF.md](M9_HANDOFF.md)（不回写交付记录）；交付事实、证据、偏差与回滚以本文件为准。
 - **提交序列（`7b9a6a5..a741e65`，按提交顺序）**：
   - M9.2 + M9.4：`96db9dc`（`router-model.ts` 模型兜底；`cowork-topic` 预设、`cowork-thread` 别名、master 行收窄、memory 识别三预设）
   - `cd4ed33`（dev-gate 预设常量接受 `cowork-topic`）→ `b4dfedf`（集成 M9.2/M9.4）
@@ -93,7 +94,7 @@
 
 ## 指针
 
-- M9 启动交接（历史 → 已交付版）：[M9_HANDOFF.md](M9_HANDOFF.md)。
+- M9 启动交接（历史，已回滚为启动文档）：[M9_HANDOFF.md](M9_HANDOFF.md)。
 - M9 执行记录与备选：[2026-11-08-m9-routing-tools-presets-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)。
 - 路由需求规则：[2026-11-07-three-layer-routing.md](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
 - 角色模型（仍 proposed，M11 收口）：[2026-11-07-topic-session-model.md](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md)。

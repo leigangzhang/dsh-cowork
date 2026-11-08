@@ -43,7 +43,7 @@
     },
     {
       "pattern": "docs/M9_HANDOFF.md",
-      "reason": "M9 stage handoff (delivered 2026-11-08): the post-M9 baseline, what M10 inherits, still-valid pitfalls, unverified items and pointers; the startup/implementation order is kept as pre-delivery history, and delivery evidence lives in docs/M9_RESULT.md"
+      "reason": "M9 startup handoff (historical, baseline 7b9a6a5): post-M8 baseline, startup sequence, implementation order, evidence plan, pitfalls, completion definition, rollback and unverified items; kept as the phase's original handoff (rolled back after delivery), delivery evidence lives in docs/M9_RESULT.md"
     },
     {
       "pattern": "docs/M9_RESULT.md",
