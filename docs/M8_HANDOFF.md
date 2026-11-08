@@ -7,14 +7,15 @@
 ## 交付基线
 
 - **分支**：`feat/m8-topic-lifecycle`（从基线 `06ff66b` 切出；M7 在 `06ff66b` 之前已合并）。
-- **HEAD**：`3723359`（`37233599bbead144a29d52906f724c3d8b25cddc`）。工作树干净，未 push、未合并到 `main`（由队长处理）。
-- **提交序列（`06ff66b..HEAD`，按提交顺序）**：
+- **代码 HEAD**：`3723359`（`37233599bbead144a29d52906f724c3d8b25cddc`）。记录迁移与交接是其后的只改 `.md` 提交（交接无法写入自身 sha）；工作树在收口时干净，未合并到 `main`，分支由队长收口时 push。
+- **提交序列（`06ff66b..3723359`，按提交顺序）**：
   - M8.1：`3d5fa4f`（store canonical v2 读写）→ `2c7e489`（topic 三态纯函数）→ `d77b2e4`（v1 投影按 v2 schema fail closed）
-  - M8.2：`641469d`（activity helper 移入 store-schema，腾预算）→ `1352942`（事件监听）→ `c422606`（dev-gate 监听器计数）→ `aabde01`（集成 merge：M8.2 session event listener）
-  - M8.3：`19ec923`（activity 事件构造）→ `6dd8345`（inbox 合并/投递/重放）→ `2c9337d`（KI-20：先写 v2 再写迁移活动）→ `3723359`（集成 merge：M8.3 activity, inbox, KI-20）
-- **验证基线（HEAD 3723359 上实测）**：`npm test` 485 tests / 485 pass / 0 fail / 0 cancelled / 0 skip / 0 todo，exit 0；`npm run typecheck` exit 0；`npm run build` exit 0（`lib/` + `lib/client.js` 69 KB）；`npm run check` exit 0（`check-invariants: ok`）。485 = 429 基线 + 25（M8.1）+ 13（M8.2）+ 18（M8.3）。
+  - M8.3（并行 worktree）：`641469d`（activity helper 移入 store-schema，腾预算）→ `19ec923`（activity 事件构造）→ `6dd8345`（inbox 合并/投递/重放）→ `2c9337d`（KI-20：先写 v2 再写迁移活动）
+  - M8.2（并行 worktree）：`1352942`（事件监听）→ `c422606`（dev-gate 监听器计数）
+  - 集成 merge：`aabde01`（M8.2 session event listener）→ `3723359`（M8.3 activity, inbox, KI-20）
+- **验证基线（代码 HEAD 3723359 上实测）**：`npm test` 485 tests / 485 pass / 0 fail / 0 cancelled / 0 skip / 0 todo，exit 0；`npm run typecheck` exit 0；`npm run build` exit 0（`lib/` + `lib/client.js` 69 KB）；`npm run check` exit 0（`check-invariants: ok`）。485 = 429 基线 + 25（M8.1）+ 13（M8.2）+ 18（M8.3）。记录迁移后的文档提交上复核结果一致。
 - **代码形态**：`src/store.ts` 48,524 B（审查线 49,152 B）；`src/**/*.ts` 最大 49,923 B（`src/m2-e2e.ts`，硬上限 51,200 B）；新增 `src/topic.ts`、`src/topic-events.ts`、`src/activity.ts`、`src/inbox.ts`。
-- **范围证据**：`git diff --name-only 06ff66b..HEAD` 恰为 16 个文件（8 个 `src/`、8 个 `tests/`），不含 `src/tools.ts`、`src/api.ts`、`src/api-contract.ts`、`src/client/**`、`presets/**`；M9–M12 模块（`routing`/`router-model`/`review-request`/`work-item`/`session-visibility`/`project-tools`/`topic-tools`/`route-tools`/`coverage-tools`）均不存在。
+- **范围证据**：`git diff --name-only 06ff66b..3723359` 恰为 16 个文件（8 个 `src/`、8 个 `tests/`），不含 `src/tools.ts`、`src/api.ts`、`src/api-contract.ts`、`src/client/**`、`presets/**`；M9–M12 模块（`routing`/`router-model`/`review-request`/`work-item`/`session-visibility`/`project-tools`/`topic-tools`/`route-tools`/`coverage-tools`）均不存在。
 
 ## 交付清单
 
