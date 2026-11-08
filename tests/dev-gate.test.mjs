@@ -36,7 +36,7 @@ register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 const { apply, Config } = await import('../src/index.ts')
 const { HANDOFF_PATH, OVERVIEW_PATH } = await import('../src/api-contract.ts')
 
-/** The eleven business tools — stable public names, pinned here on purpose. */
+/** The fourteen business tools — stable public names, pinned here on purpose. */
 const BUSINESS_TOOLS = [
   'cowork_checkout_merge',
   'cowork_handoff',
@@ -49,6 +49,9 @@ const BUSINESS_TOOLS = [
   'cowork_route',
   'cowork_thread_create',
   'cowork_thread_list',
+  'cowork_topic_create',
+  'cowork_topic_list',
+  'cowork_topic_resolve',
 ]
 
 /** The four runtime presets every mode registers (thread is the deprecated topic alias). */

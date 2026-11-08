@@ -1,6 +1,6 @@
 /**
  * Pure tool-model helpers for the `cowork_*` tools: the caller identity, the
- * role gate, the shared result envelope, the thread brief, and the route
+ * role gate, the shared result envelope, the topic brief, and the route
  * payload mapping.
  *
  * Nothing here touches the host: no imports, no I/O, no clock. The tool layer
@@ -40,6 +40,19 @@ export const ERROR_CODES = {
   reviewSessionFailed: 'review/session-failed',
   reviewPromptFailed: 'review/prompt-failed',
   reviewWriteFailed: 'review/write-failed',
+} as const
+
+/**
+ * Wire codes introduced by the M9.3b topic/route tools. Kept separate from the
+ * long-stable {@link ERROR_CODES} table so adding a new tool family does not
+ * rewrite the pinned compatibility list.
+ */
+export const TOPIC_ERROR_CODES = {
+  routeBriefTooLong: 'route/brief-too-long',
+  routeArgsConflict: 'route/args-conflict',
+  topicNotFound: 'topic/not-found',
+  topicTitleRequired: 'topic/title-required',
+  topicInvalidOwnedPaths: 'topic/invalid-owned-paths',
 } as const
 
 /** The one failure envelope every tool returns instead of throwing. */
@@ -165,25 +178,25 @@ export function claimMaster(
 }
 
 /**
- * Branch prefix of a thread's private commits. Mirrors `CHECKOUT_BRANCH_PREFIX`
+ * Branch prefix of a topic's private commits. Mirrors `CHECKOUT_BRANCH_PREFIX`
  * in src/checkout.ts; kept as a literal because this module imports nothing.
  */
-const THREAD_BRANCH_PREFIX = 'cowork/'
+const TOPIC_BRANCH_PREFIX = 'cowork/'
 
 /**
- * The opener a new thread receives: where the project is, which thread it owns,
- * what it must not touch, and the handoff contract it cannot skip. An isolated
- * thread also learns its clone path and the branch the master will merge.
+ * The opener a new cowork topic receives: where the project is, which topic it
+ * owns, what it must not touch, and the handoff contract it cannot skip. An
+ * isolated topic also learns its clone path and the branch the master merges.
  */
 export function buildThreadBrief(input: {
   repoPath: string
   subject: string
-  threadId: string
+  topicId: string
   intent?: string
   checkoutPath?: string | null
 }): string {
   const lines = [
-    `You are cowork thread ${input.threadId} in project ${input.repoPath}.`,
+    `You are cowork topic ${input.topicId} in project ${input.repoPath}.`,
     `Subject: ${input.subject}`,
   ]
   const intent = input.intent?.trim() ?? ''
@@ -191,13 +204,13 @@ export function buildThreadBrief(input: {
   const checkoutPath = input.checkoutPath?.trim() ?? ''
   if (checkoutPath !== '') {
     lines.push(
-      `Your isolated work area is ${checkoutPath} — a local git clone of the project, branch ${THREAD_BRANCH_PREFIX}${input.threadId}. Make all edits and commits there; do not modify the main repository. The master merges your branch after your handoff.`,
+      `Your isolated work area is ${checkoutPath} — a local git clone of the project, branch ${TOPIC_BRANCH_PREFIX}${input.topicId}. Make all edits and commits there; do not modify the main repository. The master merges your branch after your handoff.`,
     )
   }
   lines.push(
-    'Scope: work only inside this thread. Do not modify files owned by other threads, and do not change the project index by hand — the cowork tools write it.',
+    'Scope: work only inside this topic. Do not modify files owned by other topics, and do not change the project index by hand — the cowork tools write it.',
     'Read the project index and the latest handoff with cowork_project_status before you start.',
-    'Before you stop (finished or blocked) you must call cowork_handoff with status (awaiting_review|blocked|done), a summary, and verification: [{command, exitCode, evidence}] for every check you ran.',
+    'Before you stop (finished or blocked) you must call cowork_handoff with status (blocked|done; awaiting_review is deprecated), a summary, and verification: [{command, exitCode, evidence}] for every check you ran.',
   )
   return lines.join('\n')
 }
@@ -236,31 +249,3 @@ export const REVIEW_VERIFICATION_PARAMETER = {
     evidence: { type: 'string', required: true, description: 'Short output or result that proves it.' },
   },
 } as const
-
-/** The router decision this module maps into a tool payload. */
-export interface RouteDecisionLike {
-  action: 'reuse' | 'create' | 'needs_subject'
-  threadId?: string
-  score?: number
-  candidates: ReadonlyArray<{ threadId: string; subject: string; status: string; score: number }>
-}
-
-/** Map a router decision onto the payload the master sees. */
-export function routePayload(decision: RouteDecisionLike): {
-  action: 'routed' | 'created' | 'needs_subject'
-  threadId?: string
-  score?: number
-  candidates: ReadonlyArray<{ threadId: string; subject: string; status: string; score: number }>
-} {
-  const candidates = decision.candidates.map((candidate) => ({
-    threadId: candidate.threadId,
-    subject: candidate.subject,
-    status: candidate.status,
-    score: candidate.score,
-  }))
-  if (decision.action === 'reuse') {
-    return { action: 'routed', threadId: decision.threadId, score: decision.score, candidates }
-  }
-  if (decision.action === 'create') return { action: 'created', candidates }
-  return { action: 'needs_subject', candidates }
-}

@@ -17,31 +17,23 @@
  * a test can register the tools against recording fakes.
  */
 import { execFile } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { statusChangedActivity } from './activity.js'
-import { createCheckout, inspectCheckout, removeCheckout } from './checkout.js'
-import type { CheckoutDeps, CheckoutStatus, GitResult, GitRunner } from './checkout.js'
+import type { CheckoutDeps, GitResult, GitRunner } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
 import type { MemoryIo } from './memory.js'
-import { THREAD_PRESET_ID } from './presets.js'
 import type { PresetRegistryPort } from './presets.js'
 import { SessionSlice } from './session-slice.js'
 import type { SessionSlicePorts } from './session-slice.js'
+import type { LlmRoutingPort } from './router-model.js'
 import { ProjectStore, StoreError, findProjectRoot } from './store.js'
 import type { HandoffFile, ProjectIndex, ThreadRecord } from './store.js'
 import type { ActivityEvent, ProjectIndexV2, TopicRecordV2, TopicStatus } from './store-schema.js'
 import { evaluateTopicLifecycle } from './topic.js'
-import { ERROR_CODES, buildThreadBrief, failure, readCaller } from './tool-model.js'
+import { ERROR_CODES, failure, readCaller } from './tool-model.js'
 import type { CallerIdentity, ToolFailure } from './tool-model.js'
 
 /** Lossless JSON value accepted by the tool result boundary. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
-
-/** The tool-registry slice of the plugin context; the rest of `ctx` stays opaque. */
-export interface CoworkToolsHost {
-  tools: { register(definition: ToolDefinition): () => void }
-}
 
 /** The third routing layer's settings as the tools receive them (M9.1/M9.2). */
 export interface RoutingSettings {
@@ -60,6 +52,12 @@ export interface RoutingSettings {
  * are optional so a hand-built deps object (tests, embedders) still works; the
  * defaults live in src/index.ts's normalized config and src/topic.ts.
  */
+/** The host's current default model route, as `agentDefaultModel` reports it. */
+export interface CurrentModelRoute {
+  provider: string
+  model: string
+}
+
 export interface CoworkToolDeps {
   sessionController: SessionSlicePorts['sessions']
   workspaceRegistry: SessionSlicePorts['workspaces']
@@ -72,8 +70,22 @@ export interface CoworkToolDeps {
   idleAfterMs?: number
   /** Silence after which a resolvable topic is resolved; defaults to `DEFAULT_RESOLVE_AFTER_MS`. */
   resolveAfterMs?: number
-  /** Third-layer model routing settings; M9.3a only carries them to M9.3b. */
+  /** Third-layer model routing settings (M9.2). */
   routing?: RoutingSettings
+  /** Host LLM port for the third routing layer; absent means "unavailable". */
+  llmRoutingPort?: LlmRoutingPort
+  /** The host's current default model, used when routing.provider/model are unset. */
+  currentModelRoute?: () => CurrentModelRoute | null
+}
+
+/** Longest `brief` a tool may carry into a new topic or route prompt. */
+export const BRIEF_MAX_CHARS = 2000
+
+/** Cut text to at most `limit` Unicode code points without splitting a pair. */
+export function truncateText(text: string, limit: number): string {
+  if (limit <= 0) return ''
+  const points = Array.from(text)
+  return points.length <= limit ? text : points.slice(0, limit).join('')
 }
 
 /** One resolved project plus the collaborators for one tool call. */
@@ -279,208 +291,41 @@ export function threadView(thread: ThreadRecord): {
   }
 }
 
-/** Newest handoff summary per thread, for the router's keyword overlap. */
-export function handoffSummaries(handoffs: readonly HandoffFile[]): Map<string, string> {
-  const summaries = new Map<string, string>()
-  // listHandoffs is ascending by createdAt, so the last write per thread wins.
-  for (const file of handoffs) summaries.set(file.record.threadId, file.record.summary)
-  return summaries
-}
+/** Most characters of a topic digest a bounded tool view carries. */
+export const TOPIC_VIEW_DIGEST_MAX_CHARS = 200
 
-/** Build a `'new'` thread record for a session the host just created. */
-export function newThreadRecord(
-  threadId: string,
-  subject: string,
-  repoPath: string,
-  createdAt: Date,
-  checkoutPath: string | null = null,
-): ThreadRecord {
-  const stamp = createdAt.toISOString()
-  return {
-    threadId,
-    subject,
-    status: 'new',
-    cwd: repoPath,
-    checkoutPath,
-    createdAt: stamp,
-    updatedAt: stamp,
-    lastHandoffAt: null,
-    reviewStatus: null,
-    reviewRequestedAt: null,
-    reviewedAt: null,
-    reviewerSessionId: null,
-    latestReviewPath: null,
-  }
-}
-
-/** What one successful isolated creation produced. */
-export interface IsolatedThread {
-  thread: ThreadRecord
-  threadId: string
+/** The bounded topic row `cowork_topic_*` and `cowork_route` return. */
+export interface TopicView {
+  topicId: string
   title: string
-  prompted: boolean
-  checkoutPath: string
+  status: TopicStatus
+  blocked: boolean
+  awaitingReview: boolean
+  scope: string
+  ownedPaths: string[]
+  digest: string
+  lastActiveAt: string
+  updatedAt: string
+  resolvedAt: string | null
+  resolvedBy: 'user' | 'master' | null
 }
 
-/** One checkout row of the project status view. */
-export interface CheckoutRow {
-  threadId: string
-  path: string
-  exists: boolean
-  dirty: boolean
-  branch: string | null
-  head: string | null
-}
-
-/**
- * Create a thread that works in its own clone.
- *
- * Fixed order: mint the id → clone (`createCheckout`) → workspace + session on
- * the clone (`createCheckoutThread`) → index record → brief. A failure after
- * the clone compensates: the index entry (if written), the clone, and the
- * workspace this call created are all removed, so a failed creation leaves no
- * half thread behind. Cleanup problems are reported in the failure details
- * instead of masking the original error.
- */
-export async function createIsolatedThread(
-  runtime: ProjectRuntime,
-  input: { subject: string; intent?: string; brief?: string },
-  deps: CoworkToolDeps,
-): Promise<IsolatedThread | ToolFailure> {
-  const threadId = `session-${randomUUID()}`
-  const created = await createCheckout(checkoutDeps, { repoPath: runtime.repoPath, threadId })
-  if (!created.ok) {
-    // createCheckout already removed anything it created; the index was never touched.
-    return failure(created.code, created.message, created.details)
+/** Project one v2 topic onto the bounded tool view (digest cut to 200 points). */
+export function topicView(topic: TopicRecordV2): TopicView {
+  return {
+    topicId: topic.topicId,
+    title: topic.title,
+    status: topic.status,
+    blocked: topic.blocked,
+    awaitingReview: topic.awaitingReview,
+    scope: topic.scope,
+    ownedPaths: topic.ownedPaths,
+    digest: truncateText(topic.digest, TOPIC_VIEW_DIGEST_MAX_CHARS),
+    lastActiveAt: topic.lastActiveAt,
+    updatedAt: topic.updatedAt,
+    resolvedAt: topic.resolvedAt,
+    resolvedBy: topic.resolvedBy,
   }
-
-  let workspaceId: string | null = null
-  let recordWritten = false
-  const cleanupErrors: string[] = []
-  try {
-    const session = await runtime.slice.createCheckoutThread({
-      repoPath: runtime.repoPath,
-      checkoutPath: created.path,
-      threadId,
-      subject: input.subject,
-      presetId: THREAD_PRESET_ID,
-    })
-    workspaceId = session.workspaceId
-
-    const record = newThreadRecord(
-      session.sessionId,
-      input.subject,
-      runtime.repoPath,
-      nowOf(deps),
-      created.path,
-    )
-    await runtime.store.addThread(record)
-    recordWritten = true
-
-    const brief = buildThreadBrief({
-      repoPath: runtime.repoPath,
-      subject: input.subject,
-      threadId: session.sessionId,
-      intent: input.intent,
-      checkoutPath: created.path,
-    })
-    const extra = input.brief?.trim() ?? ''
-    const prompted = await runtime.slice.promptSession(
-      session.sessionId,
-      extra === '' ? brief : `${brief}\n\n${extra}`,
-    )
-    let thread = record
-    if (prompted.accepted) {
-      const updated = await runtime.store.updateThread(session.sessionId, { status: 'active' })
-      thread = updated.threads.find((entry) => entry.threadId === session.sessionId) ?? record
-    }
-    return {
-      thread,
-      threadId: session.sessionId,
-      title: session.title,
-      prompted: prompted.accepted,
-      checkoutPath: created.path,
-    }
-  } catch (error) {
-    if (recordWritten) {
-      try {
-        await runtime.store.mutateIndex((index) => ({
-          ...index,
-          threads: index.threads.filter((entry) => entry.threadId !== threadId),
-        }))
-      } catch (cleanupError) {
-        cleanupErrors.push(`index: ${describeError(cleanupError)}`)
-      }
-    }
-
-    // A workspace is created before the session, so a failure between them
-    // leaves one that the thrown path never learned the id of; resolve by path.
-    // The host canonicalises the path with realpath, so resolve while the clone
-    // still exists.
-    let resolvedWorkspaceId = workspaceId
-    if (resolvedWorkspaceId === null) {
-      try {
-        const existing = await deps.workspaceRegistry.resolveByPath(created.path)
-        resolvedWorkspaceId = existing === undefined ? null : existing.id
-      } catch (cleanupError) {
-        cleanupErrors.push(`workspace lookup: ${describeError(cleanupError)}`)
-      }
-    }
-
-    const removed = await removeCheckout(checkoutDeps, { repoPath: runtime.repoPath, threadId })
-    if (!removed.ok) cleanupErrors.push(`checkout: ${removed.message}`)
-
-    let workspaceDeleted = false
-    if (resolvedWorkspaceId !== null) {
-      try {
-        workspaceDeleted = await deps.workspaceRegistry.delete(resolvedWorkspaceId)
-      } catch (cleanupError) {
-        cleanupErrors.push(`workspace delete: ${describeError(cleanupError)}`)
-      }
-    }
-
-    const mapped = mapError(error)
-    return failure(mapped.error.code, mapped.error.message, {
-      ...(typeof mapped.error.details === 'object' && mapped.error.details !== null
-        ? (mapped.error.details as Record<string, unknown>)
-        : {}),
-      threadId,
-      cleanup: {
-        indexRolledBack: recordWritten,
-        checkoutRemoved: removed.ok ? removed.removed : false,
-        workspaceDeleted,
-        errors: cleanupErrors,
-      },
-    })
-  }
-}
-
-/**
- * Read-only checkout summary for every isolated thread. `inspectCheckout` can
- * throw only for an invalid thread id; one bad record must not fail the whole
- * status view, so that row degrades to the module's own all-empty shape.
- */
-export async function inspectCheckouts(
-  repoPath: string,
-  threads: readonly ThreadRecord[],
-): Promise<CheckoutRow[]> {
-  const isolated = threads.filter((thread) => thread.checkoutPath !== null)
-  return Promise.all(isolated.map(async (thread) => {
-    let status: CheckoutStatus
-    try {
-      status = await inspectCheckout(checkoutDeps, { repoPath, threadId: thread.threadId })
-    } catch {
-      status = { exists: false, dirty: false, branch: null, head: null, commitsAhead: null }
-    }
-    return {
-      threadId: thread.threadId,
-      path: thread.checkoutPath as string,
-      exists: status.exists,
-      dirty: status.dirty,
-      branch: status.branch,
-      head: status.head,
-    }
-  }))
 }
 
 /** One lifecycle transition the read point made. */

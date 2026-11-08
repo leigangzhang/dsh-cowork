@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -95,11 +95,13 @@ test('the two review tools register from src/review-tools.ts, not src/tools.ts',
   )
 })
 
-test('the M9.3a domain split owns its tool names and keeps tools.ts orchestration-only', () => {
+test('the tool split owns every tool name and keeps tools.ts orchestration-only', () => {
   const source = (file) => readFileSync(resolve(root, file), 'utf8')
   const toolsSource = source('src/tools.ts')
   const domains = [
     ['src/project-tools.ts', source('src/project-tools.ts'), ['cowork_project_init', 'cowork_project_status']],
+    ['src/topic-tools.ts', source('src/topic-tools.ts'), ['cowork_topic_create', 'cowork_thread_create', 'cowork_topic_list', 'cowork_thread_list', 'cowork_handoff', 'cowork_topic_resolve']],
+    ['src/route-tools.ts', source('src/route-tools.ts'), ['cowork_route']],
     ['src/memory-tools.ts', source('src/memory-tools.ts'), ['cowork_memory_write', 'cowork_memory_search']],
     ['src/checkout-tools.ts', source('src/checkout-tools.ts'), ['cowork_checkout_merge']],
   ]
@@ -109,17 +111,17 @@ test('the M9.3a domain split owns its tool names and keeps tools.ts orchestratio
       assert.ok(!toolsSource.includes(`name: '${name}'`), `src/tools.ts must not register ${name} directly`)
     }
   }
-  for (const name of ['cowork_route', 'cowork_thread_create', 'cowork_thread_list', 'cowork_handoff']) {
-    assert.ok(toolsSource.includes(`name: '${name}'`), `src/tools.ts still owns ${name} until M9.3b`)
-  }
-  for (const call of ['registerProjectTools', 'registerMemoryTools', 'registerCheckoutTools', 'registerReviewTools']) {
+  for (const call of ['registerProjectTools', 'registerTopicTools', 'registerRouteTools', 'registerMemoryTools', 'registerCheckoutTools', 'registerReviewTools']) {
     assert.match(toolsSource, new RegExp(`${call}\\(`), `src/tools.ts must call ${call}`)
   }
 
   const budgets = [
     ['src/tools.ts', TOOLS_SPLIT_HEADROOM_BYTES],
     ['src/tool-runtime.ts', READ_LIMIT_BYTES],
+    ['src/llm-port.ts', READ_LIMIT_BYTES],
     ['src/project-tools.ts', READ_LIMIT_BYTES],
+    ['src/topic-tools.ts', READ_LIMIT_BYTES],
+    ['src/route-tools.ts', READ_LIMIT_BYTES],
     ['src/memory-tools.ts', READ_LIMIT_BYTES],
     ['src/checkout-tools.ts', READ_LIMIT_BYTES],
   ]
@@ -128,4 +130,29 @@ test('the M9.3a domain split owns its tool names and keeps tools.ts orchestratio
     console.log(`# ${file}: ${bytes} B / ${limit} B`)
     assert.ok(bytes <= limit, `${file} is ${bytes} B, over the ${limit} B budget`)
   }
+})
+
+test('the legacy keyword router is gone and nothing imports it', () => {
+  assert.equal(existsSync(resolve(root, 'src/router.ts')), false, 'src/router.ts must be deleted')
+  for (const file of sourceFiles(srcRoot)) {
+    const text = readFileSync(resolve(root, file), 'utf8')
+    assert.ok(!text.includes("'./router.js'"), `${file} still imports ./router.js`)
+    assert.ok(!text.includes("'../src/router.ts'"), `${file} still imports src/router.ts`)
+  }
+})
+
+
+test('the host LLM adapter lives in src/llm-port.ts', () => {
+  const source = (file) => readFileSync(resolve(root, file), 'utf8')
+  const indexSource = source('src/index.ts')
+  const portSource = source('src/llm-port.ts')
+
+  assert.match(indexSource, /createLlmRoutingPort\(/, 'src/index.ts must use the extracted adapter')
+  assert.ok(
+    !indexSource.includes("role: 'system'") && !indexSource.includes("role: 'user'"),
+    'src/index.ts must not build model messages inline',
+  )
+  assert.match(portSource, /system: request\.systemPrompt/, 'the system prompt is top-level')
+  assert.match(portSource, /content: \[\{ type: 'text', text: request\.userPrompt \}\]/, 'the user body is a text block array')
+  assert.match(portSource, /signal,/)
 })

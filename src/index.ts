@@ -34,7 +34,9 @@ import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
 import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
-import type { CoworkToolDeps } from './tool-runtime.js'
+import { createLlmRoutingPort } from './llm-port.js'
+import type { HostLlmLike } from './llm-port.js'
+import type { CoworkToolDeps, CurrentModelRoute } from './tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
 import { TopicEvents } from './topic-events.js'
 import type { TopicEventLike, TopicEventSession } from './topic-events.js'
@@ -570,12 +572,51 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 S0 probe ready at ${S0_RUN_PATH}`)
 }
 
+/** The host default-model service slice (M9.3b). */
+interface HostAgentDefaultModel {
+  currentSelection(): { provider?: unknown; model?: unknown } | null | undefined
+}
+
+/** Read one optional host service without making it a required injection. */
+function hostService<T>(ctx: Context, name: string): T | undefined {
+  const get = (ctx as unknown as { get?: (key: string) => unknown }).get
+  if (typeof get !== 'function') return undefined
+  try {
+    return get.call(ctx, name) as T | undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The host's current default model route, used when `routing.provider/model`
+ * are unset. Swallowing a missing service keeps this an optional enhancement.
+ */
+function hostCurrentModelRoute(ctx: Context): () => CurrentModelRoute | null {
+  return () => {
+    const service = hostService<HostAgentDefaultModel>(ctx, 'agentDefaultModel')
+    if (service === undefined || service === null || typeof service.currentSelection !== 'function') return null
+    try {
+      const selection = service.currentSelection()
+      if (
+        typeof selection?.provider === 'string' && selection.provider.trim() !== ''
+        && typeof selection.model === 'string' && selection.model.trim() !== ''
+      ) {
+        return { provider: selection.provider, model: selection.model }
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+}
+
 /** Register the business surface, plus the opt-in dev probe surface when enabled. */
 export function apply(ctx: Context, config: Config): void {
   // One normalized view of the settings: a hand-built partial config (tests,
   // embedders) must not crash routing because `routing` is absent.
   const settings = normalizeConfig(config)
-  // M1 assembly services: one dependency bag for the presets and the eleven tools.
+  // M1 assembly services: one dependency bag for the presets and the fourteen tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: identical in both dev modes and unchanged from M0-M3.
   // Only the dev probe canonicalizes it, because only the probe compares paths
@@ -592,6 +633,10 @@ export function apply(ctx: Context, config: Config): void {
     idleAfterMs: settings.idleAfterMs,
     resolveAfterMs: settings.resolveAfterMs,
     routing: settings.routing,
+    // M9.3b: the only host LLM entry point. Missing services leave the third
+    // layer on its structured fallback; they never fail a route.
+    llmRoutingPort: createLlmRoutingPort(hostService<HostLlmLike>(ctx, 'llm')),
+    currentModelRoute: hostCurrentModelRoute(ctx),
   }
 
   // M2 panel: read-only HTTP routes over the host connection service. The
