@@ -544,14 +544,14 @@ master → 插件：cowork_checkout_merge(workItemId)
 - `.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md`
 - `.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md`
 - `.agents/notes/proposed/feature/2026-11-07-review-request-model.md`
-- `.agents/notes/proposed/feature/2026-11-07-three-layer-routing.md`
+- `.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md`
 - `.agents/notes/proposed/architecture/2026-11-07-parallel-isolation-and-merge.md`
 - `.agents/notes/proposed/feature/2026-11-07-panel-and-session-visibility.md`
 - `.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md`
 
 记录与阶段的主归属见 §6 的「记录与阶段的主归属」表。
 
-每份都必须有 `## Problem`、`## Proposal`、非空 `## Alternatives considered`、`## Acceptance criteria`、`## Risks`、`## Delivery stages`。替代方案至少记录：保留 thread、master 继续编排评审、复用 reviewer 会话、多段会话、低置信弹窗、纯词法路由、立即替换 worktree、讨论型主题独立成类。
+每份 proposed 记录必须有 `## Problem`、`## Proposal`、非空 `## Alternatives considered`、`## Acceptance criteria`、`## Risks`、`## Delivery stages`；已落地的 implemented 记录按同一交付重写为 `## Problem`、`## Decision`、非空 `## Alternatives considered`、`## Consequences`、`## Testing`（criterion id 保留）。替代方案至少记录：保留 thread、master 继续编排评审、复用 reviewer 会话、多段会话、低置信弹窗、纯词法路由、立即替换 worktree、讨论型主题独立成类。
 
 ---
 
