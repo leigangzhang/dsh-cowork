@@ -6,7 +6,7 @@
 
 ## 交付基线
 
-- **分支**：`feat/m9-routing-tools-presets`，从 `origin/main` 的 M8 合并提交 `7b9a6a5` 切出。
+- **分支**：`feat/m9-routing-tools-presets`，从 `origin/main` 的 M8 合并提交 `7b9a6a5` 切出；分支已推送到 `origin`，M9 PR 为 [#14](https://github.com/leigangzhang/dsh-cowork/pull/14)。
 - **代码 HEAD**：`a741e65`（`a741e65773c53588c44e851d9fdccec4b90972a0`）。追加历史：`6379712`（A5 集成）→ `569d485`（dev-gate 与 presets 两处注释修复）→ `462bdb9`/`a741e65`（project-tools 兼容窗口注释修复，代码 HEAD）。三处都只改注释/测试注释：596 不变；前两处字节不变，第三处仅 `src/project-tools.ts` 注释 +197 B（11,359 → 11,556）。记录迁移与 M9_RESULT/HANDOFF 初版由 `45094ae` 集成（只改 `.md`/`.json`）；本任务的 HEAD 事实同步是其后的文档提交（本文件无法写入自身 sha）。
 - **文档分工**：M9 启动交接保留在 [M9_HANDOFF.md](M9_HANDOFF.md)（不回写交付记录）；交付事实、证据、偏差与回滚以本文件为准。
 - **提交序列（`7b9a6a5..a741e65`，按提交顺序）**：

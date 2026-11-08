@@ -6,7 +6,7 @@
 
 ## M9 交付后的状态（2026-11-08）
 
-- **基线分支**：M9 在 `feat/m9-routing-tools-presets` 上交付并推送，已创建 PR。启动时先 `git fetch origin`；**如果 M9 PR 已合并**，用 `origin/main` 的 merge sha 作为基线；**未合并**时用 `origin/feat/m9-routing-tools-presets` 的 HEAD（启动时用 `git rev-parse` 记录实际 sha，不凭推测）。分支建议 `feat/m10-review-request-workitems`。
+- **基线分支**：M9 在 `feat/m9-routing-tools-presets` 上交付并推送，PR 为 [#14](https://github.com/leigangzhang/dsh-cowork/pull/14)。启动时先 `git fetch origin`；**如果 M9 PR 已合并**，用 `origin/main` 的 merge sha 作为基线；**未合并**时用 `origin/feat/m9-routing-tools-presets` 的 HEAD（启动时用 `git rev-parse` 记录实际 sha，不凭推测）。分支建议 `feat/m10-review-request-workitems`。
 - **M9 代码 HEAD**：`a741e65`。其后的 M9 交接整理、文档回滚与 AgentTeams 规则提交只改 `.md`，不改变代码基线；M9 交付事实见 [M9_RESULT](M9_RESULT.md)。
 - **验证基线**：`npm test` **596 pass / 0 fail / 0 cancelled / 0 skipped / 0 todo**；`npm run typecheck`、`npm run build`、`npm run check` 均 exit 0（M9 终局验证与队长复跑一致）。M10 新增测试后计数会增加，不预写未来数字。
 - **代码形态**：`src/tools.ts` 2,489 B（只做 14 工具编排）；`src/store.ts` **48,590 B**（审查线 49,152 B，**余量约 562 B**）；`src/**/*.ts` 最大 `src/m2-e2e.ts` 49,923 B（<51,200 B）；已存在 `routing.ts`/`router-model.ts`/`llm-port.ts`/`tool-runtime.ts`/`project-tools.ts`/`topic-tools.ts`/`route-tools.ts`/`memory-tools.ts`/`checkout-tools.ts`；**不存在** `review-request.ts`/`work-item.ts`/`session-visibility.ts`。
