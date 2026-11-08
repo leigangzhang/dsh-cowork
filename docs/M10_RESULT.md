@@ -90,6 +90,14 @@
 - **文档/记录**：revert 本收口提交（只改 `.md`/`.json`）；两份记录回到 `proposed/`，`docs/publish.json` 的 M10_RESULT 条目随之回滚。不要 force-push。
 - **activity/inbox**：M10 新增的活动与未投递收件箱条目在回滚后无害（M9 读取器忽略未知 kind 之外的字段），但不会自动清理。
 
+## 交付（delivery）
+
+- **分支与 PR**：`feat/m10-review-request-workitems` 已推送到 `origin`（普通 push，非 force），PR 为 [#15](https://github.com/leigangzhang/dsh-cowork/pull/15)，base `main`；未合并、未改历史、未发版，最终合并由人类完成。
+- **推送时的 artifact（PR 初始 head）**：HEAD `c46db6fce2a70e8c325fffe93fa838ad52f57dd7`；`git diff 4e05954..HEAD | shasum -a 256` = `f62c37691640d1d6101e4786226f989c0a2a71e9e79cf57728a9d1c65a1ff6fe`；`git status --porcelain` 空；推送时间 **2026-11-08T15:24Z**（UTC）。该 HEAD 上重跑四命令全 exit 0：`npm test` **701/701**（0 fail/cancelled/skipped/todo）、`npm run typecheck`、`npm run build`、`npm run check`（`check-invariants: ok`）。
+- **最终 HEAD 说明**：本 delivery 小节属于同一次交付的文档提交，本文件无法写入自身 sha；**最终 HEAD 与 `4e05954..HEAD` diff sha256 以交付任务 output 与 PR 最新 commit 为准**（该提交只改本文件）。代码 artifact 不变，仍是 `e25a36f`（701/701、diff `098a0ac4…`）；`c46db6f` 相对它只多出 M11 启动材料（M11 提案、`docs/M11_HANDOFF.md`、`publish.json`）与 `b4f6580` 的 result fact-sync。
+- **交付范围**：M10 代码与文档（见上文基线/清单/证据）+ M11 启动材料；PR 正文列出了四命令证据、破坏性变更与未验证项。
+- **未验证（未变）**：真实 DSH 宿主 E2E、真实 clone 成本、跨进程合并串行、真实旧数据迁移/回滚归 M11/M12（KI-22）；reviewer 只读仍是约定（KI-15），live reviewer 在宿主左侧栏可见是 M10 接受的上限（KI-28）。
+
 ## 遗留问题指针
 
 见 [KNOWN_ISSUES](KNOWN_ISSUES.md)：本阶段**关闭** KI-24（读取点接真实 `active`+`reviewing` 计数）与 KI-25（工具面只剩 `blocked|done`；旧 handoff 文件只读，未迁移残留写明）；**修订** KI-18（只剩读路径与 M11/M12 清理）与 KI-22（补 M10 未验证边界）；**新增** KI-26（合并串行仅单进程）、KI-27（isolation provider 仅 clone）、KI-28（reviewer 左侧栏可见至 M11）、KI-29（legacy dev E2E m2/m3 由 M12 取代）、KI-30（评审分级与用户评审 provenance 未实现）。KI-15/17/19/21/23 保持原归属。
