@@ -36,6 +36,8 @@ import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js
 import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
 import type { CoworkToolDeps } from './tools.js'
 import { registerCoworkTools } from './tools.js'
+import { TopicEvents } from './topic-events.js'
+import type { TopicEventLike, TopicEventSession } from './topic-events.js'
 
 const packageJson = JSON.parse(
   readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
@@ -531,6 +533,31 @@ export function apply(ctx: Context, config: Config): void {
     }),
   }
   registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
+
+  // M8.2: the session event stream keeps topic activity fresh and reopens a
+  // resolved topic when its owner returns. The rules live in topic-events.ts
+  // behind injected ports; this effect releases the listener on unload.
+  const topicEvents = new TopicEvents({
+    onSessionEvent: (listener) => (ctx as unknown as {
+      on(
+        name: 'session/event',
+        handler: (session: TopicEventSession, event: TopicEventLike) => void,
+      ): () => void
+    }).on('session/event', listener),
+    resolveRepoPath: async (session) => {
+      const cwd = session.header?.cwd
+      if (typeof cwd !== 'string' || cwd === '') return null
+      return findProjectRoot(cwd)
+    },
+    storeFor: (repoPath) => new ProjectStore({
+      repoPath,
+      clock: () => new Date(),
+      archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
+    }),
+    clock: () => new Date(),
+    log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
+  })
+  ctx.effect(() => topicEvents.attach(), 'dsh-cowork: topic lifecycle events')
 
   // Dev surfaces are opt-in: an installed profile never exposes the probe
   // routes, the probe tools, the probe presets, or the session event feeds.
