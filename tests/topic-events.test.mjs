@@ -253,8 +253,8 @@ test('user/message reopens a resolved topic and records one topic-reopened event
       time: NOW_ISO,
       type: 'topic-reopened',
       topicId: 'session-a',
-      summary: 'reopened resolved topic',
-      details: { resolvedAt: RESOLVED_AT, resolvedBy: 'master' },
+      summary: 'reopened topic session-a',
+      details: { topicId: 'session-a', resolvedAt: RESOLVED_AT, resolvedBy: 'master' },
     },
   )
 })

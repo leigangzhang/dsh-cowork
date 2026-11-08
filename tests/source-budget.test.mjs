@@ -94,3 +94,38 @@ test('the two review tools register from src/review-tools.ts, not src/tools.ts',
     'src/review-tools.ts must not import src/tools.ts (would create a runtime cycle)',
   )
 })
+
+test('the M9.3a domain split owns its tool names and keeps tools.ts orchestration-only', () => {
+  const source = (file) => readFileSync(resolve(root, file), 'utf8')
+  const toolsSource = source('src/tools.ts')
+  const domains = [
+    ['src/project-tools.ts', source('src/project-tools.ts'), ['cowork_project_init', 'cowork_project_status']],
+    ['src/memory-tools.ts', source('src/memory-tools.ts'), ['cowork_memory_write', 'cowork_memory_search']],
+    ['src/checkout-tools.ts', source('src/checkout-tools.ts'), ['cowork_checkout_merge']],
+  ]
+  for (const [file, domainSource, names] of domains) {
+    for (const name of names) {
+      assert.ok(domainSource.includes(`name: '${name}'`), `${file} must register ${name}`)
+      assert.ok(!toolsSource.includes(`name: '${name}'`), `src/tools.ts must not register ${name} directly`)
+    }
+  }
+  for (const name of ['cowork_route', 'cowork_thread_create', 'cowork_thread_list', 'cowork_handoff']) {
+    assert.ok(toolsSource.includes(`name: '${name}'`), `src/tools.ts still owns ${name} until M9.3b`)
+  }
+  for (const call of ['registerProjectTools', 'registerMemoryTools', 'registerCheckoutTools', 'registerReviewTools']) {
+    assert.match(toolsSource, new RegExp(`${call}\\(`), `src/tools.ts must call ${call}`)
+  }
+
+  const budgets = [
+    ['src/tools.ts', TOOLS_SPLIT_HEADROOM_BYTES],
+    ['src/tool-runtime.ts', READ_LIMIT_BYTES],
+    ['src/project-tools.ts', READ_LIMIT_BYTES],
+    ['src/memory-tools.ts', READ_LIMIT_BYTES],
+    ['src/checkout-tools.ts', READ_LIMIT_BYTES],
+  ]
+  for (const [file, limit] of budgets) {
+    const bytes = bytesOf(file)
+    console.log(`# ${file}: ${bytes} B / ${limit} B`)
+    assert.ok(bytes <= limit, `${file} is ${bytes} B, over the ${limit} B budget`)
+  }
+})
