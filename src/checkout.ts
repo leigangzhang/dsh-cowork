@@ -1,11 +1,17 @@
 /**
- * Thread checkout: one local git clone per thread, not a git worktree.
+ * Isolated checkout: one local git clone per thread or work item, not a git
+ * worktree.
  *
  * A thread gets its own working copy at `<repo>/.dsh-cowork/threads/<threadId>`
- * and commits there on branch `cowork/<threadId>`; the repository's own working
- * tree is never touched until `mergeCheckout` fetches that branch and merges it.
- * A clone (instead of a linked worktree) keeps the thread's HEAD, index, and
- * working tree fully private, so a dirty thread cannot block another one.
+ * and commits there on branch `cowork/<threadId>`; a work item gets
+ * `<repo>/.dsh-cowork/workitems/<workItemId>` on the same `cowork/` branch
+ * prefix. Both are described by one {@link IsolationTarget}, so the operations
+ * below do not know which kind of owner they serve: the legacy `threadId` input
+ * is still accepted and resolves to the thread target, which keeps the M4
+ * callers and their tests unchanged. The repository's own working tree is never
+ * touched until `mergeCheckout` fetches that branch and merges it. A clone
+ * (instead of a linked worktree) keeps each owner's HEAD, index, and working
+ * tree fully private, so a dirty checkout cannot block another one.
  *
  * All git access goes through the injected {@link GitRunner}; this module has
  * no value-level imports besides Node built-ins, so it can be unit-tested with
@@ -20,7 +26,7 @@
  */
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 
 /** Result of one git invocation. Non-zero exits are values, not exceptions. */
 export interface GitResult {
@@ -35,14 +41,30 @@ export type GitRunner = (args: readonly string[], cwd: string) => Promise<GitRes
 /** Directory (relative to the repository root) that holds thread clones. */
 export const CHECKOUT_ROOT_RELATIVE = '.dsh-cowork/threads'
 
-/** Branch prefix for a thread's private commits. */
+/** Directory (relative to the repository root) that holds work-item clones. */
+export const WORK_ITEM_ROOT_RELATIVE = '.dsh-cowork/workitems'
+
+/** Branch prefix for a checkout's private commits. */
 export const CHECKOUT_BRANCH_PREFIX = 'cowork/'
+
+/** Branch prefix for a work item's private commits (same namespace as threads). */
+export const WORK_ITEM_BRANCH_PREFIX = CHECKOUT_BRANCH_PREFIX
+
+/**
+ * Isolation provider this module implements. `src/tool-runtime.ts` owns the
+ * configured default; M10 implements `clone` only and `src/work-item.ts`
+ * refuses every other value instead of silently falling back.
+ */
+export const CLONE_ISOLATION_PROVIDER = 'clone'
 
 /** Timeout for one git invocation. No git call is retried automatically. */
 export const GIT_TIMEOUT_MS = 30_000
 
-/** Thread ids become path segments and branch suffixes, so keep them narrow. */
-const THREAD_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+/** Ids become path segments and branch suffixes, so keep them narrow. */
+const TARGET_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+
+/** Branch names this module is willing to create or delete. */
+const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/
 
 /** Upper bound on captured git output; a runaway diff should fail, not OOM. */
 const GIT_MAX_BUFFER = 8 * 1024 * 1024
@@ -77,6 +99,36 @@ export interface CheckoutPaths {
   branch: string
 }
 
+/** The paths and branch a work-item id maps to. */
+export interface WorkItemCheckoutPaths {
+  repoPath: string
+  workItemId: string
+  path: string
+  branch: string
+}
+
+/**
+ * One isolation target: the id that names the clone, the directory under the
+ * repository root that holds it, and the branch prefix it commits on. Making
+ * this a value (instead of a thread-only signature) is what lets M10 add work
+ * items without a second clone implementation.
+ */
+export interface IsolationTarget {
+  id: string
+  rootRelative: string
+  branchPrefix: string
+}
+
+/** Map a thread id to its isolation target (the M4 default). */
+export function threadIsolationTarget(threadId: string): IsolationTarget {
+  return { id: threadId, rootRelative: CHECKOUT_ROOT_RELATIVE, branchPrefix: CHECKOUT_BRANCH_PREFIX }
+}
+
+/** Map a work-item id to its isolation target. */
+export function workItemIsolationTarget(workItemId: string): IsolationTarget {
+  return { id: workItemId, rootRelative: WORK_ITEM_ROOT_RELATIVE, branchPrefix: WORK_ITEM_BRANCH_PREFIX }
+}
+
 /**
  * Map a repository path and thread id to the checkout's location and branch.
  * Pure: no filesystem access, no validation (see the path guard used by the
@@ -90,6 +142,20 @@ export function checkoutPaths(repoPath: string, threadId: string): CheckoutPaths
     threadId,
     path: join(root, CHECKOUT_ROOT_RELATIVE, threadId),
     branch: `${CHECKOUT_BRANCH_PREFIX}${threadId}`,
+  }
+}
+
+/**
+ * Map a repository path and work-item id to the clone's location and branch.
+ * Pure, like {@link checkoutPaths}; validation happens in the path guard.
+ */
+export function workItemCheckoutPaths(repoPath: string, workItemId: string): WorkItemCheckoutPaths {
+  const root = resolve(repoPath)
+  return {
+    repoPath: root,
+    workItemId,
+    path: join(root, WORK_ITEM_ROOT_RELATIVE, workItemId),
+    branch: `${WORK_ITEM_BRANCH_PREFIX}${workItemId}`,
   }
 }
 
@@ -128,9 +194,11 @@ export interface CheckoutStatus {
   commitsAhead: number | null
 }
 
-/** Successful path-guard resolution. */
-interface GuardSuccess {
+/** Successful path-guard resolution of one isolation target. */
+export interface IsolationTargetSuccess {
   ok: true
+  /** Target the resolution was for (id, root, branch prefix). */
+  target: IsolationTarget
   repoPath: string
   rootPath: string
   checkoutPath: string
@@ -138,9 +206,25 @@ interface GuardSuccess {
 }
 
 /** Rejected path-guard resolution; no git command may run after this. */
-interface GuardFailure {
+export interface IsolationTargetFailure {
   ok: false
   message: string
+}
+
+/** Result of {@link resolveIsolationTarget}: a guarded checkout or the reason. */
+export type IsolationTargetResolution = IsolationTargetSuccess | IsolationTargetFailure
+
+/**
+ * Everything the checkout operations accept instead of a bare thread id: either
+ * the legacy `threadId` (resolved to the thread target) or an explicit
+ * {@link IsolationTarget}. Exactly one of the two must be present.
+ */
+export interface CheckoutTargetSelector {
+  repoPath: string
+  /** Legacy thread id; resolves to the thread target when `target` is absent. */
+  threadId?: string
+  /** Explicit isolation target (work items, future providers). */
+  target?: IsolationTarget
 }
 
 /** Why the checkout was cleaned up after a failed step (best effort). */
@@ -168,24 +252,40 @@ function isStrictlyInside(parent: string, child: string): boolean {
 }
 
 /**
- * Validate the thread id and prove both the checkout root and (when it already
- * exists) the checkout itself stay inside `<repo>/.dsh-cowork/threads/`.
+ * Validate one isolation target and prove both its root directory and (when it
+ * already exists) the checkout itself stay inside that root.
  *
  * The repository root is canonicalised first, so a symlinked repository path
- * still resolves to one stable location. The threads root must not itself be a
+ * still resolves to one stable location. The target root must not itself be a
  * symlink pointing elsewhere: otherwise a clone would silently land outside
  * the project. An existing checkout is realpath-checked for the same reason.
+ * The root is also required to stay below the repository root, so a target
+ * cannot name `../..` as its root; the id and branch are pattern-checked before
+ * either becomes a path segment or a git ref.
  */
-function guardPaths(repoPath: string, threadId: string): GuardSuccess | GuardFailure {
-  if (!THREAD_ID_PATTERN.test(threadId)) {
+function guardTarget(repoPath: string, target: IsolationTarget): IsolationTargetResolution {
+  if (!TARGET_ID_PATTERN.test(target.id)) {
     return {
       ok: false,
-      message: `thread id "${threadId}" must match [A-Za-z0-9_-]+`,
+      message: `isolation target id "${target.id}" must match [A-Za-z0-9_-]+`,
     }
   }
 
   const repoRoot = canonicalPath(repoPath)
-  const rootPath = join(repoRoot, CHECKOUT_ROOT_RELATIVE)
+  const rootRelative = target.rootRelative
+  if (rootRelative.trim() === '' || isAbsolute(rootRelative)) {
+    return {
+      ok: false,
+      message: `isolation root "${rootRelative}" must be a relative directory below the repository root`,
+    }
+  }
+  const rootPath = join(repoRoot, rootRelative)
+  if (rootPath === repoRoot || !isStrictlyInside(repoRoot, rootPath)) {
+    return {
+      ok: false,
+      message: `isolation root "${rootRelative}" escapes the repository root (${rootPath})`,
+    }
+  }
   const rootReal = canonicalPath(rootPath)
   if (rootReal !== rootPath) {
     return {
@@ -194,24 +294,49 @@ function guardPaths(repoPath: string, threadId: string): GuardSuccess | GuardFai
     }
   }
 
-  const checkoutPath = join(rootPath, threadId)
+  const branch = `${target.branchPrefix}${target.id}`
+  if (!BRANCH_PATTERN.test(branch) || branch.includes('..')) {
+    return { ok: false, message: `isolation branch "${branch}" is not a usable branch name` }
+  }
+
+  const checkoutPath = join(rootPath, target.id)
   if (existsSync(checkoutPath)) {
     const checkoutReal = canonicalPath(checkoutPath)
     if (!isStrictlyInside(rootPath, checkoutReal)) {
       return {
         ok: false,
-        message: `checkout ${checkoutPath} resolves outside the threads root (${checkoutReal})`,
+        message: `checkout ${checkoutPath} resolves outside the ${rootRelative} root (${checkoutReal})`,
       }
     }
   }
 
-  return {
-    ok: true,
-    repoPath: repoRoot,
-    rootPath,
-    checkoutPath,
-    branch: `${CHECKOUT_BRANCH_PREFIX}${threadId}`,
+  return { ok: true, target, repoPath: repoRoot, rootPath, checkoutPath, branch }
+}
+
+/** Resolve the selector to exactly one target; both or neither is a path error. */
+function selectTarget(input: CheckoutTargetSelector): { ok: true; target: IsolationTarget } | IsolationTargetFailure {
+  if (input.target !== undefined) {
+    if (input.threadId !== undefined) {
+      return { ok: false, message: 'pass either threadId or target, not both' }
+    }
+    return { ok: true, target: input.target }
   }
+  if (input.threadId !== undefined) {
+    return { ok: true, target: threadIsolationTarget(input.threadId) }
+  }
+  return { ok: false, message: 'threadId or target is required' }
+}
+
+/**
+ * Resolve one target's clone path and branch under the path guard, without
+ * touching git. `src/work-item.ts` uses this to read inside a work item's clone
+ * with the same canonical/realpath rules every checkout operation applies.
+ */
+export function resolveIsolationTarget(
+  repoPath: string,
+  target: IsolationTarget,
+): IsolationTargetResolution {
+  return guardTarget(repoPath, target)
 }
 
 /** Message of an unknown thrown value, for outcomes that map a real error. */
@@ -237,20 +362,37 @@ function describeFailure(result: GitResult): string {
 }
 
 /** Build a path-guard failure outcome for an operation with an outcome type. */
-function pathGuardOutcome(guard: GuardFailure, threadId: string): CheckoutOutcome<never> {
+function pathGuardFailure(
+  message: string,
+  target: IsolationTarget | null,
+): CheckoutOutcome<never> {
   return {
     ok: false,
     code: CHECKOUT_ERROR.pathGuard,
-    message: guard.message,
-    details: { threadId },
+    message,
+    details: target === null ? {} : { targetId: target.id, rootRelative: target.rootRelative },
   }
 }
 
 /**
- * Create a thread's clone from `baseRef` and switch it to `cowork/<threadId>`.
+ * Resolve the selector and run the path guard for one operation. Every git
+ * command of every operation runs after this returns success.
+ */
+function resolveGuarded(
+  input: CheckoutTargetSelector,
+): { ok: true; guard: IsolationTargetSuccess } | { ok: false; target: IsolationTarget | null; message: string } {
+  const selected = selectTarget(input)
+  if (!selected.ok) return { ok: false, target: null, message: selected.message }
+  const guard = guardTarget(input.repoPath, selected.target)
+  if (!guard.ok) return { ok: false, target: selected.target, message: guard.message }
+  return { ok: true, guard }
+}
+
+/**
+ * Create one target's clone from `baseRef` and switch it to the target branch.
  *
  * Order is load-bearing: guard → existing check → resolve the base ref in the
- * source repository → create the parent directory → clone → create the thread
+ * source repository → create the parent directory → clone → create the target
  * branch. The base ref is resolved to a commit before cloning so the checkout
  * is pinned to one commit even if the ref moves mid-flight. Any failure after
  * the clone starts removes the directory this function created; the source
@@ -258,10 +400,11 @@ function pathGuardOutcome(guard: GuardFailure, threadId: string): CheckoutOutcom
  */
 export async function createCheckout(
   deps: CheckoutDeps,
-  input: { repoPath: string; threadId: string; baseRef?: string },
+  input: CheckoutTargetSelector & { baseRef?: string },
 ): Promise<CheckoutOutcome<{ path: string; branch: string; baseCommit: string }>> {
-  const guard = guardPaths(input.repoPath, input.threadId)
-  if (!guard.ok) return pathGuardOutcome(guard, input.threadId)
+  const resolvedTarget = resolveGuarded(input)
+  if (!resolvedTarget.ok) return pathGuardFailure(resolvedTarget.message, resolvedTarget.target)
+  const guard = resolvedTarget.guard
 
   if (existsSync(guard.checkoutPath)) {
     return {
@@ -351,23 +494,24 @@ export async function createCheckout(
 }
 
 /**
- * Inspect a thread checkout.
+ * Inspect one checkout.
  *
  * This signature cannot carry an error, so git failures degrade conservatively
  * instead of throwing: a failed `status` reports `dirty: true` (assume the
  * checkout is unsafe to merge), a failed `branch`/`rev-parse` reports `null`,
  * and a failed commit count reports `null`. A missing directory is not an
- * error and reports an all-empty status. Only an invalid/path-escaping thread
+ * error and reports an all-empty status. Only an invalid/path-escaping target
  * id throws, because continuing would inspect an unrelated directory.
  */
 export async function inspectCheckout(
   deps: CheckoutDeps,
-  input: { repoPath: string; threadId: string; baseCommit?: string },
+  input: CheckoutTargetSelector & { baseCommit?: string },
 ): Promise<CheckoutStatus> {
-  const guard = guardPaths(input.repoPath, input.threadId)
-  if (!guard.ok) {
-    throw new Error(`${CHECKOUT_ERROR.pathGuard}: ${guard.message}`)
+  const resolvedTarget = resolveGuarded(input)
+  if (!resolvedTarget.ok) {
+    throw new Error(`${CHECKOUT_ERROR.pathGuard}: ${resolvedTarget.message}`)
   }
+  const guard = resolvedTarget.guard
 
   if (!existsSync(guard.checkoutPath)) {
     return { exists: false, dirty: false, branch: null, head: null, commitsAhead: null }
@@ -402,7 +546,7 @@ export async function inspectCheckout(
 }
 
 /**
- * Fetch a thread's branch into the source repository and merge it with
+ * Fetch one target's branch into the source repository and merge it with
  * `--no-ff`. The repository's branch of the same name is recreated from the
  * checkout on every merge, so a stale branch left by an earlier interrupted
  * run is deleted first; the checkout's own branch is never touched here.
@@ -421,7 +565,7 @@ export async function inspectCheckout(
  */
 export async function mergeCheckout(
   deps: CheckoutDeps,
-  input: { repoPath: string; threadId: string; message?: string },
+  input: CheckoutTargetSelector & { message?: string },
 ): Promise<
   CheckoutOutcome<{
     merged: boolean
@@ -430,8 +574,9 @@ export async function mergeCheckout(
     branch: string
   }>
 > {
-  const guard = guardPaths(input.repoPath, input.threadId)
-  if (!guard.ok) return pathGuardOutcome(guard, input.threadId)
+  const resolvedTarget = resolveGuarded(input)
+  if (!resolvedTarget.ok) return pathGuardFailure(resolvedTarget.message, resolvedTarget.target)
+  const guard = resolvedTarget.guard
 
   if (!existsSync(guard.checkoutPath)) {
     return {
@@ -497,7 +642,7 @@ export async function mergeCheckout(
   const message =
     input.message !== undefined && input.message.length > 0
       ? input.message
-      : `${DEFAULT_MERGE_MESSAGE_PREFIX}${input.threadId}`
+      : `${DEFAULT_MERGE_MESSAGE_PREFIX}${guard.target.id}`
 
   const merged = await deps.runGit(
     ['merge', '--no-ff', guard.branch, '-m', message],
@@ -606,18 +751,19 @@ export async function mergeCheckout(
 }
 
 /**
- * Remove a thread's checkout directory and its repository-side branch.
+ * Remove one target's checkout directory and its repository-side branch.
  *
  * A missing directory or branch is not an error: removal is used both to clean
  * up and to assert absence, and asking twice is harmless. The path guard runs
- * first so a bad thread id can never delete something outside the threads root.
+ * first so a bad target id can never delete something outside its root.
  */
 export async function removeCheckout(
   deps: CheckoutDeps,
-  input: { repoPath: string; threadId: string },
+  input: CheckoutTargetSelector,
 ): Promise<CheckoutOutcome<{ removed: boolean; branchDeleted: boolean }>> {
-  const guard = guardPaths(input.repoPath, input.threadId)
-  if (!guard.ok) return pathGuardOutcome(guard, input.threadId)
+  const resolvedTarget = resolveGuarded(input)
+  if (!resolvedTarget.ok) return pathGuardFailure(resolvedTarget.message, resolvedTarget.target)
+  const guard = resolvedTarget.guard
 
   let removed = false
   if (existsSync(guard.checkoutPath)) {
