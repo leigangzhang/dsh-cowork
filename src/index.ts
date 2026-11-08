@@ -34,7 +34,7 @@ import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
 import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
-import type { CoworkToolDeps } from './tools.js'
+import type { CoworkToolDeps } from './tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
 import { TopicEvents } from './topic-events.js'
 import type { TopicEventLike, TopicEventSession } from './topic-events.js'
@@ -587,6 +587,11 @@ export function apply(ctx: Context, config: Config): void {
     agentPresets: assembly.agentPresets,
     clock: () => new Date(),
     resolveRepoPath: () => repoPath,
+    // M9.1/M9.3a: the tool layer owns the lifecycle read point. The values come
+    // from the normalized config, never from a second set of defaults here.
+    idleAfterMs: settings.idleAfterMs,
+    resolveAfterMs: settings.resolveAfterMs,
+    routing: settings.routing,
   }
 
   // M2 panel: read-only HTTP routes over the host connection service. The

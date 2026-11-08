@@ -24,7 +24,8 @@ const HOOK_SOURCE = [
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { ProjectStore } = await import('../src/store.ts')
-const { Inbox, INBOX_MAX_BATCH, INBOX_SUMMARY_MAX_CHARS } = await import('../src/inbox.ts')
+const { Inbox, INBOX_MAX_BATCH, INBOX_MARK_ATTEMPTS, INBOX_SUMMARY_MAX_CHARS, InboxMarkError } =
+  await import('../src/inbox.ts')
 
 const CREATED_AT = '2026-11-05T03:04:05.006Z'
 
@@ -197,6 +198,91 @@ test('a failure in a later batch keeps only the undelivered tail', async () => {
     assert.deepEqual(
       (await store.readInbox()).map((item) => item.deliveredAt),
       Array.from({ length: 7 }, () => CREATED_AT),
+    )
+  })
+})
+
+test('a transient deliveredAt write failure is retried without delivering twice', async () => {
+  await withTempDir(async (repoPath) => {
+    const base = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const seeder = new Inbox({ store: base, clock: clockAt(CREATED_AT), deliver: async () => {} })
+    await seeder.enqueue(events(3))
+
+    let failures = 2
+    let writes = 0
+    const store = {
+      readInbox: () => base.readInbox(),
+      async writeInbox(items) {
+        writes += 1
+        if (failures > 0) {
+          failures -= 1
+          throw new Error('inbox write unavailable')
+        }
+        return base.writeInbox(items)
+      },
+    }
+    const calls = []
+    const inbox = new Inbox({
+      store,
+      clock: clockAt(CREATED_AT),
+      async deliver(message) { calls.push(message) },
+    })
+
+    assert.deepEqual(await inbox.flush(), { delivered: 3, failed: 0 })
+    assert.equal(calls.length, 1, 'the batch is delivered exactly once')
+    assert.equal(writes, INBOX_MARK_ATTEMPTS, 'two failures then one success')
+    assert.deepEqual(
+      (await base.readInbox()).map((item) => item.deliveredAt),
+      [CREATED_AT, CREATED_AT, CREATED_AT],
+      'the transient failure never leaves the batch unmarked',
+    )
+
+    // The next replay has nothing left, so the port is not called again.
+    assert.deepEqual(await inbox.replay(), { delivered: 0, failed: 0 })
+    assert.equal(calls.length, 1)
+  })
+})
+
+test('a persistent deliveredAt write failure throws InboxMarkError and keeps the items', async () => {
+  await withTempDir(async (repoPath) => {
+    const base = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const seeder = new Inbox({ store: base, clock: clockAt(CREATED_AT), deliver: async () => {} })
+    await seeder.enqueue(events(7))
+
+    // The first batch is marked; every mark attempt after it fails.
+    let writes = 0
+    const store = {
+      readInbox: () => base.readInbox(),
+      async writeInbox(items) {
+        writes += 1
+        if (writes >= 2) throw new Error('inbox write unavailable')
+        return base.writeInbox(items)
+      },
+    }
+    const calls = []
+    const inbox = new Inbox({
+      store,
+      clock: clockAt(CREATED_AT),
+      async deliver(message) { calls.push(message) },
+    })
+
+    let error = null
+    try {
+      await inbox.flush()
+    } catch (caught) {
+      error = caught
+    }
+    assert.ok(error instanceof InboxMarkError, 'a named error reports the lost mark')
+    assert.equal(error.delivered, INBOX_MAX_BATCH, 'only the committed batch is counted as delivered')
+    assert.equal(error.pendingIds.length, 2, 'the unmarked batch keeps its ids for replay')
+    assert.equal(calls.length, 2)
+    assert.equal(writes, 1 + INBOX_MARK_ATTEMPTS, 'the failed mark is retried a bounded number of times')
+
+    const stored = await base.readInbox()
+    assert.deepEqual(
+      stored.map((item) => item.deliveredAt === null),
+      [false, false, false, false, false, true, true],
+      'the failed batch and its tail stay undelivered; no event is lost',
     )
   })
 })
