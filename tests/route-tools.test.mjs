@@ -33,6 +33,7 @@ const { ERROR_CODES, TOPIC_ERROR_CODES } = await import('../src/tool-model.ts')
 const NOW_ISO = '2026-11-07T10:00:00.000Z'
 const NOW_MS = Date.parse(NOW_ISO)
 const STALE_ISO = '2026-10-01T00:00:00.000Z'
+const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
 
 const ROUTING = {
@@ -495,5 +496,84 @@ test('applyRouteCorrectionToStore writes aliases and one route-corrected activit
     assert.equal(await readFile(store.indexFile, 'utf8'), indexAfterFirst)
     const finalActivity = await store.readActivity()
     assert.equal(finalActivity.events.filter((event) => event.type === 'route-corrected').length, 1)
+  })
+})
+
+test('cowork_route settles a three-hour silent focus topic to idle before reuse (A5 read point)', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [
+      topic({
+        topicId: 'session-idle',
+        title: 'idle focus topic',
+        status: 'active',
+        lastActiveAt: new Date(NOW_MS - 3 * HOUR_MS).toISOString(),
+      }),
+    ], { masterFocusTopicId: 'session-idle' })
+    const deps = fakeDeps()
+
+    const result = await routeTool(deps).execute({ intent: '继续这个主题' }, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, true)
+    assert.equal(result.action, 'reuse')
+    assert.equal(result.topicId, 'session-idle')
+
+    const store = new ProjectStore({ repoPath, clock: () => new Date(NOW_ISO) })
+    const document = await store.readIndexDocument()
+    const settled = document.topics.find((entry) => entry.topicId === 'session-idle')
+    assert.ok(settled, 'the focus topic is still in the index')
+    assert.equal(settled.status, 'idle', 'the read point settles the silent topic before routing')
+    assert.equal(settled.updatedAt, NOW_ISO)
+
+    const activity = await store.readActivity()
+    const changed = activity.events.find(
+      (event) => event.type === 'status-changed' && event.topicId === 'session-idle',
+    )
+    assert.ok(changed, 'the transition records one status-changed event')
+    assert.deepEqual(changed.details, { topicId: 'session-idle', from: 'active', to: 'idle' })
+    assert.ok(
+      activity.events.some((event) => event.type === 'route-reused' && event.topicId === 'session-idle'),
+      'the route still reuses the focus topic after it settled to idle',
+    )
+  })
+})
+
+test('cowork_route resolves a four-day settled topic before force-creating a new one (A5 read point)', async () => {
+  await withRepo(async (repoPath) => {
+    const settledAt = new Date(NOW_MS - 4 * DAY_MS).toISOString()
+    await seedProject(repoPath, [
+      topic({
+        topicId: 'session-resolved',
+        title: 'finished topic',
+        status: 'active',
+        lastActiveAt: settledAt,
+        digest: 'done work',
+        lastDeliveryConfirmedAt: settledAt,
+      }),
+    ])
+    const deps = fakeDeps()
+
+    const result = await routeTool(deps).execute({
+      intent: '一个全新的任务',
+      forceCreate: true,
+    }, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, true)
+    assert.equal(result.action, 'create')
+    assert.notEqual(result.topicId, 'session-resolved')
+
+    const store = new ProjectStore({ repoPath, clock: () => new Date(NOW_ISO) })
+    const document = await store.readIndexDocument()
+    const settled = document.topics.find((entry) => entry.topicId === 'session-resolved')
+    assert.ok(settled, 'the settled topic is still in the index')
+    assert.equal(settled.status, 'resolved', 'the read point resolves the topic before the route decides')
+    assert.equal(settled.resolvedBy, 'master')
+    assert.equal(settled.resolvedAt, NOW_ISO)
+
+    const activity = await store.readActivity()
+    const changed = activity.events.find(
+      (event) => event.type === 'status-changed' && event.topicId === 'session-resolved',
+    )
+    assert.ok(changed, 'the transition records one status-changed event')
+    assert.deepEqual(changed.details, { topicId: 'session-resolved', from: 'active', to: 'resolved' })
   })
 })
