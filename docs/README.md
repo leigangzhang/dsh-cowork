@@ -8,6 +8,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 产品范围、架构、里程碑、验收（V0.1，M0–M4） | [PLAN.md](PLAN.md) |
 | 主题会话模型重构的阶段计划（V0.2，M6–M12） | [PLAN-V0.2.md](PLAN-V0.2.md) |
 | 7 项 M6 宿主探针的结论、证据与限制 | [M6_PROBE_RESULT.md](M6_PROBE_RESULT.md) |
+| M6 交付了什么、怎么回滚、M7 前置 | [M6_HANDOFF.md](M6_HANDOFF.md) |
 | 文档怎么写、放哪里、预算、发布 | [documentation.md](documentation.md) |
 | 这个词在这个仓库里是什么意思 | [glossary.md](glossary.md) |
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |
@@ -30,6 +31,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/PLAN.md` | plan | V0.1 产品范围、架构、M0–M4 完成记录 |
 | `docs/PLAN-V0.2.md` | plan | V0.2 主题会话模型重构：M6–M12 阶段、架构与验收 |
 | `docs/M6_PROBE_RESULT.md` | reference | 7 项 M6 宿主探针的结论、证据与限制 |
+| `docs/M6_HANDOFF.md` | handoff | M6 交付物、可见性决策、验证、回滚与 M7 前置 |
 | `docs/testing.md` | guide | 测试分层、证据、flake 政策 |
 | `docs/documentation.md` | guide | 文档种类、单一事实源、发布开关 |
 | `docs/routing.md` | guide | 路由判定、新建 thread、review 与合并的三张时序图 |
