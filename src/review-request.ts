@@ -351,22 +351,30 @@ function extraProblems(value: unknown, where: string, errors: ReviewFieldError[]
   return value as Record<string, JsonValue>
 }
 
+/** How one array field is required. */
+interface ArrayFieldRule {
+  /** Whether the field must be present at all. */
+  required: boolean
+  /** Whether an empty array is a problem. */
+  nonEmpty: boolean
+}
+
 /** Collect the problems of one verification array, keeping only complete rows. */
 function verificationProblems(
   value: unknown,
   where: string,
   errors: ReviewFieldError[],
-  options: { required: boolean },
+  rule: ArrayFieldRule,
 ): ReviewVerification[] {
   if (value === undefined || value === null) {
-    if (options.required) errors.push({ field: where, message: `${where} must be a non-empty array` })
+    if (rule.required) errors.push({ field: where, message: `${where} must be an array` })
     return []
   }
   if (!Array.isArray(value)) {
     errors.push({ field: where, message: `${where} must be an array` })
     return []
   }
-  if (options.required && value.length === 0) {
+  if (rule.nonEmpty && value.length === 0) {
     errors.push({ field: where, message: `${where} must not be empty` })
     return []
   }
@@ -558,7 +566,10 @@ export function validateReviewRequestInput(
     }
   }
 
-  const verification = verificationProblems(input.verification, 'verification', errors, { required: true })
+  const verification = verificationProblems(input.verification, 'verification', errors, {
+    required: true,
+    nonEmpty: true,
+  })
 
   let branch: string | null = options.branch ?? null
   if (branch !== null) {
@@ -696,9 +707,13 @@ export function reviewRequestRecordProblems(record: unknown): string[] {
   if (typeof record.notes !== 'string' || record.notes.length > REVIEW_NOTES_MAX_CHARS) {
     problems.push(`review.notes must be a string of at most ${REVIEW_NOTES_MAX_CHARS} characters`)
   }
-  const extraErrors: ReviewFieldError[] = []
-  extraProblems(record.extra, 'review.extra', extraErrors)
-  for (const error of extraErrors) problems.push(`${error.field}: ${error.message}`)
+  if (!isRecord(record.extra)) {
+    problems.push('review.extra must be a JSON object')
+  } else {
+    const extraErrors: ReviewFieldError[] = []
+    extraProblems(record.extra, 'review.extra', extraErrors)
+    for (const error of extraErrors) problems.push(`${error.field}: ${error.message}`)
+  }
 
   for (const field of ['baseCommit', 'headCommit'] as const) {
     if (!isCommit(record[field])) problems.push(`review.${field} must be a commit id`)
@@ -709,12 +724,19 @@ export function reviewRequestRecordProblems(record: unknown): string[] {
   if (record.branch !== null && !isBoundedText(record.branch, REVIEW_BRANCH_MAX_CHARS)) {
     problems.push(`review.branch must be a non-empty string of at most ${REVIEW_BRANCH_MAX_CHARS} characters or null`)
   }
-  const changedErrors: ReviewFieldError[] = []
-  changedPathsProblems(record.changedPaths as readonly string[] | undefined, changedErrors)
-  for (const error of changedErrors) problems.push(`${error.field}: ${error.message}`)
+  if (!Array.isArray(record.changedPaths)) {
+    problems.push('review.changedPaths must be an array of paths')
+  } else {
+    const changedErrors: ReviewFieldError[] = []
+    changedPathsProblems(record.changedPaths as readonly string[] | undefined, changedErrors)
+    for (const error of changedErrors) problems.push(`${error.field}: ${error.message}`)
+  }
 
   const verificationErrors: ReviewFieldError[] = []
-  verificationProblems(record.verification, 'review.verification', verificationErrors, { required: true })
+  verificationProblems(record.verification, 'review.verification', verificationErrors, {
+    required: true,
+    nonEmpty: true,
+  })
   for (const error of verificationErrors) problems.push(`${error.field}: ${error.message}`)
 
   if (record.previousRequestId !== null && !isValidReviewRequestId(record.previousRequestId)) {
@@ -751,7 +773,10 @@ export function reviewRequestRecordProblems(record: unknown): string[] {
     problems.push(`review.findings must not be empty for ${record.status}`)
   }
   const reviewVerificationErrors: ReviewFieldError[] = []
-  verificationProblems(record.reviewVerification, 'review.reviewVerification', reviewVerificationErrors, { required: false })
+  verificationProblems(record.reviewVerification, 'review.reviewVerification', reviewVerificationErrors, {
+    required: true,
+    nonEmpty: false,
+  })
   for (const error of reviewVerificationErrors) problems.push(`${error.field}: ${error.message}`)
 
   return problems

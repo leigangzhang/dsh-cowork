@@ -360,8 +360,18 @@ test('a record survives serialize → parse unchanged', () => {
   assert.deepEqual(roundTrip.record, answered)
 })
 
+/** One record with a top-level field removed. */
+function without(record, field) {
+  const copy = { ...record }
+  delete copy[field]
+  return copy
+}
+
 test('parse refuses every broken record instead of guessing', () => {
   const cases = [
+    ['a record without extra', without(answeredRecord(), 'extra')],
+    ['a record without changedPaths', without(answeredRecord(), 'changedPaths')],
+    ['a record without reviewVerification', without(answeredRecord(), 'reviewVerification')],
     ['version 2', answeredRecord({ version: 2 })],
     ['an unknown status', answeredRecord({ status: 'approved' })],
     ['pending with a review timestamp', { ...pendingRecord(), reviewedAt: REVIEWED_AT }],
