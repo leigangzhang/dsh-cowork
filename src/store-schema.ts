@@ -54,6 +54,7 @@ export const ACTIVITY_TYPES = [
   'route-created',
   'route-corrected',
   'status-changed',
+  'topic-reopened',
   'review-requested',
   'review-verdict',
   'work-item-created',

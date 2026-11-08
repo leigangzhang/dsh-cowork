@@ -791,3 +791,76 @@ test('applyLegacyView appends a thread the legacy code created', () => {
     latestReviewPath: null,
   })
 })
+
+/** An in-flight v1 review fixture. */
+const inFlightReview = () =>
+  threadV1({
+    status: 'awaiting_review',
+    reviewStatus: 'pending',
+    reviewRequestedAt: UPDATED_AT,
+    reviewerSessionId: 'session-reviewer',
+    latestReviewPath: '/repo/.dsh-cowork/reviews/session-a-1.json',
+  })
+
+test('the default migration mode is the write mode', () => {
+  const implicit = migrateV1ToV2(indexV1([inFlightReview()]))
+  const explicit = migrateV1ToV2(indexV1([inFlightReview()]), { cancelInFlightReviews: true })
+
+  assert.deepEqual(implicit, explicit)
+  const topic = implicit.document.topics[0]
+  assert.equal(topic.status, 'active')
+  assert.equal(topic.awaitingReview, false)
+  assert.equal(topic.reviewStatus, null)
+  assert.equal(topic.reviewerSessionId, null)
+  assert.deepEqual(implicit.report.pendingReviewerArchives, [
+    { topicId: 'session-a', reviewerSessionId: 'session-reviewer' },
+  ])
+})
+
+test('the read-only mode keeps an in-flight review in place', () => {
+  const { document, report } = migrateV1ToV2(indexV1([inFlightReview()]), {
+    cancelInFlightReviews: false,
+  })
+
+  const topic = document.topics[0]
+  assert.equal(topic.status, 'active')
+  assert.equal(topic.awaitingReview, true)
+  assert.equal(topic.reviewStatus, 'pending')
+  assert.equal(topic.reviewerSessionId, 'session-reviewer')
+  assert.equal(topic.reviewRequestedAt, UPDATED_AT)
+  assert.equal(topic.latestReviewPath, '/repo/.dsh-cowork/reviews/session-a-1.json')
+  assert.deepEqual(report.pendingReviewerArchives, [], 'no archive intent is raised')
+  assert.equal(report.migrated, true)
+
+  // The compatibility view over the projection is the v1 record again.
+  const view = legacyViewOf(document)
+  assert.equal(view.threads[0].status, 'awaiting_review')
+  assert.equal(view.threads[0].reviewStatus, 'pending')
+  assert.equal(view.threads[0].reviewerSessionId, 'session-reviewer')
+  assert.equal(view.threads[0].reviewRequestedAt, UPDATED_AT)
+})
+
+test('both modes agree on every state except the in-flight review', () => {
+  const threads = [
+    threadV1({ threadId: 'a', status: 'new' }),
+    threadV1({ threadId: 'b', status: 'active' }),
+    threadV1({ threadId: 'c', status: 'blocked' }),
+    threadV1({ threadId: 'd', status: 'done', updatedAt: LATER_AT }),
+    threadV1({ threadId: 'e', status: 'archived' }),
+  ]
+  const writeMode = migrateV1ToV2(indexV1(threads))
+  const readOnly = migrateV1ToV2(indexV1(threads), { cancelInFlightReviews: false })
+
+  assert.deepEqual(readOnly.document, writeMode.document)
+  assert.deepEqual(readOnly.report, writeMode.report)
+})
+
+test('a v2 document passes through unchanged in both modes', () => {
+  for (const cancelInFlightReviews of [true, false]) {
+    const { document, report } = migrateV1ToV2(indexV2(), { cancelInFlightReviews })
+    assert.deepEqual(document, indexV2())
+    assert.equal(report.migrated, false)
+    assert.deepEqual(report.pendingReviewerArchives, [])
+    assert.deepEqual(report.archiveFailures, [])
+  }
+})

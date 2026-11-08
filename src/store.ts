@@ -402,11 +402,23 @@ export class ProjectStore {
 
   /**
    * Read the project index as the v1-shaped view every M7 caller still uses.
-   * A v2 document is validated as is; a v1 document is migrated in memory only —
-   * a read never writes the file, never creates a backup, and never archives a
-   * reviewer. A damaged document, or an unknown v1 status, is `store/corrupt`.
+   * It is derived from the read-only canonical projection, so a v1 disk still
+   * reports an in-flight review exactly as it is: a read never migrates, writes
+   * the file, creates a backup, or archives a reviewer. A damaged document, or
+   * an unknown v1 status, is `store/corrupt`.
    */
   async readIndex(): Promise<ProjectIndex> {
+    return legacyViewOf(await this.readIndexDocument())
+  }
+
+  /**
+   * Read the canonical v2 document. A v2 file is validated as is. A v1 file is
+   * projected onto v2 in memory only — no write, backup, archive, or mtime
+   * change — and the projection keeps an in-flight review (`awaitingReview`,
+   * `reviewStatus`, `reviewerSessionId` intact). Only {@link readIndexForWrite}
+   * cancels the review, backs the v1 text up, and archives the reviewer.
+   */
+  async readIndexDocument(): Promise<ProjectIndexV2> {
     const text = await readDocument(this.indexFile, 'project index')
     const parsed = this.parseIndexText(text)
     if (isRecord(parsed) && parsed.version === INDEX_VERSION_V2) {
@@ -419,11 +431,8 @@ export class ProjectStore {
           this.indexFile,
         )
       }
-      return legacyViewOf(document)
+      return document
     }
-    // A v1 document is read as it is: a pure read never migrates, so the
-    // compatibility view must not pretend an in-flight review was cancelled.
-    // Only a write path migrates (and archives the reviewer).
     const normalized = normalizeProjectIndexV1(parsed)
     const problems = projectIndexV1Problems(normalized)
     if (problems.length > 0) {
@@ -433,7 +442,16 @@ export class ProjectStore {
         this.indexFile,
       )
     }
-    return normalized as ProjectIndex
+    try {
+      return migrateV1ToV2(normalized, { cancelInFlightReviews: false }).document
+    } catch (error) {
+      if (!(error instanceof MigrationError)) throw error
+      throw new StoreError(
+        'store/corrupt',
+        problemMessage('project index is invalid', this.indexFile, [error.message]),
+        this.indexFile,
+      )
+    }
   }
 
   /**
@@ -501,18 +519,30 @@ export class ProjectStore {
   /**
    * Run `mutator` against the current index under the project lock and persist
    * its result in one atomic write. Concurrent callers are serialized, so no
-   * read-modify-write cycle can resurrect a replaced state.
+   * read-modify-write cycle can resurrect a replaced state. The view is the
+   * whole document: a topic it omits is deleted, a thread it adds becomes a new
+   * topic, and every v2-only field of a surviving topic is inherited.
    */
   async mutateIndex(mutator: (index: ProjectIndex) => ProjectIndex): Promise<ProjectIndex> {
+    const next = await this.mutateIndexDocument((base) => applyLegacyView(base, mutator(legacyViewOf(base))))
+    return legacyViewOf(next)
+  }
+
+  /**
+   * Run `mutator` against the canonical v2 document under the project lock and
+   * persist its result. The mutator sees the document re-read (and, for a v1
+   * file, migrated) inside the lock — the point where an automatic marker
+   * re-checks `lastActiveAt` before writing. Returning `null` abandons the
+   * change: the lock-read document is returned and nothing is written.
+   */
+  async mutateIndexDocument(
+    mutator: (document: ProjectIndexV2) => ProjectIndexV2 | null,
+  ): Promise<ProjectIndexV2> {
     await this.ensureProjectDir()
     return this.withLock(async () => {
       const base = await this.readIndexForWrite()
-      const mutated = mutator(legacyViewOf(base))
-      // The view is the whole document: a topic it omits is deleted, a thread it
-      // adds becomes a new topic, and every v2-only field of a surviving topic
-      // is inherited from `base`. M7 keeps `workItems` empty, so a topic deletion
-      // has no work item to cascade to (M8 owns that lifecycle rule).
-      const next = applyLegacyView(base, mutated)
+      const next = mutator(base)
+      if (next === null) return base
       const problems = projectIndexV2Problems(next)
       if (problems.length > 0) {
         throw new StoreError(
@@ -522,7 +552,7 @@ export class ProjectStore {
         )
       }
       await this.writeJson(this.indexFile, next)
-      return legacyViewOf(next)
+      return next
     })
   }
 

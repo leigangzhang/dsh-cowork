@@ -27,6 +27,7 @@ const HOOK_SOURCE = [
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { ProjectStore, StoreError } = await import('../src/store.ts')
+const { legacyViewOf } = await import('../src/store-migration.ts')
 
 const CREATED_AT = '2026-11-05T03:04:05.006Z'
 
@@ -548,5 +549,258 @@ test('inbox damage fails closed and invalid items are refused before writing', a
     const empty = await readFile(store.inboxFile, 'utf8')
     await rejectsStore(store.writeInbox([inboxItem('a', { kind: 'needs-attention' })]), 'store/invalid-inbox', 'inbox[0].kind')
     assert.equal(await readFile(store.inboxFile, 'utf8'), empty)
+  })
+})
+
+/** A v2 topic with every field the canonical document requires. */
+const topicV2 = (overrides = {}) => ({
+  topicId: 'session-a',
+  title: 'canonical work',
+  status: 'active',
+  awaitingReview: false,
+  blocked: false,
+  scope: '',
+  ownedPaths: [],
+  aliases: [],
+  digest: '',
+  cwd: '/repo',
+  legacyCheckoutPath: null,
+  createdAt: CREATED_AT,
+  updatedAt: CREATED_AT,
+  lastActiveAt: CREATED_AT,
+  lastDeliveryConfirmedAt: null,
+  resolvedAt: null,
+  resolvedBy: null,
+  latestReviewRequestId: null,
+  reviewStatus: null,
+  reviewerSessionId: null,
+  lastHandoffAt: null,
+  reviewRequestedAt: null,
+  reviewedAt: null,
+  latestReviewPath: null,
+  ...overrides,
+})
+
+/** A v2 index document with the given topics. */
+const v2Index = (topics = [topicV2()], overrides = {}) => ({
+  version: 2,
+  projectId: 'p',
+  masterSessionId: 'session-master',
+  createdAt: CREATED_AT,
+  topics,
+  workItems: [],
+  ...overrides,
+})
+
+/** Seed `index.json` with a v2 document and return the exact bytes written. */
+async function seedV2Index(store, topics, overrides = {}) {
+  await mkdir(store.projectDir, { recursive: true })
+  const text = JSON.stringify(v2Index(topics, overrides))
+  await writeFile(store.indexFile, text, 'utf8')
+  return text
+}
+
+test('readIndexDocument projects a v1 index without writing the migration', async () => {
+  await withTempDir(async (repoPath) => {
+    const archived = []
+    const store = new ProjectStore({
+      repoPath,
+      clock: clockAt(CREATED_AT),
+      projectId: 'p',
+      async archiveSession(sessionId, options) {
+        archived.push({ sessionId, options })
+      },
+    })
+    const original = await seedV1Index(store, [
+      thread({
+        status: 'awaiting_review',
+        reviewStatus: 'pending',
+        reviewRequestedAt: CREATED_AT,
+        reviewerSessionId: 'session-reviewer',
+        latestReviewPath: '/repo/.dsh-cowork/reviews/session-a-1.json',
+      }),
+    ])
+    const stamp = new Date('2020-01-01T00:00:00.000Z')
+    await utimes(store.indexFile, stamp, stamp)
+    const before = (await stat(store.indexFile)).mtimeMs
+
+    const document = await store.readIndexDocument()
+    assert.equal(document.version, 2)
+    assert.equal('threads' in document, false)
+    const topic = document.topics[0]
+    assert.equal(topic.topicId, 'session-a')
+    assert.equal(topic.status, 'active')
+    assert.equal(topic.awaitingReview, true)
+    assert.equal(topic.reviewStatus, 'pending')
+    assert.equal(topic.reviewerSessionId, 'session-reviewer')
+    assert.equal(topic.reviewRequestedAt, CREATED_AT)
+
+    // A read is not a write: no bytes, mtime, backup, archive, or migration report.
+    assert.equal(await readFile(store.indexFile, 'utf8'), original)
+    assert.equal((await stat(store.indexFile)).mtimeMs, before)
+    assert.equal(existsSync(store.backupFile), false)
+    assert.deepEqual(archived, [])
+    assert.equal(store.lastMigrationReport, null)
+    assert.deepEqual(residue(await readdir(store.projectDir)), [])
+  })
+})
+
+test('readIndex matches the read-only document projection on v1 and v2', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    await seedV1Index(store, [
+      thread({
+        threadId: 'session-review',
+        status: 'awaiting_review',
+        reviewStatus: 'pending',
+        reviewRequestedAt: CREATED_AT,
+        reviewerSessionId: 'session-reviewer',
+      }),
+      thread({ threadId: 'session-new', status: 'new' }),
+      thread({ threadId: 'session-done', status: 'done', updatedAt: LATER_AT, reviewStatus: 'pass' }),
+    ])
+
+    const view = await store.readIndex()
+    assert.deepEqual(view, legacyViewOf(await store.readIndexDocument()))
+    assert.deepEqual(
+      view.threads.map((entry) => [entry.threadId, entry.status]),
+      [
+        ['session-review', 'awaiting_review'],
+        ['session-new', 'new'],
+        ['session-done', 'done'],
+      ],
+    )
+    assert.equal(view.threads[0].reviewStatus, 'pending')
+    assert.equal(view.threads[0].reviewerSessionId, 'session-reviewer')
+
+    await seedV2Index(store, [
+      topicV2({ topicId: 'session-resolved', status: 'resolved', resolvedAt: LATER_AT, resolvedBy: 'master' }),
+      topicV2({ topicId: 'session-review', awaitingReview: true, reviewStatus: 'pending' }),
+    ])
+    const v2View = await store.readIndex()
+    assert.deepEqual(v2View, legacyViewOf(await store.readIndexDocument()))
+    assert.deepEqual(
+      v2View.threads.map((entry) => [entry.threadId, entry.status]),
+      [
+        ['session-resolved', 'done'],
+        ['session-review', 'awaiting_review'],
+      ],
+    )
+  })
+})
+
+test('readIndexDocument returns a validated v2 document as is', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const topics = [
+      topicV2({ topicId: 'topic-a', digest: 'first' }),
+      topicV2({ topicId: 'topic-b', status: 'idle', lastActiveAt: LATER_AT }),
+    ]
+    await seedV2Index(store, topics)
+
+    const document = await store.readIndexDocument()
+    assert.deepEqual(document, v2Index(topics))
+  })
+})
+
+test('mutateIndexDocument reads under the lock and writes a validated v2 document', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    await seedV2Index(store, [topicV2()])
+    let seen = null
+
+    const next = await store.mutateIndexDocument((document) => {
+      seen = document
+      return {
+        ...document,
+        topics: document.topics.map((topic) => ({ ...topic, status: 'idle', updatedAt: LATER_AT })),
+      }
+    })
+
+    assert.equal(seen.version, 2, 'the mutator receives the canonical document')
+    assert.equal(next.topics[0].status, 'idle')
+    assert.deepEqual(JSON.parse(await readFile(store.indexFile, 'utf8')), next)
+    assert.deepEqual(residue(await readdir(store.projectDir)), [])
+  })
+})
+
+test('mutateIndexDocument returning null writes nothing', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const original = await seedV2Index(store, [topicV2()])
+    const stamp = new Date('2020-01-01T00:00:00.000Z')
+    await utimes(store.indexFile, stamp, stamp)
+    const before = (await stat(store.indexFile)).mtimeMs
+
+    const document = await store.mutateIndexDocument(() => null)
+
+    assert.deepEqual(document, v2Index())
+    assert.equal(await readFile(store.indexFile, 'utf8'), original)
+    assert.equal((await stat(store.indexFile)).mtimeMs, before)
+    assert.equal(existsSync(store.backupFile), false)
+    assert.deepEqual(residue(await readdir(store.projectDir)), [])
+  })
+})
+
+test('the first mutateIndexDocument write migrates a v1 index for real', async () => {
+  await withTempDir(async (repoPath) => {
+    const archived = []
+    const store = new ProjectStore({
+      repoPath,
+      clock: clockAt(CREATED_AT),
+      projectId: 'p',
+      async archiveSession(sessionId, options) {
+        archived.push({ sessionId, options })
+      },
+    })
+    const original = await seedV1Index(store, [
+      thread({
+        status: 'awaiting_review',
+        reviewStatus: 'pending',
+        reviewRequestedAt: CREATED_AT,
+        reviewerSessionId: 'session-reviewer',
+      }),
+    ])
+
+    const next = await store.mutateIndexDocument((document) => ({
+      ...document,
+      topics: document.topics.map((topic) => ({ ...topic, digest: 'first write' })),
+    }))
+
+    const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
+    assert.equal(onDisk.version, 2)
+    assert.equal(onDisk.topics[0].awaitingReview, false)
+    assert.equal(onDisk.topics[0].reviewStatus, null)
+    assert.equal(onDisk.topics[0].digest, 'first write')
+    assert.deepEqual(next, onDisk)
+    assert.equal(await readFile(store.backupFile, 'utf8'), original)
+    assert.deepEqual(archived, [{ sessionId: 'session-reviewer', options: { stopActivity: true } }])
+    assert.deepEqual(store.lastMigrationReport.pendingReviewerArchives, [
+      { topicId: 'session-a', reviewerSessionId: 'session-reviewer' },
+    ])
+  })
+})
+
+test('the canonical read and write fail closed on a damaged index', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    await mkdir(store.projectDir, { recursive: true })
+    await writeFile(store.indexFile, '{ not json', 'utf8')
+
+    await rejectsStore(store.readIndexDocument(), 'store/corrupt', store.indexFile)
+    await rejectsStore(store.mutateIndexDocument((document) => document), 'store/corrupt', store.indexFile)
+
+    assert.equal(await readFile(store.indexFile, 'utf8'), '{ not json')
+    assert.equal(existsSync(store.backupFile), false)
+  })
+})
+
+test('a missing index is not-found for the canonical read and write', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+
+    await rejectsStore(store.readIndexDocument(), 'store/not-found', store.indexFile)
+    await rejectsStore(store.mutateIndexDocument((document) => document), 'store/not-found', store.indexFile)
+    assert.equal(existsSync(store.indexFile), false)
   })
 })
