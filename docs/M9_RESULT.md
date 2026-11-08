@@ -7,17 +7,18 @@
 ## 交付基线
 
 - **分支**：`feat/m9-routing-tools-presets`，从 `origin/main` 的 M8 合并提交 `7b9a6a5` 切出。
-- **代码 HEAD**：`6379712`（`63797128ef5eaf3540defcffa62d8595486bcbe6`）。记录迁移、本文件、交接更新与 `publish.json` 分类是其后的文档提交（只改 `.md`/`.json`；本文件无法写入自身 sha）。
-- **提交序列（`7b9a6a5..6379712`，按提交顺序）**：
+- **代码 HEAD**：`569d485`（`569d485d910748769cf16a26d80185b0841c93e6`）。`6379712` 之后只追加两个只改注释/测试注释的提交（见提交序列）；记录迁移、本文件、交接更新与 `publish.json` 分类是其后的文档提交（只改 `.md`/`.json`；本文件无法写入自身 sha）。
+- **提交序列（`7b9a6a5..569d485`，按提交顺序）**：
   - M9.2 + M9.4：`96db9dc`（`router-model.ts` 模型兜底；`cowork-topic` 预设、`cowork-thread` 别名、master 行收窄、memory 识别三预设）
   - `cd4ed33`（dev-gate 预设常量接受 `cowork-topic`）→ `b4dfedf`（集成 M9.2/M9.4）
   - M9.1：`030cd36`（`src/routing.ts` 纯路由、Config 默认值、索引 focus/route 字段）→ `5fe7731`（集成 M9.1；t1 的范围契约缺口由 repair t4 在同一提交上收口，无新提交）
   - M9.3a：`28c9fcf`（`tool-runtime`/`project-tools`/`memory-tools`/`checkout-tools` 拆分、有界 status、读取点、M8 F1/F3 处置）→ `543b0da`（集成 M9.3a）
   - M9.3b：`627f426`（`topic-tools`/`route-tools`、handoff v2、删除 `router.ts`、宿主 llm 端口）→ `f8241ca`（复核修复：llm GenerateOptions 形状、死代码、topic 文案）→ `fd21021`（集成 M9.3b + 修复）
   - A5 证据补强：`e2a887f`（`cowork_route` 读取点 idle/resolved 回归测试）→ `6379712`（集成 A5）
-- **验证基线（代码 HEAD `6379712` 上实测）**：`npm test` **596 tests / 596 pass / 0 fail / 0 cancelled / 0 skipped / 0 todo**，exit 0；`npm run typecheck` exit 0；`npm run build` exit 0（`lib/` + `lib/client.js` 69 KB）；`npm run check` exit 0（`check-invariants: ok`）。596 = M8 基线 485 + 111（M9 新增/改写）。定向 `node --test tests/dev-gate.test.mjs tests/source-budget.test.mjs` 11 pass / 0 fail，exit 0。记录迁移后的文档提交上复核 `npm run check` 与 `npm test` 结果一致。
+  - 收口前注释修复（只改注释/测试注释，596 与字节不变）：`d43c75d`（dev-gate 注释 eleven/three → fourteen/four）→ `5c856c4`（集成）→ `73084b4`（presets 注释：新会话由 `src/topic-tools.ts`/`src/route-tools.ts` 用 `cowork-topic` 创建，`cowork-thread` 只服务存量会话）→ `569d485`（集成，代码 HEAD）
+- **验证基线（代码 HEAD `6379712` 上实测；`569d485` 只追加注释/测试注释，596 计数与字节不变）**：`npm test` **596 tests / 596 pass / 0 fail / 0 cancelled / 0 skipped / 0 todo**，exit 0；`npm run typecheck` exit 0；`npm run build` exit 0（`lib/` + `lib/client.js` 69 KB）；`npm run check` exit 0（`check-invariants: ok`）。596 = M8 基线 485 + 111（M9 新增/改写）。定向 `node --test tests/dev-gate.test.mjs tests/source-budget.test.mjs` 11 pass / 0 fail，exit 0。记录迁移后的文档提交上复核 `npm run check` 与 `npm test` 结果一致。
 - **代码形态**：`src/tools.ts` **2,489 B**（M8 交付时 43,854 B，审查线 49,152 B）；`src/store.ts` **48,590 B**（M8 48,524 B，M9.1 只 +66 B 写两个 `null` 根字段）；`src/**/*.ts` 最大仍是 `src/m2-e2e.ts` 49,923 B（未改，硬上限 51,200 B）；新增模块 `src/routing.ts` 15,855、`src/router-model.ts` 14,793、`src/llm-port.ts` 4,209、`src/tool-runtime.ts` 15,974、`src/project-tools.ts` 11,359、`src/topic-tools.ts` 19,678、`src/route-tools.ts` 16,817、`src/memory-tools.ts` 5,369、`src/checkout-tools.ts` 7,556 B。
-- **范围证据**：`git diff --name-only 7b9a6a5..6379712` 恰为 **39 个文件（20 个 `src/`、19 个 `tests/`）**，无 `docs/**`、`presets/**`、`src/client/**`、`src/api*.ts`；新增 9 个模块，删除 `src/router.ts` 与 `tests/router.test.mjs`；工作树干净。M10–M12 模块（review-request、work-item、session-visibility、coverage）不存在。
+- **范围证据**：`git diff --name-only 7b9a6a5..569d485` 恰为 **39 个文件（20 个 `src/`、19 个 `tests/`）**（`6379712..569d485` 的四个提交只改 `tests/dev-gate.test.mjs` 与 `src/presets.ts` 的注释），无 `docs/**`、`presets/**`、`src/client/**`、`src/api*.ts`；新增 9 个模块，删除 `src/router.ts` 与 `tests/router.test.mjs`；工作树干净。M10–M12 模块（review-request、work-item、session-visibility、coverage）不存在。
 
 ## 交付清单
 
@@ -69,6 +70,7 @@
   - `cowork_handoff` 的 `awaiting_review` 保留一个版本并标 deprecated；M10 的评审请求落地后替换（KI-25）。
   - M8 F1（`topic-events` 内联 `topic-reopened`）已统一走 `activity.ts` builder；F3（inbox 投递后 `deliveredAt` 写失败）改为 3 次立即重试 + 具名 `InboxMarkError`，残余「交付成功后进程崩溃」窗口是 at-least-once（KI-23，M12）。
   - A5 的 `cowork_route` 读取点最初只有实现没有回归测试，由 `e2a887f` 以两条用例补齐，并做上面的变异验证。
+  - 收口前已修复（不是遗留）：`tests/dev-gate.test.mjs` 的「eleven business tools / three business presets」过时注释由 `d43c75d` 改为 fourteen/four；`src/presets.ts` 的 thread 注释由 `73084b4` 改为「新会话由 `topic-tools`/`route-tools` 用 `cowork-topic` 创建、`cowork-thread` 只服务存量会话」。两者都只改注释、不改行为，不进入 KNOWN_ISSUES。
 - **未验证**：
   - 真实宿主端到端（`cowork_route` 三层、`resolved_match`、`cowork_project_status` 读取点）——M12（KI-22）；本机 web profile 禁用 `dsh-cowork`，插件会在真实会话里如何装配未验证。
   - `cowork-topic` 预设的真实创建/归档（探针只验证了 llm 与临时预设）。
@@ -83,7 +85,7 @@
 
 ## 回滚
 
-- **代码**：按提交序列逆序 `git revert`（`6379712`、`e2a887f`、`fd21021`、`f8241ca`、`627f426`、`543b0da`、`28c9fcf`、`5fe7731`、`030cd36`、`b4dfedf`、`cd4ed33`、`96db9dc`）。M9 只扩展索引可选根字段、不改已有 schema 语义，回滚代码不需要数据迁移；旧文档的 `masterFocusTopicId`/`lastRouteTopicId` 会被 M8 代码忽略。
+- **代码**：按提交序列逆序 `git revert`（`569d485`、`73084b4`、`5c856c4`、`d43c75d`、`6379712`、`e2a887f`、`fd21021`、`f8241ca`、`627f426`、`543b0da`、`28c9fcf`、`5fe7731`、`030cd36`、`b4dfedf`、`cd4ed33`、`96db9dc`）。M9 只扩展索引可选根字段、不改已有 schema 语义，回滚代码不需要数据迁移；旧文档的 `masterFocusTopicId`/`lastRouteTopicId` 会被 M8 代码忽略。
 - **数据**：M9 只写 `lastRouteTopicId`（`masterFocusTopicId` 留给 M11）、handoff 的 `digest`/`lastDeliveryConfirmedAt`/`blocked`/`awaitingReview`、activity 与 inbox（重放标记）；回滚后 v2 文档仍可被 M8 代码读取。
 - **文档/记录**：`git revert` 对应的文档提交（只改 `.md`/`.json`）；两份记录回到 `proposed/`，`docs/publish.json` 与 `PLAN-V0.2` §8 的路径随提交回滚。不要 force-push。
 

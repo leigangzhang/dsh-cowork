@@ -6,10 +6,10 @@
 
 ## 交付结果（2026-11-08）
 
-- **分支与代码 HEAD**：`feat/m9-routing-tools-presets`，代码 HEAD `6379712`（`63797128ef5eaf3540defcffa62d8595486bcbe6`）；记录迁移、本文件与 `publish.json` 分类是其后的文档提交（只改 `.md`/`.json`）。**不要**在该分支继续开发 M10，从合并后的 `main` 或该 HEAD 新建阶段分支。
+- **分支与代码 HEAD**：`feat/m9-routing-tools-presets`，代码 HEAD `569d485`（`569d485d910748769cf16a26d80185b0841c93e6`）。`6379712` 之后只追加两个只改注释/测试注释的提交：`d43c75d`+`5c856c4`（dev-gate 注释 eleven/three → fourteen/four）与 `73084b4`+`569d485`（presets 注释：新会话用 `cowork-topic`、`cowork-thread` 只服务存量会话），596 与字节不变；记录迁移、本文件与 `publish.json` 分类是其后的文档提交（只改 `.md`/`.json`）。**不要**在该分支继续开发 M10，从合并后的 `main` 或该 HEAD 新建阶段分支。
 - **验证基线**：`npm test` **596 tests / 596 pass / 0 fail / 0 cancelled / 0 skipped / 0 todo**，exit 0；`npm run typecheck`、`npm run build`、`npm run check`（`check-invariants: ok`）均 exit 0。M9 之前基线 485 pass，新增/改写 111 条。
-- **代码形态**：`src/tools.ts` **2,489 B**（只做 14 个工具的注册编排）；`src/store.ts` **48,590 B**（余量约 562 B）；`src/**/*.ts` 最大 `src/m2-e2e.ts` 49,923 B；新增 `src/routing.ts`、`src/router-model.ts`、`src/llm-port.ts`、`src/tool-runtime.ts`、`src/project-tools.ts`、`src/topic-tools.ts`、`src/route-tools.ts`、`src/memory-tools.ts`、`src/checkout-tools.ts`；删除 `src/router.ts` 与 `tests/router.test.mjs`。
-- **范围**：`git diff --name-only 7b9a6a5..6379712` 恰为 39 个文件（20 src + 19 tests），无 `docs/**`、`presets/**`、`src/client/**`、`src/api*.ts`。完整交付清单与 A1–A9 证据见 [M9_RESULT](M9_RESULT.md)。
+- **代码形态（`569d485` 上复核不变）**：`src/tools.ts` **2,489 B**（只做 14 个工具的注册编排）；`src/store.ts` **48,590 B**（余量约 562 B）；`src/**/*.ts` 最大 `src/m2-e2e.ts` 49,923 B；新增 `src/routing.ts`、`src/router-model.ts`、`src/llm-port.ts`、`src/tool-runtime.ts`、`src/project-tools.ts`、`src/topic-tools.ts`、`src/route-tools.ts`、`src/memory-tools.ts`、`src/checkout-tools.ts`；删除 `src/router.ts` 与 `tests/router.test.mjs`。
+- **范围**：`git diff --name-only 7b9a6a5..569d485` 恰为 39 个文件（20 src + 19 tests；`6379712..569d485` 的四个提交只改 `tests/dev-gate.test.mjs` 与 `src/presets.ts` 的注释），无 `docs/**`、`presets/**`、`src/client/**`、`src/api*.ts`。完整交付清单与 A1–A9 证据见 [M9_RESULT](M9_RESULT.md)。
 
 ## 交付后的状态（M10 的起点）
 
