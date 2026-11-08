@@ -29,6 +29,7 @@ import {
   INDEX_VERSION_V2,
   INBOX_MAX_ITEMS,
   activityEventProblems,
+  activityLineBytes,
   handoffRecordProblems,
   inboxItemProblems,
   normalizeProjectIndexV1,
@@ -36,10 +37,19 @@ import {
   projectIndexV1Problems,
   projectIndexV2Problems,
   reviewRecordProblems,
+  serializeActivityEvents,
   threadV1Problems,
+  trimActivityEvents,
 } from './store-schema.js'
 import { MigrationError, applyLegacyView, legacyViewOf, migrateV1ToV2 } from './store-migration.js'
-import type { ActivityEvent, ActivityType, InboxItem, ProjectIndexV2 } from './store-schema.js'
+import type {
+  ActivityEvent,
+  ActivityType,
+  InboxItem,
+  ProjectIndexV2,
+  ReadActivityResult,
+} from './store-schema.js'
+export type { ReadActivityResult } from './store-schema.js'
 import type {
   ArchiveFailure,
   MigrationReport,
@@ -272,15 +282,6 @@ async function readDocument(filePath: string, label: string): Promise<string> {
   }
 }
 
-/**
- * One read of the activity stream: valid events oldest first, and how many
- * lines were skipped because they were not valid events.
- */
-export interface ReadActivityResult {
-  events: ActivityEvent[]
-  skippedLines: number
-}
-
 /** Schema problems of a whole inbox document, addressed by item position. */
 function inboxProblems(items: readonly unknown[]): string[] {
   const problems: string[] = []
@@ -295,34 +296,6 @@ function inboxProblems(items: readonly unknown[]): string[] {
 /** A message for one failure, without carrying a stack into a report. */
 function describeFailure(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-/** Serialized size of one activity line, including its newline. */
-function activityLineBytes(event: ActivityEvent): number {
-  return Buffer.byteLength(JSON.stringify(event), 'utf8') + 1
-}
-
-/** Serialize the activity stream as JSON Lines, one event per line. */
-function serializeActivityEvents(events: readonly ActivityEvent[]): string {
-  return events.map((event) => `${JSON.stringify(event)}\n`).join('')
-}
-
-/**
- * Keep the newest events within both bounds: at most
- * {@link ACTIVITY_MAX_EVENTS} events and at most {@link ACTIVITY_MAX_BYTES}
- * serialized bytes. The oldest events are dropped first.
- */
-function trimActivityEvents(events: readonly ActivityEvent[]): ActivityEvent[] {
-  let first = 0
-  let bytes = events.reduce((total, event) => total + activityLineBytes(event), 0)
-  while (
-    first < events.length &&
-    (events.length - first > ACTIVITY_MAX_EVENTS || bytes > ACTIVITY_MAX_BYTES)
-  ) {
-    bytes -= activityLineBytes(events[first])
-    first += 1
-  }
-  return events.slice(first)
 }
 
 /** Format a timestamp as the handoff filename stamp `YYYYMMDDTHHmmssSSSZ` in UTC. */
@@ -402,11 +375,23 @@ export class ProjectStore {
 
   /**
    * Read the project index as the v1-shaped view every M7 caller still uses.
-   * A v2 document is validated as is; a v1 document is migrated in memory only —
-   * a read never writes the file, never creates a backup, and never archives a
-   * reviewer. A damaged document, or an unknown v1 status, is `store/corrupt`.
+   * It is derived from the read-only canonical projection, so a v1 disk still
+   * reports an in-flight review exactly as it is: a read never migrates, writes
+   * the file, creates a backup, or archives a reviewer. A damaged document, or
+   * an unknown v1 status, is `store/corrupt`.
    */
   async readIndex(): Promise<ProjectIndex> {
+    return legacyViewOf(await this.readIndexDocument())
+  }
+
+  /**
+   * Read the canonical v2 document. A v2 file is validated as is. A v1 file is
+   * projected onto v2 in memory only — no write, backup, archive, or mtime
+   * change — and the projection keeps an in-flight review (`awaitingReview`,
+   * `reviewStatus`, `reviewerSessionId` intact). Only {@link readIndexForWrite}
+   * cancels the review, backs the v1 text up, and archives the reviewer.
+   */
+  async readIndexDocument(): Promise<ProjectIndexV2> {
     const text = await readDocument(this.indexFile, 'project index')
     const parsed = this.parseIndexText(text)
     if (isRecord(parsed) && parsed.version === INDEX_VERSION_V2) {
@@ -419,11 +404,8 @@ export class ProjectStore {
           this.indexFile,
         )
       }
-      return legacyViewOf(document)
+      return document
     }
-    // A v1 document is read as it is: a pure read never migrates, so the
-    // compatibility view must not pretend an in-flight review was cancelled.
-    // Only a write path migrates (and archives the reviewer).
     const normalized = normalizeProjectIndexV1(parsed)
     const problems = projectIndexV1Problems(normalized)
     if (problems.length > 0) {
@@ -433,14 +415,37 @@ export class ProjectStore {
         this.indexFile,
       )
     }
-    return normalized as ProjectIndex
+    let projected: ProjectIndexV2
+    try {
+      projected = migrateV1ToV2(normalized, { cancelInFlightReviews: false }).document
+    } catch (error) {
+      if (!(error instanceof MigrationError)) throw error
+      throw new StoreError(
+        'store/corrupt',
+        problemMessage('project index is invalid', this.indexFile, [error.message]),
+        this.indexFile,
+      )
+    }
+    // A v1 thread may carry unknown fields and the migration copies them onto
+    // the topic; one that shadows a v2 field (e.g. `digest: 123`) must not reach
+    // a caller as a canonical document.
+    const projectedProblems = projectIndexV2Problems(projected)
+    if (projectedProblems.length > 0) {
+      throw new StoreError(
+        'store/corrupt',
+        problemMessage('projected project index is invalid', this.indexFile, projectedProblems),
+        this.indexFile,
+      )
+    }
+    return projected
   }
 
   /**
    * The report of the most recent on-write v1 → v2 migration, or null when this
    * store has not migrated anything. `archiveFailures` names every reviewer the
    * host port could not archive; an empty list means the migration had nothing
-   * to archive or archived it successfully.
+   * to archive or archived it successfully. `activityFailure` names why the
+   * migration activity row could not be written, or is null.
    */
   get lastMigrationReport(): MigrationReport | null {
     return this.migrationReport
@@ -501,18 +506,30 @@ export class ProjectStore {
   /**
    * Run `mutator` against the current index under the project lock and persist
    * its result in one atomic write. Concurrent callers are serialized, so no
-   * read-modify-write cycle can resurrect a replaced state.
+   * read-modify-write cycle can resurrect a replaced state. The view is the
+   * whole document: a topic it omits is deleted, a thread it adds becomes a new
+   * topic, and every v2-only field of a surviving topic is inherited.
    */
   async mutateIndex(mutator: (index: ProjectIndex) => ProjectIndex): Promise<ProjectIndex> {
+    const next = await this.mutateIndexDocument((base) => applyLegacyView(base, mutator(legacyViewOf(base))))
+    return legacyViewOf(next)
+  }
+
+  /**
+   * Run `mutator` against the canonical v2 document under the project lock and
+   * persist its result. The mutator sees the document re-read (and, for a v1
+   * file, migrated) inside the lock — the point where an automatic marker
+   * re-checks `lastActiveAt` before writing. Returning `null` abandons the
+   * change: the lock-read document is returned and nothing is written.
+   */
+  async mutateIndexDocument(
+    mutator: (document: ProjectIndexV2) => ProjectIndexV2 | null,
+  ): Promise<ProjectIndexV2> {
     await this.ensureProjectDir()
     return this.withLock(async () => {
       const base = await this.readIndexForWrite()
-      const mutated = mutator(legacyViewOf(base))
-      // The view is the whole document: a topic it omits is deleted, a thread it
-      // adds becomes a new topic, and every v2-only field of a surviving topic
-      // is inherited from `base`. M7 keeps `workItems` empty, so a topic deletion
-      // has no work item to cascade to (M8 owns that lifecycle rule).
-      const next = applyLegacyView(base, mutated)
+      const next = mutator(base)
+      if (next === null) return base
       const problems = projectIndexV2Problems(next)
       if (problems.length > 0) {
         throw new StoreError(
@@ -522,7 +539,7 @@ export class ProjectStore {
         )
       }
       await this.writeJson(this.indexFile, next)
-      return legacyViewOf(next)
+      return next
     })
   }
 
@@ -960,7 +977,9 @@ export class ProjectStore {
    * file exactly as they were and raises `store/corrupt`. A failed archive is
    * recorded instead: the reviewer pointer is already cleared, so the migration
    * must not pretend the review was safely cancelled, but it also must not leave
-   * the index half-migrated.
+   * the index half-migrated. The activity record is appended only after v2 is
+   * on disk; its failure is reported as `activityFailure` and never undoes the
+   * migration (KI-20).
    */
   private async readIndexForWrite(): Promise<ProjectIndexV2> {
     const originalText = await readDocument(this.indexFile, 'project index')
@@ -993,8 +1012,6 @@ export class ProjectStore {
       migrated.report.archiveFailures = await this.archivePendingReviewers(
         migrated.report.pendingReviewerArchives,
       )
-      this.migrationReport = migrated.report
-      await this.recordMigrationActivity(migrated.report)
       await this.writeJson(this.indexFile, migrated.document)
     } catch (error) {
       // The backup and the original v1 document are both still on disk: report
@@ -1005,6 +1022,15 @@ export class ProjectStore {
         this.indexFile,
       )
     }
+    // KI-20: v2 is already committed. The activity record is evidence and must
+    // not roll the migration back; a retry sees v2 and never archives again, so
+    // report the append failure instead of rewriting a half-migrated index.
+    try {
+      await this.recordMigrationActivity(migrated.report)
+    } catch (error) {
+      migrated.report.activityFailure = describeFailure(error)
+    }
+    this.migrationReport = migrated.report
     return migrated.document
   }
 

@@ -122,6 +122,7 @@ test('the exported enumerations match PLAN-V0.2 §4.3', () => {
   assert.ok(ACTIVITY_TYPES.includes('review-requested'))
   assert.ok(ACTIVITY_TYPES.includes('review-verdict'))
   assert.ok(ACTIVITY_TYPES.includes('status-changed'))
+  assert.ok(ACTIVITY_TYPES.includes('topic-reopened'), 'M8 reopening is its own event, not an undo')
   assert.ok(ACTIVITY_TYPES.includes('error'))
 })
 
@@ -366,7 +367,7 @@ test('an activity event reports each invalid field by name', () => {
     [
       'activity.eventId must be a non-empty string',
       'activity.time must be an ISO 8601 timestamp',
-      'activity.type must be one of topic-created|route-reused|route-created|route-corrected|status-changed|review-requested|review-verdict|work-item-created|work-item-merged|error',
+      'activity.type must be one of topic-created|route-reused|route-created|route-corrected|status-changed|topic-reopened|review-requested|review-verdict|work-item-created|work-item-merged|error',
       'activity.topicId must be a non-empty string or null',
       'activity.summary must be a non-empty string',
       'activity.details must be a JSON object',

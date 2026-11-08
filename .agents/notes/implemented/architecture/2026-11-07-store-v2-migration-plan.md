@@ -50,9 +50,9 @@ M6 补的两条约束至今成立：取消在途 reviewer 必须 `archiveSession
 ## Consequences
 
 - 新增约束：写只写 v2，读兼容 v1。迁移后不再有 v1 写者；回滚只能恢复 `index.v1.backup.json` 并重装 `0.1.0`（M12 文档化）。
-- **A1 的宿主接线已补齐（`6cb294c`）**：`SessionSlicePorts['workspaces'].archiveSession` 支持 `{stopActivity}`，`SessionSlice` 透传；`src/tools.ts` 的单一 `projectStoreFor` helper 与 `src/index.ts` 的 `panelPorts.createStore` 都注入 `workspaceRegistry.archiveSession`。证据是 host-free 的 tool 层测试：`tests/tools-init.test.mjs` 用 fake `workspaceRegistry` + 真实 `ProjectStore`，在 v1 `awaiting_review` 索引上执行 `takeOver`，断言端口收到 `(reviewerSessionId,{stopActivity:true})`、磁盘写成 v2、备份等于原 v1 字节。仍真实的限制：归档调用失败时 store 只记录、不重试，旧 reviewer 会话可能悬挂；迁移报告只留在内存（KI-19）、activity 先于 index 写（KI-20）、真实宿主 E2E 与真实 v1 数据迁移未跑（KI-22）。
+- **A1 的宿主接线已补齐（`6cb294c`）**：`SessionSlicePorts['workspaces'].archiveSession` 支持 `{stopActivity}`，`SessionSlice` 透传；`src/tools.ts` 的单一 `projectStoreFor` helper 与 `src/index.ts` 的 `panelPorts.createStore` 都注入 `workspaceRegistry.archiveSession`。证据是 host-free 的 tool 层测试：`tests/tools-init.test.mjs` 用 fake `workspaceRegistry` + 真实 `ProjectStore`，在 v1 `awaiting_review` 索引上执行 `takeOver`，断言端口收到 `(reviewerSessionId,{stopActivity:true})`、磁盘写成 v2、备份等于原 v1 字节。仍真实的限制：归档调用失败时 store 只记录、不重试，旧 reviewer 会话可能悬挂；迁移报告只留在内存（KI-19）、真实宿主 E2E 与真实 v1 数据迁移未跑（KI-22）。
 - `lastMigrationReport` 只在内存里保留最近一次迁移报告；进程重启后证据只剩 activity 的 `error`/`status-changed` 事件与备份文件，无法回放 `archiveFailures` 的完整形状（[KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md) KI-19）。
-- `recordMigrationActivity` 在写 `index.json` 之前执行：若 activity 写成功而 index 写失败，原文件与备份都保留，但下一次写入会重新迁移，从而重复调用 `archiveSession` 并追加重复的活动事件（KI-20）。
+- M7 的迁移事务曾先写 activity 再写 `index.json`（KI-20）。M8 已修复为「校验 → 备份 → 归档 → 写 v2 → 写迁移活动」：activity 失败只记入 `MigrationReport.activityFailure`，不推翻已落盘的 v2，重试走 pass-through 不重复归档；见 [M8 执行记录](./2026-11-07-m8-lifecycle-activity-inbox-plan.md)。
 - `fsyncDirectory` 的崩溃持久性只有代码路径证据（`src/store.ts` 的 `writeJson`/`writeMigrationBackup`/`appendActivityLocked`），没有可观测断言，真机断电行为未验证（KI-21）。
 - 未知 v1 状态、损坏的 v1/v2 文档一律 `store/corrupt` 且保留原文件；项目不会静默重建索引。代价是损坏文件需要人工处理，而不是自动恢复。
 - `workItems` 在 M7 恒为 `[]`，删除 topic 不级联清理工作项；生命周期与级联清理属 M8/M10。旧 `checkoutPath` 只保留为 `legacyCheckoutPath`，旧隔离 clone 不自动转工作项。

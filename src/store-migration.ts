@@ -105,6 +105,12 @@ export interface MigrationReport {
   pendingReviewerArchives: PendingReviewerArchive[]
   /** Filled by the store's migration entry; the pure function leaves it empty. */
   archiveFailures: ArchiveFailure[]
+  /**
+   * Why the migration activity record could not be appended, or null. The
+   * activity is evidence written after v2 is on disk (KI-20): its failure is
+   * reported here and never rolls the migration back.
+   */
+  activityFailure: string | null
   unknownFields: string[]
   legacyFieldsPreserved: string[]
 }
@@ -113,6 +119,17 @@ export interface MigrationReport {
 export interface MigrationResult {
   document: ProjectIndexV2
   report: MigrationReport
+}
+
+/** How a v1 document is projected onto v2. */
+export interface MigrationOptions {
+  /**
+   * Cancel an in-flight v1 review: `awaitingReview=false`, clear the review
+   * pointer, and report the reviewer for archiving. Default `true` — the write
+   * path. `false` is the read-only projection: the review stays in place and
+   * nothing is archived.
+   */
+  cancelInFlightReviews?: boolean
 }
 
 /** The four tolerated review attachment fields, in report order. */
@@ -184,14 +201,18 @@ export function isLegacyIndexDocument(value: unknown): boolean {
  * identity, so a retry cannot change the file); a v2 document that does not
  * validate throws `migration/invalid`. A v1 document with a status outside the
  * six states throws `migration/unknown-status` before anything is rewritten.
+ *
+ * `options.cancelInFlightReviews` defaults to the M7 write semantics. A
+ * read-only caller passes `false` so the projection keeps an in-flight review:
+ * only a real write cancels it and asks the store to archive the reviewer.
  */
-export function migrateV1ToV2(document: unknown): MigrationResult {
+export function migrateV1ToV2(document: unknown, options: MigrationOptions = {}): MigrationResult {
   if (!isRecord(document)) throw invalid('index must be a JSON object')
   if (document.version === INDEX_VERSION_V2) return migrateV2Document(document)
   if (!isLegacyIndexDocument(document)) {
     throw invalid(`index.version must be ${INDEX_VERSION_V1} or ${INDEX_VERSION_V2}`)
   }
-  return migrateV1Document(document)
+  return migrateV1Document(document, options.cancelInFlightReviews ?? true)
 }
 
 /** Pass a valid v2 document through; report only what describes it. */
@@ -211,6 +232,7 @@ function migrateV2Document(document: Record<string, unknown>): MigrationResult {
       resolvedTopics: [],
       pendingReviewerArchives: [],
       archiveFailures: [],
+      activityFailure: null,
       unknownFields: [],
       legacyFieldsPreserved: [],
     },
@@ -218,7 +240,7 @@ function migrateV2Document(document: Record<string, unknown>): MigrationResult {
 }
 
 /** Migrate one v1 document to v2. */
-function migrateV1Document(index: Record<string, unknown>): MigrationResult {
+function migrateV1Document(index: Record<string, unknown>, cancelInFlightReviews: boolean): MigrationResult {
   for (const field of DOCUMENT_V2_FIELDS) {
     if (Object.hasOwn(index, field)) {
       throw invalid(`index.${field} is a v2 field on a v1 index`)
@@ -246,7 +268,7 @@ function migrateV1Document(index: Record<string, unknown>): MigrationResult {
     if (thread.status === 'done' || thread.status === 'archived') {
       resolvedTopics.push(thread.threadId)
     }
-    if (thread.status === 'awaiting_review' && thread.reviewerSessionId !== null) {
+    if (thread.status === 'awaiting_review' && cancelInFlightReviews && thread.reviewerSessionId !== null) {
       pendingReviewerArchives.push({
         topicId: thread.threadId,
         reviewerSessionId: thread.reviewerSessionId,
@@ -254,7 +276,7 @@ function migrateV1Document(index: Record<string, unknown>): MigrationResult {
     }
     unknownFields.push(...threadV1UnknownFields(thread, where))
     legacyFieldsPreserved.push(...LEGACY_TOPIC_FIELDS.map((field) => `${where}.${field}`))
-    return topicFromV1Thread(thread)
+    return topicFromV1Thread(thread, cancelInFlightReviews)
   })
 
   const migrated: Record<string, unknown> = {
@@ -277,6 +299,7 @@ function migrateV1Document(index: Record<string, unknown>): MigrationResult {
       resolvedTopics,
       pendingReviewerArchives,
       archiveFailures: [],
+      activityFailure: null,
       unknownFields,
       legacyFieldsPreserved,
     },
@@ -303,14 +326,15 @@ function assertKnownThreadStatuses(threads: unknown): void {
 }
 
 /** Map one normalized v1 thread onto a v2 topic. */
-function topicFromV1Thread(thread: ThreadRecordV1): TopicWithLegacy {
+function topicFromV1Thread(thread: ThreadRecordV1, cancelInFlightReviews: boolean): TopicWithLegacy {
   const resolved = thread.status === 'done' || thread.status === 'archived'
-  const awaitingReview = thread.status === 'awaiting_review'
+  const inFlightReview = thread.status === 'awaiting_review'
+  const cancelReview = inFlightReview && cancelInFlightReviews
   const topic: TopicWithLegacy = {
     topicId: thread.threadId,
     title: thread.subject,
     status: resolved ? 'resolved' : 'active',
-    awaitingReview: false,
+    awaitingReview: inFlightReview && !cancelInFlightReviews,
     blocked: thread.status === 'blocked',
     scope: '',
     ownedPaths: [],
@@ -325,8 +349,8 @@ function topicFromV1Thread(thread: ThreadRecordV1): TopicWithLegacy {
     resolvedAt: resolved ? thread.updatedAt : null,
     resolvedBy: resolved ? 'master' : null,
     latestReviewRequestId: null,
-    reviewStatus: awaitingReview ? null : thread.reviewStatus,
-    reviewerSessionId: awaitingReview ? null : thread.reviewerSessionId,
+    reviewStatus: cancelReview ? null : thread.reviewStatus,
+    reviewerSessionId: cancelReview ? null : thread.reviewerSessionId,
     lastHandoffAt: thread.lastHandoffAt,
     reviewRequestedAt: thread.reviewRequestedAt,
     reviewedAt: thread.reviewedAt,

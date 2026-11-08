@@ -1,6 +1,8 @@
 # M8 交接文档
 
-- 状态：**M8 启动文档（2026-11-07）**。M7 已落地并终审通过；本文件写给下一个会话，用于启动 M8。M7 的实现事实、限制与证据在 [M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)；M8 的执行约定在 [M8 执行提案](../.agents/notes/proposed/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)；需求规则在 [主题三态与已解决规则](../.agents/notes/proposed/feature/2026-11-07-three-state-lifecycle.md)。
+> **历史文档（2026-11-08 补记）**：M8 已交付，交付结果、证据、偏差与回滚见 [M8_RESULT.md](M8_RESULT.md)。本文件保留为 M8 启动时的交接基线；文中的启动步骤、429 基线与「M8 落地后」动作都是当时的计划，已被 M8 执行完毕，不再按原文执行。
+
+- 状态：**M8 启动文档（2026-11-07）**。M7 已落地并终审通过；本文件写给下一个会话，用于启动 M8。M7 的实现事实、限制与证据在 [M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)；M8 的执行约定在 [M8 执行记录](../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)；需求规则在 [主题三态与已解决规则](../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)。
 - 适用：接手 V0.2 M8（主题生命周期、活动、收件箱）的 agent 或人。范围：M7 交付后的代码基线、M8 的启动方式、实施顺序与证据、回滚与未验证清单。不重新论证 M7 的迁移决定。
 - 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.3/§4.2/§4.3/§5.1/§5.6/§6 M8 拥有状态机、模块图、数据模型与验收；[M6 探针结果](M6_PROBE_RESULT.md) §2/§4 拥有 `session/event` 与 reviewer 归档的实测结论；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留问题的归属与重估触发条件；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
@@ -21,8 +23,8 @@
 
 1. [AGENTS.md](../AGENTS.md)：纪律、命令、文档与提交规则。
 2. [PLAN-V0.2](PLAN-V0.2.md) §2.3（状态机）、§4.2（模块图）、§4.3（数据模型）、§5.1（生命周期）、§5.6（活动/收件箱）、§6 M8（本阶段范围与完成标准）。
-3. [主题三态与已解决规则](../.agents/notes/proposed/feature/2026-11-07-three-state-lifecycle.md)：三态、两标记、五条件、3 天/2 小时、重开；M8 落地后这份记录要按 implemented 骨架重写。
-4. [M8 执行提案](../.agents/notes/proposed/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)：模块边界、store 扩展、评估时机、KI 处置、验收与分阶段顺序。
+3. [主题三态与已解决规则](../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)：三态、两标记、五条件、3 天/2 小时、重开（M8 已迁移为 implemented）。
+4. [M8 执行记录](../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)：模块边界、store 扩展、评估时机、KI 处置、验收与分阶段顺序（M8 已迁移为 implemented）。
 5. [M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)：M7 实际交付、限制与 Testing；不要重做它的决定。
 6. [KNOWN_ISSUES](KNOWN_ISSUES.md)：KI-18..KI-22 的归属与重估触发条件。
 7. [M6 探针结果](M6_PROBE_RESULT.md) §2（`session/event` 与 500 条缓冲限制）、§4（reviewer 归档必须 after-verdict）。

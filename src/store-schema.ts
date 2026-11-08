@@ -54,6 +54,7 @@ export const ACTIVITY_TYPES = [
   'route-created',
   'route-corrected',
   'status-changed',
+  'topic-reopened',
   'review-requested',
   'review-verdict',
   'work-item-created',
@@ -120,6 +121,15 @@ export interface ActivityEvent {
   summary: string
   /** Structured detail for the panel; never free-form log text. */
   details: Record<string, unknown>
+}
+
+/**
+ * One read of the activity stream: valid events oldest first, and how many
+ * lines were skipped because they were not valid events.
+ */
+export interface ReadActivityResult {
+  events: ActivityEvent[]
+  skippedLines: number
 }
 
 /** One item of `<repo>/.dsh-cowork/inbox.json`. */
@@ -590,4 +600,32 @@ export function reviewRecordProblems(record: unknown): string[] {
   }
   if (!isIsoDate(record.createdAt)) problems.push('review.createdAt must be an ISO 8601 timestamp')
   return problems
+}
+
+/** Serialized size of one activity line, including its newline. */
+export function activityLineBytes(event: ActivityEvent): number {
+  return Buffer.byteLength(JSON.stringify(event), 'utf8') + 1
+}
+
+/** Serialize the activity stream as JSON Lines, one event per line. */
+export function serializeActivityEvents(events: readonly ActivityEvent[]): string {
+  return events.map((event) => `${JSON.stringify(event)}\n`).join('')
+}
+
+/**
+ * Keep the newest events within both bounds: at most
+ * {@link ACTIVITY_MAX_EVENTS} events and at most {@link ACTIVITY_MAX_BYTES}
+ * serialized bytes. The oldest events are dropped first.
+ */
+export function trimActivityEvents(events: readonly ActivityEvent[]): ActivityEvent[] {
+  let first = 0
+  let bytes = events.reduce((total, event) => total + activityLineBytes(event), 0)
+  while (
+    first < events.length &&
+    (events.length - first > ACTIVITY_MAX_EVENTS || bytes > ACTIVITY_MAX_BYTES)
+  ) {
+    bytes -= activityLineBytes(events[first])
+    first += 1
+  }
+  return events.slice(first)
 }
