@@ -88,10 +88,19 @@ test('the two review tools register from src/review-tools.ts, not src/tools.ts',
       `src/tools.ts must not register ${name} directly any more`,
     )
   }
-  // A one-way dependency: review-tools receives its helpers, it never imports them.
+  // A one-way dependency: review-tools receives its helpers, it never imports
+  // them; the request model (not the retired review.ts) is its one review import.
   assert.ok(
     !reviewSource.includes("'./tools.js'"),
     'src/review-tools.ts must not import src/tools.ts (would create a runtime cycle)',
+  )
+  assert.ok(
+    !reviewSource.includes("'./review.js'"),
+    'src/review-tools.ts must not import the retired review.js',
+  )
+  assert.ok(
+    reviewSource.includes("'./review-request.js'"),
+    'the review tools must use the request model',
   )
 })
 
@@ -103,7 +112,8 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
     ['src/topic-tools.ts', source('src/topic-tools.ts'), ['cowork_topic_create', 'cowork_thread_create', 'cowork_topic_list', 'cowork_thread_list', 'cowork_handoff', 'cowork_topic_resolve']],
     ['src/route-tools.ts', source('src/route-tools.ts'), ['cowork_route']],
     ['src/memory-tools.ts', source('src/memory-tools.ts'), ['cowork_memory_write', 'cowork_memory_search']],
-    ['src/checkout-tools.ts', source('src/checkout-tools.ts'), ['cowork_checkout_merge']],
+    ['src/checkout-tools.ts', source('src/checkout-tools.ts'), ['cowork_work_item_create', 'cowork_checkout_merge']],
+    ['src/review-tools.ts', source('src/review-tools.ts'), ['cowork_review_request', 'cowork_review_verdict']],
   ]
   for (const [file, domainSource, names] of domains) {
     for (const name of names) {
@@ -111,7 +121,7 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
       assert.ok(!toolsSource.includes(`name: '${name}'`), `src/tools.ts must not register ${name} directly`)
     }
   }
-  for (const call of ['registerProjectTools', 'registerTopicTools', 'registerRouteTools', 'registerMemoryTools', 'registerCheckoutTools', 'registerReviewTools']) {
+  for (const call of ['registerProjectTools', 'registerRouteTools', 'registerTopicTools', 'registerWorkItemTools', 'registerReviewTools', 'registerMemoryTools', 'registerCheckoutTools']) {
     assert.match(toolsSource, new RegExp(`${call}\\(`), `src/tools.ts must call ${call}`)
   }
 
@@ -124,6 +134,11 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
     ['src/route-tools.ts', READ_LIMIT_BYTES],
     ['src/memory-tools.ts', READ_LIMIT_BYTES],
     ['src/checkout-tools.ts', READ_LIMIT_BYTES],
+    ['src/checkout-teardown.ts', READ_LIMIT_BYTES],
+    ['src/work-item.ts', READ_LIMIT_BYTES],
+    ['src/review-request.ts', READ_LIMIT_BYTES],
+    ['src/review-tools.ts', READ_LIMIT_BYTES],
+    ['src/session-visibility.ts', READ_LIMIT_BYTES],
   ]
   for (const [file, limit] of budgets) {
     const bytes = bytesOf(file)
@@ -155,4 +170,74 @@ test('the host LLM adapter lives in src/llm-port.ts', () => {
   assert.match(portSource, /system: request\.systemPrompt/, 'the system prompt is top-level')
   assert.match(portSource, /content: \[\{ type: 'text', text: request\.userPrompt \}\]/, 'the user body is a text block array')
   assert.match(portSource, /signal,/)
+})
+
+// ---------------------------------------------------------------------------
+// M10.4b ownership and the KI-18/24/25 close-out guards
+// ---------------------------------------------------------------------------
+
+test('the work-item, review-request, and session modules own rules, not tool names', () => {
+  const source = (file) => readFileSync(resolve(root, file), 'utf8')
+  const ownerships = [
+    ['src/work-item.ts', ['createWorkItem', 'captureWorkItemHead', 'activeWorkItemCount']],
+    ['src/review-request.ts', ['validateReviewRequestInput', 'mergeGate', 'buildReviewBrief']],
+    ['src/session-visibility.ts', ['createReviewerSession', 'archiveReviewerAfterVerdict', 'reviewerSessionIds']],
+  ]
+  for (const [file, symbols] of ownerships) {
+    const text = source(file)
+    for (const symbol of symbols) {
+      assert.match(
+        text,
+        new RegExp(`export (async )?(function|const) ${symbol}\\b`),
+        `${file} must export ${symbol}`,
+      )
+    }
+    assert.equal(/name: 'cowork_/.test(text), false, `${file} must not register a tool (src/checkout-tools.ts does)`)
+  }
+  // The two isolation tools are registered by the module that also owns the
+  // merge flow, not by their domain modules.
+  assert.match(source('src/checkout-tools.ts'), /export function registerWorkItemTools\(/)
+  assert.match(source('src/checkout-tools.ts'), /export function registerCheckoutTools\(/)
+})
+
+test('KI-24: the read point counts real work items, not a fixed zero', () => {
+  const source = (file) => readFileSync(resolve(root, file), 'utf8')
+  const projectSource = source('src/project-tools.ts')
+  const routeSource = source('src/route-tools.ts')
+  const runtimeSource = source('src/tool-runtime.ts')
+
+  assert.match(projectSource, /activeWorkItemsOf/)
+  assert.match(routeSource, /activeWorkItemsOf/)
+  assert.match(runtimeSource, /activeWorkItemsOf/)
+  for (const [file, text] of [['src/project-tools.ts', projectSource], ['src/route-tools.ts', routeSource], ['src/tool-runtime.ts', runtimeSource]]) {
+    assert.equal(/activeWorkItems: 0/.test(text), false, `${file} must not pass a fixed zero`)
+    assert.equal(/activeWorkItems\?: number/.test(text), false, `${file} must not take a fixed count option`)
+  }
+})
+
+test('KI-25/KI-18: no legacy review writes, and the legacy read-only surface stays', () => {
+  const source = (file) => readFileSync(resolve(root, file), 'utf8')
+  const reviewTools = source('src/review-tools.ts')
+
+  // The legacy index/thread review attachment fields are never written by the
+  // new tools. (`reviewedAt` does exist on the request record itself, which is
+  // the file this model owns, so only the legacy pointer fields are pinned.)
+  assert.equal(reviewTools.includes('latestReviewPath'), false)
+  assert.equal(reviewTools.includes('reviewRequestedAt'), false)
+  assert.equal(/awaiting_review/.test(reviewTools), false)
+
+  // The handoff state machine is narrowed, and the personas carry no legacy
+  // review orchestration or merge override.
+  assert.match(source('src/topic-tools.ts'), /enum: \['blocked', 'done'\]/)
+  assert.equal(/awaiting_review/.test(source('src/topic-tools.ts')), false)
+  assert.equal(/awaiting_review/.test(source('src/presets.ts')), false)
+  assert.equal(/allowUnreviewed|overrideReason/.test(source('src/presets.ts')), false)
+  assert.equal(/checkLegacyThreadMerge[\s\S]*allowUnreviewed/.test(source('src/review-request.ts')), false)
+
+  // Legacy readers and dev runners stay until M11/M12 replace them.
+  for (const file of ['src/api.ts', 'src/api-contract.ts', 'src/m2-e2e.ts', 'src/m3-e2e.ts', 'src/store-migration.ts']) {
+    assert.equal(existsSync(resolve(root, file)), true, `${file} must stay for M11/M12`)
+  }
+  assert.match(source('src/tools.ts'), /M11/)
+  assert.match(source('src/tools.ts'), /M12/)
 })
