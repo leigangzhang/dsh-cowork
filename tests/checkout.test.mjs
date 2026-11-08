@@ -1,8 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { register } from 'node:module'
 import {
   CHECKOUT_BRANCH_PREFIX,
   CHECKOUT_ERROR,
@@ -14,11 +16,28 @@ import {
   createCheckout,
   inspectCheckout,
   mergeCheckout,
+  nodeGitRunner,
   removeCheckout,
   threadIsolationTarget,
   workItemCheckoutPaths,
   workItemIsolationTarget,
 } from '../src/checkout.ts'
+
+// `src/checkout-tools.ts` imports its siblings with the build's `.js`
+// specifiers, which Node's type stripping does not retry as `.ts`; this test
+// installs the same small resolve hook the other tool tests use.
+const HOOK_SOURCE = [
+  'export async function resolve(specifier, context, nextResolve) {',
+  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
+  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
+  '  }',
+  '  return nextResolve(specifier, context)',
+  '}',
+].join('\n')
+register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+
+const { registerCheckoutTools, serializeMerge } = await import('../src/checkout-tools.ts')
+const { ProjectStore } = await import('../src/store.ts')
 
 /** A real temporary repository root; cleanup is registered on the test. */
 function makeRepo(t) {
@@ -794,4 +813,248 @@ test('removeCheckout deletes a work-item clone and its branch through its target
     { args: ['rev-parse', '--verify', 'refs/heads/cowork/wi-4'], cwd: repo },
     { args: ['branch', '-D', 'cowork/wi-4'], cwd: repo },
   ])
+})
+
+// ---------------------------------------------------------------------------
+// the merge tool: the legacy thread path and the serial queue (M10.2b)
+// ---------------------------------------------------------------------------
+
+const TOOL_NOW = new Date('2026-11-08T05:00:00.000Z')
+
+/** Run git synchronously in a test repository; throws on a non-zero exit. */
+function gitSync(cwd, args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+/** A real repository whose `integration` branch is checked out (main is protected). */
+function initLegacyProject(t) {
+  const repo = makeRepo(t)
+  gitSync(repo, ['init', '-q'])
+  gitSync(repo, ['config', 'user.email', 'cowork-test@example.invalid'])
+  gitSync(repo, ['config', 'user.name', 'Cowork Test'])
+  writeFileSync(join(repo, '.gitignore'), '.dsh-cowork/\n')
+  writeFileSync(join(repo, 'app.ts'), 'export const value = 1\n')
+  gitSync(repo, ['add', '.gitignore', 'app.ts'])
+  gitSync(repo, ['commit', '-q', '-m', 'base'])
+  gitSync(repo, ['checkout', '-q', '-b', 'integration'])
+  return { repo, base: gitSync(repo, ['rev-parse', 'HEAD']) }
+}
+
+/** The legacy thread clone at `.dsh-cowork/threads/<id>` with one commit. */
+function makeLegacyClone(repo, threadId, base) {
+  const path = join(repo, '.dsh-cowork', 'threads', threadId)
+  mkdirSync(dirname(path), { recursive: true })
+  gitSync(repo, ['clone', '-q', '--local', repo, path])
+  gitSync(path, ['checkout', '-q', '-b', `cowork/${threadId}`, base])
+  writeFileSync(join(path, 'legacy.ts'), 'export const legacy = 1\n')
+  gitSync(path, ['add', 'legacy.ts'])
+  gitSync(path, ['commit', '-q', '-m', 'legacy change'])
+  return path
+}
+
+/** A v2 topic that the legacy view still exposes as a thread. */
+function legacyTopic(repo, overrides = {}) {
+  const stamp = TOOL_NOW.toISOString()
+  return {
+    topicId: 'legacy-1',
+    title: 'legacy thread',
+    status: 'resolved',
+    awaitingReview: false,
+    blocked: false,
+    scope: '',
+    ownedPaths: [],
+    aliases: [],
+    digest: '',
+    cwd: repo,
+    legacyCheckoutPath: null,
+    createdAt: stamp,
+    updatedAt: stamp,
+    lastActiveAt: stamp,
+    lastDeliveryConfirmedAt: null,
+    resolvedAt: stamp,
+    resolvedBy: 'master',
+    latestReviewRequestId: null,
+    reviewStatus: 'pass',
+    reviewerSessionId: null,
+    ...overrides,
+  }
+}
+
+/** Seed the canonical index with one topic that maps to a legacy thread. */
+async function seedLegacyStore(repo, topic) {
+  const store = new ProjectStore({ repoPath: repo, clock: () => TOOL_NOW })
+  await store.initIndex('session-master')
+  await store.mutateIndexDocument((doc) => ({ ...doc, topics: [topic], workItems: [] }))
+  return store
+}
+
+/** The tool registry a tool call goes through. */
+function toolHost() {
+  const registry = new Map()
+  return {
+    registry,
+    tools: {
+      register(definition) {
+        registry.set(definition.name, definition)
+        return () => registry.delete(definition.name)
+      },
+    },
+  }
+}
+
+/** The structured execution identity one tool call receives. */
+function toolExec(sessionId, cwd) {
+  return { agent: { id: sessionId, session: { header: { cwd } } } }
+}
+
+/** Host ports for the legacy merge, recording workspace and session cleanup. */
+function legacyDeps(overrides = {}) {
+  const calls = []
+  return {
+    calls,
+    deps: {
+      sessionController: { list: async () => ({ items: [] }) },
+      workspaceRegistry: {
+        resolveByPath: async (path) => overrides.workspaceId === undefined
+          ? undefined
+          : { id: overrides.workspaceId, path },
+        create: async () => ({ id: 'workspace-created', path: '/repo' }),
+        delete: async (id) => {
+          calls.push({ type: 'delete-workspace', id })
+          return true
+        },
+        archiveSession: async (id, options) => {
+          calls.push({ type: 'archive-session', id, options })
+        },
+      },
+      agentPresets: { register: async () => async () => {} },
+      clock: () => TOOL_NOW,
+      ...overrides.extra,
+    },
+  }
+}
+
+/** Register the merge tool against one dependency bag. */
+function registerMergeTool(deps) {
+  const host = toolHost()
+  registerCheckoutTools(host, deps)
+  return host.registry.get('cowork_checkout_merge')
+}
+
+test('the merge tool schema no longer accepts an unreviewed override', async () => {
+  const { deps } = legacyDeps()
+  const tool = registerMergeTool(deps)
+  const properties = tool.parameters.properties
+  assert.equal('allowUnreviewed' in properties, false)
+  assert.equal('overrideReason' in properties, false)
+  assert.deepEqual(Object.keys(properties).sort(), ['message', 'threadId', 'workItemId'])
+})
+
+test('a legacy thread clone with a passed review merges and is torn down', async (t) => {
+  const { repo, base } = initLegacyProject(t)
+  const clonePath = makeLegacyClone(repo, 'legacy-1', base)
+  await seedLegacyStore(repo, legacyTopic(repo, { legacyCheckoutPath: clonePath }))
+  const { deps, calls } = legacyDeps({ workspaceId: 'workspace-legacy' })
+
+  const result = await registerMergeTool(deps).execute({ threadId: 'legacy-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, true, JSON.stringify(result))
+  assert.equal(result.merged, true)
+  assert.equal(result.threadId, 'legacy-1')
+  assert.deepEqual(result.cleanupErrors, [])
+  assert.equal(result.cleanup.removed, true)
+  assert.equal(result.cleanup.branchDeleted, true)
+  assert.equal(result.cleanup.sessionArchived, true)
+  assert.equal(result.cleanup.workspaceDeleted, true)
+  assert.equal(result.thread.checkoutPath, null)
+  assert.equal(result.thread.status, 'done')
+
+  assert.equal(gitSync(repo, ['rev-parse', '--abbrev-ref', 'HEAD']), 'integration')
+  assert.equal(existsSync(join(repo, 'legacy.ts')), true)
+  assert.equal(existsSync(clonePath), false)
+  assert.throws(() => gitSync(repo, ['rev-parse', '--verify', 'refs/heads/cowork/legacy-1']))
+  assert.deepEqual(
+    calls.filter((call) => call.type === 'archive-session').map((call) => call.id),
+    ['legacy-1'],
+  )
+})
+
+test('a legacy thread without a passed review is refused, with or without a reason', async (t) => {
+  for (const reviewStatus of ['pending', 'needs_revision', null]) {
+    const { repo, base } = initLegacyProject(t)
+    const clonePath = makeLegacyClone(repo, 'legacy-1', base)
+    await seedLegacyStore(repo, legacyTopic(repo, { legacyCheckoutPath: clonePath, reviewStatus }))
+    const { deps } = legacyDeps()
+
+    // The historical override arguments are gone; the extra keys are ignored.
+    const result = await registerMergeTool(deps).execute(
+      { threadId: 'legacy-1', allowUnreviewed: true, overrideReason: 'hotfix' },
+      toolExec('session-master', repo),
+    )
+
+    assert.equal(result.ok, false, String(reviewStatus))
+    assert.equal(result.error.code, 'review/not-passed')
+    assert.equal(existsSync(join(repo, 'legacy.ts')), false)
+    assert.equal(existsSync(clonePath), true)
+  }
+})
+
+test('a legacy thread clone on main is refused as a protected branch', async (t) => {
+  const { repo, base } = initLegacyProject(t)
+  const clonePath = makeLegacyClone(repo, 'legacy-1', base)
+  await seedLegacyStore(repo, legacyTopic(repo, { legacyCheckoutPath: clonePath }))
+  gitSync(repo, ['checkout', '-q', 'main'])
+  const { deps } = legacyDeps()
+
+  const result = await registerMergeTool(deps).execute({ threadId: 'legacy-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'checkout/protected-branch')
+  assert.equal(result.error.details.branch, 'main')
+  assert.equal(existsSync(join(repo, 'legacy.ts')), false)
+})
+
+test('the merge tool is master only', async (t) => {
+  const { repo, base } = initLegacyProject(t)
+  const clonePath = makeLegacyClone(repo, 'legacy-1', base)
+  await seedLegacyStore(repo, legacyTopic(repo, { legacyCheckoutPath: clonePath }))
+  const { deps } = legacyDeps()
+
+  const result = await registerMergeTool(deps).execute({ threadId: 'legacy-1' }, toolExec('legacy-1', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'role/forbidden')
+})
+
+test('serializeMerge runs merges in order and survives a rejected operation', async () => {
+  const order = []
+  let releaseFirst
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve })
+
+  const first = serializeMerge(async () => {
+    order.push('first:start')
+    await firstGate
+    order.push('first:end')
+    return 'first'
+  })
+  await Promise.resolve()
+  const second = serializeMerge(async () => {
+    order.push('second:start')
+    return 'second'
+  })
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.deepEqual(order, ['first:start'], 'the second merge waits for the first')
+
+  releaseFirst()
+  assert.equal(await first, 'first')
+  assert.equal(await second, 'second')
+  assert.deepEqual(order, ['first:start', 'first:end', 'second:start'])
+
+  // A rejected merge does not poison the queue.
+  await assert.rejects(
+    serializeMerge(async () => { throw new Error('merge refused') }),
+    /merge refused/,
+  )
+  assert.equal(await serializeMerge(async () => 'after-failure'), 'after-failure')
 })
