@@ -1206,36 +1206,26 @@ test('an index write failure archives the reviewer and removes the file', async 
 // the legacy thread merge gate and the topic messages
 // ---------------------------------------------------------------------------
 
-test('the legacy thread merge gate keeps the M8 behaviour exactly', async () => {
-  const { checkLegacyThreadMerge, cleanOverrideReason, MAX_OVERRIDE_REASON_LENGTH } =
-    await import('../src/review-request.ts')
+test('the legacy thread merge gate requires a passed review, with no override', async () => {
+  const { checkLegacyThreadMerge } = await import('../src/review-request.ts')
 
-  assert.deepEqual(checkLegacyThreadMerge({ threadId: 't1', reviewStatus: 'pass' }), {
-    ok: true,
-    suffix: '',
-    reason: null,
-  })
+  assert.deepEqual(checkLegacyThreadMerge({ threadId: 't1', reviewStatus: 'pass' }), { ok: true })
 
-  const overridden = checkLegacyThreadMerge(
-    { threadId: 't1', reviewStatus: 'needs_revision' },
-    { allowUnreviewed: true, overrideReason: '  hotfix\nfor the release  ' },
-  )
-  assert.deepEqual(overridden, { ok: true, suffix: ' (unreviewed: hotfix for the release)', reason: 'hotfix for the release' })
+  for (const reviewStatus of ['pending', 'needs_revision', 'reject', null]) {
+    const gate = checkLegacyThreadMerge({ threadId: 't1', reviewStatus })
+    assert.equal(gate.ok, false, String(reviewStatus))
+    assert.equal(gate.failure.error.code, 'review/not-passed')
+    assert.match(gate.failure.error.message, /has not passed review/)
+    assert.deepEqual(gate.failure.error.details, { threadId: 't1', reviewStatus })
+  }
 
-  const noReason = checkLegacyThreadMerge(
-    { threadId: 't1', reviewStatus: null },
-    { allowUnreviewed: true, overrideReason: '   ' },
-  )
-  assert.equal(noReason.ok, false)
-  assert.equal(noReason.failure.error.code, 'review/override-reason-required')
-
-  const notPassed = checkLegacyThreadMerge({ threadId: 't1', reviewStatus: 'pending' })
-  assert.equal(notPassed.ok, false)
-  assert.equal(notPassed.failure.error.code, 'review/not-passed')
-
-  // The reason is cleaned and bounded; a pass is never labelled unreviewed.
-  assert.equal(cleanOverrideReason('a'.repeat(MAX_OVERRIDE_REASON_LENGTH + 50)).length, MAX_OVERRIDE_REASON_LENGTH)
-  assert.equal(cleanOverrideReason('a\u0000b\nc'), 'a b c')
+  // The M8 override is gone: the gate takes only the thread, and the module no
+  // longer exports the override helpers.
+  assert.equal(checkLegacyThreadMerge.length, 1)
+  const module = await import('../src/review-request.ts')
+  for (const name of ['cleanOverrideReason', 'overrideCommitSuffix', 'MAX_OVERRIDE_REASON_LENGTH']) {
+    assert.equal(name in module, false, `${name} must not be exported any more`)
+  }
 })
 
 test('a topic message stays bounded even with many long findings', async () => {

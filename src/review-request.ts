@@ -1226,69 +1226,28 @@ export function buildRejectMessage(record: ReviewRequestRecord): string {
 }
 
 // ---------------------------------------------------------------------------
-// legacy thread merge gate (removed when M10.2 rewrites checkout_merge)
+// legacy thread merge gate (the last thread clone is removed in M11/M12)
 // ---------------------------------------------------------------------------
 
-/** Upper bound of a cleaned override reason, in characters. */
-export const MAX_OVERRIDE_REASON_LENGTH = 200
+/** The legacy merge decision: allowed, or the refusal the caller returns as-is. */
+export type LegacyMergePlan = { ok: true } | { ok: false; failure: ToolFailure }
 
 /**
- * Clean an override reason for a commit message: control characters and line
- * breaks become spaces, whitespace runs collapse, and the result is trimmed and
- * bounded. An empty reason means "no override".
- */
-export function cleanOverrideReason(reason: string): string {
-  if (typeof reason !== 'string') return ''
-  return reason
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_OVERRIDE_REASON_LENGTH)
-    .trim()
-}
-
-/** The commit-message suffix an override appends; empty when there is no reason. */
-export function overrideCommitSuffix(reason: string): string {
-  const cleaned = cleanOverrideReason(reason)
-  return cleaned === '' ? '' : ` (unreviewed: ${cleaned})`
-}
-
-/** The legacy merge decision: either a refusal, or the commit suffix to append. */
-export type LegacyMergePlan =
-  | { ok: true; suffix: string; reason: string | null }
-  | { ok: false; failure: ToolFailure }
-
-/**
- * Transitional gate for `cowork_checkout_merge(threadId)`: the old thread clone
- * still merges on `reviewStatus === 'pass'`, with the M8 `allowUnreviewed`
- * override kept exactly as it was. M10.2 replaces this with the work-item merge
- * gate (`mergeGate` above) and removes the override; this helper exists only so
- * the deletion of `src/review.ts` does not change the legacy merge behaviour.
+ * Transitional gate for `cowork_checkout_merge(threadId)`: a deprecated thread
+ * clone merges only when its review passed. The M8 `allowUnreviewed` override
+ * is gone (M10.4b) — the plugin never merges an unreviewed range, not even for
+ * the legacy clone — and M11/M12 remove the path together with the last legacy
+ * checkout.
  */
 export function checkLegacyThreadMerge(
   thread: { threadId: string; reviewStatus: ReviewStatus | null },
-  options: { allowUnreviewed?: boolean; overrideReason?: string } = {},
 ): LegacyMergePlan {
-  if (thread.reviewStatus === 'pass') return { ok: true, suffix: '', reason: null }
-  if (options.allowUnreviewed === true) {
-    const reason = cleanOverrideReason(options.overrideReason ?? '')
-    if (reason === '') {
-      return {
-        ok: false,
-        failure: failure(
-          ERROR_CODES.reviewOverrideReasonRequired,
-          `thread ${thread.threadId} has not passed review (${thread.reviewStatus ?? 'never requested'}); allowUnreviewed needs a non-empty overrideReason`,
-          { threadId: thread.threadId, reviewStatus: thread.reviewStatus },
-        ),
-      }
-    }
-    return { ok: true, suffix: overrideCommitSuffix(options.overrideReason ?? ''), reason }
-  }
+  if (thread.reviewStatus === 'pass') return { ok: true }
   return {
     ok: false,
     failure: failure(
       ERROR_CODES.reviewNotPassed,
-      `thread ${thread.threadId} has not passed review (${thread.reviewStatus ?? 'never requested'}); ask for a review first, or pass allowUnreviewed with an overrideReason to merge anyway`,
+      `thread ${thread.threadId} has not passed review (${thread.reviewStatus ?? 'never requested'}); ask for a review first`,
       { threadId: thread.threadId, reviewStatus: thread.reviewStatus },
     ),
   }

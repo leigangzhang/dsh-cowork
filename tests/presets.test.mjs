@@ -18,6 +18,7 @@ const HOOK_SOURCE = [
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const {
+  MASTER_PERSONA,
   MASTER_PRESET_ID,
   REVIEWER_PERSONA,
   REVIEWER_PRESET_ID,
@@ -176,4 +177,11 @@ test('presetDefinitions returns fresh row arrays so callers cannot mutate a shar
   const topic = first.find((preset) => preset.id === TOPIC_PRESET_ID)
   topic.plugins.length = 0
   assert.equal(rowNames(presetById(TOPIC_PRESET_ID)).length, 10)
+})
+
+test('the personas carry no legacy handoff state or merge override (KI-25)', () => {
+  const text = [MASTER_PERSONA, TOPIC_PERSONA, REVIEWER_PERSONA].join('\n')
+  assert.equal(/awaiting_review/.test(text), false, 'awaiting_review is no longer a review trigger')
+  assert.equal(/allowUnreviewed|overrideReason/.test(text), false, 'the merge override is gone')
+  assert.match(MASTER_PERSONA, /topics? request/i, 'the master no longer orchestrates reviews')
 })

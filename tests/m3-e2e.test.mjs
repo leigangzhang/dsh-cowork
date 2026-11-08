@@ -456,7 +456,11 @@ test('the master persona leaves reviews to the topics and rules out dev tools', 
   assert.match(persona, /cowork_project_status/)
   assert.match(persona, /dev_\*/)
   assert.match(persona, /reviewStatus is pass/)
-  assert.match(persona, /allowUnreviewed true/)
+  assert.equal(
+    /allowUnreviewed|overrideReason/.test(persona),
+    false,
+    'the merge override is gone; the persona must not offer it',
+  )
   assert.match(persona, /needs_revision/)
   assert.equal(
     /cowork_review_request/.test(persona),
