@@ -54,7 +54,7 @@
       "reason": "deferred and planned-away issue list for contributors: current status, ownership, and re-evaluation triggers; not a user-facing guide"
     },
     {
-      "pattern": "docs/AGENTTEAM_INTEGRATION_RULES.md",
+      "pattern": "docs/AGENTTEAM.md",
       "reason": "Project-level AgentTeams rules: impact scanning, readiness as a task/event, fast contract tests before real E2E, one integration gate with bound artifact identity, executable reviewer policy, batched closeout, scoped E2E, delivery task and closeout metrics; internal guidance for captains and members, not a user-facing guide"
     },
     {
