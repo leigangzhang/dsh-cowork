@@ -229,6 +229,10 @@ async function checkRequestRange(
 
 /** Directory of the review files, relative to the project root. */
 const REVIEWS_RELATIVE_DIR = join('.dsh-cowork', 'reviews')
+/** Most changed paths the request result lists; the file keeps them all. */
+const REVIEW_RESULT_PATHS_SHOWN = 100
+/** Most skipped legacy/damaged file names the request result lists. */
+const REVIEW_RESULT_SKIPPED_FILES_SHOWN = 10
 
 /** A request file operation that must reach the caller as a failure. */
 class RequestFileError extends Error {
@@ -809,12 +813,15 @@ export function registerReviewTools(ctx: unknown, deps: ReviewToolsDeps): Array<
           path: record.path,
           baseCommit: record.baseCommit,
           headCommit: record.headCommit,
-          changedPaths: record.changedPaths,
+          // Bounded view of the scope; the request file keeps the full lists.
+          changedPaths: record.changedPaths.slice(0, REVIEW_RESULT_PATHS_SHOWN),
+          changedPathsTotal: record.changedPaths.length,
           filePath: requestPath,
           reviewerSessionId: reviewer.sessionId,
           reviewerTitle: reviewer.title,
           prompted: true,
-          skippedFiles: listing.skipped,
+          skippedFiles: listing.skipped.slice(0, REVIEW_RESULT_SKIPPED_FILES_SHOWN),
+          skippedFilesTotal: listing.skipped.length,
           activityError,
         }))
       } catch (error) {
