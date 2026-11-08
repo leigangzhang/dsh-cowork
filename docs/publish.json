@@ -34,6 +34,10 @@
       "reason": "M6 stage handoff: deliverables, the 2026-11-07 M11 visibility decision (fallback b), verification evidence, rollback, and M7 preconditions; internal engineering record, not a user-facing guide"
     },
     {
+      "pattern": "docs/M8_HANDOFF.md",
+      "reason": "M8 stage handoff: post-M7 baseline (commits, test counts, byte budgets), the executable M8 startup sequence, implementation order and evidence, pitfalls, completion definition, rollback, and unverified items; internal engineering handoff, not a user-facing guide"
+    },
+    {
       "pattern": ".agents/notes/*",
       "reason": "decision records and their templates; internal history, not a guide"
     },
