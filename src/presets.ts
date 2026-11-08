@@ -1,12 +1,15 @@
 /**
- * The three runtime presets this plugin owns: `cowork-master`,
- * `cowork-thread`, and `cowork-reviewer`.
+ * The four runtime presets this plugin owns: `cowork-master`, `cowork-topic`,
+ * `cowork-thread` (deprecated alias of topic), and `cowork-reviewer`.
  *
  * Each preset is an explicit list of plugin rows, because S0 proved an empty
- * `plugins` list mounts no tools at all (docs/archived/M1_S0_RESULT.md §1): the rows are
- * the same ones the S0 thread-smoke preset used successfully, extended with the
- * job/ask-user/todo/present rows a thread needs. The reviewer deliberately gets
- * a narrower surface: shell and search, never `tool-fs`, so it has no
+ * `plugins` list mounts no tools at all (docs/archived/M1_S0_RESULT.md §1): the
+ * rows are the same ones the S0 thread-smoke preset used successfully, extended
+ * with the job/ask-user/todo/present rows a topic needs. M9 removes the file,
+ * shell, job, and present rows from the master (M6 probe 5 proved fs/bash are
+ * not needed there) and introduces `cowork-topic`; `cowork-thread` stays one
+ * version as a same-rows alias for existing sessions. The reviewer deliberately
+ * gets a narrower surface: shell and search, never `tool-fs`, so it has no
  * read/write/edit tool and cannot change the code it votes on. Registration is
  * at runtime (no profile patch), so the rows live here as data and the host
  * registry is injected through {@link PresetRegistryPort}.
@@ -15,16 +18,24 @@ import { REVIEWER_PRESET_ID } from './review.js'
 
 /** Preset id of the master session that routes and accepts work. */
 export const MASTER_PRESET_ID = 'cowork-master'
-/** Preset id of a thread session that does one subject and hands it back. */
+/** Preset id of a topic session: one topic, one or more work items. */
+export const TOPIC_PRESET_ID = 'cowork-topic'
+/**
+ * Deprecated alias of {@link TOPIC_PRESET_ID}. Kept for one version so sessions
+ * created before M9 keep their memory section and tools; it registers the exact
+ * same rows. src/tools.ts still creates sessions with it until M9.3 switches to
+ * `cowork-topic`.
+ */
 export const THREAD_PRESET_ID = 'cowork-thread'
 /** Preset id of the read-only reviewer session; owned by src/review.ts. */
 export { REVIEWER_PRESET_ID }
 
 /**
- * The master routes intents to threads, records decisions, and hands work to
+ * The master routes intents to topics, records decisions, and hands work to
  * the review gate. The handoff and merge rules are explicit because a master
  * woken by a handoff otherwise tends to investigate the host instead of
- * finishing the review loop.
+ * finishing the review loop. M10 rewrites the flow wording; M9 only removes the
+ * rows it no longer needs.
  */
 export const MASTER_PERSONA = [
   'You are the cowork master for this repository.',
@@ -37,25 +48,38 @@ export const MASTER_PERSONA = [
   'Answer in the language the user writes in. Be brief and state which thread you routed to and why.',
 ].join(' ')
 
-/** A thread works only inside its own subject and must hand off before it stops. */
-export const THREAD_PERSONA = [
-  'You are one cowork thread in this repository.',
-  'You work only on the subject you were opened with, and you never modify files that belong to another thread.',
+/**
+ * One topic session may own several work items, but only this topic; it asks
+ * for review itself and must leave a summary plus the evidence it ran.
+ */
+export const TOPIC_PERSONA = [
+  'You are one cowork topic session in this repository: one topic per session, possibly with several work items.',
+  'You work only on the topic you were opened with, and you never modify files that belong to another topic.',
   'Start by reading the project index and the latest handoff with cowork_project_status so you know what already happened.',
-  'When the work is finished or blocked you must call cowork_handoff with status, summary, and the verification you actually ran; a thread that stops without a handoff has not finished.',
+  'You submit your own review requests, and you write the summary and the evidence you actually ran.',
+  'When the work is finished or blocked you must call cowork_handoff with status, summary, and the verification you actually ran; a session that stops without a handoff has not finished.',
   'Answer in the language the user writes in.',
 ].join(' ')
 
 /**
+ * Deprecated alias persona. `cowork-thread` rows are identical to
+ * `cowork-topic` rows for one version, so both share this text.
+ */
+export const THREAD_PERSONA = TOPIC_PERSONA
+
+/**
  * A reviewer reads evidence and votes; it never touches the implementation.
  * The preset has no `tool-fs`, so bash (and search) are the only way to read
- * files — that is the physical half of the read-only rule.
+ * files — that is the physical half of the read-only rule. The scope sentence
+ * keeps the reviewer inside the requested review instead of renegotiating the
+ * change.
  */
 export const REVIEWER_PERSONA = [
   'You are the independent reviewer of one cowork thread in this repository.',
   'You are read-only with respect to the implementation: never edit, stage, or commit files, and never create or prompt other sessions.',
   'Read the handoff, the changed paths, and the actual code with bash and the search tools; this session has no file tools, and the thread self-report is evidence, not truth.',
   'Run the verification commands yourself and judge what you actually observed.',
+  'Scope boundary: look only at the requested review scope — never merge and never resolve conflicts (只看请求范围，不合并、不解决冲突).',
   'Call cowork_review_verdict exactly once when the review is finished; needs_revision and reject must name concrete findings with the required fix.',
   'Answer in the language the user writes in.',
 ].join(' ')
@@ -87,13 +111,28 @@ export interface PresetRegistryPort {
 }
 
 /**
- * The explicit row list, in the order S0 proved works. The persona row is the
- * only per-preset difference; everything else gives the session its file, shell,
+ * The master row list. M9 removes tool-fs, tool-fs-search, tool-bash,
+ * tool-jobs, and present: the master routes, decides, and accepts, and never
+ * edits or runs the implementation itself. Ask-user and todo stay.
+ */
+function masterRows(): PresetRow[] {
+  return [
+    { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { prefix: MASTER_PERSONA } },
+    { id: 'agent-instructions', name: '@deepseek-ai/dsh-agent-instructions', config: { maxBytes: 65536 } },
+    { id: 'time-context', name: '@deepseek-ai/dsh-time-context' },
+    { id: 'tool-ask-user', name: '@deepseek-ai/dsh-tool-ask-user' },
+    { id: 'tool-todo', name: '@deepseek-ai/dsh-tool-todo', config: { allowParallelInProgress: true } },
+  ]
+}
+
+/**
+ * The topic row list, in the order S0 proved works. The persona row is the only
+ * per-preset difference; everything else gives the session its file, shell,
  * job, prompt, todo, and presentation tools.
  */
-function presetRows(persona: string): PresetRow[] {
+function topicRows(): PresetRow[] {
   return [
-    { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { prefix: persona } },
+    { id: 'persona', name: '@deepseek-ai/dsh-persona', config: { prefix: TOPIC_PERSONA } },
     { id: 'agent-instructions', name: '@deepseek-ai/dsh-agent-instructions', config: { maxBytes: 65536 } },
     { id: 'time-context', name: '@deepseek-ai/dsh-time-context' },
     { id: 'tool-bash', name: '@deepseek-ai/dsh-tool-bash', disabled: process.platform === 'win32' },
@@ -107,7 +146,7 @@ function presetRows(persona: string): PresetRow[] {
 }
 
 /**
- * The reviewer row list. Deliberately shorter than {@link presetRows}: no
+ * The reviewer row list. Deliberately shorter than {@link topicRows}: no
  * `tool-fs` (hence no read/write/edit), no job, todo, ask-user, or present
  * rows. The reviewer gets a persona, the standing instructions, a shell, and
  * file *search* — enough to read and run checks, not enough to edit code.
@@ -121,20 +160,30 @@ function reviewerRows(): PresetRow[] {
   ]
 }
 
-/** All preset definitions, master first. Fresh row arrays on every call. */
+/**
+ * All preset definitions in registration order: master, topic, the deprecated
+ * thread alias, reviewer. Fresh row arrays on every call.
+ */
 export function presetDefinitions(): readonly PresetDefinition[] {
   return [
     {
       id: MASTER_PRESET_ID,
       name: 'cowork master',
-      description: 'Routes user intents to threads, records decisions, and accepts thread handoffs.',
-      plugins: presetRows(MASTER_PERSONA),
+      description: 'Routes user intents to topics, records decisions, and accepts handoffs.',
+      plugins: masterRows(),
+    },
+    {
+      id: TOPIC_PRESET_ID,
+      name: 'cowork topic',
+      description: 'Works one topic (possibly several work items) with file/shell tools and hands the result back.',
+      plugins: topicRows(),
     },
     {
       id: THREAD_PRESET_ID,
-      name: 'cowork thread',
-      description: 'Works one subject with file/shell tools and hands the result back to the master.',
-      plugins: presetRows(THREAD_PERSONA),
+      name: 'cowork thread (deprecated alias)',
+      description:
+        'Deprecated alias of cowork-topic with identical rows, kept for one version for sessions created before M9.',
+      plugins: topicRows(),
     },
     {
       id: REVIEWER_PRESET_ID,
