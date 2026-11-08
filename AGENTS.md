@@ -26,7 +26,7 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 
 ## AgentTeams
 
-- Before creating an AgentTeams plan, read [docs/AGENTTEAM_INTEGRATION_RULES.md](docs/AGENTTEAM_INTEGRATION_RULES.md); it owns the DAG, impact scan, gate artifact, worktree, review and delivery rules.
+- Before creating an AgentTeams plan, read [docs/AGENTTEAM.md](docs/AGENTTEAM.md); it owns the DAG, impact scan, gate artifact, worktree, review and delivery rules.
 - Use a configured profile and its tool policies; do not recreate the roster in task prose. Verification/review depend on `integration-ready`; code freezes before final gates and docs-only changes skip E2E.
 
 ## Closing the gate
