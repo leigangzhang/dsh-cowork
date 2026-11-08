@@ -19,7 +19,7 @@
  * (PLAN-V0.2 §4.3). Reading and writing it is the file layer's job (M10.3); this
  * module only produces and checks the text.
  */
-import { isAbsolute, normalize, relative } from 'node:path'
+import { isAbsolute, join, normalize, relative } from 'node:path'
 import { ERROR_CODES, M10_ERROR_CODES, failure } from './tool-model.js'
 import type { ToolFailure } from './tool-model.js'
 import { REVIEW_SEVERITIES, REVIEW_STATUSES, REVIEW_VERDICTS } from './store-schema.js'
@@ -32,7 +32,7 @@ import type {
   ReviewVerification,
   WorkItemStatus,
 } from './store-schema.js'
-import { MERGEABLE_WORK_ITEM_STATUSES, isValidWorkItemId } from './work-item.js'
+import { isMergeableWorkItemStatus, isValidWorkItemId } from './work-item.js'
 
 // ---------------------------------------------------------------------------
 // bounds
@@ -790,7 +790,7 @@ export function reviewRequestFilePath(
   const fileName = reviewRequestFileName(topicId, requestId)
   if (fileName === null) return null
   if (typeof reviewsDir !== 'string' || reviewsDir === '') return null
-  return `${reviewsDir.replace(/\/+$/, '')}/${fileName}`
+  return join(reviewsDir, fileName)
 }
 
 // ---------------------------------------------------------------------------
@@ -948,7 +948,7 @@ export function mergeGate(input: MergeGateInput): MergeGateResult {
       ),
     }
   }
-  if (!MERGEABLE_WORK_ITEM_STATUSES.includes(input.workItemStatus as 'reviewing')) {
+  if (!isMergeableWorkItemStatus(input.workItemStatus)) {
     return {
       ok: false,
       failure: failure(
