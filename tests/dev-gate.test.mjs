@@ -179,9 +179,9 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   // Exactly the eleven business tools: the probe tools are absent.
   assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
 
-  // The four runner session feeds are not attached; the memory prompt's
-  // agent/created listener is, because that is business surface.
-  assert.equal(sessionListeners(host).length, 0)
+  // The four runner session feeds are not attached; the business topic
+  // lifecycle listener and the memory prompt's agent/created listener are.
+  assert.equal(sessionListeners(host).length, 1)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 
   // Only the three business presets; no probe preset rows.
@@ -209,8 +209,9 @@ test('enableDevRoutes=true restores the M0/S0/M2/M3 surface unchanged', async ()
   assert.deepEqual(toolNames(host), sorted([...BUSINESS_TOOLS, ...DEV_TOOLS]))
   assert.deepEqual(presetIds(host), sorted([...BUSINESS_PRESETS, ...DEV_PRESETS]))
 
-  // One session/event listener per runner (M0, S0, M2, M3).
-  assert.equal(sessionListeners(host).length, 4)
+  // One session/event listener per runner (M0, S0, M2, M3) plus the business
+  // topic lifecycle listener.
+  assert.equal(sessionListeners(host).length, 5)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 })
 
@@ -241,7 +242,7 @@ test('disposing the plugin releases the dev session listeners', async () => {
   const host = fakeHost()
   apply(host.ctx, config(true))
   await settle()
-  assert.equal(sessionListeners(host).length, 4)
+  assert.equal(sessionListeners(host).length, 5)
 
   await disposeAll(host)
 
