@@ -203,6 +203,7 @@ test('the first write migrates a v1 index to v2 and writes the backup exactly on
     })
     assert.deepEqual(report.pendingReviewerArchives, [])
     assert.deepEqual(report.archiveFailures, [])
+    assert.equal(report.activityFailure, null)
 
     // A second write must not replace or rewrite the first backup.
     const stamp = new Date('2020-01-01T00:00:00.000Z')
@@ -345,6 +346,95 @@ test('an archive failure is recorded without letting the migration claim success
       const migration = activity.events.find((event) => event.summary.startsWith('migrated project index'))
       assert.deepEqual(migration.details.archivedReviewers, [], scenario.name)
     }
+  })
+})
+
+test('the migration activity is written after the v2 index', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({
+      repoPath,
+      clock: clockAt(CREATED_AT),
+      projectId: 'p',
+      async archiveSession() {},
+    })
+    await seedV1Index(store, [
+      thread({
+        status: 'awaiting_review',
+        reviewStatus: 'pending',
+        reviewerSessionId: 'session-reviewer',
+      }),
+    ])
+
+    // Returning null makes the migration itself the only write, so the two
+    // mtimes compare the migration's own order (a caller write would rewrite
+    // the index afterwards and hide it).
+    await store.mutateIndexDocument(() => null)
+
+    const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
+    assert.equal(onDisk.version, 2, 'v2 is committed before the activity record')
+    const report = store.lastMigrationReport
+    assert.equal(report.migrated, true)
+    assert.equal(report.activityFailure, null)
+
+    const activity = await store.readActivity()
+    const migration = activity.events.find((event) => event.summary.startsWith('migrated project index'))
+    assert.ok(migration, 'the migration is recorded')
+    assert.deepEqual(migration.details.archivedReviewers, ['session-reviewer'])
+    assert.equal(activity.events.some((event) => event.type === 'error'), false)
+    assert.ok(
+      (await stat(store.activityFile)).mtimeMs >= (await stat(store.indexFile)).mtimeMs,
+      'the activity row was appended after the index was replaced',
+    )
+  })
+})
+
+test('a failed migration activity does not undo the migration or archive twice', async () => {
+  await withTempDir(async (repoPath) => {
+    const archived = []
+    const store = new ProjectStore({
+      repoPath,
+      clock: clockAt(CREATED_AT),
+      projectId: 'p',
+      async archiveSession(sessionId, options) {
+        archived.push({ sessionId, options })
+      },
+    })
+    await seedV1Index(store, [
+      thread({
+        status: 'awaiting_review',
+        reviewStatus: 'pending',
+        reviewerSessionId: 'session-reviewer',
+      }),
+    ])
+    // A directory where activity.jsonl belongs makes the append unreadable.
+    await mkdir(store.activityFile, { recursive: true })
+
+    const next = await store.mutateIndexDocument((document) => ({
+      ...document,
+      topics: document.topics.map((topic) => ({ ...topic, digest: 'after the failed append' })),
+    }))
+
+    // The migration itself succeeded: v2 and the backup are on disk, the
+    // reviewer was archived once, and the failure is reported, not hidden.
+    const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
+    assert.equal(onDisk.version, 2)
+    assert.equal(onDisk.topics[0].digest, 'after the failed append')
+    assert.deepEqual(next, onDisk)
+    assert.equal(existsSync(store.backupFile), true)
+    assert.deepEqual(archived, [{ sessionId: 'session-reviewer', options: { stopActivity: true } }])
+
+    const report = store.lastMigrationReport
+    assert.equal(report.migrated, true)
+    assert.equal(typeof report.activityFailure, 'string')
+    assert.match(report.activityFailure, /EISDIR|directory/)
+
+    // Removing the obstacle and writing again must not migrate or archive again:
+    // the retry reads v2 and takes the pass-through path.
+    await rm(store.activityFile, { recursive: true, force: true })
+    await store.mutateIndexDocument((document) => document)
+    assert.deepEqual(archived, [{ sessionId: 'session-reviewer', options: { stopActivity: true } }])
+    assert.equal(store.lastMigrationReport, report, 'the original report is kept')
+    assert.equal(existsSync(store.activityFile), false, 'no second migration activity is written')
   })
 })
 
