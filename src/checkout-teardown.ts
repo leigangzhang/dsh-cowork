@@ -150,3 +150,106 @@ export async function applyThreadStatus<TThread>(
     return { thread: null, error: describeError(error) }
   }
 }
+
+// ---------------------------------------------------------------------------
+// work-item teardown (M10.2b)
+// ---------------------------------------------------------------------------
+
+/** What one work-item teardown left behind, reported as `cleanup`. */
+export interface WorkItemCleanup {
+  removed: boolean
+  branchDeleted: boolean
+  workspaceId: string | null
+  workspaceDeleted: boolean
+}
+
+/** The ports one work-item teardown needs; they match the thread teardown shape. */
+export interface WorkItemTeardownPorts<TWorkItem> {
+  resolveWorkspace(path: string): Promise<{ id: string } | undefined>
+  removeCheckout(): Promise<CheckoutRemoval>
+  deleteWorkspace(workspaceId: string): Promise<boolean>
+  updateWorkItem(): Promise<{ workItem: TWorkItem | null }>
+}
+
+export interface WorkItemTeardownPlan {
+  checkoutPath: string
+  workItemId: string
+}
+
+export interface WorkItemTeardownResult<TWorkItem> {
+  cleanup: WorkItemCleanup
+  /** One entry per failed step, prefixed with the step name; empty on a clean run. */
+  cleanupErrors: string[]
+  /** The updated work-item view, or null when the index write itself failed. */
+  workItem: TWorkItem | null
+}
+
+/**
+ * Tear one work item's clone down after a successful merge.
+ *
+ * The same rule as {@link teardownMergedCheckout}: once the branch is merged the
+ * merge cannot be taken back, so a clone that will not delete, a workspace the
+ * registry refuses to drop, or an index write that fails are *cleanup*
+ * problems — they are collected, never turned into a failed merge result that
+ * would invite a second merge.
+ *
+ * The order is fixed for the same reason: the workspace is resolved while the
+ * clone still exists (the host canonicalises the path), the clone and its
+ * `cowork/<id>` branch are removed together by the checkout port, and the index
+ * update runs last because it is the step that records the merge as finished.
+ * A work item owns no session (execution units work in the clone without a DSH
+ * session of their own), so the thread teardown's archive step has no analogue
+ * here.
+ */
+export async function teardownMergedWorkItem<TWorkItem>(
+  plan: WorkItemTeardownPlan,
+  ports: WorkItemTeardownPorts<TWorkItem>,
+): Promise<WorkItemTeardownResult<TWorkItem>> {
+  const cleanup: WorkItemCleanup = {
+    removed: false,
+    branchDeleted: false,
+    workspaceId: null,
+    workspaceDeleted: false,
+  }
+  const cleanupErrors: string[] = []
+
+  // Resolve the workspace while the clone still exists.
+  let workspaceId: string | null = null
+  try {
+    const workspace = await ports.resolveWorkspace(plan.checkoutPath)
+    workspaceId = workspace === undefined ? null : workspace.id
+  } catch (error) {
+    cleanupErrors.push(`workspace lookup: ${describeError(error)}`)
+  }
+  cleanup.workspaceId = workspaceId
+
+  try {
+    const removed = await ports.removeCheckout()
+    if (removed.ok) {
+      cleanup.removed = removed.removed
+      cleanup.branchDeleted = removed.branchDeleted
+    } else {
+      cleanupErrors.push(`checkout: ${removed.message}`)
+    }
+  } catch (error) {
+    cleanupErrors.push(`checkout: ${describeError(error)}`)
+  }
+
+  if (workspaceId !== null) {
+    try {
+      cleanup.workspaceDeleted = await ports.deleteWorkspace(workspaceId)
+    } catch (error) {
+      cleanupErrors.push(`workspace: ${describeError(error)}`)
+    }
+  }
+
+  // Last and unconditional: the merge landed, so the index must say so.
+  let workItem: TWorkItem | null = null
+  try {
+    workItem = (await ports.updateWorkItem()).workItem
+  } catch (error) {
+    cleanupErrors.push(`index: ${describeError(error)}`)
+  }
+
+  return { cleanup, cleanupErrors, workItem }
+}
