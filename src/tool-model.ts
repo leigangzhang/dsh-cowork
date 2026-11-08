@@ -55,6 +55,35 @@ export const TOPIC_ERROR_CODES = {
   topicInvalidOwnedPaths: 'topic/invalid-owned-paths',
 } as const
 
+/**
+ * Wire codes introduced by M10 (review requests, work items, serial merge).
+ * Every M10 module returns one of these; the table is the one home for them,
+ * for the same reason {@link TOPIC_ERROR_CODES} is separate from the pinned
+ * {@link ERROR_CODES} list. Added once in M10.1 — later M10 stages must not
+ * need to touch this table again.
+ */
+export const M10_ERROR_CODES = {
+  reviewRequestInvalid: 'review/request-invalid',
+  reviewPathOutside: 'review/path-outside',
+  reviewBaseNotAncestor: 'review/base-not-ancestor',
+  reviewBaseEqualsHead: 'review/base-equals-head',
+  reviewDirtyWorktree: 'review/dirty-worktree',
+  reviewEmptyDiff: 'review/empty-diff',
+  reviewChangedPathsMismatch: 'review/changed-paths-mismatch',
+  reviewRequestNotFound: 'review/request-not-found',
+  reviewNotPending: 'review/not-pending',
+  reviewAlreadyReviewed: 'review/already-reviewed',
+  reviewPreviousInvalid: 'review/previous-invalid',
+  workItemNotFound: 'workitem/not-found',
+  workItemAlreadyExists: 'workitem/already-exists',
+  workItemProviderUnsupported: 'workitem/provider-unsupported',
+  workItemCreateFailed: 'workitem/create-failed',
+  workItemCleanupFailed: 'workitem/cleanup-failed',
+  workItemNotReady: 'workitem/not-ready',
+  checkoutProtectedBranch: 'checkout/protected-branch',
+  checkoutHeadMismatch: 'checkout/head-mismatch',
+} as const
+
 /** The one failure envelope every tool returns instead of throwing. */
 export interface ToolFailure {
   ok: false
