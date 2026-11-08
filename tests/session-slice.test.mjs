@@ -57,8 +57,8 @@ function fakePorts(overrides = {}) {
         calls.deleteWorkspace.push(id)
         return overrides.deleteResult ?? true
       },
-      async archiveSession(sessionId) {
-        calls.archiveSession.push(sessionId)
+      async archiveSession(sessionId, options) {
+        calls.archiveSession.push({ sessionId, options })
       },
     },
   }
@@ -251,16 +251,28 @@ test('deleteWorkspace and archiveSession delegate to the workspace registry', as
   const slice = new SessionSlice(ports)
 
   assert.equal(await slice.deleteWorkspace('workspace-1'), false)
+  // No options keeps the historical call shape: the port sees `undefined`.
   await slice.archiveSession('session-x')
   assert.deepEqual(calls.deleteWorkspace, ['workspace-1'])
-  assert.deepEqual(calls.archiveSession, ['session-x'])
+  assert.deepEqual(calls.archiveSession, [{ sessionId: 'session-x', options: undefined }])
+
+  // The M7 migration cancels an in-flight review and must forward the archive
+  // option verbatim, otherwise the host refuses to archive a running reviewer.
+  await slice.archiveSession('session-reviewer', { stopActivity: true })
+  assert.deepEqual(calls.archiveSession[1], {
+    sessionId: 'session-reviewer',
+    options: { stopActivity: true },
+  })
 
   const failing = fakePorts()
-  failing.ports.workspaces.archiveSession = async (sessionId) => {
-    failing.calls.archiveSession.push(sessionId)
+  failing.ports.workspaces.archiveSession = async (sessionId, options) => {
+    failing.calls.archiveSession.push({ sessionId, options })
     throw new Error('session is busy')
   }
-  await assert.rejects(new SessionSlice(failing.ports).archiveSession('session-busy'), /session is busy/)
+  await assert.rejects(
+    new SessionSlice(failing.ports).archiveSession('session-busy', { stopActivity: true }),
+    /session is busy/,
+  )
 })
 
 test('promptSession queues text with the injected request id and a bounded signal', async () => {

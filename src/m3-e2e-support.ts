@@ -1,15 +1,23 @@
 /**
  * Shared types, constants, prompt builders, and pure helpers for the M3 real-host
- * E2E driver. Like `m2-e2e-support.ts`, this module has no runner import, so the
- * step list, prompt text, review-state helpers, and steer plan are testable under
- * plain `node --test` without mounting a host. The runner lives in
- * `src/m3-e2e.ts` and imports this module.
+ * E2E driver. Like `m2-e2e-support.ts`, this module depends on Node built-ins
+ * plus the plugin's pure store modules (`store-schema.js`, `store-migration.js`)
+ * and nothing else: the index format is owned by the store layer, so `parseIndex`
+ * reads it through that same pure implementation (schema validation + the
+ * compatibility view) instead of keeping a second status mapping. It never
+ * imports the runner or the host, so the step list, prompt text, review-state
+ * helpers, and steer plan are testable under plain `node --test` without
+ * mounting a host (tests that load this file install the usual `.js`→`.ts`
+ * hook). The runner lives in `src/m3-e2e.ts` and imports this module.
  */
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import type { M2E2EHost } from './m2-e2e-support.js'
+import { INDEX_VERSION_V2, normalizeProjectIndexV2, projectIndexV2Problems } from './store-schema.js'
+import { legacyViewOf } from './store-migration.js'
+import type { ProjectIndexV2 } from './store-schema.js'
 
 export const M3_E2E_EVIDENCE_RELATIVE = '.dsh-cowork/e2e/M3_E2E.json'
 export const M3_E2E_FIXTURE_RELATIVE = '.dsh-cowork/e2e/m3-repo'
@@ -470,13 +478,28 @@ export async function readTextIfPresent(path: string): Promise<string | undefine
   }
 }
 
+/**
+ * Parse the project index; a half-written file during a poll reports absence.
+ *
+ * v1 (`threads[]`) is returned unchanged; v2 (`topics[]`) is validated with the
+ * store schema and projected through `legacyViewOf`, so the E2E assertions read
+ * the same compatibility view the tools do. An invalid or unknown-state
+ * document is absent.
+ */
 export function parseIndex(text: string): IndexView | undefined {
   try {
     const parsed = asRecord(JSON.parse(text))
-    if (parsed !== undefined && typeof parsed.masterSessionId === 'string' && Array.isArray(parsed.threads)) {
+    if (parsed === undefined) return undefined
+    if (typeof parsed.masterSessionId === 'string' && Array.isArray(parsed.threads)) {
       return parsed as unknown as IndexView
     }
+    if (parsed.version === INDEX_VERSION_V2 && Array.isArray(parsed.topics)) {
+      const document = normalizeProjectIndexV2(parsed) as ProjectIndexV2
+      if (projectIndexV2Problems(document).length > 0) return undefined
+      return legacyViewOf(document) as unknown as IndexView
+    }
   } catch {
+    // A half-written file during a poll is transient; report absence.
   }
   return undefined
 }

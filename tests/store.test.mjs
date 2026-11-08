@@ -6,7 +6,25 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import {
+import { register } from 'node:module'
+
+/**
+ * `src/store.ts` value-imports `./store-schema.js` and `./store-migration.js`
+ * (the v2 index schema and the v1→v2 migration), and Node's type stripping does
+ * not retry a `.js` sibling as `.ts`. This is the same resolve hook
+ * tests/review-verdict.test.mjs uses.
+ */
+const HOOK_SOURCE = [
+  'export async function resolve(specifier, context, nextResolve) {',
+  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
+  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
+  '  }',
+  '  return nextResolve(specifier, context)',
+  '}',
+].join('\n')
+register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+
+const {
   ProjectStore,
   StoreError,
   findProjectRoot,
@@ -14,7 +32,7 @@ import {
   handoffFileName,
   projectIdFor,
   reviewFileName,
-} from '../src/store.ts'
+} = await import('../src/store.ts')
 
 const execFileAsync = promisify(execFile)
 
@@ -143,8 +161,17 @@ test('initIndex creates the index once and never replaces the master', async () 
     const third = await store.initIndex('session-third')
     assert.equal(third.index.createdAt, CREATED_AT)
 
+    // M7 writes v2 only; the returned `index` is the v1-shaped compatibility view.
     const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
-    assert.deepEqual(onDisk, first.index)
+    assert.deepEqual(onDisk, {
+      version: 2,
+      projectId: 'github.com-owner-repo',
+      masterSessionId: 'session-master',
+      createdAt: CREATED_AT,
+      topics: [],
+      workItems: [],
+    })
+    assert.equal('threads' in onDisk, false)
     assert.match(await readFile(store.indexFile, 'utf8'), /\n$/)
     assert.equal(await modeOf(store.indexFile), 0o600)
     assert.equal(await modeOf(store.projectDir), 0o700)
@@ -170,7 +197,13 @@ test('rebindMaster moves the master and keeps every other field of the project r
     assert.deepEqual(rebound.threads, before.threads)
 
     const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
-    assert.deepEqual(onDisk, rebound)
+    assert.equal(onDisk.version, 2)
+    assert.equal(onDisk.masterSessionId, 'session-new')
+    assert.deepEqual(
+      onDisk.topics.map((topic) => topic.topicId),
+      rebound.threads.map((entry) => entry.threadId),
+    )
+    assert.equal('threads' in onDisk, false)
     assert.match(await readFile(store.indexFile, 'utf8'), /\n$/)
     assert.equal(await modeOf(store.indexFile), 0o600)
     assert.deepEqual(residue(await readdir(store.projectDir)), [])
@@ -492,10 +525,13 @@ test('readIndex reads a pre-M2 index that still says worktreePath', async () => 
 
     // A rewrite emits checkoutPath only; the legacy name never comes back.
     await writeFile(store.indexFile, indexFile([legacyThread]), 'utf8')
-    await store.updateThread('session-old', { status: 'active' })
+    const updated = await store.updateThread('session-old', { status: 'active' })
+    assert.equal(updated.threads[0].checkoutPath, '/legacy/wt')
     const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
-    assert.equal(onDisk.threads[0].checkoutPath, '/legacy/wt')
-    assert.equal('worktreePath' in onDisk.threads[0], false)
+    assert.equal(onDisk.version, 2)
+    assert.equal(onDisk.topics[0].legacyCheckoutPath, '/legacy/wt')
+    assert.equal('worktreePath' in onDisk.topics[0], false)
+    assert.equal('threads' in onDisk, false)
   })
 })
 

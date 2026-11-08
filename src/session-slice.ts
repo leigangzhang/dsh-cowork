@@ -64,8 +64,12 @@ export interface SessionSlicePorts {
     create(path: string, title?: string): Promise<{ id: string; path: string }>
     /** Remove a workspace; `false` means it was already gone. */
     delete(id: string): Promise<boolean>
-    /** Archive a session that lived in a workspace this flow is about to remove. */
-    archiveSession(sessionId: string): Promise<void>
+    /**
+     * Archive a session through the host's owner of that operation. `options`
+     * is forwarded verbatim: the M7 migration passes `{stopActivity: true}` so a
+     * running reviewer can be archived instead of being refused.
+     */
+    archiveSession(sessionId: string, options?: { stopActivity?: boolean }): Promise<void>
   }
 }
 
@@ -227,10 +231,11 @@ export class SessionSlice {
 
   /**
    * Archive a session through the workspace registry (the host's owner of that
-   * operation); failures propagate so teardown can report them.
+   * operation); failures propagate so teardown can report them. `options` is
+   * forwarded unchanged, so a caller without options keeps the old behaviour.
    */
-  async archiveSession(sessionId: string): Promise<void> {
-    await this.#ports.workspaces.archiveSession(sessionId)
+  async archiveSession(sessionId: string, options?: { stopActivity?: boolean }): Promise<void> {
+    await this.#ports.workspaces.archiveSession(sessionId, options)
   }
 
   /**

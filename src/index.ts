@@ -523,7 +523,12 @@ export function apply(ctx: Context, config: Config): void {
       items: readonly HostSessionListRow[]
     }>,
     findProjectRoot,
-    createStore: (repoPath) => new ProjectStore({ repoPath }),
+    // Same construction as the tool layer: a panel-triggered migration must
+    // archive a cancelled reviewer through the host, not record a fake failure.
+    createStore: (repoPath) => new ProjectStore({
+      repoPath,
+      archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
+    }),
   }
   registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
 
