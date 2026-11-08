@@ -642,6 +642,75 @@ function refuse(errors: ReviewFieldError[]): ReviewRequestValidation {
 }
 
 // ---------------------------------------------------------------------------
+// verdict validation
+// ---------------------------------------------------------------------------
+
+/** A validated verdict, before it is stamped into the request file. */
+export interface ReviewVerdictDraft {
+  requestId: string
+  verdict: ReviewVerdict
+  summary: string
+  findings: ReviewFinding[]
+  verification: ReviewVerification[]
+}
+
+/** Result of validating untrusted `cowork_review_verdict` input. */
+export type ReviewVerdictValidation =
+  | { ok: true; value: ReviewVerdictDraft }
+  | { ok: false; code: string; message: string; errors: ReviewFieldError[] }
+
+/**
+ * Validate untrusted verdict input, collecting every field problem at once. The
+ * request id and the reviewer session are bound by the tool against the stored
+ * request, not trusted from the model. `needs_revision` and `reject` must name
+ * at least one finding (the topic has to know what to fix); `pass` may carry
+ * none.
+ */
+export function validateReviewVerdictInput(input: unknown): ReviewVerdictValidation {
+  if (!isRecord(input)) {
+    return {
+      ok: false,
+      code: ERROR_CODES.reviewVerdictInvalid,
+      message: 'the review verdict is invalid',
+      errors: [{ field: 'input', message: 'review verdict input must be an object' }],
+    }
+  }
+  const errors: ReviewFieldError[] = []
+  const requestId = readRequiredText(input, 'requestId', 128, errors)
+  if (requestId !== '' && !isValidReviewRequestId(requestId)) {
+    errors.push({ field: 'requestId', message: 'requestId must be a file-name-safe request id' })
+  }
+  let verdict: ReviewVerdict = 'needs_revision'
+  let verdictKnown = false
+  if (isOneOf(input.verdict, REVIEW_VERDICTS)) {
+    verdict = input.verdict
+    verdictKnown = true
+  } else {
+    errors.push({ field: 'verdict', message: `verdict must be one of ${REVIEW_VERDICTS.join('|')} (pending is not a verdict)` })
+  }
+  const summary = readRequiredText(input, 'summary', REVIEW_SUMMARY_MAX_CHARS, errors)
+  const findings: ReviewFinding[] = input.findings === undefined || input.findings === null
+    ? []
+    : findingsProblems(input.findings, 'findings', errors)
+  const verification = verificationProblems(input.verification, 'verification', errors, {
+    required: false,
+    nonEmpty: false,
+  })
+  if (verdictKnown && verdict !== 'pass' && findings.length === 0) {
+    errors.push({ field: 'findings', message: `${verdict} requires at least one finding naming what to fix` })
+  }
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      code: ERROR_CODES.reviewVerdictInvalid,
+      message: 'the review verdict is invalid',
+      errors,
+    }
+  }
+  return { ok: true, value: { requestId, verdict, summary, findings, verification } }
+}
+
+// ---------------------------------------------------------------------------
 // records
 // ---------------------------------------------------------------------------
 
@@ -1100,4 +1169,127 @@ export function buildReviewBrief(input: ReviewBriefInput): string {
   }
 
   return `${lines.join('\n')}\n${tail}`
+}
+
+// ---------------------------------------------------------------------------
+// messages to the topic
+// ---------------------------------------------------------------------------
+
+/** Hard ceiling of a verdict message to the topic, in characters. */
+export const REVIEW_MESSAGE_MAX_CHARS = 4000
+
+/** Render the findings of one answered request within `budget` characters. */
+function findingLines(record: ReviewRequestRecord, budget: number): string[] {
+  const lines: string[] = []
+  let used = 0
+  for (const finding of record.findings) {
+    const line = cut(findingLine(finding), REVIEW_BRIEF_LINE_MAX_CHARS)
+    if (used + line.length + 1 > budget) {
+      lines.push(cut('- ... more findings in the review request file', Math.max(budget - used, 0)))
+      break
+    }
+    lines.push(line)
+    used += line.length + 1
+  }
+  return lines
+}
+
+/** Build one bounded message for the topic: decision, findings, next step. */
+function topicMessage(
+  record: ReviewRequestRecord,
+  opener: string,
+  next: string,
+): string {
+  const head = [opener, `Summary: ${record.summary ?? 'no summary recorded'}`].join('\n')
+  const reserve = Math.min(next.length + 32, REVIEW_MESSAGE_MAX_CHARS - head.length - 2)
+  const lines = findingLines(record, Math.max(REVIEW_MESSAGE_MAX_CHARS - head.length - reserve - 2, 0))
+  const body = lines.length === 0 ? [head, 'Findings: none recorded.'] : [head, 'Findings:', ...lines]
+  return cut([...body, next].join('\n'), REVIEW_MESSAGE_MAX_CHARS)
+}
+
+/** The message a `needs_revision` verdict sends back to the topic. */
+export function buildRevisionMessage(record: ReviewRequestRecord): string {
+  return topicMessage(
+    record,
+    `The independent review of topic ${record.topicId} returned needs_revision (review request ${record.requestId}).`,
+    `Fix every finding in your own work area, re-run the verification you report, then call cowork_review_request again with previousRequestId ${record.requestId}.`,
+  )
+}
+
+/** The message a `reject` verdict sends to the blocked topic. */
+export function buildRejectMessage(record: ReviewRequestRecord): string {
+  return topicMessage(
+    record,
+    `The independent review of topic ${record.topicId} returned reject (review request ${record.requestId}); the topic is blocked.`,
+    'Do not start another review of this range: the master decides whether to replan the work. Fixing the findings still requires a new request.',
+  )
+}
+
+// ---------------------------------------------------------------------------
+// legacy thread merge gate (removed when M10.2 rewrites checkout_merge)
+// ---------------------------------------------------------------------------
+
+/** Upper bound of a cleaned override reason, in characters. */
+export const MAX_OVERRIDE_REASON_LENGTH = 200
+
+/**
+ * Clean an override reason for a commit message: control characters and line
+ * breaks become spaces, whitespace runs collapse, and the result is trimmed and
+ * bounded. An empty reason means "no override".
+ */
+export function cleanOverrideReason(reason: string): string {
+  if (typeof reason !== 'string') return ''
+  return reason
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_OVERRIDE_REASON_LENGTH)
+    .trim()
+}
+
+/** The commit-message suffix an override appends; empty when there is no reason. */
+export function overrideCommitSuffix(reason: string): string {
+  const cleaned = cleanOverrideReason(reason)
+  return cleaned === '' ? '' : ` (unreviewed: ${cleaned})`
+}
+
+/** The legacy merge decision: either a refusal, or the commit suffix to append. */
+export type LegacyMergePlan =
+  | { ok: true; suffix: string; reason: string | null }
+  | { ok: false; failure: ToolFailure }
+
+/**
+ * Transitional gate for `cowork_checkout_merge(threadId)`: the old thread clone
+ * still merges on `reviewStatus === 'pass'`, with the M8 `allowUnreviewed`
+ * override kept exactly as it was. M10.2 replaces this with the work-item merge
+ * gate (`mergeGate` above) and removes the override; this helper exists only so
+ * the deletion of `src/review.ts` does not change the legacy merge behaviour.
+ */
+export function checkLegacyThreadMerge(
+  thread: { threadId: string; reviewStatus: ReviewStatus | null },
+  options: { allowUnreviewed?: boolean; overrideReason?: string } = {},
+): LegacyMergePlan {
+  if (thread.reviewStatus === 'pass') return { ok: true, suffix: '', reason: null }
+  if (options.allowUnreviewed === true) {
+    const reason = cleanOverrideReason(options.overrideReason ?? '')
+    if (reason === '') {
+      return {
+        ok: false,
+        failure: failure(
+          ERROR_CODES.reviewOverrideReasonRequired,
+          `thread ${thread.threadId} has not passed review (${thread.reviewStatus ?? 'never requested'}); allowUnreviewed needs a non-empty overrideReason`,
+          { threadId: thread.threadId, reviewStatus: thread.reviewStatus },
+        ),
+      }
+    }
+    return { ok: true, suffix: overrideCommitSuffix(options.overrideReason ?? ''), reason }
+  }
+  return {
+    ok: false,
+    failure: failure(
+      ERROR_CODES.reviewNotPassed,
+      `thread ${thread.threadId} has not passed review (${thread.reviewStatus ?? 'never requested'}); ask for a review first, or pass allowUnreviewed with an overrideReason to merge anyway`,
+      { threadId: thread.threadId, reviewStatus: thread.reviewStatus },
+    ),
+  }
 }
