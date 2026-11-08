@@ -186,7 +186,7 @@ const inboxEvents = (count) =>
     summary: `inbox ${index}`,
   }))
 
-test('the assembly registers the fourteen tools in the documented order', () => {
+test('the assembly registers the fifteen tools in the documented order', () => {
   const host = fakeHost()
   registerCoworkTools(host, fakeDeps())
   assert.deepEqual([...host.registry.keys()], [
@@ -199,11 +199,12 @@ test('the assembly registers the fourteen tools in the documented order', () => 
     'cowork_thread_list',
     'cowork_handoff',
     'cowork_topic_resolve',
+    'cowork_work_item_create',
+    'cowork_review_request',
+    'cowork_review_verdict',
     'cowork_memory_write',
     'cowork_memory_search',
     'cowork_checkout_merge',
-    'cowork_review_request',
-    'cowork_review_verdict',
   ])
 })
 

@@ -18,6 +18,7 @@
  */
 import { execFile } from 'node:child_process'
 import { statusChangedActivity } from './activity.js'
+import { CLONE_ISOLATION_PROVIDER } from './checkout.js'
 import type { CheckoutDeps, GitResult, GitRunner } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
 import { Inbox, InboxMarkError } from './inbox.js'
@@ -62,10 +63,12 @@ export interface CurrentModelRoute {
 
 /**
  * Isolation provider used to create an isolated work item (PLAN-V0.2 §4.5).
- * M10 implements `clone` only; a different value fails the work-item tool with
- * `workitem/provider-unsupported` instead of silently falling back.
+ * Derived from the checkout module so the wire value has one home; M10
+ * implements `clone` only, and a different configured value fails the
+ * work-item tool with `workitem/provider-unsupported` instead of silently
+ * falling back.
  */
-export const DEFAULT_ISOLATION_PROVIDER = 'clone'
+export const DEFAULT_ISOLATION_PROVIDER = CLONE_ISOLATION_PROVIDER
 
 /**
  * When a reviewer session is reclaimed (PLAN-V0.2 §5.4). M10 supports only
