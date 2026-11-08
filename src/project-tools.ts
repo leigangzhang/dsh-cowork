@@ -194,7 +194,10 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
         })
 
         // Compatibility window (removed in M10): repair an index that lags a
-        // handoff file and retry undelivered handoffs once. Only counts leave.
+        // handoff file and retry undelivered handoffs once. The replay result
+        // carries per-handoff failure detail internally, but this payload
+        // returns only the attempted/delivered/failed counts — never the
+        // handoff text or the failure detail.
         const reconciled = await reconcileIndex(opened.store)
         const handoffReplay = await replayPendingHandoffs({
           store: opened.store,
