@@ -1,12 +1,16 @@
 /**
  * Shared types, constants, and pure helpers for the M2 real-host E2E driver.
  *
- * This module carries no value imports from the rest of the plugin: everything
- * here is either a Node built-in call or a pure function, so the step ids,
- * clipping rules, and evidence document can be asserted under plain
- * `node --test` without mounting a host. src/m2-e2e.ts keeps only the runner
- * class and the ten scenario steps; both files stay below the 50 KB per-file
- * budget.
+ * This module depends on Node built-ins plus the plugin's pure store modules
+ * (`store-schema.js`, `store-migration.js`) and nothing else. The index format
+ * is owned by the store layer, so the E2E driver reads it through that same
+ * pure implementation — `parseIndex` projects v2 with the store's compatibility
+ * view instead of keeping a second copy of the status mapping. It never imports
+ * the host, the runner, or an I/O module, so the step ids, clipping rules, and
+ * evidence document can be asserted under plain `node --test` without mounting
+ * a host (tests that load this file install the usual `.js`→`.ts` hook).
+ * src/m2-e2e.ts keeps only the runner class and the ten scenario steps; both
+ * files stay below the 50 KB per-file budget.
  *
  * The evidence document deliberately has no hostname field: evidence is
  * committed and shared, and the machine name is neither needed to reproduce a
@@ -16,6 +20,9 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join, sep } from 'node:path'
+import { INDEX_VERSION_V2, normalizeProjectIndexV2, projectIndexV2Problems } from './store-schema.js'
+import { legacyViewOf } from './store-migration.js'
+import type { ProjectIndexV2 } from './store-schema.js'
 
 /** Evidence file, relative to the plugin's default repository root. */
 export const M2_E2E_EVIDENCE_RELATIVE = '.dsh-cowork/e2e/M2_E2E.json'
@@ -632,16 +639,25 @@ export function toolCallsSince(
   return [...calls.values()]
 }
 
-/** Parse the project index; a half-written file during a poll reports absence. */
+/**
+ * Parse the project index; a half-written file during a poll reports absence.
+ *
+ * v1 (`threads[]`) is returned unchanged — these drivers were written against
+ * the thread shape. v2 (`topics[]`) is validated with the store schema and
+ * projected through `legacyViewOf`, so the E2E assertions cannot drift from the
+ * store's own status semantics. An invalid or unknown-state document is absent.
+ */
 export function parseIndex(text: string): IndexView | undefined {
   try {
     const parsed = asRecord(JSON.parse(text))
-    if (
-      parsed !== undefined
-      && typeof parsed.masterSessionId === 'string'
-      && Array.isArray(parsed.threads)
-    ) {
+    if (parsed === undefined) return undefined
+    if (typeof parsed.masterSessionId === 'string' && Array.isArray(parsed.threads)) {
       return parsed as unknown as IndexView
+    }
+    if (parsed.version === INDEX_VERSION_V2 && Array.isArray(parsed.topics)) {
+      const document = normalizeProjectIndexV2(parsed) as ProjectIndexV2
+      if (projectIndexV2Problems(document).length > 0) return undefined
+      return legacyViewOf(document) as unknown as IndexView
     }
   } catch {
     // A half-written file during a poll is transient; report absence.

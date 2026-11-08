@@ -4,7 +4,25 @@ import { readFileSync, statSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
+import { register } from 'node:module'
+
+/**
+ * `src/m2-e2e-support.ts` value-imports the pure `./store-schema.js` and
+ * `./store-migration.js` modules (the index format is owned by the store), and
+ * Node's type stripping does not retry a `.js` sibling as `.ts`. This test
+ * installs the same resolve hook the store tests use, then imports support.
+ */
+const HOOK_SOURCE = [
+  'export async function resolve(specifier, context, nextResolve) {',
+  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
+  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
+  '  }',
+  '  return nextResolve(specifier, context)',
+  '}',
+].join('\n')
+register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+
+const {
   MAX_ASSISTANT_TEXT,
   MEMORY_TEXT,
   MEMORY_TITLE,
@@ -13,7 +31,7 @@ import {
   memoryVisibilityChecks,
   memoryVisiblePrompt,
   statusView,
-} from '../src/m2-e2e-support.ts'
+} = await import('../src/m2-e2e-support.ts')
 
 const here = dirname(fileURLToPath(import.meta.url))
 const driverPath = join(here, '..', 'src', 'm2-e2e.ts')

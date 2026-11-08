@@ -91,6 +91,20 @@ function renderJson(_args: unknown, value: JsonValue): Array<{ type: 'text'; tex
   return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
+/**
+ * The one place a production {@link ProjectStore} is constructed. The store's
+ * v1→v2 migration entry archives the reviewer of an in-flight review through
+ * `ProjectStoreOptions.archiveSession`; wiring the host port here is what makes
+ * that a real archive instead of a recorded failure.
+ */
+function projectStoreFor(repoPath: string, deps: CoworkToolDeps): ProjectStore {
+  return new ProjectStore({
+    repoPath,
+    clock: deps.clock,
+    archiveSession: (sessionId, options) => deps.workspaceRegistry.archiveSession(sessionId, options),
+  })
+}
+
 /** The clock every write uses. */
 function nowOf(deps: CoworkToolDeps): Date {
   return deps.clock === undefined ? new Date() : deps.clock()
@@ -187,7 +201,7 @@ async function openProject(caller: CallerIdentity, deps: CoworkToolDeps): Promis
       `no .dsh-cowork/index.json at or above ${caller.cwd}; run cowork_project_init first${hint}`,
     )
   }
-  const store = new ProjectStore({ repoPath, clock: deps.clock })
+  const store = projectStoreFor(repoPath, deps)
   const index = await store.readIndex()
   return { repoPath, store, slice: makeSlice(deps), index }
 }
@@ -488,7 +502,7 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
       if (isFailure(caller)) return toJson(caller)
       try {
         const repoPath = caller.cwd
-        const store = new ProjectStore({ repoPath, clock: deps.clock })
+        const store = projectStoreFor(repoPath, deps)
         const slice = makeSlice(deps)
         // Idempotent by construction: an existing index keeps its master unless
         // the caller explicitly takes the role over.

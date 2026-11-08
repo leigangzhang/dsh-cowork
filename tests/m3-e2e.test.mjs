@@ -3,7 +3,25 @@ import assert from 'node:assert/strict'
 import { readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
+import { register } from 'node:module'
+
+/**
+ * `src/m3-e2e-support.ts` value-imports the pure `./store-schema.js` and
+ * `./store-migration.js` modules (the index format is owned by the store), and
+ * Node's type stripping does not retry a `.js` sibling as `.ts`. This test
+ * installs the same resolve hook the store tests use, then imports support.
+ */
+const HOOK_SOURCE = [
+  'export async function resolve(specifier, context, nextResolve) {',
+  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
+  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
+  '  }',
+  '  return nextResolve(specifier, context)',
+  '}',
+].join('\n')
+register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+
+const {
   CONTENT_B_FIXED,
   CONTENT_B_INITIAL,
   FILE_A,
@@ -32,7 +50,7 @@ import {
   reviewStateOf,
   shouldRemoveFixture,
   stepFailureState,
-} from '../src/m3-e2e-support.ts'
+} = await import('../src/m3-e2e-support.ts')
 
 const here = dirname(fileURLToPath(import.meta.url))
 const driverPath = join(here, '..', 'src', 'm3-e2e.ts')
@@ -316,11 +334,17 @@ test('the runner steers the verdict instruction and fails fast on a foreign verd
   assert.match(source, /unexpected review state while waiting for/)
 })
 
-test('the driver keeps only built-in and support runtime imports', () => {
+test('support imports only built-ins and the pure store modules', () => {
+  // The index format is owned by the store layer, so the E2E support may read
+  // it through those pure modules — and nothing else. No host, no runner, no
+  // process-level side effects; the driver may still import only its support.
+  const pureStoreImports = new Set(['./store-schema.js', './store-migration.js'])
   const valueImports = (path) => [...readFileSync(path, 'utf8').matchAll(/^import\s+(?!type\b)[\s\S]*?from\s+'([^']+)'/gm)].map((match) => match[1])
   for (const path of [driverPath, supportPath]) {
     for (const specifier of valueImports(path)) {
-      const allowed = specifier.startsWith('node:') || (path === driverPath && specifier === './m3-e2e-support.js')
+      const allowed = specifier.startsWith('node:')
+        || (path === driverPath && specifier === './m3-e2e-support.js')
+        || (path === supportPath && pureStoreImports.has(specifier))
       assert.equal(allowed, true, `unexpected runtime import in ${path}: ${specifier}`)
     }
   }

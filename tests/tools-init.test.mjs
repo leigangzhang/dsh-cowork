@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { register } from 'node:module'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -49,7 +49,7 @@ function fakeExec(sessionId, cwd, agentPreset = 'router-standard') {
   return { agent: { id: sessionId, session: { header: { cwd, agentPreset } } } }
 }
 
-/** The host ports the init tool touches: only the workspace lookup and clock. */
+/** The host ports the init tool touches: only the workspace lookup, archive port, and clock. */
 function fakeDeps() {
   return {
     sessionController: {
@@ -60,10 +60,13 @@ function fakeDeps() {
       async inspect(sessionId) { return { meta: { id: sessionId } } },
     },
     workspaceRegistry: {
+      archiveCalls: [],
       async resolveByPath(path) { return { id: 'workspace-1', path } },
       async create(path) { return { id: 'workspace-1', path } },
       async delete() { return true },
-      async archiveSession() {},
+      async archiveSession(sessionId, options) {
+        this.archiveCalls.push({ sessionId, options })
+      },
     },
     agentPresets: { async register() { return async () => {} } },
     clock: CLOCK,
@@ -151,5 +154,61 @@ test('cowork_project_init keeps a different session fail-closed until takeOver i
 
     // The schema is enforced for real calls, not just declared.
     await assert.rejects(init.execute({ takeOver: 'yes' }, fakeExec('session-c', repoPath)), /takeOver/)
+  })
+})
+
+test('cowork_project_init migrates a v1 index and archives the cancelled reviewer', async () => {
+  await withRepo(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: CLOCK, projectId: 'p' })
+    const original = `${JSON.stringify({
+      version: 1,
+      projectId: 'p',
+      masterSessionId: 'session-a',
+      createdAt: '2026-11-07T09:00:00.000Z',
+      threads: [
+        {
+          threadId: 'session-thread',
+          subject: 'in flight',
+          status: 'awaiting_review',
+          cwd: repoPath,
+          checkoutPath: null,
+          createdAt: '2026-11-07T09:00:00.000Z',
+          updatedAt: '2026-11-07T09:00:00.000Z',
+          lastHandoffAt: '2026-11-07T09:00:00.000Z',
+          reviewStatus: 'pending',
+          reviewRequestedAt: '2026-11-07T09:00:00.000Z',
+          reviewedAt: null,
+          reviewerSessionId: 'session-reviewer',
+          latestReviewPath: null,
+        },
+      ],
+    })}\n`
+    await mkdir(join(repoPath, '.dsh-cowork'), { recursive: true })
+    await writeFile(store.indexFile, original, 'utf8')
+
+    const host = fakeHost()
+    const deps = fakeDeps()
+    registerCoworkTools(host, deps)
+    const init = host.registry.get('cowork_project_init')
+
+    // Takeover is the write that migrates; the archive port must see the
+    // cancellation with stopActivity so a running reviewer is not refused.
+    const taken = await init.execute({ takeOver: true }, fakeExec('session-b', repoPath))
+    assert.equal(taken.ok, true)
+    assert.equal(taken.rebound, true)
+    assert.deepEqual(deps.workspaceRegistry.archiveCalls, [
+      { sessionId: 'session-reviewer', options: { stopActivity: true } },
+    ])
+
+    const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
+    assert.equal(onDisk.version, 2)
+    assert.equal('threads' in onDisk, false)
+    assert.equal(onDisk.masterSessionId, 'session-b')
+    assert.equal(onDisk.topics[0].reviewerSessionId, null)
+    assert.equal(onDisk.topics[0].awaitingReview, false)
+
+    // The backup is the byte-exact v1 document, written once before v2.
+    assert.equal(await readFile(store.backupFile, 'utf8'), original)
+    assert.equal(taken.index.threads[0].status, 'active', 'the cancelled review reads as active')
   })
 })
