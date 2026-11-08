@@ -18,7 +18,7 @@
  * the `user/message` fields at the top level and the `userMessageSeen` helper
  * unreliable, so nothing here inspects message payloads.
  */
-import { randomUUID } from 'node:crypto'
+import { topicReopenedActivity } from './activity.js'
 import { noteTopicActivity, reopenResolvedTopic } from './topic.js'
 import type { ActivityEvent, ProjectIndexV2, TopicRecordV2 } from './store-schema.js'
 
@@ -155,16 +155,9 @@ export class TopicEvents {
       if (topic === undefined || topic.status !== 'resolved') return null
       const reopened = reopenResolvedTopic(topic, nowMs)
       if (reopened === null) return null
-      outcome = {
-        event: {
-          eventId: randomUUID(),
-          time: new Date(nowMs).toISOString(),
-          type: 'topic-reopened',
-          topicId,
-          summary: 'reopened resolved topic',
-          details: { resolvedAt: topic.resolvedAt, resolvedBy: topic.resolvedBy },
-        },
-      }
+      // The builder owns the event shape (M9.3a F1): pass the topic *before* the
+      // reopen so the event keeps the resolution it replaced.
+      outcome = { event: topicReopenedActivity(topic, new Date(nowMs)) }
       return replaceTopic(locked, reopened)
     })
 

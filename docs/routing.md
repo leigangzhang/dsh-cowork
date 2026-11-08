@@ -1,8 +1,10 @@
 # 路由与 thread 生命周期
 
-一个需求从主会话进入、被某个 thread 接走、交回结果、经独立 review 决定能否合并。本文只画**顺序、状态归属与失败处置**，不重复规则文本：判定规则住在 [`src/router.ts`](../src/router.ts)，副作用顺序住在 [`src/tools.ts`](../src/tools.ts)、[`src/handoff.ts`](../src/handoff.ts)、[`src/review-tools.ts`](../src/review-tools.ts)，产品意图见 [PLAN.md](PLAN.md) §2.2 与 §2.3。
+一个需求从主会话进入、被某个主题会话接走、交回结果、经独立 review 决定能否合并。本文只画**顺序、状态归属与失败处置**，不重复规则文本：三层路由的判定规则住在 [`src/routing.ts`](../src/routing.ts) 与 [`src/route-tools.ts`](../src/route-tools.ts)，工具编排住在 [`src/tools.ts`](../src/tools.ts)（业务模块 `src/project-tools.ts`/`src/topic-tools.ts`/`src/memory-tools.ts`/`src/checkout-tools.ts`、保留的 [`src/review-tools.ts`](../src/review-tools.ts)），产品意图见 [PLAN.md](PLAN.md) §2.2 与 [PLAN-V0.2](PLAN-V0.2.md) §5.3/§5.7。
 
 图里的分数常量是当前常量的快照；改常量时在同一个提交里改图。
+
+> **M9 之后的现状（2026-11-08）**：`cowork_route` 已改为 topic 的三层路由（`src/routing.ts` 纯函数 + `src/route-tools.ts` 接线），参数是 `intent`/`topicId?`/`brief?`/`forceCreate?`，不再有 `subject`/`isolated`；`cowork_topic_create`/`cowork_topic_list`/`cowork_topic_resolve` 是 canonical 名，`cowork_thread_*` 是同 schema/同 payload 的弃用别名；`cowork_handoff` 只保留 `blocked`/`done`（`awaiting_review` 保留一版并标 deprecated）。本文件 §1–§4 是 M4 时代的 thread 路由与评审时序图（含 `subject` 打分、`awaiting_review` 链与 `latestReviewPath` 等 legacy 字段），保留作历史参考；当前规则以 `src/routing.ts`/`src/route-tools.ts` 与 PLAN-V0.2 §5.3/§5.7 为准，评审流程的 M10 重写不在这里。
 
 ## 1. 一个意图落到哪个 thread
 

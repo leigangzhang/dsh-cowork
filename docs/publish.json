@@ -43,7 +43,15 @@
     },
     {
       "pattern": "docs/M9_HANDOFF.md",
-      "reason": "M9 stage handoff: post-M8 baseline, startup sequence, staged implementation plan, evidence, pitfalls, completion definition, rollback, and unverified items; internal engineering handoff for the next session, not a user-facing guide"
+      "reason": "M9 startup handoff (historical, baseline 7b9a6a5): post-M8 baseline, startup sequence, implementation order, evidence plan, pitfalls, completion definition, rollback and unverified items; kept as the phase's original handoff (rolled back after delivery), delivery evidence lives in docs/M9_RESULT.md"
+    },
+    {
+      "pattern": "docs/M9_RESULT.md",
+      "reason": "M9 delivery result: baseline, commit sequence, nine new modules and shipped behaviour, A1-A9 evidence, real-host probe scope (llm reachable, cowork-topic blocked by the disabled web profile), deviations, rollback and unverified items for M10; internal engineering record, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M10_HANDOFF.md",
+      "reason": "M10 startup handoff (2026-11-08): post-M9 baseline, startup sequence, M10.1-M10.5 implementation order, evidence/artifact rules, impact scan, pitfalls, completion definition, rollback and unverified items; internal engineering handoff for the next session, not a user-facing guide"
     },
     {
       "pattern": ".agents/notes/*",
@@ -59,7 +67,7 @@
     },
     {
       "pattern": "docs/routing.md",
-      "reason": "Routing and thread-lifecycle diagrams for contributors: side-effect order, state ownership, and failure handling; the authoritative rules stay in src/router.ts, src/tools.ts, and docs/PLAN.md, so this illustration is internal review material rather than a published guide"
+      "reason": "Routing and topic-lifecycle diagrams for contributors: side-effect order, state ownership, and failure handling; the authoritative rules now live in src/routing.ts and src/route-tools.ts (sections 1-4 are the M4-era thread illustration kept for history), so this is internal review material rather than a published guide"
     },
     {
       "pattern": "docs/context.md",

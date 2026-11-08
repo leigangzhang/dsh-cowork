@@ -36,7 +36,7 @@ register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 const { apply, Config } = await import('../src/index.ts')
 const { HANDOFF_PATH, OVERVIEW_PATH } = await import('../src/api-contract.ts')
 
-/** The eleven business tools — stable public names, pinned here on purpose. */
+/** The fourteen business tools — stable public names, pinned here on purpose. */
 const BUSINESS_TOOLS = [
   'cowork_checkout_merge',
   'cowork_handoff',
@@ -49,10 +49,13 @@ const BUSINESS_TOOLS = [
   'cowork_route',
   'cowork_thread_create',
   'cowork_thread_list',
+  'cowork_topic_create',
+  'cowork_topic_list',
+  'cowork_topic_resolve',
 ]
 
-/** The three runtime presets every mode registers. */
-const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-thread']
+/** The four runtime presets every mode registers (thread is the deprecated topic alias). */
+const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-thread', 'cowork-topic']
 
 /** Probe-only tools, presets, and routes; all gated by `enableDevRoutes`. */
 const DEV_TOOLS = ['cowork_identity_probe', 'cowork_probe']
@@ -176,7 +179,7 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   assert.deepEqual(host.routes, [])
   assert.deepEqual(fetchPaths(host), sorted([OVERVIEW_PATH, HANDOFF_PATH]))
 
-  // Exactly the eleven business tools: the probe tools are absent.
+  // Exactly the fourteen business tools: the probe tools are absent.
   assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
 
   // The four runner session feeds are not attached; the business topic
@@ -184,7 +187,7 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   assert.equal(sessionListeners(host).length, 1)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 
-  // Only the three business presets; no probe preset rows.
+  // Only the four business presets; no probe preset rows.
   assert.deepEqual(presetIds(host), sorted(BUSINESS_PRESETS))
 
   // No dev-owned effect was registered either, so nothing can survive dispose.

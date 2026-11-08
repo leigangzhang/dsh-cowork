@@ -463,6 +463,22 @@ test('an unknown v1 status fails closed without touching the index', async () =>
   })
 })
 
+test('initIndex writes both routing targets as null', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const { created } = await store.initIndex('session-master')
+    assert.equal(created, true)
+
+    const onDisk = JSON.parse(await readFile(store.indexFile, 'utf8'))
+    assert.equal(onDisk.masterFocusTopicId, null)
+    assert.equal(onDisk.lastRouteTopicId, null)
+
+    const document = await store.readIndexDocument()
+    assert.equal(document.masterFocusTopicId, null)
+    assert.equal(document.lastRouteTopicId, null)
+  })
+})
+
 test('a v2 index round-trips through the view without changing its bytes', async () => {
   await withTempDir(async (repoPath) => {
     let now = CREATED_AT
@@ -779,7 +795,7 @@ test('readIndex matches the read-only document projection on v1 and v2', async (
   })
 })
 
-test('readIndexDocument returns a validated v2 document as is', async () => {
+test('readIndexDocument returns a validated v2 document with defaulted routing targets', async () => {
   await withTempDir(async (repoPath) => {
     const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
     const topics = [
@@ -789,7 +805,7 @@ test('readIndexDocument returns a validated v2 document as is', async () => {
     await seedV2Index(store, topics)
 
     const document = await store.readIndexDocument()
-    assert.deepEqual(document, v2Index(topics))
+    assert.deepEqual(document, v2Index(topics, { masterFocusTopicId: null, lastRouteTopicId: null }))
   })
 })
 

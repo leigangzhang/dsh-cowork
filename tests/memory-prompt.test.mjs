@@ -114,7 +114,7 @@ function makeDeps(options = {}) {
 test('exports the documented constants', () => {
   assert.equal(COWORK_MEMORY_SECTION, 'cowork:memory')
   assert.equal(COWORK_MEMORY_ORDER, 900)
-  assert.deepEqual([...COWORK_MEMORY_PRESETS], ['cowork-master', 'cowork-thread'])
+  assert.deepEqual([...COWORK_MEMORY_PRESETS], ['cowork-master', 'cowork-topic', 'cowork-thread'])
 })
 
 test('registers an existing cowork-master agent with the exact section contract', () => {
@@ -143,6 +143,27 @@ test('registers a cowork-thread agent too', () => {
   assert.equal(sections.length, 1)
   assert.equal(sections[0].input.name, 'cowork:memory')
   assert.deepEqual(registration.registered(), ['thread-1'])
+})
+
+test('registers a cowork-topic agent with the same section contract', () => {
+  const { agent, sections } = fakeAgent({ id: 'topic-1', preset: 'cowork-topic' })
+  const deps = makeDeps()
+  const registration = registerMemoryPrompt(fakeHost([agent]).host, deps)
+
+  assert.equal(sections.length, 1)
+  assert.equal(sections[0].input.name, COWORK_MEMORY_SECTION)
+  assert.deepEqual(registration.registered(), ['topic-1'])
+  assert.deepEqual(deps.resolveCalls, ['/work/app'])
+})
+
+test('never injects memory into the reviewer or an unknown preset', () => {
+  const reviewer = fakeAgent({ id: 'reviewer', preset: 'cowork-reviewer' }).agent
+  const unknown = fakeAgent({ id: 'unknown', preset: 'cowork-topic-legacy' }).agent
+  const deps = makeDeps()
+  const registration = registerMemoryPrompt(fakeHost([reviewer, unknown]).host, deps)
+
+  assert.deepEqual(registration.registered(), [])
+  assert.deepEqual(deps.resolveCalls, [])
 })
 
 test('skips agents whose preset is not a cowork preset', () => {

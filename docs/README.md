@@ -12,6 +12,8 @@ What the documents are, and what each one answers. This page only routes: the ru
 | M7 交付了什么、M8 怎么启动（历史启动交接） | [M8_HANDOFF.md](M8_HANDOFF.md) |
 | M8 交付了什么、拿什么证明、怎么回滚、M9 前置 | [M8_RESULT.md](M8_RESULT.md) |
 | M9 怎么启动、分阶段、证据与坑 | [M9_HANDOFF.md](M9_HANDOFF.md) |
+| M9 交付了什么、拿什么证明、怎么回滚、M10 前置 | [M9_RESULT.md](M9_RESULT.md) |
+| M10 怎么启动、分阶段、证据与坑 | [M10_HANDOFF.md](M10_HANDOFF.md) |
 | 文档怎么写、放哪里、预算、发布 | [documentation.md](documentation.md) |
 | 这个词在这个仓库里是什么意思 | [glossary.md](glossary.md) |
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |
@@ -38,6 +40,8 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/M8_HANDOFF.md` | handoff | M8 启动时的交接（历史）：M7 交付后的基线、启动顺序、实施顺序、证据、回滚与未验证清单 |
 | `docs/M8_RESULT.md` | result | M8 实际交付：基线、模块清单、四命令证据、已知偏差、回滚与未验证项 |
 | `docs/M9_HANDOFF.md` | handoff | M8 交付后的基线、M9 启动顺序、分阶段实施、证据、陷阱、完成定义、回滚与未验证清单 |
+| `docs/M9_RESULT.md` | result | M9 实际交付：基线、模块清单、四命令证据、探针边界、已知偏差、回滚与未验证项 |
+| `docs/M10_HANDOFF.md` | handoff | M9 交付后的基线、M10 启动顺序、分阶段实施、证据、陷阱、完成定义、回滚与未验证清单 |
 | `docs/testing.md` | guide | 测试分层、证据、flake 政策 |
 | `docs/documentation.md` | guide | 文档种类、单一事实源、发布开关 |
 | `docs/routing.md` | guide | 路由判定、新建 thread、review 与合并的三张时序图 |

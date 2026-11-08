@@ -34,10 +34,13 @@ import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
 import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
-import type { CoworkToolDeps } from './tools.js'
+import { createLlmRoutingPort } from './llm-port.js'
+import type { HostLlmLike } from './llm-port.js'
+import type { CoworkToolDeps, CurrentModelRoute } from './tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
 import { TopicEvents } from './topic-events.js'
 import type { TopicEventLike, TopicEventSession } from './topic-events.js'
+import { DEFAULT_IDLE_AFTER_MS, DEFAULT_RESOLVE_AFTER_MS } from './topic.js'
 
 const packageJson = JSON.parse(
   readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
@@ -64,6 +67,29 @@ const M2_E2E_STATUS_PATH = '/dsh-cowork/e2e/m2/status'
 /** Lossless JSON value accepted by the tool result boundary. */
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
+/** The third routing layer's knobs (PLAN-V0.2 §5.10, M9.1). */
+export interface RoutingConfig {
+  /** Whether the model fallback may run at all. */
+  enabled: boolean
+  /** Model provider id; empty means "unset". */
+  provider: string
+  /** Model id; empty means "unset". */
+  model: string
+  /** Reasoning effort; empty means "unset". */
+  effort: string
+  /** Model-call timeout in milliseconds. */
+  timeoutMs: number
+  /** Model output cap in tokens. */
+  maxTokens: number
+}
+
+/** Working defaults for the fields a caller may omit. */
+const DEFAULT_PROMPT_TIMEOUT_MS = 120_000
+const DEFAULT_STORE_RELATIVE_PATH = '.dsh-cowork/probe/store.json'
+const DEFAULT_WORKTREE_RELATIVE_PATH = '.dsh-cowork/worktrees/probe'
+const DEFAULT_ROUTING_TIMEOUT_MS = 2_000
+const DEFAULT_ROUTING_MAX_TOKENS = 256
+
 /** Plugin configuration; every field has a working default. */
 export interface Config {
   /** Repository the probe writes under; defaults to this plugin's package root. */
@@ -79,15 +105,61 @@ export interface Config {
    * installed profile keeps only the business tools, presets, and panel API.
    */
   enableDevRoutes: boolean
+  /** Silence after which a topic displays as idle (PLAN §5.10: 2h). */
+  idleAfterMs: number
+  /** Silence after which a resolvable topic is resolved (PLAN §5.10: 3d). */
+  resolveAfterMs: number
+  /** Third-layer model fallback (PLAN §5.10). */
+  routing: RoutingConfig
 }
 
 export const Config: z<Config> = z.object({
   repoPath: z.string().default(''),
-  promptTimeoutMs: z.number().min(30_000).max(600_000).default(120_000),
-  storeRelativePath: z.string().default('.dsh-cowork/probe/store.json'),
-  worktreeRelativePath: z.string().default('.dsh-cowork/worktrees/probe'),
+  promptTimeoutMs: z.number().min(30_000).max(600_000).default(DEFAULT_PROMPT_TIMEOUT_MS),
+  storeRelativePath: z.string().default(DEFAULT_STORE_RELATIVE_PATH),
+  worktreeRelativePath: z.string().default(DEFAULT_WORKTREE_RELATIVE_PATH),
   enableDevRoutes: z.boolean().default(false),
+  idleAfterMs: z.number().min(0).default(DEFAULT_IDLE_AFTER_MS),
+  resolveAfterMs: z.number().min(0).default(DEFAULT_RESOLVE_AFTER_MS),
+  routing: z.object({
+    enabled: z.boolean().default(true),
+    provider: z.string().default(''),
+    model: z.string().default(''),
+    effort: z.string().default(''),
+    timeoutMs: z.number().min(1).default(DEFAULT_ROUTING_TIMEOUT_MS),
+    maxTokens: z.number().min(1).default(DEFAULT_ROUTING_MAX_TOKENS),
+  }),
 })
+
+/**
+ * Fill every omitted configuration field with its documented default.
+ *
+ * The host feeds `apply` a schema-validated `Config`, but tests and future
+ * embedders construct one by hand; routing must not crash because one nested
+ * object is missing. This is the single place that knows the defaults, and
+ * `apply` uses only its result.
+ */
+export function normalizeConfig(
+  config: Partial<Config> & { routing?: Partial<RoutingConfig> | null },
+): Config {
+  return {
+    repoPath: config.repoPath ?? '',
+    promptTimeoutMs: config.promptTimeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS,
+    storeRelativePath: config.storeRelativePath ?? DEFAULT_STORE_RELATIVE_PATH,
+    worktreeRelativePath: config.worktreeRelativePath ?? DEFAULT_WORKTREE_RELATIVE_PATH,
+    enableDevRoutes: config.enableDevRoutes ?? false,
+    idleAfterMs: config.idleAfterMs ?? DEFAULT_IDLE_AFTER_MS,
+    resolveAfterMs: config.resolveAfterMs ?? DEFAULT_RESOLVE_AFTER_MS,
+    routing: {
+      enabled: config.routing?.enabled ?? true,
+      provider: config.routing?.provider ?? '',
+      model: config.routing?.model ?? '',
+      effort: config.routing?.effort ?? '',
+      timeoutMs: config.routing?.timeoutMs ?? DEFAULT_ROUTING_TIMEOUT_MS,
+      maxTokens: config.routing?.maxTokens ?? DEFAULT_ROUTING_MAX_TOKENS,
+    },
+  }
+}
 
 /** Host services this plugin cannot activate without. */
 export const inject = ['webServer', 'tools', 'agentPresets', 'sessionController', 'workspaceRegistry', 'agents']
@@ -500,20 +572,71 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 S0 probe ready at ${S0_RUN_PATH}`)
 }
 
+/** The host default-model service slice (M9.3b). */
+interface HostAgentDefaultModel {
+  currentSelection(): { provider?: unknown; model?: unknown } | null | undefined
+}
+
+/** Read one optional host service without making it a required injection. */
+function hostService<T>(ctx: Context, name: string): T | undefined {
+  const get = (ctx as unknown as { get?: (key: string) => unknown }).get
+  if (typeof get !== 'function') return undefined
+  try {
+    return get.call(ctx, name) as T | undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The host's current default model route, used when `routing.provider/model`
+ * are unset. Swallowing a missing service keeps this an optional enhancement.
+ */
+function hostCurrentModelRoute(ctx: Context): () => CurrentModelRoute | null {
+  return () => {
+    const service = hostService<HostAgentDefaultModel>(ctx, 'agentDefaultModel')
+    if (service === undefined || service === null || typeof service.currentSelection !== 'function') return null
+    try {
+      const selection = service.currentSelection()
+      if (
+        typeof selection?.provider === 'string' && selection.provider.trim() !== ''
+        && typeof selection.model === 'string' && selection.model.trim() !== ''
+      ) {
+        return { provider: selection.provider, model: selection.model }
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+}
+
 /** Register the business surface, plus the opt-in dev probe surface when enabled. */
 export function apply(ctx: Context, config: Config): void {
-  // M1 assembly services: one dependency bag for the presets and the eleven tools.
+  // One normalized view of the settings: a hand-built partial config (tests,
+  // embedders) must not crash routing because `routing` is absent.
+  const settings = normalizeConfig(config)
+  // M1 assembly services: one dependency bag for the presets and the fourteen tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: identical in both dev modes and unchanged from M0-M3.
   // Only the dev probe canonicalizes it, because only the probe compares paths
   // against a host session cwd.
-  const repoPath = config.repoPath === '' ? defaultRepoPath() : resolve(config.repoPath)
+  const repoPath = settings.repoPath === '' ? defaultRepoPath() : resolve(settings.repoPath)
   const coworkDeps: CoworkToolDeps = {
     sessionController: assembly.sessionController,
     workspaceRegistry: assembly.workspaceRegistry,
     agentPresets: assembly.agentPresets,
     clock: () => new Date(),
     resolveRepoPath: () => repoPath,
+    // M9.1/M9.3a: the tool layer owns the lifecycle read point. The values come
+    // from the normalized config, never from a second set of defaults here.
+    idleAfterMs: settings.idleAfterMs,
+    resolveAfterMs: settings.resolveAfterMs,
+    routing: settings.routing,
+    // M9.3b: the only host LLM entry point. Missing services leave the third
+    // layer on its structured fallback; they never fail a route.
+    llmRoutingPort: createLlmRoutingPort(hostService<HostLlmLike>(ctx, 'llm')),
+    currentModelRoute: hostCurrentModelRoute(ctx),
   }
 
   // M2 panel: read-only HTTP routes over the host connection service. The
@@ -561,12 +684,12 @@ export function apply(ctx: Context, config: Config): void {
 
   // Dev surfaces are opt-in: an installed profile never exposes the probe
   // routes, the probe tools, the probe presets, or the session event feeds.
-  if (config.enableDevRoutes) {
+  if (settings.enableDevRoutes) {
     registerDevSurfaces(ctx, {
       repoPath,
-      promptTimeoutMs: config.promptTimeoutMs,
-      storeRelativePath: config.storeRelativePath,
-      worktreeRelativePath: config.worktreeRelativePath,
+      promptTimeoutMs: settings.promptTimeoutMs,
+      storeRelativePath: settings.storeRelativePath,
+      worktreeRelativePath: settings.worktreeRelativePath,
     })
   }
 

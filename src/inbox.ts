@@ -17,6 +17,34 @@ import type { InboxItem, InboxKind } from './store-schema.js'
 export const INBOX_MAX_BATCH = 5
 /** Most characters one inbox summary may carry. */
 export const INBOX_SUMMARY_MAX_CHARS = 200
+/** Immediate retries for the `deliveredAt` write after a successful delivery. */
+export const INBOX_MARK_ATTEMPTS = 3
+
+/**
+ * The delivery succeeded but its `deliveredAt` mark could not be written after
+ * {@link INBOX_MARK_ATTEMPTS} immediate attempts.
+ *
+ * `delivered` counts the items whose mark is already committed (so a retry of
+ * the caller does not double-count them); `pendingIds` are the items the port
+ * received but the file still lists as undelivered. They will be replayed, so
+ * this path is at-least-once, never at-most-once. The residual window
+ * (delivered, then the process crashes before the mark) is the same shape and
+ * is scheduled for the M12 real-host assessment.
+ */
+export class InboxMarkError extends Error {
+  readonly delivered: number
+  readonly pendingIds: string[]
+
+  constructor(delivered: number, pendingIds: string[]) {
+    super(
+      `inbox delivery could not be marked delivered after ${INBOX_MARK_ATTEMPTS} attempts; `
+        + `${pendingIds.length} item(s) stay undelivered and will be replayed`,
+    )
+    this.name = 'InboxMarkError'
+    this.delivered = delivered
+    this.pendingIds = pendingIds
+  }
+}
 
 /** The file layer this module needs: read plus the capped atomic rewrite. */
 export interface InboxStore {
@@ -105,6 +133,13 @@ export class Inbox {
    * {@link INBOX_MAX_BATCH} per message. A failed delivery stops the pass:
    * nothing from that batch is marked, the remaining items stay for
    * {@link replay}, and `failed` counts them.
+   *
+   * A successful delivery is followed by the `deliveredAt` write, retried
+   * immediately up to {@link INBOX_MARK_ATTEMPTS} times: a transient write
+   * failure must not make the next replay deliver the same batch again. If
+   * every attempt fails, {@link InboxMarkError} is thrown with the committed
+   * count and the still-unmarked ids; the items stay undelivered and no event is
+   * lost.
    */
   async flush(): Promise<InboxDeliveryResult> {
     const pending = (await this.store.readInbox()).filter((item) => item.deliveredAt === null)
@@ -119,15 +154,27 @@ export class Inbox {
       } catch {
         return { delivered, failed: pending.length - next }
       }
-      // Mark only now: a batch the port rejected stays undelivered.
+      // Mark only now: a batch the port rejected stays undelivered. The write is
+      // retried immediately because the delivery already happened; a lost mark
+      // would deliver the same batch again on the next replay.
       const stamp = this.clock().toISOString()
       const ids = new Set(batch.map((item) => item.id))
-      const current = await this.store.readInbox()
-      await this.store.writeInbox(
-        current.map((item) =>
-          item.deliveredAt === null && ids.has(item.id) ? { ...item, deliveredAt: stamp } : item,
-        ),
-      )
+      let marked = false
+      for (let attempt = 0; attempt < INBOX_MARK_ATTEMPTS && !marked; attempt += 1) {
+        try {
+          const current = await this.store.readInbox()
+          await this.store.writeInbox(
+            current.map((item) =>
+              item.deliveredAt === null && ids.has(item.id) ? { ...item, deliveredAt: stamp } : item,
+            ),
+          )
+          marked = true
+        } catch {
+          // Bounded immediate retry; the next attempt re-reads the file so a
+          // concurrent writer is never overwritten by a stale list.
+        }
+      }
+      if (!marked) throw new InboxMarkError(delivered, batch.map((item) => item.id))
       delivered += batch.length
       next += batch.length
     }

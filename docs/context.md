@@ -71,7 +71,7 @@ sequenceDiagram
 
 下行有三个触发：新建 thread 时，[buildThreadBrief](../src/tool-model.ts#L178-L203) 携带 threadId、subject、intent、工作区、scope 与 handoff 义务；复用 thread 时投递用户原话；`needs_revision` 时把 findings 投回原 thread。新建与复用的判定及 review 闭环见 [routing.md](routing.md) §2–§3。
 
-上行只有 `cowork_handoff`：结构化记录（summary、verification、changedPaths、openIssues）写入 handoff 文件，再经 [formatMasterMessage](../src/handoff.ts#L240-L265) 投递给 master；写入与投递顺序见 [src/handoff.ts](../src/handoff.ts#L344-L360)。最新 handoff 摘要同时是 router 的打分输入，见 [src/router.ts](../src/router.ts#L179-L209)。
+上行只有 `cowork_handoff`：结构化记录（summary、verification、changedPaths、openIssues）写入 handoff 文件，再经 [formatMasterMessage](../src/handoff.ts#L240-L265) 投递给 master；写入与投递顺序见 [src/handoff.ts](../src/handoff.ts#L344-L360)。主题路由的打分输入是 topic 的 scope/ownedPaths/aliases/title/digest（handoff 摘要不再是路由打分输入），见 [src/routing.ts](../src/routing.ts) 与 [src/route-tools.ts](../src/route-tools.ts)。
 
 ```mermaid
 sequenceDiagram

@@ -284,6 +284,11 @@ function migrateV1Document(index: Record<string, unknown>, cancelInFlightReviews
     projectId: v1.projectId,
     masterSessionId: v1.masterSessionId,
     createdAt: v1.createdAt,
+    // A migrated project has no route history yet; both targets start null
+    // (PLAN-V0.2 §5.3). The read path normalizes the same way, so old v2
+    // documents that lack the fields stay readable without a migration.
+    masterFocusTopicId: null,
+    lastRouteTopicId: null,
     topics,
     workItems: [],
   }
