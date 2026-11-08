@@ -470,6 +470,8 @@ export class ProjectStore {
         projectId,
         masterSessionId,
         createdAt: this.now().toISOString(),
+        masterFocusTopicId: null,
+        lastRouteTopicId: null,
         topics: [],
         workItems: [],
       }

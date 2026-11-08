@@ -233,6 +233,50 @@ test('v2 normalization preserves unknown fields and passes unreadable documents 
   assert.deepEqual(normalizeProjectIndexV2({ version: 2 }), { version: 2 })
 })
 
+test('v2 normalization defaults the routing targets to null', () => {
+  const normalized = normalizeProjectIndexV2(indexV2())
+  assert.equal(normalized.masterFocusTopicId, null)
+  assert.equal(normalized.lastRouteTopicId, null)
+  assert.equal(normalized.projectId, 'project-1', 'the rest of the envelope is untouched')
+
+  const present = normalizeProjectIndexV2(
+    indexV2([topicV2()], { masterFocusTopicId: 'topic-a', lastRouteTopicId: 'topic-b' }),
+  )
+  assert.equal(present.masterFocusTopicId, 'topic-a')
+  assert.equal(present.lastRouteTopicId, 'topic-b')
+
+  const cleared = normalizeProjectIndexV2(
+    indexV2([topicV2()], { masterFocusTopicId: null, lastRouteTopicId: null }),
+  )
+  assert.equal(cleared.masterFocusTopicId, null)
+  assert.equal(cleared.lastRouteTopicId, null)
+})
+
+test('v2 validation accepts null, absent, and present routing targets', () => {
+  assert.deepEqual(projectIndexV2Problems(indexV2()), [], 'an older v2 document has no fields')
+  assert.deepEqual(
+    projectIndexV2Problems(indexV2([topicV2()], { masterFocusTopicId: null, lastRouteTopicId: null })),
+    [],
+  )
+  assert.deepEqual(
+    projectIndexV2Problems(indexV2([topicV2()], { masterFocusTopicId: 'topic-a', lastRouteTopicId: 'topic-b' })),
+    [],
+  )
+})
+
+test('v2 validation rejects a broken routing target', () => {
+  for (const value of [42, '', '   ', {}, ['topic-a'], true]) {
+    const problems = projectIndexV2Problems(
+      indexV2([topicV2()], { masterFocusTopicId: value, lastRouteTopicId: value }),
+    )
+    assert.deepEqual(problems, [
+      'index.masterFocusTopicId must be a non-empty string or null',
+      'index.lastRouteTopicId must be a non-empty string or null',
+    ])
+  }
+})
+
+
 test('v2 validation accepts a document with a full topic and work item', () => {
   const document = indexV2(
     [

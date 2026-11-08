@@ -354,6 +354,34 @@ test('unknown document and thread fields are preserved and reported', () => {
   ])
 })
 
+test('a v1 migration writes both routing targets as null', () => {
+  const { document } = migrateV1ToV2(indexV1([threadV1({ status: 'active' })]))
+  assert.equal(document.masterFocusTopicId, null)
+  assert.equal(document.lastRouteTopicId, null)
+})
+
+test('the read-only v1 projection also carries both null routing targets', () => {
+  const { document, report } = migrateV1ToV2(indexV1([threadV1({ status: 'awaiting_review' })]), {
+    cancelInFlightReviews: false,
+  })
+  assert.equal(report.migrated, true)
+  assert.equal(document.masterFocusTopicId, null)
+  assert.equal(document.lastRouteTopicId, null)
+})
+
+test('applyLegacyView keeps the routing targets on the document envelope', () => {
+  const base = indexV2([topicV2()], { masterFocusTopicId: 'topic-a', lastRouteTopicId: 'topic-b' })
+  const view = legacyViewOf(base)
+  const applied = applyLegacyView(base, view)
+  assert.equal(applied.masterFocusTopicId, 'topic-a')
+  assert.equal(applied.lastRouteTopicId, 'topic-b')
+
+  view.threads[0].subject = 'renamed by the legacy view'
+  const afterEdit = applyLegacyView(base, view)
+  assert.equal(afterEdit.masterFocusTopicId, 'topic-a', 'an edited view does not drop the envelope fields')
+  assert.equal(afterEdit.lastRouteTopicId, 'topic-b')
+})
+
 test('the four legacy review fields are preserved and reported', () => {
   const { document, report } = migrateV1ToV2(
     indexV1([

@@ -107,6 +107,13 @@ export interface ProjectIndexV2 {
   projectId: string
   masterSessionId: string
   createdAt: string
+  /**
+   * Topic the user has open in the panel (PLAN-V0.2 §5.3 layer 1). Optional on
+   * disk: an older v2 document predates the field and reads as null.
+   */
+  masterFocusTopicId?: string | null
+  /** Topic the previous route picked (PLAN-V0.2 §5.3 layer 1). */
+  lastRouteTopicId?: string | null
   topics: TopicRecordV2[]
   workItems: WorkItemRecordV2[]
 }
@@ -306,14 +313,24 @@ export function threadV1Problems(thread: unknown, where: string): string[] {
  * fields; the four review attachment fields (`lastHandoffAt`,
  * `reviewRequestedAt`, `reviewedAt`, `latestReviewPath`) are tolerated
  * leftovers of the v1 schema that the legacy view still exposes, so they are
- * defaulted to null here and never invented elsewhere. The `legacyStatus`
- * marker is left exactly as found: its absence is meaningful (there is no v1
- * state to restore). Unknown fields survive untouched — a document this
- * version does not understand must not be rewritten just because it was read.
+ * defaulted to null here and never invented elsewhere. The routing targets
+ * (`masterFocusTopicId`/`lastRouteTopicId`) are optional on disk — an older v2
+ * document predates them — and default to null; an illegal value is passed
+ * through unchanged so `projectIndexV2Problems` can fail closed. The
+ * `legacyStatus` marker is left exactly as found: its absence is meaningful
+ * (there is no v1 state to restore). Unknown fields survive untouched — a
+ * document this version does not understand must not be rewritten just because
+ * it was read.
  */
 export function normalizeProjectIndexV2(index: unknown): unknown {
   if (!isRecord(index) || !Array.isArray(index.topics)) return index
-  return { ...index, topics: index.topics.map(normalizeTopicV2) }
+  const nullWhenAbsent = (value: unknown): unknown => (value === undefined ? null : value)
+  return {
+    ...index,
+    masterFocusTopicId: nullWhenAbsent(index.masterFocusTopicId),
+    lastRouteTopicId: nullWhenAbsent(index.lastRouteTopicId),
+    topics: index.topics.map(normalizeTopicV2),
+  }
 }
 
 /** Read one v2 topic, defaulting only the tolerated legacy attachment fields. */
@@ -339,6 +356,14 @@ export function projectIndexV2Problems(index: unknown): string[] {
     problems.push('index.masterSessionId must be a non-empty string')
   }
   if (!isIsoDate(index.createdAt)) problems.push('index.createdAt must be an ISO 8601 timestamp')
+  // Absent is legal (older v2 documents predate the routing targets); a present
+  // value must be null or a non-empty id. Anything else fails closed.
+  for (const field of ['masterFocusTopicId', 'lastRouteTopicId'] as const) {
+    const value = index[field]
+    if (value !== undefined && value !== null && !isNonEmptyString(value)) {
+      problems.push(`index.${field} must be a non-empty string or null`)
+    }
+  }
   if (!Array.isArray(index.topics)) {
     problems.push('index.topics must be an array')
   } else {
