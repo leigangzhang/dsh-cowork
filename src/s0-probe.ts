@@ -1,5 +1,5 @@
 /**
- * Temporary M1 S0 probe: the three questions docs/M1_HANDOFF.md makes
+ * Temporary M1 S0 probe: the three questions docs/archived/M1_HANDOFF.md makes
  * mandatory before any M1 product code is written.
  *
  * 1. Can a preset with an empty `plugins` list complete one turn, and which

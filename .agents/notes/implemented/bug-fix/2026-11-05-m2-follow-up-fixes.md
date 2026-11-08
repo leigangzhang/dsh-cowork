@@ -6,7 +6,7 @@ Class: bug-fix
 
 ## Problem
 
-M2 已交付九个工具、记忆注入、thread checkout 隔离与真实宿主 E2E，但独立审查留下了 1 条 medium 与 15 条 low 缺陷/观察，且全部落在 M2 自己的范围内：合并 teardown 不是事务、冲突路径与 sessionId 校验缺失、memory/checkout/memory-prompt 三模块的边界与类型债、E2E 驱动超过单文件指引且证据含 hostname。另有一处证据缺口：E2E 只证明了「另一个 thread 能检索到记忆」，没有证明「记忆块真的进入模型可见的 system prompt」。按阶段归属约定，这些必须在 M2 收口前修掉。原始审查与交付背景见 [M2 结果](../../../../docs/M2_RESULT.md) 与 [M2 implemented note](../feature/2026-11-05-m2-memory-checkout.md)。
+M2 已交付九个工具、记忆注入、thread checkout 隔离与真实宿主 E2E，但独立审查留下了 1 条 medium 与 15 条 low 缺陷/观察，且全部落在 M2 自己的范围内：合并 teardown 不是事务、冲突路径与 sessionId 校验缺失、memory/checkout/memory-prompt 三模块的边界与类型债、E2E 驱动超过单文件指引且证据含 hostname。另有一处证据缺口：E2E 只证明了「另一个 thread 能检索到记忆」，没有证明「记忆块真的进入模型可见的 system prompt」。按阶段归属约定，这些必须在 M2 收口前修掉。原始审查与交付背景见 [M2 结果](../../../../docs/archived/M2_RESULT.md) 与 [M2 implemented note](../feature/2026-11-05-m2-memory-checkout.md)。
 
 ## Decision
 
@@ -35,7 +35,7 @@ M2 已交付九个工具、记忆注入、thread checkout 隔离与真实宿主 
 **收口**
 
 - 三条流合并后运行 `npm test`、`npm run typecheck`、`npm run build`、`npm run check`，再在最终字节上运行真实宿主 M2 E2E。
-- 提案移入 `implemented/bug-fix/`；[M2 结果](../../../../docs/M2_RESULT.md)、[M2 交接](../../../../docs/M2_HANDOFF.md)、[修复交接](../../../../docs/M2_FIX_HANDOFF.md) 与 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md) 同步。已修项不再写入 `KNOWN_ISSUES`。
+- 提案移入 `implemented/bug-fix/`；[M2 结果](../../../../docs/archived/M2_RESULT.md)、[M2 交接](../../../../docs/archived/M2_HANDOFF.md)、[修复交接](../../../../docs/archived/M2_FIX_HANDOFF.md) 与 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md) 同步。已修项不再写入 `KNOWN_ISSUES`。
 
 ## Alternatives considered
 

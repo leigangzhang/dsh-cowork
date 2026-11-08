@@ -3,20 +3,20 @@
 - 结论：**M4 已交付并在真实安装 profile 验证**。仓库现在是一个可安装的 bundle：`package.json` 声明 `dsh.bundle.patch`，`cordis.patch.yml` 只插一行 `id: dsh-cowork`；一个新的 profile 只装 `@dsh-external/dsh-cowork` 一个包（`m4verify`，`--from-default-profile web`），重启后 preset、11 个业务工具、面板 API 与真实 Chrome 面板都来自已安装包；默认配置下 dev/E2E 面关闭；已安装 profile 跑通 15/15 步真实 flow；卸载后项目数据保留。
 - 分支与提交：`feat/m4-packaging` 从 `fix/m3-closeout` 的 `5622759` 开。关键提交：`914f997`（bundle 层）、`9451efc`（packaging 契约测试）、`d3751ed`（dev 门 + `canonicalRepoPath`）、`46de4e3`（README 手册）、`1bb5b49`（preset 测试）、`5f9195e`（README 事实修正），集成合并 `bc00b59` / `e70d05d` / `9ceece7`。最终交付 HEAD 与 M4A8 的独立审查结论由收口 marker `.dsh-cowork/e2e/M4_DOCS_READY.json` 记录；本文不预写该结论。
 - 环境：DSH `0.2.1-rc.2`、Desktop `2.0.18`、node `v22.22.1`、darwin arm64；DSH source checkout `/Users/ray/Workspace/deepseek-harness`；验证 profile `m4verify`（独立进程，未动用户 `web`/`desktop`）。
-- 依据：[M4 决策](../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md) 拥有分发形态、preset 与 dev 门的选择；[M4-P0 探针](M4_PROBE_RESULT.md) 拥有探针命令与 P0-F1..F3；[M4 交接](M4_HANDOFF.md) 拥有下一会话的验证 runbook；[PLAN](PLAN.md) §6 M4 拥有验收条目；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有不修项。本文只拥有交付面、逐条验收证据与限制。
+- 依据：[M4 决策](../../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md) 拥有分发形态、preset 与 dev 门的选择；[M4-P0 探针](M4_PROBE_RESULT.md) 拥有探针命令与 P0-F1..F3；[M4 交接](M4_HANDOFF.md) 拥有下一会话的验证 runbook；[PLAN](../PLAN.md) §6 M4 拥有验收条目；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有不修项。本文只拥有交付面、逐条验收证据与限制。
 
 ## 交付面
 
 | 落点 | 职责 |
 |---|---|
-| [`package.json`](../package.json) | `version: 0.1.0`、`dsh.bundle.patch: ./cordis.patch.yml`、`files: [lib, cordis.patch.yml, README.md, LICENSE]`；`private: true`（不发布 npm）；`dsh.client` 仍只声明 `web` |
-| [`cordis.patch.yml`](../cordis.patch.yml) | 唯一一行 `insert`：`id: dsh-cowork` / `name: '@dsh-external/dsh-cowork'`；id 与工具、preset、client 共用同一实例，不新增行名 |
-| [`README.md`](../README.md) | 面向用户的安装（build → pack → 新 profile → add → 重启）、选择 preset、使用流程、数据落点、卸载与升级、限制与前提 |
-| [`src/index.ts`](../src/index.ts) | `Config.enableDevRoutes`（`z.boolean().default(false)`，[L87](../src/index.ts#L87)）；默认不注册探针/E2E 路由、两个探针工具与 M0/S0/M2/M3 runner 监听（[L532](../src/index.ts#L532)）；dev 配置的 `repoPath` 启动时经 `canonicalRepoPath` 规范化（[L202](../src/index.ts#L202)） |
-| [`src/probe-model.ts`](../src/probe-model.ts) | `canonicalRepoPath`：存在则 `realpath`，缺失原样返回（[L54](../src/probe-model.ts#L54)） |
-| [`tests/packaging.test.mjs`](../tests/packaging.test.mjs) | 钉住安装契约：身份与入口、`dsh.client` 平台与注入、`dsh.bundle.patch` 指向仓库内文件、`files` 恰好 lib/patch/README/LICENSE、patch 只有一行 insert、`npm pack` 只含运行时文件 |
-| [`tests/dev-gate.test.mjs`](../tests/dev-gate.test.mjs) | 钉住 dev 门：默认 `false`；`false` 保留业务面且不注册 dev 面；`true` 还原 M0/S0/M2/M3；软链 `repoPath` 规范化；dispose 释放 dev 监听 |
-| [`tests/presets.test.mjs`](../tests/presets.test.mjs) | 钉住三个 preset 的 id 与顺序、reviewer 无 `@deepseek-ai/dsh-tool-fs`、master/thread 有、row id 唯一与 persona prefix 非空（4 个用例） |
+| [`package.json`](../../package.json) | `version: 0.1.0`、`dsh.bundle.patch: ./cordis.patch.yml`、`files: [lib, cordis.patch.yml, README.md, LICENSE]`；`private: true`（不发布 npm）；`dsh.client` 仍只声明 `web` |
+| [`cordis.patch.yml`](../../cordis.patch.yml) | 唯一一行 `insert`：`id: dsh-cowork` / `name: '@dsh-external/dsh-cowork'`；id 与工具、preset、client 共用同一实例，不新增行名 |
+| [`README.md`](../../README.md) | 面向用户的安装（build → pack → 新 profile → add → 重启）、选择 preset、使用流程、数据落点、卸载与升级、限制与前提 |
+| [`src/index.ts`](../../src/index.ts) | `Config.enableDevRoutes`（`z.boolean().default(false)`，[L87](../../src/index.ts#L87)）；默认不注册探针/E2E 路由、两个探针工具与 M0/S0/M2/M3 runner 监听（[L532](../../src/index.ts#L532)）；dev 配置的 `repoPath` 启动时经 `canonicalRepoPath` 规范化（[L202](../../src/index.ts#L202)） |
+| [`src/probe-model.ts`](../../src/probe-model.ts) | `canonicalRepoPath`：存在则 `realpath`，缺失原样返回（[L54](../../src/probe-model.ts#L54)） |
+| [`tests/packaging.test.mjs`](../../tests/packaging.test.mjs) | 钉住安装契约：身份与入口、`dsh.client` 平台与注入、`dsh.bundle.patch` 指向仓库内文件、`files` 恰好 lib/patch/README/LICENSE、patch 只有一行 insert、`npm pack` 只含运行时文件 |
+| [`tests/dev-gate.test.mjs`](../../tests/dev-gate.test.mjs) | 钉住 dev 门：默认 `false`；`false` 保留业务面且不注册 dev 面；`true` 还原 M0/S0/M2/M3；软链 `repoPath` 规范化；dispose 释放 dev 监听 |
+| [`tests/presets.test.mjs`](../../tests/presets.test.mjs) | 钉住三个 preset 的 id 与顺序、reviewer 无 `@deepseek-ai/dsh-tool-fs`、master/thread 有、row id 唯一与 persona prefix 非空（4 个用例） |
 
 ## 验收对照
 
@@ -26,9 +26,9 @@
 | M4A2 重启后三个 cowork preset 可选、工具面正确，`sessionController.create({agentPreset:'cowork-master'})` header 正确 | 通过 | 已安装 profile 的 15/15 E2E：`setup` 断言 preset 创建与 header；`tests/presets.test.mjs`（reviewer 无 `tool-fs` 的直接回归）；`tests/dev-gate.test.mjs` 证明 dev 门不影响 preset/业务工具；`src/presets.ts` 仍是唯一行清单 |
 | M4A3 安装后的 client 在真实 Chrome 加载，底栏/tab/panel 可用，无 dev 注入 | 通过 | 面板证据见下「面板」；KI-11 的缓存例外只存在于 dev 注入器路径，安装 + 重启路径不复现 |
 | M4A4 安装后的 profile 跑通真实 flow（init/thread/handoff/review/needs_revision 退回/pass 合并） | 通过 | 下方「真实安装 E2E」，`m3-d5e44800-91d0-41d7-a6f6-e80a9ac5213e`，15/15 |
-| M4A5 卸载移除 bundle 层、保留 `.dsh-cowork` 数据；旧会话 preset 不可恢复写进文档 | 通过 | 下方「卸载」；[README](../README.md)「卸载与升级」写明旧会话恢复会失败 |
+| M4A5 卸载移除 bundle 层、保留 `.dsh-cowork` 数据；旧会话 preset 不可恢复写进文档 | 通过 | 下方「卸载」；[README](../../README.md)「卸载与升级」写明旧会话恢复会失败 |
 | M4A6 `enableDevRoutes=false` 时探针/E2E 路由与探针工具不注册；`true` 可跑 E2E；软链前缀下断言稳定 | 通过 | `tests/dev-gate.test.mjs`（默认值、两态路由/工具面、`canonicalRepoPath`、dispose）；下方「默认配置」实测 404/401 |
-| M4A7 `files` 只含 lib/patch/README/LICENSE；tarball 可安装；git 安装不支持与 npm 未发布写清 | 通过 | 下方「打包产物」；[README](../README.md) 安装注意事项与限制 |
+| M4A7 `files` 只含 lib/patch/README/LICENSE；tarball 可安装；git 安装不支持与 npm 未发布写清 | 通过 | 下方「打包产物」；[README](../../README.md) 安装注意事项与限制 |
 | M4A8 README/M4 结果/探针/交接、PLAN/KNOWN_ISSUES/publish 分类完成；四条命令通过；独立 reviewer pass | 由收口 marker 记录 | `.dsh-cowork/e2e/M4_DOCS_READY.json` 记录最终 HEAD、四条命令与独立 verifier/reviewer 的结论；本文不预写 pass |
 
 ## 真实安装 E2E（通过）
@@ -44,7 +44,7 @@
 ## 默认配置（产品面）
 
 - 证据：仓库根 `.dsh-cowork/e2e/m4/02-default-config-routes.txt`（gitignored，下同）。产品默认（`enableDevRoutes` 缺省 => `false`）下，`/dsh-cowork/probe/*` 与 `/dsh-cowork/e2e/*` **全部 404**；`/api/cowork.overview` **401**（路由存在，trust fence 生效，不是 404）。
-- 默认阶段用的 profile patch 只覆盖 `repoPath`（不设 `enableDevRoutes`），见 `/private/tmp/m4-e2e/profile-default.patch.yml`；`repoPath` 不是产品工具的项目发现入口——业务工具按调用者 cwd 找项目（[`src/tools.ts:181`](../src/tools.ts#L181)），只在失败提示里回显插件默认仓库，dev runner 才用它定位 fixture 与证据。
+- 默认阶段用的 profile patch 只覆盖 `repoPath`（不设 `enableDevRoutes`），见 `/private/tmp/m4-e2e/profile-default.patch.yml`；`repoPath` 不是产品工具的项目发现入口——业务工具按调用者 cwd 找项目（[`src/tools.ts:181`](../../src/tools.ts#L181)），只在失败提示里回显插件默认仓库，dev runner 才用它定位 fixture 与证据。
 - 门在哪：`src/index.ts` 的 `Config.enableDevRoutes` 默认 `false`，探针/E2E 路由、`cowork_probe`/`cowork_identity_probe` 与 runner 监听都包在开关内；`tests/dev-gate.test.mjs` 同时钉住两态。
 
 ## 面板（真实 Chrome）
@@ -62,7 +62,7 @@
 
 - `dsh plugin --profile m4verify remove @dsh-external/dsh-cowork` exit 0 后，profile 的 bundles 回到 `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`，`node_modules/@dsh-external/` 为空；profile 里残留的 `cordis.patch.yml` 只有 `repoPath` 覆盖，不提供 cowork 行。
 - 项目数据未变：卸载前后 `/private/tmp/m4-e2e/.dsh-cowork` 的内容 hash 一致（该目录只剩 E2E 证据文件，fixture 已被 runner 删除）；卸载不写项目数据。
-- 旧会话后果：会话 header 仍记 `cowork-master`/`cowork-thread`/`cowork-reviewer`，preset 定义随包消失，恢复会失败；已写进 [README](../README.md)「卸载与升级」。
+- 旧会话后果：会话 header 仍记 `cowork-master`/`cowork-thread`/`cowork-reviewer`，preset 定义随包消失，恢复会失败；已写进 [README](../../README.md)「卸载与升级」。
 
 ## 四条命令
 

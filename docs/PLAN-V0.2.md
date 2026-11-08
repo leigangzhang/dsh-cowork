@@ -160,7 +160,7 @@ resolved → active（用户手动打开并输入）
 | 重命名 | `sessionController.rename` | `src/session-slice.ts` |
 | 归档/隐藏 | `workspaceRegistry.archiveSession` 是展示过滤；`archivedSessionIds` 可读 | `dsh-workspace/lib/index.js` |
 | 打开会话 | 客户端 `uiWorkspace.openSession(sessionId)` 切换主区 | `src/client/contracts.ts` |
-| 面板 | 右侧栏 tab、`sidebar.right.pane.tab`、footer action 已可用 | `docs/PANEL_RESULT.md` |
+| 面板 | 右侧栏 tab、`sidebar.right.pane.tab`、footer action 已可用 | `docs/archived/PANEL_RESULT.md` |
 | 会话事件 | 插件可订阅 `session/event`（E2E 已用） | `src/m3-e2e.ts` |
 | 模型调用 | `ctx.llm.prepareCall` 已由 `dsh-session-title-llm` 使用；可设 `maxTokens`、`reasoningEffort`、超时 | `dsh-session-title-llm/lib/index.js` |
 | 隔离 clone | 现有 per-thread clone 可用，路径在仓库内，reviewer 可读 | M2 结果、`src/checkout.ts` |
@@ -570,7 +570,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 - 本文件 `docs/PLAN-V0.2.md` 是 V0.2 的阶段计划；`docs/PLAN.md` 保持 V0.1（M0–M4），不覆盖；M5 记忆整理保留在 V0.1 与 `KNOWN_ISSUES` 中。
 - `docs/README.md` 与 `docs/publish.json` 在保存 V0.2 时已加入索引与 internal 分类；后续文档更新按 M12 执行。
 - `README.md`、`docs/routing.md`、`docs/context.md`、`docs/glossary.md`、`docs/KNOWN_ISSUES.md` 在 M12 按 V0.2 更新；`AGENTS.md` 的 thread→topic 表述在 M12 由用户确认后更新。
-- 历史交接 `docs/M4_HANDOFF.md` 不改正文；新的 `docs/M12_HANDOFF.md` 说明 V0.2 起点与回滚。
+- 历史交接 `docs/archived/M4_HANDOFF.md` 不改正文；新的 `docs/M12_HANDOFF.md` 说明 V0.2 起点与回滚。
 
 ### 10.2 交接说明
 

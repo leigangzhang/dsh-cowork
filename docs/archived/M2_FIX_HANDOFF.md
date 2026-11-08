@@ -1,16 +1,16 @@
 # M2 修复交接文档
 
-- 状态：**已完成**（2026-11-05）。F1–F8 在最终字节上全绿，真实宿主 E2E 11/11 步通过；本文件保留为执行记录。修复决策与逐项证据归 [implemented bug-fix note](../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)，遗留（不修）归 [KNOWN_ISSUES](KNOWN_ISSUES.md)，已交付行为与证据归 [M2 结果](M2_RESULT.md)。
+- 状态：**已完成**（2026-11-05）。F1–F8 在最终字节上全绿，真实宿主 E2E 11/11 步通过；本文件保留为执行记录。修复决策与逐项证据归 [implemented bug-fix note](../../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)，遗留（不修）归 [KNOWN_ISSUES](../KNOWN_ISSUES.md)，已交付行为与证据归 [M2 结果](M2_RESULT.md)。
 - 适用：接手 M2 之后的维护者，或开始 M3 的 agent（见 [M3 交接](M3_HANDOFF.md)）。
 - 起点：交接编写时 `main` 为 `44ec861`；实际执行时 `main` 已前进到 `234c084`（包含后续面板合并），远程也没有旧的 `feat/m2-memory-checkout`。因此本轮从最新 `main@234c084` 建本地审阅分支 `fix/m2-closeout`，以**追加提交**交付；未重写历史，也未推 `main`。
 
 ## 先读什么
 
-1. [AGENTS.md](../AGENTS.md) 的纪律与命令。
-2. [M2 收口修复 note](../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)：修复决策、验收 id、测试证据与结果。
+1. [AGENTS.md](../../AGENTS.md) 的纪律与命令。
+2. [M2 收口修复 note](../../.agents/notes/implemented/bug-fix/2026-11-05-m2-follow-up-fixes.md)：修复决策、验收 id、测试证据与结果。
 3. [M2 结果](M2_RESULT.md) 与 [M2-P0 结果](M2_PROBE_RESULT.md)：已交付行为、E2E 证据与环境事实，不要重复验证。
-4. [KNOWN_ISSUES](KNOWN_ISSUES.md)：哪些问题明确**不修**，不要在本轮顺手处理。
-5. [.agents/notes/README.md](../.agents/notes/README.md)：修复完成后提案迁入 `implemented/` 的规则。
+4. [KNOWN_ISSUES](../KNOWN_ISSUES.md)：哪些问题明确**不修**，不要在本轮顺手处理。
+5. [.agents/notes/README.md](../../.agents/notes/README.md)：修复完成后提案迁入 `implemented/` 的规则。
 
 ## 现在的事实
 
@@ -22,7 +22,7 @@
 
 ## 执行顺序
 
-1. **R1 / R2 / R3 并行**，各用独立 worktree（`worktree_create`，路径写进任务契约），写范围按三条流：R1 = `src/tools.ts` + `src/session-slice.ts` + `src/memory.ts` + `src/checkout-teardown.ts`；R2 = `src/checkout.ts` + `src/m2-e2e.ts` + `src/m2-e2e-support.ts`；R3 = `src/memory-prompt.ts` + `docs/PLAN.md`。`docs/PANEL_HANDOFF.md` 实际已使用 `checkoutPath`，本轮无需改动。
+1. **R1 / R2 / R3 并行**，各用独立 worktree（`worktree_create`，路径写进任务契约），写范围按三条流：R1 = `src/tools.ts` + `src/session-slice.ts` + `src/memory.ts` + `src/checkout-teardown.ts`；R2 = `src/checkout.ts` + `src/m2-e2e.ts` + `src/m2-e2e-support.ts`；R3 = `src/memory-prompt.ts` + `docs/PLAN.md`。`docs/archived/PANEL_HANDOFF.md` 实际已使用 `checkoutPath`，本轮无需改动。
 2. **队长串行合并** worktree，再在主树复验四条命令。
 3. **E2E 重跑**：先完成 R2 的驱动拆分与脱敏，再构建并跑一次；新增的「模型复述约束」步骤必须通过，证据以最终字节为准。
 4. **最终复审**：独立审查者绑定最终字节（代码 + 证据 + 文档），无 blocker/high 才算通过。
@@ -42,7 +42,7 @@
 - **worktree 里没有 `node_modules`**：模块级 `node --test` 可以跑；项目级 `npm run typecheck` 要在主树跑。
 - **完成闸门只看 inScope**：新增/改写测试文件必须在任务 inScope 里；入口文件（如 `src/index.ts`）被两个任务共享时，必须显式串行依赖，否则闸门拒绝。
 - **medium 必须在阶段内修复**：审查门禁不接受「medium 记入文档后 pass」；本轮的门禁规则以本文件为准。
-- **并发写者**：动手前 `git fetch` 并确认 `main` 没有未合并的他人改动；`docs/PANEL_HANDOFF.md` 属另一会话，实际已使用 `checkoutPath`，本轮不要顺手重写。
+- **并发写者**：动手前 `git fetch` 并确认 `main` 没有未合并的他人改动；`docs/archived/PANEL_HANDOFF.md` 属另一会话，实际已使用 `checkoutPath`，本轮不要顺手重写。
 - **推送**：外层仓库有他人同时在用；只推审阅分支，不推 `main`（`main` 推送需用户明确授权）。
 - **E2E hostname**：写证据前脱敏，文档与提交不得出现机器标识。
 

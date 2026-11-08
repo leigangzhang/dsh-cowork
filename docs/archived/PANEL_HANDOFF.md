@@ -1,16 +1,16 @@
 # Cowork 面板交接文档（M3 前端）
 
 - 适用：在全新会话/上下文中实现 Cowork 右侧栏只读面板的 agent 或人。
-- 状态：**已交付**（2026-11-05）。交付面、真实宿主证据、未验证项与合并注意见 [PANEL_RESULT](PANEL_RESULT.md)；决策记录见 [implemented 提案](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)。本文件保留为实施入口与陷阱清单。
-- 事实源：[PANEL_RECON](PANEL_RECON.md) 拥有宿主 slot/宽度/token/打包事实；[implemented 提案](../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md) 拥有布局、数据契约、验收；[PANEL_RESULT](PANEL_RESULT.md) 拥有交付证据；本文件只拥有“怎么开始、先验证什么、怎样算完成”。
+- 状态：**已交付**（2026-11-05）。交付面、真实宿主证据、未验证项与合并注意见 [PANEL_RESULT](PANEL_RESULT.md)；决策记录见 [implemented 提案](../../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)。本文件保留为实施入口与陷阱清单。
+- 事实源：[PANEL_RECON](PANEL_RECON.md) 拥有宿主 slot/宽度/token/打包事实；[implemented 提案](../../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md) 拥有布局、数据契约、验收；[PANEL_RESULT](PANEL_RESULT.md) 拥有交付证据；本文件只拥有“怎么开始、先验证什么、怎样算完成”。
 
 ## 先读什么
 
-1. [AGENTS.md](../AGENTS.md) 的纪律、命令、no-multi-orchestrator。
-2. [docs/PANEL_RECON.md](PANEL_RECON.md)：右侧栏 tab 的挂载、14 个公开 token、宽度公式、client 打包约定。
-3. [面板提案](../.agents/notes/proposed/feature/2026-11-05-cowork-panel.md)：布局/数据/验收；尤其 `## Proposal` 的“数据契约”和“客户端构建与探针”。
-4. [docs/M1_RESULT.md](M1_RESULT.md)：`index.json`、handoffs 与现有工具行为。
-5. [.agents/notes/README.md](../.agents/notes/README.md)、[docs/documentation.md](documentation.md)：记录迁移与发布分类。
+1. [AGENTS.md](../../AGENTS.md) 的纪律、命令、no-multi-orchestrator。
+2. [docs/archived/PANEL_RECON.md](PANEL_RECON.md)：右侧栏 tab 的挂载、14 个公开 token、宽度公式、client 打包约定。
+3. [面板决策](../../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)：布局/数据/验收；尤其 `## Proposal` 的“数据契约”和“客户端构建与探针”。
+4. [docs/archived/M1_RESULT.md](M1_RESULT.md)：`index.json`、handoffs 与现有工具行为。
+5. [.agents/notes/README.md](../../.agents/notes/README.md)、[docs/documentation.md](../documentation.md)：记录迁移与发布分类。
 
 ## 现在的事实
 
@@ -38,7 +38,7 @@ M0 的 client 半边已删除，**不要直接写完整面板**。先做一个�
 3. 在真实宿主验证：tab 出现、底栏按钮能打开、`--dsw-alias-label-primary` 生效（深浅切换）、client bundle 被加载；记录构建/加载/HMR 的具体路径与限制。
 4. 若构建链或加载链失败：记录失败证据，**降级**为“只交付 host 只读 API + 文档”，不硬做 UI（提案 Risks 已写）。
 
-结论写进 `docs/PANEL_RECON.md` 的补充节或新的 `docs/PANEL_PROBE_RESULT.md`（新增时同步 `docs/publish.json`），给原始命令/输出。
+结论写进 `docs/archived/PANEL_RECON.md` 的补充节或新的 `docs/PANEL_PROBE_RESULT.md`（新增时同步 `docs/publish.json`），给原始命令/输出。
 
 ## 实施顺序
 
