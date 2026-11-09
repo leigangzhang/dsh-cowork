@@ -2,7 +2,7 @@
 
 - 状态：**M10 已交付（2026-11-08）；本文件保留为启动文档，交付事实、证据与未验证项见 [M10 交付结果](M10_RESULT.md)。** 本文件写给下一个会话，用于启动 V0.2 M10（评审请求、reviewer 生命周期、工作项、隔离合并）。不重新论证 M9 的决定，也不重抄 M10 需求全文；交付后的现状不在此回写。
 - 适用：接手 M10 的 agent 或人。范围：M9 交付后的代码基线、M10 的启动方式、实施顺序与证据、陷阱、完成定义、回滚与未验证清单。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.3/§4.2/§4.3/§4.5/§5.4/§5.5/§5.7/§5.10/§6 M10 拥有需求、数据模型、工具角色与验收；[M10 执行提案](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md) 拥有执行层决定与备选；[评审按请求触发](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md) 拥有评审规则；[并行隔离与合并](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md) 拥有工作项与合并边界；[主题会话模型](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md) 拥有角色；[索引 v2 与迁移](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md) 拥有文件布局；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留问题归属；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.3/§4.2/§4.3/§4.5/§5.4/§5.5/§5.7/§5.10/§6 M10 拥有需求、数据模型、工具角色与验收；[M10 执行提案](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md) 拥有执行层决定与备选；[评审按请求触发](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md) 拥有评审规则；[并行隔离与合并](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md) 拥有工作项与合并边界；[主题会话模型](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md) 拥有角色；[索引 v2 与迁移](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md) 拥有文件布局（两份记录已由 M12 迁入 implemented）；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留问题归属；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## M9 交付后的状态（2026-11-08）
 
@@ -19,7 +19,7 @@
 2. [PLAN-V0.2](PLAN-V0.2.md) §2.2（主会话流程 / 评审 / 并行合并）、§2.3（状态机）、§4.2（模块图）、§4.3（评审请求与工作项字段）、§4.5（隔离路径）、§5.4/§5.5/§5.7/§5.10、§6 M10。
 3. [M10 执行提案](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md)：模块边界、文件格式、工具顺序、合并目标、M9 遗留删除顺序、测试影响面。
 4. [评审按请求触发](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md) 与 [并行隔离与合并](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)：请求字段/单评审负责人、工作项/合并/`main` 由人收口；两份记录在 M10.5 迁移为 implemented。
-5. [主题会话模型](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md) 与 [索引 v2 与迁移](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md)：角色边界、review 文件/activity/inbox 布局。
+5. [主题会话模型](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md) 与 [索引 v2 与迁移](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)：角色边界、review 文件/activity/inbox 布局（M12 已迁 implemented）。
 6. [M9 交付结果](M9_RESULT.md)：M9 实际交付、证据、偏差、回滚与未验证；[M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md) 与 [三层路由](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md) 是正式记录。
 7. [M6 探针结果](M6_PROBE_RESULT.md) §4（reviewer 创建后立即归档会 `blocked`）；[docs/testing.md](testing.md)、[tools/workflow.json](../tools/workflow.json)：证据面与检查映射。
 8. [KNOWN_ISSUES](KNOWN_ISSUES.md)：KI-18/24/25 的归属与重估条件。
@@ -54,7 +54,7 @@
    - 证据：定向测试 + `npm test`；`npm run typecheck`/`build`/`check`。
 5. **M10.5 — 收口**
    - 证据：`npm test`（≥596 + 新增，0 fail/0 skip）、`npm run typecheck`、`npm run build`、`npm run check` 全绿；记录各 exit code、测试计数、`src/tools.ts`/`src/store.ts` 字节。
-   - 记录：`review-request-model`（proposed/feature）与 `parallel-isolation-and-merge`（proposed/architecture）迁到 implemented 并按骨架重写；`topic-session-model`/`topic-store-v2` 保持 proposed（M11/M12 收口）；写 `docs/M10_RESULT.md`（新文件，不覆盖本交接）与更新本交接为已交付（或按 M8/M9 的做法保留启动版 + 结果文件）；更新 `KNOWN_ISSUES`（KI-18 剩余 M11/M12、KI-24/25 关闭或改归属）；`publish.json` 分类；`npm run check` 通过。
+   - 记录：`review-request-model`（proposed/feature）与 `parallel-isolation-and-merge`（proposed/architecture）迁到 implemented 并按骨架重写；`topic-session-model`/`topic-store-v2` 当时保持 proposed（M11/M12 收口；M12 已迁 implemented 并按骨架重写）；写 `docs/M10_RESULT.md`（新文件，不覆盖本交接）与更新本交接为已交付（或按 M8/M9 的做法保留启动版 + 结果文件）；更新 `KNOWN_ISSUES`（KI-18 剩余 M11/M12、KI-24/25 关闭或改归属）；`publish.json` 分类；`npm run check` 通过。
    - 停：四命令全绿、review pass 后停下等确认，不进入 M11。
 
 ## 验证与证据
@@ -110,7 +110,7 @@
 - M10 执行提案：[2026-11-08-m10-review-request-workitems-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md)。
 - 评审规则（M10.5 迁 implemented）：[2026-11-07-review-request-model.md](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)。
 - 工作项与合并（M10.5 迁 implemented）：[2026-11-07-parallel-isolation-and-merge.md](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)。
-- 角色模型：[2026-11-07-topic-session-model.md](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md)。
-- 索引与文件布局：[2026-11-07-topic-store-v2.md](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md)。
+- 角色模型（implemented）：[2026-11-07-topic-session-model.md](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)。
+- 索引与文件布局（implemented）：[2026-11-07-topic-store-v2.md](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)。
 - M9 执行记录与三层路由（implemented）：[M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)、[三层路由](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
 - 遗留问题与归属：[KNOWN_ISSUES.md](KNOWN_ISSUES.md)。

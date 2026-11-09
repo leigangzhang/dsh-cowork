@@ -542,7 +542,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 决策记录（M6 核对，每个议题一份）：
 
-- `.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md`
+- `.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md`
 - `.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md`
 - `.agents/notes/implemented/feature/2026-11-07-review-request-model.md`
 - `.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md`
@@ -551,7 +551,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 - `.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md`
 - `.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md`
 - `.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md`
-- `.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md`
+- `.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md`
 
 记录与阶段的主归属见 §6 的「记录与阶段的主归属」表。
 

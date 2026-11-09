@@ -44,7 +44,7 @@
 - [A6] `cowork_handoff` 只剩 blocked/done；blocked 写收件箱，done 写 digest/交付确认并清标记；`project_status` 删除 handoff 兼容重放、使用真实 active 工作项计数；review 写入 canonical v2（不再写 legacy 字段）；KI-18/24/25 在本阶段收口或明确剩余归属 — `tests`：`tests/topic-tools.test.mjs`（`cowork_handoff exposes only blocked|done and no longer mentions awaiting_review`、`cowork_handoff(done) records the summary and delivery confirmation without prompting the master`、`cowork_handoff(blocked) sets the flag and wakes the master through one bounded inbox item`、`a blocked handoff bounds the inbox summary`、`deliverInbox reports an InboxMarkError as a value and never throws`）、`tests/project-tools.test.mjs`（`project_status reports work-item and review counts and no handoff replay`、`project_status keeps a topic with active or reviewing work items from resolving (KI-24)`、`project_init no longer reconciles a stale handoff into the index`、`the compatibility replay and the fixed work-item count are gone from the sources`）、`tests/source-budget.test.mjs`（`KI-25/KI-18: no legacy review writes, and the legacy read-only surface stays`）
 - [A7] 15 个工具按文档顺序注册；review_request 仅 topic、review_verdict 仅 reviewer、work_item_create topic/master、checkout_merge master；`tools.ts` 只编排；`dev-gate` 与角色拒绝测试覆盖 — `tests`：`tests/project-tools.test.mjs`（`the assembly registers the fifteen tools in the documented order`）、`tests/dev-gate.test.mjs`（`the business surface registers exactly fifteen tools in the documented order`、`cowork_handoff accepts exactly blocked and done (KI-25)`、`cowork_checkout_merge no longer accepts an unreviewed override (KI-25)`）、`tests/review-verdict.test.mjs`（`only the recorded reviewer may answer the request`）、`tests/work-item.test.mjs`（`the merge tool is master only`、`the master must name an existing topic; a topic creates only for itself`）、`tests/source-budget.test.mjs`（`the tool split owns every tool name and keeps tools.ts orchestration-only`）
 - [A8] `src/tools.ts` ≤49,152 B、`src/store.ts` 不越过 49,152 B、`src/**/*.ts` <51,200 B；不新增 M11/M12 模块（api-contract/client/面板、真实 E2E、迁移演练不在 M10）；`npm run check`/`typecheck`/`build`/`test` 全绿 — `source`：最终 `e25a36f` 上 `tools.ts` 2,924 B、`store.ts` 48,560 B、最大 `m2-e2e.ts` 49,923 B；`tests/source-budget.test.mjs`（`every src/**/*.ts and src/**/*.tsx file stays under the 50 KiB read limit`、`the tool split owns every tool name and keeps tools.ts orchestration-only`、`the work-item, review-request, and session modules own rules, not tool names`）；四命令 exit 0（见「验证基线」）
-- [A9] M10 收口：`review-request` 与 `parallel-isolation` 两份记录迁到 implemented 并按骨架重写；`topic-store-v2` 与 `topic-session-model` 仍在 M11/M12 收口；写 `docs/M10_RESULT.md` 与交接并更新 `KNOWN_ISSUES` 归属；`npm run check` 无未分类 `.md` — `decisions`：本文件、M10_HANDOFF 状态指针、[KNOWN_ISSUES](KNOWN_ISSUES.md)、`docs/publish.json`、两份 implemented 记录
+- [A9] M10 收口：`review-request` 与 `parallel-isolation` 两份记录迁到 implemented 并按骨架重写；`topic-store-v2` 与 `topic-session-model` 当时仍在 M11/M12 收口（M12 已迁 implemented）；写 `docs/M10_RESULT.md` 与交接并更新 `KNOWN_ISSUES` 归属；`npm run check` 无未分类 `.md` — `decisions`：本文件、M10_HANDOFF 状态指针、[KNOWN_ISSUES](KNOWN_ISSUES.md)、`docs/publish.json`、两份 implemented 记录
 
 ## 审查与修复
 
@@ -75,7 +75,7 @@
   - `reviews.pending`/`reviewsPending` 以 `topic.reviewStatus === 'pending'` 计数（每 topic 至多一个 pending），不直接列 review 文件（无 list 端口）；M11 面板可改数据源。
   - `deliverInbox` 的未知异常分支返回 `failed: 0`（计数未知），仅防御性路径；正常投递失败与 `InboxMarkError` 均返回准确计数。
   - `src/tool-model.ts` 保留 `review/override-reason-required` 码（pinned 表未删，现无调用者）；`src/m2-e2e.ts`/`src/m3-e2e.ts` 旧 dev 面仍含 `awaiting_review`/`allowUnreviewed` 文本（KI-29，M12 取代）。（`src/index.ts` 的 "fourteen tools" 注释已由 t14 的 `ea3bbb6` 修正，不再是偏差。）
-  - 文档指针：M10 遗留收口（2026-11-08）已把 M10 执行提案迁 implemented 并修正 `docs/README`、`docs/PLAN-V0.2.md` §8、M6 文档与 proposal/implemented 记录之间的旧 `proposed/` 链接；`topic-store-v2` 与 `topic-session-model` 仍 proposed，按 [M12 交接](M12_HANDOFF.md) 的文档发布面迁移。
+  - 文档指针：M10 遗留收口（2026-11-08）已把 M10 执行提案迁 implemented 并修正 `docs/README`、`docs/PLAN-V0.2.md` §8、M6 文档与 proposal/implemented 记录之间的旧 `proposed/` 链接；`topic-store-v2` 与 `topic-session-model` 当时仍 proposed，按 [M12 交接](M12_HANDOFF.md) 的文档发布面迁移；M12 已把两份记录迁入 `implemented/architecture/` 并按骨架重写。
 - **未验证**：
   - 真实宿主端到端全链路（评审请求 → reviewer 创建 → verdict → 收件箱/主题 → 工作项 → 合并）——M12（KI-22）；M10 只跑到 fake host + 真实 store 文件，`fake-host` 通过不等于真机可用。
   - 本机 web profile 仍把 `dsh-cowork` 设为 `disabled: true`；插件在启用 cowork 的 profile 里的真实装配未验证（M12）。
@@ -108,7 +108,7 @@
 - 执行层决定与备选（implemented）：[2026-11-08-m10-review-request-workitems-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md)。
 - 评审规则（implemented）：[2026-11-07-review-request-model.md](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)。
 - 工作项与合并边界（implemented）：[2026-11-07-parallel-isolation-and-merge.md](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)。
-- 角色模型（仍 proposed，M12 收口）：[2026-11-07-topic-session-model.md](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md)。
-- 索引 v2 与迁移（仍 proposed，M12 收口）：[2026-11-07-topic-store-v2.md](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md)。
+- 角色模型（implemented，M12 迁入）：[2026-11-07-topic-session-model.md](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)。
+- 索引 v2 与迁移（implemented，M12 迁入）：[2026-11-07-topic-store-v2.md](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)。
 - M9 交付结果：[M9_RESULT.md](M9_RESULT.md)。
 - 遗留问题与归属：[KNOWN_ISSUES](KNOWN_ISSUES.md)。

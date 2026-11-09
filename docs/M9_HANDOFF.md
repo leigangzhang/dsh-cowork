@@ -4,7 +4,7 @@
 
 - 状态：**M9 启动文档（2026-11-08）**。M8 已交付并终审通过（[M8 交付结果](M8_RESULT.md)）；本文件写给下一个会话，用于启动 V0.2 M9（路由、工具、预设）。不重新论证 M8 的决定，也不在这里重抄 M9 需求全文。
 - 适用：接手 M9 的 agent 或人。范围：M8 交付后的代码基线、M9 的启动方式、分阶段顺序与证据、陷阱、完成定义、回滚与未验证清单。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§5.3/§5.7/§5.8/§5.10/§6 M9 拥有需求、工具角色表、配置默认值与验收；[M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md) 拥有执行层决定与备选；[三层路由](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md) 拥有路由需求规则（两份记录已随 M9 落地迁入 implemented）；[主题会话模型](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md) 拥有角色边界；[索引 v2 与迁移](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md) 拥有数据模型；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留问题归属。本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§5.3/§5.7/§5.8/§5.10/§6 M9 拥有需求、工具角色表、配置默认值与验收；[M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md) 拥有执行层决定与备选；[三层路由](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md) 拥有路由需求规则（两份记录已随 M9 落地迁入 implemented）；[主题会话模型](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md) 拥有角色边界；[索引 v2 与迁移](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md) 拥有数据模型（两份记录已由 M12 迁入 implemented）；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留问题归属。本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## M8 交付后的状态（2026-11-08）
 
@@ -22,7 +22,7 @@
 2. [PLAN-V0.2](PLAN-V0.2.md) §2.2（主会话路由流程）、§5.3（三层路由）、§5.7（工具与角色）、§5.8（预设与记忆）、§5.10（配置默认值）、§6 M9（范围与完成标准）。
 3. [M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)：模块边界、数据/配置扩展、读取点、工具拆分、验收与分阶段顺序（M9 已落地并迁入 implemented）。
 4. [三层路由](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)：第一/二/三层、低置信不弹窗、resolvedMatch、别名纠正（M9 已落地并迁入 implemented）。
-5. [主题会话模型](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md)：master/插件/主题/reviewer 的角色边界与旧 thread 别名。
+5. [主题会话模型](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)：master/插件/主题/reviewer 的角色边界与旧 thread 别名（M12 已迁 implemented）。
 6. [M8 交付结果](M8_RESULT.md)：M8 实际交付、证据、偏差、回滚；[M8 执行记录](../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md) 与 [三态规则](../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md) 是 M8 的正式记录。
 7. [M6 探针结果](M6_PROBE_RESULT.md) §1（LLM prepareCall/关闭推理）、§5（preset 工具面与 per-agent restrict 边界）、§2（session/event）。
 8. [docs/testing.md](testing.md)、[docs/documentation.md](documentation.md)、[tools/workflow.json](../tools/workflow.json)：证据面、文档分类、检查映射。
@@ -56,7 +56,7 @@
    - 证据：`node --test tests/presets.test.mjs tests/memory-prompt.test.mjs`；`npm run typecheck`。
 5. **M9.5 — 收口**
    - 证据：`npm test`（应 ≥485 + 新增，0 fail/0 skip）、`npm run typecheck`、`npm run build`、`npm run check` 全绿；记录各命令 exit code 与测试计数；记录 `src/tools.ts`、`src/store.ts` 字节数。
-   - 记录：`three-layer-routing`（proposed/feature）迁到 implemented 并按骨架重写；`topic-session-model` 与 `topic-store-v2` 仍 proposed（M11/M10 各自收口）；写 `docs/M9_RESULT.md`（新文件，不要覆盖本交接）并更新本交接为已交付；`npm run check` 通过，无未分类 `.md`。
+   - 记录：`three-layer-routing`（proposed/feature）迁到 implemented 并按骨架重写；`topic-session-model` 与 `topic-store-v2` 当时仍 proposed（M11/M10 各自收口；M12 已迁 implemented）；写 `docs/M9_RESULT.md`（新文件，不要覆盖本交接）并更新本交接为已交付；`npm run check` 通过，无未分类 `.md`。
    - 停：四命令全绿后停下等确认，不进入 M10（评审请求、reviewer、隔离、合并属于 M10）。
 
 ## 验证与证据
@@ -105,6 +105,6 @@
 - M8 启动交接（历史）：[M8_HANDOFF.md](M8_HANDOFF.md)。
 - M9 执行记录（implemented）：[2026-11-08-m9-routing-tools-presets-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)。
 - 路由需求规则（implemented）：[2026-11-07-three-layer-routing.md](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
-- 角色模型：[2026-11-07-topic-session-model.md](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md)。
+- 角色模型（implemented）：[2026-11-07-topic-session-model.md](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)。
 - M8 执行记录与三态规则（implemented）：[M8 执行记录](../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)、[主题三态与已解决规则](../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)。
 - 遗留问题与归属：[KNOWN_ISSUES](KNOWN_ISSUES.md)。
