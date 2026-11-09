@@ -122,7 +122,7 @@ dsh plugin --profile <profile> remove @dsh-external/dsh-cowork
 - **收件箱是 at-least-once**：投递成功但 `deliveredAt` 未写时可能重复提示，不会丢事件（[KI-23](docs/KNOWN_ISSUES.md)）。
 - **工作项 clone 只含已提交文件**：看不到主仓未提交改动与本地依赖，需要自装依赖（[KI-1](docs/KNOWN_ISSUES.md)）；隔离提供方当前只实现 clone（[KI-27](docs/KNOWN_ISSUES.md)）。
 - **文件策略前提是 workspace-write**：隔离目录必须可写（[KI-5](docs/KNOWN_ISSUES.md)）。
-- **workspace 记录可自愈**：启动时只对存在 `.dsh-cowork/index.json` 的项目补建缺失的 DSH workspace，并 attach 会话；手动删除 workspace 后若其会话仍在项目根，下次启动会被重建。
+- **workspace 记录启动补建（过渡，[KI-39](docs/KNOWN_ISSUES.md)）**：启动时只对存在 `.dsh-cowork/index.json` 的项目补建缺失的 DSH workspace，并 attach 会话；手动删除 workspace 后若其会话仍在项目根，下次启动会被重建。目标机制仍是只由 `cowork_project_init` / 会话创建登记。
 - **面板 API 的信任边界**：loopback + 同源 + JSON content-type；写路由只允许该项目的 master。
 
 ## 本地检查

@@ -907,12 +907,15 @@ export function apply(ctx: Context, config: Config): void {
   })
   ctx.effect(() => topicEvents.attach(), 'dsh-cowork: topic lifecycle events')
 
-  // A workspace record the registry loses is not rebuilt from session headers
-  // once its domain is initialized, so a healthy Cowork project can vanish from
-  // the sidebar after a restart even though its index and sessions are intact.
-  // Re-create only the missing records for sessions that already sit at a
-  // Cowork project root, then attach those sessions. The pass is bounded and
-  // every failure is logged: a failed repair must never fail plugin startup.
+  // Transitional (KI-39): the target is registration at cowork_project_init or
+  // session creation. This startup pass only repairs records already lost; it
+  // must be removed when KI-39 closes. A workspace record the registry loses is
+  // not rebuilt from session headers once its domain is initialized, so a
+  // healthy Cowork project can vanish from the sidebar after a restart even
+  // though its index and sessions are intact. Re-create only the missing
+  // records for sessions that already sit at a Cowork project root, then attach
+  // those sessions. The pass is bounded and every failure is logged: a failed
+  // repair must never fail plugin startup.
   ctx.effect(() => {
     let active = true
     void repairCoworkWorkspaces({

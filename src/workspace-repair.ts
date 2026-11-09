@@ -1,6 +1,10 @@
 /**
  * Startup repair for a lost Cowork workspace record.
  *
+ * Transitional (KI-39): the target registration path is `cowork_project_init`
+ * or session creation. This startup pass only repairs records already lost; it
+ * must be removed when KI-39 closes and the registration path is reliable.
+ *
  * The host workspace registry rebuilds its records from session headers only
  * while its domain is uninitialized (`state.initialized === false`). Once it is
  * initialized, a workspace record that went missing is not recreated on the

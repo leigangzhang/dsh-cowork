@@ -180,7 +180,9 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
         // the host shows a workspace through the sessions attached to it. The
         // registry's header bootstrap runs only while its domain is
         // uninitialized, so a lost record is never rebuilt from session headers
-        // after a restart; binding the calling master here is the repair.
+        // after a restart. Binding the calling master here is the primary
+        // registration path; the startup repair is only a transitional fallback
+        // (KI-39).
         const attachment = await slice.attachSession(workspaceId, caller.sessionId)
         if (!attachment.attached) {
           // A refusal must not undo a successful project init: keep the result
