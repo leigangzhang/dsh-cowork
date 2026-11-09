@@ -20,7 +20,7 @@
 
 - 宿主：DSH web profile，URL `http://127.0.0.1:3080`；browser-skill 0.4.2；`enableDevRoutes=false`（`/dsh-cowork/probe/*` 404 属预期，不是路线缺失）。
 - **插件加载**：dev 注入器 + 别名包 `@dsh-external/dsh-cowork-alias-v1`（从集成 commit 构建的临时副本）。原因：dev 注入路径下宿主按 loader name + baseUrl 缓存 client 元数据（KI-11 pkgMeta）与 Node ESM 模块（KI-16），同名包/同 URL 会命中旧 bundle。**交付包名不变**（`@dsh-external/dsh-cowork`），别名只用于真机验证。
-- 未认证 `curl` 对 `/api/cowork.*` 返回 401（宿主 trust fence），不是路由缺失；面板内已认证的 same-origin `fetch` 才是 A8 的证据来源。
+- 未认证 `curl` 对 `/api/cowork.*` 返回 401（宿主 trust fence），但 **401 不是路由注册证据**：未认证访问任意未知 `/api/*` 路径同样返回 401（本次用未知路径验证过）。路由注册与六条路由行为的证据是面板内已认证 same-origin `fetch`：overview/topic/activity 200，写路由 200/403/415/400（A8）。
 
 ## 交付面
 
