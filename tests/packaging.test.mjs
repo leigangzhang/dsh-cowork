@@ -29,7 +29,7 @@ const patchText = readFileSync(resolve(root, pkg.dsh?.bundle?.patch ?? 'cordis.p
 
 test('package.json keeps the identity and entry points a bundle install relies on', () => {
   assert.equal(pkg.name, '@dsh-external/dsh-cowork')
-  assert.equal(pkg.version, '0.1.0')
+  assert.equal(pkg.version, '0.2.0')
   assert.equal(pkg.private, true, 'the package stays unpublished by default')
   assert.equal(pkg.type, 'module')
   assert.equal(pkg.main, './lib/index.js')
