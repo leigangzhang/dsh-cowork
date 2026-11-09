@@ -963,8 +963,13 @@ test('the client sources carry no v1 vocabulary and never archive a topic', asyn
   const panelSource = sources.get('panel.tsx')
   const footerOpens = panelSource.match(/openTab\(COWORK_TAB_KIND\)/g) ?? []
   assert.equal(footerOpens.length, 1, 'the panel only opens itself from the footer entry, never on mount')
+  assert.match(panelSource, /cw-footer-slot/, 'the footer entry fills the host slot item')
   assert.match(panelSource, /masterBreadcrumbTarget/, 'the breadcrumb resolves a live topic’s master')
   assert.match(panelSource, /masterTarget === null \? null/, 'the breadcrumb is absent when there is no valid target')
+
+  const stylesSource = sources.get('styles.ts')
+  assert.match(stylesSource, /\.cw-footer-button \{[\s\S]*?height: 42px/, 'the footer button matches the 42px sibling action')
+  assert.match(stylesSource, /data-wide='false'[\s\S]*?width: 36px/, 'the collapsed footer button uses the 36px rail size')
 
   const listSource = sources.get('list.tsx')
   assert.match(listSource, /cw-resolved-by/, 'resolved rows show their resolution source')

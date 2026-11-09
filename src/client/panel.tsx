@@ -497,20 +497,22 @@ export function CoworkFooterAction({ wide }: FooterActionOwnerProps): ReactEleme
   const services = useClientServices()
   const canOpen = services.sidebarRight !== undefined && typeof services.sidebarRight.openTab === 'function'
   return (
-    <button
-      type="button"
-      className="cw-footer-button"
-      data-wide={wide ? 'true' : 'false'}
-      aria-label="打开 Cowork 面板"
-      title={canOpen ? '打开 Cowork 面板' : '当前宿主没有提供右侧栏导航服务，无法打开 Cowork 面板。'}
-      disabled={!canOpen}
-      onClick={() => {
-        if (!canOpen || services.sidebarRight === undefined) return
-        services.sidebarRight.openTab(COWORK_TAB_KIND)
-      }}
-    >
-      <span className="cw-footer-glyph" aria-hidden="true">◧</span>
-      {wide ? <span className="cw-footer-label">{COWORK_TAB_TITLE}</span> : null}
-    </button>
+    <div className="cw-footer-slot" data-wide={wide ? 'true' : 'false'}>
+      <button
+        type="button"
+        className="cw-footer-button"
+        data-wide={wide ? 'true' : 'false'}
+        aria-label="打开 Cowork 面板"
+        title={canOpen ? '打开 Cowork 面板' : '当前宿主没有提供右侧栏导航服务，无法打开 Cowork 面板。'}
+        disabled={!canOpen}
+        onClick={() => {
+          if (!canOpen || services.sidebarRight === undefined) return
+          services.sidebarRight.openTab(COWORK_TAB_KIND)
+        }}
+      >
+        <span className="cw-footer-glyph" aria-hidden="true">◧</span>
+        {wide ? <span className="cw-footer-label">{COWORK_TAB_TITLE}</span> : null}
+      </button>
+    </div>
   )
 }

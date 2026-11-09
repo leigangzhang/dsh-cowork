@@ -894,6 +894,17 @@ export const PANEL_CSS = `
   font-size: 11.5px;
 }
 
+.cw-footer-slot {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.cw-footer-slot[data-wide='false'] {
+  width: auto;
+}
+
 .cw-footer-button {
   box-sizing: border-box;
   display: inline-flex;
