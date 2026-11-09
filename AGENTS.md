@@ -17,7 +17,7 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 - **A decision is not editable in place.** Move the proposal to `.agents/notes/implemented/` in the same delivery that lands the work and rewrite it in the present tense; overturning it means a new record.
 - **One home per fact.** The plan owns scope and architecture; AGENTS.md owns pointers; tests and evidence own verification. Do not copy a fact into two files.
 - **Docs are code.** Every Markdown file is classified exactly once in `docs/publish.json`; publication is a per-file promise, not a directory guess. No hand-copied interfaces or generated pages.
-- **Thread = native DSH session.** The only supported way to create a thread is `sessionController.create`; never use a spawn/fork subagent as a user-openable thread.
+- **Topic = native DSH session.** The only supported way to create a topic is `sessionController.create`; never use a spawn/fork subagent as a user-openable session. `thread` is the 0.1.0 name and survives only as a preset alias.
 - **No multi-orchestrator.** Do not add `dsh-agent-hub`, `dsh-forge`, `dsh-team-conductor`, or AgentTeams runtime as dependencies. Review may borrow their semantics, not their packages.
 - **Local only.** No cloud upload, no reading or writing `viking://` from plugin code, no secrets in files or logs.
 - **Verify the world, not the self-report.** Re-run the command or re-read the file from outside the writer. Say what did not run and what cannot be falsified.

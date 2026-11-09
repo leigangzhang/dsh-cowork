@@ -98,7 +98,7 @@
 - **D8 注释与证据不一致**：`src/index.ts` 的探针注释声称证据文档写明 transport 绕过；记录为 KI-35（V0.3 注释清理）。
 - **D9 测试数变化**：基线 732 → 最终 773 = +7 迁移演练 +32 m12-e2e +1 dev-gate F1 +1 api F4。
 - **D10 整机负载下的计时竞态 flake**：M12 终门禁第一次全量运行观测到 `tests/api.test.mjs` 的「late rejection … never becomes unhandled」1 红（期望 504、实际 500）；单文件 41/41 与整套复跑 773/773 均通过。判为测试计时余量过窄（5 ms vs 20 ms）的 flake，不改产品代码，记录为 KI-37（V0.3 用注入时钟硬化）；终门禁以复跑通过为准并保留这次观测。
-- **D11 `AGENTS.md` 的 thread 表述未改**：PLAN §10.1 要求「由用户确认后更新」；交付时用户选择停等，未给出该改写确认，故未改 `AGENTS.md`，记录为 KI-38（待用户确认后 0.2.1/V0.3 处理）。
+- **D11 `AGENTS.md` 的 thread 表述已按确认改写**：PLAN §10.1 要求「由用户确认后更新」；交付时用户选择停等，曾记录为 KI-38。用户在 2026-11-09 确认改写，该行改为「Topic = native DSH session … `thread` 是 0.1.0 旧名、仅存 preset 别名」，KI-38 关闭；README 也在同一批重写为 0.2.0 指南，M12 执行提案迁 implemented。
 
 ## 回滚
 
