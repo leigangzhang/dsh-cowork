@@ -1,35 +1,49 @@
 /**
- * The Cowork panel shell: project header, status chips, layout measurement and
- * the list ⇄ detail surface.
+ * The Cowork panel shell (wire v2): project header, inbox hint, status chips,
+ * layout measurement, the topic list ⇄ detail surface and the write actions.
  *
- * Layout is measured on the panel container with a `ResizeObserver`, because
- * the right Sidebar is a resizable column (about 648px by default, but the user
- * can drag it): above 480px the list and the detail share the width, at or
- * below it the panel becomes a single-column drill-down. Data comes from the
- * read-only host API; this surface never writes project state.
+ * Layout is measured on the panel container with a `ResizeObserver`, because the
+ * right Sidebar is a resizable column: above 480px the list and the detail share
+ * the width, at or below it the panel becomes a single-column drill-down.
+ *
+ * Opening a topic only switches the main area (`uiWorkspace.openSession`): it
+ * never archives a topic, never adds or removes a sidebar entry, and the
+ * breadcrumb goes back to the master session. Writes go through the host's
+ * master-only routes; every result becomes a visible receipt and a refresh.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { HandoffPayload, OverviewPayload } from '../api-contract.ts'
-import { defaultSelectedThreadId } from '../api-contract.ts'
-import { loadHandoff, loadOverview, toPanelError, errorMessage } from './api.ts'
+import type { OverviewResponse, TopicResponse as TopicPayload } from '../api-contract.ts'
+import { defaultSelectedTopicId } from '../api-contract.ts'
 import {
+  errorMessage,
+  loadOverview,
+  loadTopic,
+  moveTopic,
+  reopenTopic,
+  resolveTopic,
+  toPanelError,
+} from './api.ts'
+import {
+  actionFailureMessage,
   chooseLayout,
   copyFailureMessage,
   copySuccessMessage,
   emptyNotice,
   errorPresentation,
   FEEDBACK_TTL_MS,
-  masterMessageMaxHeight,
+  inboxNotice,
+  masterBreadcrumbLabel,
   middleEllipsis,
-  openReviewSessionFailureMessage,
-  openReviewSessionMessage,
-  openReviewSessionUnavailableMessage,
+  moveSuccessMessage,
+  moveTargets as computeMoveTargets,
   openSessionFailureMessage,
   openSessionMessage,
   openSessionUnavailableMessage,
+  openTopicSteps,
   PROJECT_PATH_MAX_CHARS,
-  reviewOpenUnavailableMessage,
+  reopenSuccessMessage,
+  resolveSuccessMessage,
   surfaceState,
   type LayoutMode,
   type NoticePresentation,
@@ -37,8 +51,8 @@ import {
 import type { FooterActionOwnerProps, PanelErrorInfo, TabBodyProps } from './contracts.ts'
 import { COWORK_TAB_KIND, COWORK_TAB_TITLE, useClientServices } from './contracts.ts'
 import { StatusChips } from './chips.tsx'
-import { ThreadList } from './list.tsx'
-import { ThreadDetail, type DetailFeedback, type HandoffPhase } from './detail.tsx'
+import { TopicList } from './list.tsx'
+import { TopicDetail, type DetailFeedback, type DetailPhase } from './detail.tsx'
 import { ensurePanelStyles } from './styles.ts'
 
 /** How often the relative timestamps are recomputed while the panel is open. */
@@ -58,10 +72,10 @@ function LoadingSkeleton(): ReactElement {
   )
 }
 
-/** Empty state: not initialized yet, or a project without threads. */
+/** Empty state: not initialized yet, or a project without topics. */
 function EmptyNotice({ notice, onRefresh }: { readonly notice: NoticePresentation; readonly onRefresh: () => void }): ReactElement {
   return (
-    <div className="cw-notice" data-notice={notice.code ?? 'no-threads'}>
+    <div className="cw-notice" data-notice={notice.code ?? 'no-topics'}>
       <h2 className="cw-notice-title">{notice.title}</h2>
       <p className="cw-notice-detail">{notice.detail}</p>
       {notice.hint === null ? null : <code className="cw-notice-hint">{notice.hint}</code>}
@@ -95,17 +109,16 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   const services = useClientServices()
 
   const [phase, setPhase] = useState<LoadPhase>('loading')
-  const [overview, setOverview] = useState<OverviewPayload | null>(null)
+  const [overview, setOverview] = useState<OverviewResponse | null>(null)
   const [error, setError] = useState<PanelErrorInfo | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [handoff, setHandoff] = useState<HandoffPayload | null>(null)
-  const [handoffPhase, setHandoffPhase] = useState<HandoffPhase>('idle')
-  const [handoffError, setHandoffError] = useState<string | null>(null)
+  const [topic, setTopic] = useState<TopicPayload | null>(null)
+  const [topicPhase, setTopicPhase] = useState<DetailPhase>('idle')
+  const [topicError, setTopicError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<DetailFeedback | null>(null)
   const [drillOpen, setDrillOpen] = useState(false)
   const [layoutWidth, setLayoutWidth] = useState<number | null>(null)
-  const [layoutHeight, setLayoutHeight] = useState(0)
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -118,21 +131,16 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   useLayoutEffect(() => {
     const node = rootRef.current
     if (node === null) return
-    const apply = (width: number, height: number): void => {
+    const apply = (width: number): void => {
       setLayoutWidth(current => (current === width ? current : width))
-      setLayoutHeight(current => (current === height ? current : height))
     }
-    const measure = (): void => {
-      const rect = node.getBoundingClientRect()
-      apply(rect.width, rect.height)
-    }
+    const measure = (): void => { apply(node.getBoundingClientRect().width) }
     measure()
     if (typeof ResizeObserver === 'function') {
       const observer = new ResizeObserver(entries => {
         const entry = entries[0]
         if (entry === undefined) return
-        const box = entry.contentRect
-        apply(box.width, box.height)
+        apply(entry.contentRect.width)
       })
       observer.observe(node)
       return () => { observer.disconnect() }
@@ -142,7 +150,7 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   }, [])
 
   // Load / refresh the overview; abort the in-flight request when the effect
-  // tears down (unmount, session change, refresh) or the panel is hidden.
+  // tears down (unmount, session change, refresh).
   useEffect(() => {
     const controller = new AbortController()
     let active = true
@@ -154,9 +162,9 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
       setPhase('ready')
       setNowMs(Date.now())
       setSelectedId(current => (
-        current !== null && result.threads.some(thread => thread.threadId === current)
+        current !== null && result.topics.some(entry => entry.topicId === current)
           ? current
-          : defaultSelectedThreadId(result.threads)
+          : defaultSelectedTopicId(result.topics)
       ))
     }).catch((reason: unknown) => {
       if (!active || controller.signal.aborted) return
@@ -170,46 +178,39 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     }
   }, [sessionId, refreshToken])
 
-  const selectedThread = overview === null
+  const selectedTopic = overview === null
     ? null
-    : overview.threads.find(thread => thread.threadId === selectedId) ?? null
-  const selectedThreadId = selectedThread?.threadId ?? null
-  const selectedThreadHasHandoff = selectedThread?.hasHandoff ?? false
+    : overview.topics.find(entry => entry.topicId === selectedId) ?? null
+  const selectedTopicId = selectedTopic?.topicId ?? null
 
-  // Load the selected thread's latest handoff; no handoff means the
-  // `no-handoff` state, and every non-abort failure stays visible.
+  // Load the selected topic's detail (work items, review requests, activity).
   useEffect(() => {
-    if (phase !== 'ready' || selectedThreadId === null || !selectedThreadHasHandoff) {
-      setHandoff(null)
-      setHandoffError(null)
-      setHandoffPhase(selectedThreadId === null ? 'idle' : 'none')
+    if (phase !== 'ready' || selectedTopicId === null) {
+      setTopic(null)
+      setTopicError(null)
+      setTopicPhase('idle')
       return
     }
     const controller = new AbortController()
     let active = true
-    setHandoff(null)
-    setHandoffError(null)
-    setHandoffPhase('loading')
-    loadHandoff(sessionId, selectedThreadId, controller.signal).then(result => {
+    setTopic(null)
+    setTopicError(null)
+    setTopicPhase('loading')
+    loadTopic(sessionId, selectedTopicId, controller.signal).then(result => {
       if (!active) return
-      if (result === null) {
-        setHandoff(null)
-        setHandoffPhase('none')
-      } else {
-        setHandoff(result)
-        setHandoffPhase('ready')
-      }
+      setTopic(result)
+      setTopicPhase('ready')
     }).catch((reason: unknown) => {
       if (!active || controller.signal.aborted) return
-      setHandoff(null)
-      setHandoffError(errorMessage(reason))
-      setHandoffPhase('error')
+      setTopic(null)
+      setTopicError(errorMessage(reason))
+      setTopicPhase('error')
     })
     return () => {
       active = false
       controller.abort()
     }
-  }, [phase, sessionId, selectedThreadId, selectedThreadHasHandoff, refreshToken])
+  }, [phase, sessionId, selectedTopicId, refreshToken])
 
   const layout = chooseLayout(layoutWidth)
 
@@ -235,7 +236,7 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     if (!wasDrillOpen.current) return
     wasDrillOpen.current = false
     rootRef.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.focus()
-  }, [layout, drillOpen, selectedThreadId])
+  }, [layout, drillOpen, selectedTopicId])
 
   // Keep the relative timestamps honest while the panel stays open.
   useEffect(() => {
@@ -265,56 +266,96 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     setRefreshToken(token => token + 1)
   }, [])
 
-  const selectThread = useCallback((threadId: string) => {
-    setSelectedId(threadId)
+  const selectTopic = useCallback((topicId: string) => {
+    setSelectedId(topicId)
     setDrillOpen(true)
   }, [])
 
-  const openSession = useCallback(() => {
-    if (selectedThread === null) return
+  const canOpenSession = services.uiWorkspace !== undefined
+    && typeof services.uiWorkspace.openSession === 'function'
+
+  /**
+   * Open one topic: the model fixes the steps. `unarchive` is a tolerance for a
+   * topic the user archived by hand (a live topic rejects it, and that refusal
+   * is ignored); the actual navigation is `openSession`, which only switches the
+   * main area. Nothing here archives a topic or touches the sidebar.
+   */
+  const openTopic = useCallback(async (topicId: string) => {
     const workspace = services.uiWorkspace
     if (workspace === undefined || typeof workspace.openSession !== 'function') {
       showFeedback({ kind: 'failed', text: openSessionUnavailableMessage() })
       return
     }
+    const steps = openTopicSteps()
     try {
-      workspace.openSession(selectedThread.threadId)
-      showFeedback({ kind: 'ok', text: openSessionMessage(selectedThread.threadId) })
+      if (steps.includes('unarchive') && typeof workspace.unarchiveSession === 'function') {
+        try {
+          await workspace.unarchiveSession(topicId)
+        } catch {
+          // The normal case (topic not archived) refuses; opening still works.
+        }
+      }
+      if (steps.includes('open')) workspace.openSession(topicId)
+      showFeedback({ kind: 'ok', text: openSessionMessage(topicId) })
     } catch (reason) {
       showFeedback({ kind: 'failed', text: openSessionFailureMessage(errorMessage(reason)) })
     }
-  }, [selectedThread, services.uiWorkspace, showFeedback])
+  }, [services.uiWorkspace, showFeedback])
 
-  /**
-   * Open the review session. This is deliberately separate from the thread
-   * session action: the review session is a different id, and pressing it must
-   * never navigate to the selected thread instead.
-   */
-  const openReviewSession = useCallback(() => {
-    const reviewerSessionId = selectedThread?.reviewerSessionId
-      ?? handoff?.review?.record.reviewerSessionId
-      ?? null
-    if (reviewerSessionId === null) {
-      showFeedback({ kind: 'failed', text: reviewOpenUnavailableMessage() })
-      return
-    }
+  const backToMaster = useCallback(() => {
+    const masterSessionId = overview?.project.masterSessionId ?? ''
     const workspace = services.uiWorkspace
-    if (workspace === undefined || typeof workspace.openSession !== 'function') {
-      showFeedback({ kind: 'failed', text: openReviewSessionUnavailableMessage() })
+    if (masterSessionId.length === 0 || workspace === undefined || typeof workspace.openSession !== 'function') {
+      showFeedback({ kind: 'failed', text: openSessionUnavailableMessage() })
       return
     }
     try {
-      workspace.openSession(reviewerSessionId)
-      showFeedback({ kind: 'ok', text: openReviewSessionMessage(reviewerSessionId) })
+      workspace.openSession(masterSessionId)
+      showFeedback({ kind: 'ok', text: '已返回 master 会话' })
     } catch (reason) {
-      showFeedback({ kind: 'failed', text: openReviewSessionFailureMessage(errorMessage(reason)) })
+      showFeedback({ kind: 'failed', text: openSessionFailureMessage(errorMessage(reason)) })
     }
-  }, [selectedThread, handoff?.review, services.uiWorkspace, showFeedback])
+  }, [services.uiWorkspace, overview?.project.masterSessionId, showFeedback])
 
-  const copyHandoffPath = useCallback(() => {
-    const filePath = handoff?.filePath
-    if (filePath === undefined || filePath.length === 0) {
-      showFeedback({ kind: 'failed', text: copyFailureMessage('没有可复制的交接单路径') })
+  const resolveSelected = useCallback(async () => {
+    if (selectedTopic === null) return
+    try {
+      await resolveTopic(sessionId, selectedTopic.topicId)
+      showFeedback({ kind: 'ok', text: resolveSuccessMessage(selectedTopic.topicId) })
+      refresh()
+    } catch (reason) {
+      showFeedback({ kind: 'failed', text: actionFailureMessage('标记已解决', errorMessage(reason)) })
+    }
+  }, [sessionId, selectedTopic, showFeedback, refresh])
+
+  const reopenSelected = useCallback(async () => {
+    if (selectedTopic === null) return
+    try {
+      await reopenTopic(sessionId, selectedTopic.topicId)
+      showFeedback({ kind: 'ok', text: reopenSuccessMessage(selectedTopic.topicId) })
+      refresh()
+    } catch (reason) {
+      showFeedback({ kind: 'failed', text: actionFailureMessage('重新打开', errorMessage(reason)) })
+    }
+  }, [sessionId, selectedTopic, showFeedback, refresh])
+
+  const moveSelected = useCallback(async (fromTopicId: string, toTopicId: string, intent: string) => {
+    try {
+      const result = await moveTopic(sessionId, fromTopicId, toTopicId, intent)
+      showFeedback({
+        kind: 'ok',
+        text: moveSuccessMessage({ changed: result.changed, addedCount: result.added.length }),
+      })
+      refresh()
+    } catch (reason) {
+      showFeedback({ kind: 'failed', text: actionFailureMessage('移动到其他主题', errorMessage(reason)) })
+    }
+  }, [sessionId, showFeedback, refresh])
+
+  const copyPath = useCallback(() => {
+    const repoPath = overview?.project.repoPath ?? ''
+    if (repoPath.length === 0) {
+      showFeedback({ kind: 'failed', text: copyFailureMessage('没有可复制的项目路径') })
       return
     }
     const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard
@@ -322,50 +363,51 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
       showFeedback({ kind: 'failed', text: copyFailureMessage('当前上下文没有剪贴板权限') })
       return
     }
-    clipboard.writeText(filePath).then(() => {
+    clipboard.writeText(repoPath).then(() => {
       showFeedback({ kind: 'ok', text: copySuccessMessage() })
     }).catch((reason: unknown) => {
       showFeedback({ kind: 'failed', text: copyFailureMessage(errorMessage(reason)) })
     })
-  }, [handoff?.filePath, showFeedback])
+  }, [overview?.project.repoPath, showFeedback])
 
-  const surface = surfaceState({ loading: phase === 'loading', error, threadCount: overview?.threads.length ?? 0 })
-  const emptyPresentation = error === null ? emptyNotice('no-threads') : errorPresentation(error)
-  const canOpenSession = services.uiWorkspace !== undefined && typeof services.uiWorkspace.openSession === 'function'
-  const reviewerSessionId = selectedThread?.reviewerSessionId
-    ?? handoff?.review?.record.reviewerSessionId
-    ?? null
-  const canOpenReviewSession = canOpenSession && reviewerSessionId !== null
-  const reviewOpenHint = reviewerSessionId === null
-    ? reviewOpenUnavailableMessage()
-    : openReviewSessionUnavailableMessage()
+  const surface = surfaceState({
+    loading: phase === 'loading',
+    error,
+    topicCount: overview?.topics.length ?? 0,
+  })
+  const emptyPresentation = error === null ? emptyNotice('no-topics') : errorPresentation(error)
+  const inboxHint = overview === null ? null : inboxNotice(overview.inbox)
+  const movedTargets = overview === null || selectedTopic === null
+    ? []
+    : computeMoveTargets(overview.topics, selectedTopic.topicId)
 
-  const detail = selectedThread === null ? null : (
-    <ThreadDetail
-      thread={selectedThread}
+  const detail = selectedTopic === null ? null : (
+    <TopicDetail
+      key={selectedTopic.topicId}
+      topic={selectedTopic}
+      detail={topic}
+      detailPhase={topicPhase}
+      detailError={topicError}
       nowMs={nowMs}
-      handoff={handoff}
-      handoffPhase={handoffPhase}
-      handoffError={handoffError}
-      masterMaxHeight={masterMessageMaxHeight(layoutHeight)}
-      canOpenSession={canOpenSession}
-      openSessionHint={openSessionUnavailableMessage()}
       feedback={feedback}
-      onOpenSession={openSession}
-      canOpenReviewSession={canOpenReviewSession}
-      reviewOpenHint={reviewOpenHint}
-      onOpenReviewSession={openReviewSession}
-      onCopyPath={copyHandoffPath}
+      canOpen={canOpenSession}
+      openHint={openSessionUnavailableMessage()}
+      moveTargets={movedTargets}
+      onOpen={() => { void openTopic(selectedTopic.topicId) }}
+      onResolve={() => { void resolveSelected() }}
+      onReopen={() => { void reopenSelected() }}
+      onMove={(fromTopicId, toTopicId, intent) => { void moveSelected(fromTopicId, toTopicId, intent) }}
+      onCopyPath={copyPath}
       onBack={layout === 'drill' ? () => { setDrillOpen(false) } : null}
     />
   )
 
   const list = overview === null ? null : (
-    <ThreadList
-      threads={overview.threads}
+    <TopicList
+      topics={overview.topics}
       selectedId={selectedId}
       nowMs={nowMs}
-      onSelect={selectThread}
+      onSelect={selectTopic}
     />
   )
 
@@ -378,12 +420,26 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
         >
           {overview === null ? COWORK_TAB_TITLE : middleEllipsis(overview.project.repoPath, PROJECT_PATH_MAX_CHARS)}
         </span>
+        {inboxHint === null ? null : (
+          <span className="cw-chip cw-inbox-chip" title={inboxHint.title}>
+            <span className="cw-chip-label">{inboxHint.label}</span>
+          </span>
+        )}
+        <button
+          type="button"
+          className="cw-breadcrumb"
+          onClick={backToMaster}
+          disabled={!canOpenSession}
+          title="返回 master 会话"
+        >
+          ← {masterBreadcrumbLabel()}
+        </button>
         <button
           type="button"
           className="cw-icon-button"
           onClick={refresh}
           disabled={phase === 'loading'}
-          aria-label="刷新 Cowork 总览"
+          aria-label="刷新 Cowork 项目"
         >
           刷新
         </button>
@@ -401,7 +457,7 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
               <>
                 {list}
                 <div className="cw-detail-pane">
-                  {detail ?? <p className="cw-muted cw-detail-empty">选择左侧的 thread 查看详情。</p>}
+                  {detail ?? <p className="cw-muted cw-detail-empty">选择左侧的主题查看详情。</p>}
                 </div>
               </>
             )

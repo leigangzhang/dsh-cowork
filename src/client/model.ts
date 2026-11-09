@@ -1,46 +1,50 @@
 /**
- * Pure presentation logic for the Cowork panel.
+ * Pure presentation logic for the Cowork panel (wire v2).
  *
- * Everything here is a plain function over values: layout selection, time
- * formatting, status copy, error-to-state mapping and clipboard feedback. The
- * React components consume it, and `tests/panel-model.test.mjs` pins it without
- * rendering anything. This module must stay React-free (no JSX, no `react`
- * import) so it can be loaded by `node --test` through type stripping.
+ * Everything here is a plain function over values: layout selection, status and
+ * review copy, header chips, action availability, time formatting, error
+ * mapping and action receipts. The React components consume it and
+ * `tests/panel-model.test.mjs` pins it without rendering anything, so this
+ * module must stay React-free (no JSX, no `react` import) to stay loadable by
+ * `node --test` through type stripping.
  */
 import type {
   PanelCounts,
+  PanelInboxItem,
   PanelReviewSeverity,
   PanelReviewStatus,
-  PanelThreadStatus,
+  PanelTopic,
+  PanelTopicStatus,
+  PanelWorkItemStatus,
 } from '../api-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 
 /** Layout switch: above this measured width the panel splits into two columns. */
 export const SPLIT_WIDTH_THRESHOLD = 480
 
-/** Width of the thread list column in split mode. */
+/** Width of the topic list column in split mode. */
 export const LIST_COLUMN_WIDTH = 248
 
-/** Threads above this count make the list scroll (the long-list state). */
+/** Topics above this count make the list scroll (the long-list state). */
 export const LONG_LIST_THRESHOLD = 12
 
-/** Subjects above this length are visually truncated (the long-subject state). */
+/** Titles above this length are visually truncated (the long-title state). */
 export const LONG_SUBJECT_THRESHOLD = 48
 
-/** Characters kept when the header shortens a repository path. */
+/** Characters kept when the header shortens the project path. */
 export const PROJECT_PATH_MAX_CHARS = 44
 
-/** Characters kept when the detail shows a thread id. */
-export const THREAD_ID_MAX_CHARS = 8
+/** Characters kept when the detail header shows a topic id. */
+export const TOPIC_ID_MAX_CHARS = 8
 
-/** How long an action receipt (copy / open session) stays on screen. */
+/** How long an action receipt stays on screen. */
 export const FEEDBACK_TTL_MS = 5000
 
-/** Fallback height for the MASTER message block before the panel is measured. */
-export const MASTER_MESSAGE_FALLBACK_HEIGHT = 240
+/** Characters kept in the inbox chip's tooltip (the joined summaries). */
+export const INBOX_TITLE_MAX_CHARS = 160
 
-/** Smallest height the MASTER message block may shrink to. */
-export const MASTER_MESSAGE_MIN_HEIGHT = 120
+/** Most inbox summaries the tooltip joins; the count chip still shows them all. */
+export const INBOX_TITLE_SUMMARIES = 5
 
 /** Layout mode chosen from the measured container width. */
 export type LayoutMode = 'split' | 'drill'
@@ -48,8 +52,8 @@ export type LayoutMode = 'split' | 'drill'
 /**
  * Pick the layout from the width measured on the panel container (not the
  * viewport): above {@link SPLIT_WIDTH_THRESHOLD} the list and the detail sit
- * side by side, at or below it the panel becomes a single-column drill-down so
- * two columns are never squeezed. An unmeasured width stays in drill mode.
+ * side by side, at or below it the panel becomes a single-column drill-down.
+ * An unmeasured width stays in drill mode.
  */
 export function chooseLayout(measuredWidth: number | null | undefined): LayoutMode {
   if (typeof measuredWidth !== 'number' || !Number.isFinite(measuredWidth)) return 'drill'
@@ -61,27 +65,27 @@ export type PanelSurfaceState = 'loading' | 'error' | 'empty' | 'default'
 
 /**
  * Decide the surface state. A failed load wins over an empty list; a project
- * that is not initialized (or simply has no threads yet) is the empty state;
- * anything else renders the list/detail surface.
+ * that is not initialized (or has no topics yet) is the empty state; anything
+ * else renders the list/detail surface.
  */
 export function surfaceState(input: {
   readonly loading: boolean
   readonly error: PanelErrorInfo | null
-  readonly threadCount: number
+  readonly topicCount: number
 }): PanelSurfaceState {
   if (input.loading) return 'loading'
   if (input.error !== null) return input.error.code === 'project/not-initialized' ? 'empty' : 'error'
-  return input.threadCount === 0 ? 'empty' : 'default'
+  return input.topicCount === 0 ? 'empty' : 'default'
 }
 
 /** Whether the list needs its own scroll area (the long-list state). */
-export function isLongList(threadCount: number): boolean {
-  return threadCount > LONG_LIST_THRESHOLD
+export function isLongList(topicCount: number): boolean {
+  return topicCount > LONG_LIST_THRESHOLD
 }
 
-/** Whether one row's subject needs truncation (the long-subject state). */
-export function isLongSubject(subject: string): boolean {
-  return subject.length > LONG_SUBJECT_THRESHOLD
+/** Whether one row's title needs truncation (the long-title state). */
+export function isLongSubject(title: string): boolean {
+  return title.length > LONG_SUBJECT_THRESHOLD
 }
 
 /** Shorten `text` in the middle, keeping both ends readable. */
@@ -94,40 +98,53 @@ export function middleEllipsis(text: string, maxChars: number): string {
   return `${text.slice(0, head)}…${text.slice(-tail)}`
 }
 
-/** Short thread id shown in the detail header. */
-export function shortThreadId(threadId: string): string {
-  return threadId.length <= THREAD_ID_MAX_CHARS ? threadId : threadId.slice(0, THREAD_ID_MAX_CHARS)
+/** Short topic id shown in the detail header (topic ids are session ids). */
+export function shortTopicId(topicId: string): string {
+  return topicId.length <= TOPIC_ID_MAX_CHARS ? topicId : topicId.slice(0, TOPIC_ID_MAX_CHARS)
 }
 
-/** Chinese labels for the five listable thread statuses. */
-export const STATUS_LABELS: Record<PanelThreadStatus, string> = {
-  new: '新建',
-  active: '进行中',
-  awaiting_review: '待审查',
-  blocked: '受阻',
-  done: '已完成',
-}
-
-/** Label for a status value; unknown values stay visible instead of vanishing. */
-export function statusLabel(status: PanelThreadStatus): string {
-  return STATUS_LABELS[status] ?? String(status)
+/** Short commit for the work-item table; an absent head/base reads as a dash. */
+export function shortCommit(commit: string | null): string {
+  if (commit === null || commit.length === 0) return '—'
+  return commit.length <= 7 ? commit : commit.slice(0, 7)
 }
 
 /** Status dot tones, resolved to public theme tokens in `styles.ts`. */
 export type StatusTone = 'success' | 'warn' | 'error' | 'idle'
 
-/** One tone per status; the visible label always accompanies the dot. */
-export const STATUS_TONES: Record<PanelThreadStatus, StatusTone> = {
-  new: 'idle',
-  active: 'success',
-  awaiting_review: 'warn',
-  blocked: 'error',
-  done: 'idle',
+/** Chinese labels for the three topic states; resolved topics stay listed. */
+export const TOPIC_STATUS_LABELS: Record<PanelTopicStatus, string> = {
+  active: '进行中',
+  idle: '空闲',
+  resolved: '已解决',
 }
 
-/** Tone of one status value; unknown values fall back to the neutral dot. */
-export function statusTone(status: PanelThreadStatus): StatusTone {
-  return STATUS_TONES[status] ?? 'idle'
+/** Label of one topic state; an invented state stays visible instead of vanishing. */
+export function statusLabel(status: PanelTopicStatus): string {
+  return TOPIC_STATUS_LABELS[status] ?? String(status)
+}
+
+/** One tone per topic state; the visible label always accompanies the dot. */
+export const TOPIC_STATUS_TONES: Record<PanelTopicStatus, StatusTone> = {
+  active: 'success',
+  idle: 'idle',
+  resolved: 'success',
+}
+
+/** Tone of one topic state; unknown values fall back to the neutral dot. */
+export function statusTone(status: PanelTopicStatus): StatusTone {
+  return TOPIC_STATUS_TONES[status] ?? 'idle'
+}
+
+/** Who resolved a topic; `master` covers the automated resolution. */
+export const RESOLVED_BY_LABELS: Record<'user' | 'master', string> = {
+  user: '用户',
+  master: '自动',
+}
+
+/** Label of one resolution source; an invented source stays visible. */
+export function resolvedByLabel(resolvedBy: 'user' | 'master'): string {
+  return RESOLVED_BY_LABELS[resolvedBy] ?? String(resolvedBy)
 }
 
 /** Chinese labels for the four review states; the badge always shows one. */
@@ -143,7 +160,7 @@ export function reviewStatusLabel(status: PanelReviewStatus): string {
   return REVIEW_STATUS_LABELS[status] ?? String(status)
 }
 
-/** Review badge tones, resolved to public theme tokens in `styles.ts`. */
+/** Review badge tones: only a pass reads as success. */
 export const REVIEW_STATUS_TONES: Record<PanelReviewStatus, StatusTone> = {
   pending: 'warn',
   pass: 'success',
@@ -182,6 +199,32 @@ export function findingSeverityTone(severity: PanelReviewSeverity): StatusTone {
   return FINDING_SEVERITY_TONES[severity] ?? 'idle'
 }
 
+/** Chinese labels for the four work-item states. */
+export const WORK_ITEM_STATUS_LABELS: Record<PanelWorkItemStatus, string> = {
+  active: '进行中',
+  reviewing: '审查中',
+  merged: '已合并',
+  abandoned: '已放弃',
+}
+
+/** Label of one work-item state; an invented state stays visible. */
+export function workItemStatusLabel(status: PanelWorkItemStatus): string {
+  return WORK_ITEM_STATUS_LABELS[status] ?? String(status)
+}
+
+/** Work-item tones: only a merged unit reads as finished-success. */
+export const WORK_ITEM_STATUS_TONES: Record<PanelWorkItemStatus, StatusTone> = {
+  active: 'success',
+  reviewing: 'warn',
+  merged: 'idle',
+  abandoned: 'error',
+}
+
+/** Tone of one work-item state; unknown values fall back to neutral. */
+export function workItemStatusTone(status: PanelWorkItemStatus): StatusTone {
+  return WORK_ITEM_STATUS_TONES[status] ?? 'idle'
+}
+
 /**
  * Tooltip of a review badge: the state, the absolute review time when there is
  * one, and the finding count when the review carries findings. The visible
@@ -198,25 +241,314 @@ export function reviewBadgeTitle(
   return parts.join(' · ')
 }
 
-/** Header chip order: work in flight first, brand-new threads last. */
-export const CHIP_STATUS_ORDER: readonly PanelThreadStatus[] = [
-  'active', 'awaiting_review', 'blocked', 'done', 'new',
-]
+/** Count fields the header chips render, in their fixed order. */
+export type StatusChipKey = 'active' | 'idle' | 'resolved' | 'blocked' | 'awaitingReview'
 
-/** One header chip: status, label and current count. */
+/** One header chip: count field, label, tone and current count. */
 export interface StatusChip {
-  readonly status: PanelThreadStatus
+  readonly key: StatusChipKey
   readonly label: string
+  readonly tone: StatusTone
   readonly count: number
 }
 
-/** Build the header chips from the overview counts. */
+/** Chip order and copy: topic states first, then the two markers. */
+const STATUS_CHIP_DEFINITIONS: readonly {
+  readonly key: StatusChipKey
+  readonly label: string
+  readonly tone: StatusTone
+}[] = [
+  { key: 'active', label: '进行中', tone: 'success' },
+  { key: 'idle', label: '空闲', tone: 'idle' },
+  { key: 'resolved', label: '已解决', tone: 'success' },
+  { key: 'blocked', label: '受阻', tone: 'error' },
+  { key: 'awaitingReview', label: '待评审', tone: 'warn' },
+]
+
+/** Build the header chips from the overview counts, zero-filled. */
 export function statusChips(counts: PanelCounts): StatusChip[] {
-  return CHIP_STATUS_ORDER.map(status => ({
-    status,
-    label: statusLabel(status),
-    count: counts[status] ?? 0,
+  return STATUS_CHIP_DEFINITIONS.map(chip => ({
+    key: chip.key,
+    label: chip.label,
+    tone: chip.tone,
+    count: counts[chip.key] ?? 0,
   }))
+}
+
+/** One marker chip (blocked / awaiting review) shown on a topic row. */
+export interface TopicMarker {
+  readonly label: string
+  readonly tone: StatusTone
+}
+
+/** One topic row's presentation: state, markers, review badge and summary. */
+export interface TopicRowPresentation {
+  readonly statusLabel: string
+  readonly statusTone: StatusTone
+  readonly markers: readonly TopicMarker[]
+  readonly reviewLabel: string | null
+  readonly reviewTone: StatusTone | null
+  readonly reviewTitle: string | null
+  readonly digest: string
+  readonly resolvedByLabel: string | null
+  readonly hasActiveWork: boolean
+}
+
+/**
+ * Project one topic into what the list row shows. The markers are derived from
+ * the two wire flags (they outrank the state chip), and a resolved topic keeps
+ * its resolution source so the row can say who closed it.
+ */
+export function topicRow(topic: PanelTopic): TopicRowPresentation {
+  const markers: TopicMarker[] = []
+  if (topic.blocked) markers.push({ label: '受阻', tone: 'error' })
+  if (topic.awaitingReview) markers.push({ label: '待评审', tone: 'warn' })
+  const reviewStatus = topic.reviewStatus
+  return {
+    statusLabel: statusLabel(topic.status),
+    statusTone: statusTone(topic.status),
+    markers,
+    reviewLabel: reviewStatus === null ? null : reviewStatusLabel(reviewStatus),
+    reviewTone: reviewStatus === null ? null : reviewStatusTone(reviewStatus),
+    reviewTitle: reviewStatus === null ? null : reviewBadgeTitle(reviewStatus, null),
+    digest: topic.digest,
+    resolvedByLabel: topic.resolvedBy === null ? null : resolvedByLabel(topic.resolvedBy),
+    hasActiveWork: topic.activeWorkItems > 0,
+  }
+}
+
+/** Which topic actions the detail offers, and the warning the resolve card shows. */
+export interface TopicActions {
+  readonly canResolve: boolean
+  readonly canReopen: boolean
+  readonly canMove: boolean
+  readonly resolveWarning: string | null
+}
+
+/**
+ * Action availability: a resolved topic can only be reopened; an open one can be
+ * resolved and have its routing moved. Resolving while work items still run is
+ * allowed but warns, because it cannot be undone from the panel.
+ */
+export function topicActions(topic: PanelTopic): TopicActions {
+  const resolved = topic.status === 'resolved'
+  return {
+    canResolve: !resolved,
+    canReopen: resolved,
+    canMove: !resolved,
+    resolveWarning: topic.activeWorkItems > 0
+      ? `该主题仍有 ${topic.activeWorkItems} 个工作项在跑；标记已解决后不可撤销`
+      : null,
+  }
+}
+
+/** Other open topics a route may be moved to, in the order the overview gave. */
+export function moveTargets(topics: readonly PanelTopic[], currentTopicId: string): PanelTopic[] {
+  return topics.filter(topic => topic.topicId !== currentTopicId && topic.status !== 'resolved')
+}
+
+/** Prefill for the move intent: the topic digest, or its title when empty. */
+export function moveIntentPrefill(topic: PanelTopic): string {
+  return topic.digest.trim().length > 0 ? topic.digest : topic.title
+}
+
+/** The steps of opening a topic, in order (unarchive is only a tolerance). */
+export function openTopicSteps(): readonly ('unarchive' | 'open')[] {
+  return ['unarchive', 'open']
+}
+
+/** Breadcrumb copy: the control always returns to the master session. */
+export function masterBreadcrumbLabel(): string {
+  return '返回 master'
+}
+
+/** What the panel renders for an error or an empty project. */
+export interface NoticePresentation {
+  readonly kind: 'empty' | 'error'
+  readonly title: string
+  readonly detail: string
+  readonly code: string | null
+  readonly path: string | null
+  readonly retry: boolean
+  readonly hint: string | null
+}
+
+/** One small header hint: how many inbox items are still waiting. */
+export interface InboxNotice {
+  readonly count: number
+  readonly label: string
+  readonly title: string
+}
+
+/**
+ * Header hint for the undelivered inbox items (the wire already filters and
+ * bounds them). No items means no hint; the tooltip joins the first five
+ * summaries, so the user can see why the master is needed without a new panel.
+ */
+export function inboxNotice(inbox: readonly PanelInboxItem[]): InboxNotice | null {
+  if (inbox.length === 0) return null
+  const summaries = inbox
+    .slice(0, INBOX_TITLE_SUMMARIES)
+    .map(item => item.summary.trim())
+    .filter(summary => summary.length > 0)
+  const joined = summaries.join(' · ')
+  return {
+    count: inbox.length,
+    label: `待处理 ${inbox.length}`,
+    title: joined.length === 0 ? '有未投递的收件箱条目' : middleEllipsis(joined, INBOX_TITLE_MAX_CHARS),
+  }
+}
+
+/** Copy for a project without topics yet (as opposed to not initialized). */
+export function emptyNotice(reason: 'no-topics'): NoticePresentation {
+  return {
+    kind: 'empty',
+    title: '这个项目还没有主题',
+    detail: reason === 'no-topics'
+      ? '让 master 会话用 cowork_topic_create 建一个主题，面板会在这里列出它。'
+      : '',
+    code: null,
+    path: null,
+    retry: true,
+    hint: 'cowork_topic_create',
+  }
+}
+
+/**
+ * Map a host error to a panel notice. `project/not-initialized` is an empty
+ * state naming the init command; `topic/not-found` is an empty state because the
+ * topic is simply gone; the two write-route refusals explain themselves without
+ * offering a retry that cannot help; `store/corrupt` keeps its code and path;
+ * everything else is a generic retryable error.
+ */
+export function errorPresentation(error: PanelErrorInfo | null): NoticePresentation {
+  if (error === null) {
+    return {
+      kind: 'error',
+      title: '读取 Cowork 项目失败',
+      detail: '没有拿到错误详情，请重试。',
+      code: null,
+      path: null,
+      retry: true,
+      hint: null,
+    }
+  }
+  if (error.code === 'project/not-initialized') {
+    return {
+      kind: 'empty',
+      title: '这个仓库还没有 Cowork 项目',
+      detail: '在 cowork-master 会话中调用 cowork_project_init 初始化当前仓库，然后刷新面板。',
+      code: error.code,
+      path: error.path ?? null,
+      retry: false,
+      hint: 'cowork_project_init',
+    }
+  }
+  if (error.code === 'topic/not-found') {
+    return {
+      kind: 'empty',
+      title: '这个主题不在项目索引里',
+      detail: '它可能已被移出或索引已重建；刷新后会重新读取。',
+      code: error.code,
+      path: error.path ?? null,
+      retry: true,
+      hint: null,
+    }
+  }
+  if (error.code === 'store/corrupt') {
+    return {
+      kind: 'error',
+      title: '项目记录已损坏',
+      detail: error.message,
+      code: error.code,
+      path: error.path ?? null,
+      retry: true,
+      hint: null,
+    }
+  }
+  if (error.code === 'request/not-master') {
+    return {
+      kind: 'error',
+      title: '只有 master 会话可以修改主题',
+      detail: '请在 cowork-master 会话中操作，或让 master 代你执行。',
+      code: error.code,
+      path: error.path ?? null,
+      retry: false,
+      hint: null,
+    }
+  }
+  if (error.code === 'request/origin') {
+    return {
+      kind: 'error',
+      title: '请求来源不被接受',
+      detail: '面板请求必须与宿主同源；请从 Cowork 面板内操作，或刷新后重试。',
+      code: error.code,
+      path: error.path ?? null,
+      retry: false,
+      hint: null,
+    }
+  }
+  return {
+    kind: 'error',
+    title: '读取 Cowork 项目失败',
+    detail: error.message,
+    code: error.code,
+    path: error.path ?? null,
+    retry: true,
+    hint: null,
+  }
+}
+
+/** Receipt after copying a path to the clipboard. */
+export function copySuccessMessage(): string {
+  return '已复制项目路径'
+}
+
+/** Receipt after a failed clipboard write; never silent. */
+export function copyFailureMessage(reason: string): string {
+  const suffix = reason.trim().length === 0 ? '' : `（${reason.trim()}）`
+  return `复制失败：请在浏览器允许剪贴板权限后重试${suffix}`
+}
+
+/** Receipt shown when the workspace service is unavailable. */
+export function openSessionUnavailableMessage(): string {
+  return '当前宿主没有提供会话导航服务，无法打开主题。'
+}
+
+/** Receipt after asking the host to show a topic's Conversation. */
+export function openSessionMessage(topicId: string): string {
+  return `已切换到主题 ${shortTopicId(topicId)}`
+}
+
+/** Receipt after the host refused the navigation. */
+export function openSessionFailureMessage(reason: string): string {
+  const suffix = reason.trim().length === 0 ? '' : `（${reason.trim()}）`
+  return `打开主题失败${suffix}`
+}
+
+/** Receipt after the host marked a topic resolved. */
+export function resolveSuccessMessage(topicId: string): string {
+  return `已把主题 ${shortTopicId(topicId)} 标记为已解决`
+}
+
+/** Receipt after the host reopened a resolved topic. */
+export function reopenSuccessMessage(topicId: string): string {
+  return `已重新打开主题 ${shortTopicId(topicId)}`
+}
+
+/** Receipt after a route move; an unchanged move says so instead of claiming success. */
+export function moveSuccessMessage(input: {
+  readonly changed: boolean
+  readonly addedCount: number
+}): string {
+  if (!input.changed) return '目标主题已经包含这条路由，没有改动'
+  return `已移动到目标主题，新增 ${input.addedCount} 个别名`
+}
+
+/** Receipt for a failed write action: names the action and the host's reason. */
+export function actionFailureMessage(label: string, reason: string): string {
+  const suffix = reason.trim().length === 0 ? '' : `（${reason.trim()}）`
+  return `${label}失败${suffix}`
 }
 
 /** Two-digit zero padding for timestamp formatting. */
@@ -259,167 +591,4 @@ export function verificationExitLabel(exitCode: number): string {
 /** Tone of a verification row: only a clean exit reads as success. */
 export function verificationTone(exitCode: number): StatusTone {
   return exitCode === 0 ? 'success' : 'error'
-}
-
-/** What the panel renders for an error or an empty project. */
-export interface NoticePresentation {
-  readonly kind: 'empty' | 'error'
-  readonly title: string
-  readonly detail: string
-  readonly code: string | null
-  readonly path: string | null
-  readonly retry: boolean
-  readonly hint: string | null
-}
-
-/** Copy for a project that has no threads yet (as opposed to not initialized). */
-export function emptyNotice(reason: 'no-threads'): NoticePresentation {
-  return {
-    kind: 'empty',
-    title: '这个项目还没有 thread',
-    detail: reason === 'no-threads' ? '让 master 会话用 cowork_master 派一个 thread，面板会在这里列出它。' : '',
-    code: null,
-    path: null,
-    retry: true,
-    hint: null,
-  }
-}
-
-/**
- * Map a host error to a panel notice. `project/not-initialized` is an empty
- * state with the exact command to run; `store/corrupt` keeps its code and the
- * offending path and offers a retry; everything else is a generic error with
- * the retry path still available.
- */
-export function errorPresentation(error: PanelErrorInfo | null): NoticePresentation {
-  if (error === null) {
-    return {
-      kind: 'error',
-      title: '读取 Cowork 总览失败',
-      detail: '没有拿到错误详情，请重试。',
-      code: null,
-      path: null,
-      retry: true,
-      hint: null,
-    }
-  }
-  if (error.code === 'project/not-initialized') {
-    return {
-      kind: 'empty',
-      title: '这个仓库还没有 Cowork 项目',
-      detail: '在 cowork-master 会话中调用 cowork_project_init 初始化当前仓库，然后刷新面板。',
-      code: error.code,
-      path: error.path ?? null,
-      retry: false,
-      hint: 'cowork_project_init',
-    }
-  }
-  if (error.code === 'handoff/not-found') {
-    return {
-      kind: 'empty',
-      title: '这个 thread 还没有交接单',
-      detail: 'master 收到 handoff 后，交接单会出现在这里。',
-      code: error.code,
-      path: error.path ?? null,
-      retry: true,
-      hint: null,
-    }
-  }
-  if (error.code === 'store/corrupt') {
-    return {
-      kind: 'error',
-      title: '项目记录已损坏',
-      detail: error.message,
-      code: error.code,
-      path: error.path ?? null,
-      retry: true,
-      hint: null,
-    }
-  }
-  return {
-    kind: 'error',
-    title: '读取 Cowork 总览失败',
-    detail: error.message,
-    code: error.code,
-    path: error.path ?? null,
-    retry: true,
-    hint: null,
-  }
-}
-
-/** Receipt after copying the handoff path. */
-export function copySuccessMessage(): string {
-  return '已复制交接单路径'
-}
-
-/** Receipt after a failed clipboard write; never silent. */
-export function copyFailureMessage(reason: string): string {
-  const suffix = reason.trim().length === 0 ? '' : `（${reason.trim()}）`
-  return `复制失败：请在浏览器允许剪贴板权限后重试${suffix}`
-}
-
-/** Action receipt shown when the workspace service is unavailable. */
-export function openSessionUnavailableMessage(): string {
-  return '当前宿主没有提供会话导航服务，无法打开 thread 会话。'
-}
-
-/** Receipt after asking the host to show a thread's Conversation. */
-export function openSessionMessage(threadId: string): string {
-  return `已切换到 thread 会话 ${shortThreadId(threadId)}`
-}
-
-/** Receipt after the host refused the navigation. */
-export function openSessionFailureMessage(reason: string): string {
-  const suffix = reason.trim().length === 0 ? '' : `（${reason.trim()}）`
-  return `打开 thread 会话失败${suffix}`
-}
-
-/** Shown in the review section when the thread has never been sent to review. */
-export function reviewAbsentMessage(): string {
-  return '尚无 review；master 调用 cowork_review_request 后出现。'
-}
-
-/** Shown while a reviewer session exists but has not delivered a verdict yet. */
-export function reviewPendingMessage(): string {
-  return '审查中；review 会话给出 verdict 后，这里会显示结果。'
-}
-
-/**
- * Shown when the index records a verdict but the review file itself is not
- * loaded (still loading, or removed after it was written). Saying so beats
- * claiming there is no review at all.
- */
-export function reviewDetailUnavailableMessage(status: PanelReviewStatus): string {
-  return `review 详情不可用；索引记录为「${reviewStatusLabel(status)}」，review 文件可能已被移除。`
-}
-
-/** Why the review-session button is disabled: no reviewer session was recorded. */
-export function reviewOpenUnavailableMessage(): string {
-  return '这个 thread 还没有 review 会话；master 调用 cowork_review_request 后可以在这里打开。'
-}
-
-/** Receipt after asking the host to show the review session. */
-export function openReviewSessionMessage(reviewerSessionId: string): string {
-  return `已切换到 review 会话 ${shortThreadId(reviewerSessionId)}`
-}
-
-/** Action receipt shown when the workspace service is unavailable for reviews. */
-export function openReviewSessionUnavailableMessage(): string {
-  return '当前宿主没有提供会话导航服务，无法打开 review 会话。'
-}
-
-/** Receipt after the host refused to open the review session. */
-export function openReviewSessionFailureMessage(reason: string): string {
-  const suffix = reason.trim().length === 0 ? '' : `（${reason.trim()}）`
-  return `打开 review 会话失败${suffix}`
-}
-
-/**
- * Inline max-height for the MASTER message block: about 40% of the measured
- * detail area, clamped to a readable minimum. Measuring beats a viewport guess
- * because the right Sidebar is resizable.
- */
-export function masterMessageMaxHeight(regionHeight: number): number {
-  if (!Number.isFinite(regionHeight) || regionHeight <= 0) return MASTER_MESSAGE_FALLBACK_HEIGHT
-  return Math.max(MASTER_MESSAGE_MIN_HEIGHT, Math.round(regionHeight * 0.4))
 }
