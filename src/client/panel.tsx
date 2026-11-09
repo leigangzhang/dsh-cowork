@@ -488,6 +488,36 @@ export function CoworkPanelTitle(): ReactElement {
 }
 
 /**
+ * Line-art Cowork mark adapted from the supplied `xiezuo.eps`: a rounded
+ * square and two people, stroked with `currentColor` and no fill.
+ */
+const COWORK_GLYPH_PATHS = [
+  'M 245.762 819.2 L 573.441 819.2 C 737.281 819.2 819.199 737.278 819.199 573.438 L 819.199 245.759 C 819.199 81.919 737.281 0.001 573.441 0.001 L 245.762 0.001 C 81.922 0.001 0 81.919 0 245.759 L 0 573.438 C 0 737.278 81.922 819.2 245.762 819.2 Z',
+  'M 245.762 532.481 C 245.926 486.204 273.988 444.595 316.828 427.098 C 359.672 409.602 408.836 419.669 441.352 452.598 C 473.867 485.524 483.316 534.813 465.281 577.43 C 447.246 620.048 405.289 647.583 359.016 647.169 C 296.141 646.606 245.531 595.356 245.762 532.481 Z',
+  'M 600.68 527.973 C 600.68 589.415 540.262 632.423 474.93 624.231 C 497.914 600.235 509.734 567.677 507.496 534.528 C 507.496 485.579 483.125 457.727 450.355 428.442 C 527.789 388.364 584.312 317.001 605.594 232.446 L 670.719 232.446 L 670.719 256.204 C 670.969 292.751 662.324 328.809 645.531 361.266 C 628.188 396.993 599.336 425.848 563.609 443.188 C 587.617 464.833 601.312 495.649 601.293 527.973 Z',
+  'M 571.188 172.032 C 572.805 181.227 573.559 190.552 573.441 199.884 C 573.441 317.063 478.445 412.059 361.266 412.059 C 244.086 412.059 149.094 317.063 149.094 199.884 C 149.027 190.544 149.848 181.216 151.551 172.032',
+] as const
+
+function CoworkGlyph(): ReactElement {
+  return (
+    <svg
+      className="cw-footer-glyph"
+      viewBox="0 0 820 820"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={72}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <g transform="translate(0 820) scale(1 -1)">
+        {COWORK_GLYPH_PATHS.map((path) => <path key={path} d={path} />)}
+      </g>
+    </svg>
+  )
+}
+
+/**
  * Bottom-bar entry (`sidebar.footer.action`): opens the Cowork tab in the right
  * Sidebar. Disabled with an explanatory title when the host has no sidebar
  * navigation service, rather than disappearing silently.
@@ -510,7 +540,7 @@ export function CoworkFooterAction({ wide }: FooterActionOwnerProps): ReactEleme
           services.sidebarRight.openTab(COWORK_TAB_KIND)
         }}
       >
-        <span className="cw-footer-glyph" aria-hidden="true">◧</span>
+        <CoworkGlyph />
         {wide ? <span className="cw-footer-label">{COWORK_TAB_TITLE}</span> : null}
       </button>
     </div>

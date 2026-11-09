@@ -941,13 +941,9 @@ export const PANEL_CSS = `
 
 .cw-footer-glyph {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   width: 16px;
   height: 16px;
-  font-size: 16px;
-  line-height: 16px;
 }
 
 .cw-footer-button[data-wide='false'] {
@@ -962,8 +958,6 @@ export const PANEL_CSS = `
 .cw-footer-button[data-wide='false'] .cw-footer-glyph {
   width: 18px;
   height: 18px;
-  font-size: 18px;
-  line-height: 18px;
 }
 
 .cw-footer-label {
