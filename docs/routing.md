@@ -1,223 +1,175 @@
-# 路由与 thread 生命周期
+# 路由、工作项与评审请求
 
-一个需求从主会话进入、被某个主题会话接走、交回结果、经独立 review 决定能否合并。本文只画**顺序、状态归属与失败处置**，不重复规则文本：三层路由的判定规则住在 [`src/routing.ts`](../src/routing.ts) 与 [`src/route-tools.ts`](../src/route-tools.ts)，工具编排住在 [`src/tools.ts`](../src/tools.ts)（业务模块 `src/project-tools.ts`/`src/topic-tools.ts`/`src/memory-tools.ts`/`src/checkout-tools.ts`、保留的 [`src/review-tools.ts`](../src/review-tools.ts)），产品意图见 [PLAN.md](PLAN.md) §2.2 与 [PLAN-V0.2](PLAN-V0.2.md) §5.3/§5.7。
+一个需求从 master 进入、被某个主题会话接走、在隔离工作项里完成、经独立评审请求决定能否合并，最后按生命周期标记已解决。本文只写**顺序、状态归属与失败处置**；判定规则住在 [src/routing.ts](../src/routing.ts) 与 [src/route-tools.ts](../src/route-tools.ts)，评审与合并的契约住在 [src/review-request.ts](../src/review-request.ts)，产品意图见 [PLAN-V0.2 §5.3–§5.6](PLAN-V0.2.md#53-路由)。
 
-图里的分数常量是当前常量的快照；改常量时在同一个提交里改图。
+## 1. 一个意图落到哪个主题
 
-> **M9 之后的现状（2026-11-08）**：`cowork_route` 已改为 topic 的三层路由（`src/routing.ts` 纯函数 + `src/route-tools.ts` 接线），参数是 `intent`/`topicId?`/`brief?`/`forceCreate?`，不再有 `subject`/`isolated`；`cowork_topic_create`/`cowork_topic_list`/`cowork_topic_resolve` 是 canonical 名，`cowork_thread_*` 是同 schema/同 payload 的弃用别名；`cowork_handoff` 只保留 `blocked`/`done`（`awaiting_review` 保留一版并标 deprecated）。本文件 §1–§4 是 M4 时代的 thread 路由与评审时序图（含 `subject` 打分、`awaiting_review` 链与 `latestReviewPath` 等 legacy 字段），保留作历史参考；当前规则以 `src/routing.ts`/`src/route-tools.ts` 与 PLAN-V0.2 §5.3/§5.7 为准，评审流程的 M10 重写不在这里。
-
-## 1. 一个意图落到哪个 thread
+`cowork_route` 只由 master 调用。它先执行一次生命周期读取点（把空闲/已解决状态结算掉），再做三层判断。
 
 ```
- master: cowork_route(intent, subject?)                ← 仅 master 可调
+ master: cowork_route({ intent, topicId?, brief?, forceCreate? })
    │  intent 去空白后为空 → route/intent-required
    ▼
- 读索引 + 每个 thread 的最新 handoff 摘要
-   │
+ 生命周期读取点（idle / resolved 结算）
    ▼
- 剔除 status ∈ {done, archived}
-   │
+ ├─ topicId 明确指定
+ │    ├─ 不存在 → topic/not-found
+ │    ├─ 已解决 → resolved_match：新建主题并返回 resolvedMatch，不向旧主题发消息
+ │    └─ 其他 → reuse（跳过打分与新建信号）
+ ├─ forceCreate（不能与 topicId 同用）→ create
+ └─ 否则
+      ├─ 第一层：意图带“新建/另开”等信号 → 跳过；否则 focusTopicId → lastRouteTopicId
+      │    （只接受 active/idle；resolved 不参与）
+      ├─ 第二层：对非 resolved 主题打分
+      │    ownedPaths / aliases 命中 +3，title / scope 命中 +2，digest 命中 +1，最近活动 +0.5
+      │    ├─ 榜首 ≥ 4 且领先次名 ≥ 1 → reuse
+      │    ├─ 榜首 < 4 → create
+      │    └─ 其他（近平局）→ needs_model
+      └─ 第三层：只把 1–3 个候选交给模型
+           ├─ 模型可用 → reuse/create（选择即执行，不弹窗）
+           └─ 关闭/超时/失败 → 最高结构化候选过底线则 reuse，否则 create
    ▼
- 分词 → 打分 → 排序（分数降序，同分 threadId 升序）
-   │
-   ├─ 榜首 ≥ 4 分且领先次名 ≥ 1 分 → reuse
-   │     把用户原话投给该 thread，action="routed"，索引不变
-   │
-   └─ 否则（分数不够或近平局）
-         ├─ 有 subject → create（见 §2），action="created"
-         └─ 无 subject → needs_subject，回候选与分数，由 master 决定
+ create: 新建 cowork-topic 会话 + 索引主题 + brief
+ reuse : 把意图（与可选 brief）投给主题会话
 ```
 
-两道门同时成立才复用：**分数 ≥ 阈值** 且 **领先第二名 ≥ 1 分**。第二道门是故意加的——近平局意味着意图不明，猜错的代价高于新建一个 thread。`done` 与 `archived` 在排序前就被剔除；时间无法解析的 thread 拿不到时效加分，但仍然参与比较。
+- 三层与常量：第一层是会话局部性，第二层是结构化匹配，第三层是模型兜底（[src/routing.ts](../src/routing.ts#L29-L52)、[decideRoute](../src/routing.ts#L305)）。模型参数默认超时 2 秒、`maxTokens` 256、尽量关闭推理；`routing.enabled=false` 时直接走结构化回退（[PLAN-V0.2 §5.3](PLAN-V0.2.md#53-路由)）。
+- 新建标题取意图前 24 个字符；主题 id 就是新会话的 session id。新主题写两条活动：`topic-created` 与 `route-created`。
+- `resolved_match` 的语义是“旧主题不再接收”：插件为意图新建主题并返回 `resolvedMatch`，不 prompt 旧主题。
+- 选错由面板“移动到其他主题”纠正：把原意图的 token 追加到目标主题的 `aliases`，写 `route-corrected` 活动；不是删除或重写已有别名（见 §6）。
 
 ```mermaid
 flowchart TD
-  A["master: cowork_route(intent, subject?)"] --> B{"intent 非空?"}
+  A["master: cowork_route(intent, topicId?, brief?, forceCreate?)"] --> B{"intent 非空?"}
   B -- 否 --> B1["route/intent-required"]
-  B -- 是 --> C["读索引 + 每个 thread 最新 handoff 摘要"]
-  C --> D["剔除 done / archived"]
-  D --> E["分词 → 打分 → 排序"]
-  E --> F{"榜首 ≥ 4 且领先次名 ≥ 1?"}
-  F -- 是 --> G["reuse: 投递原话，action=routed"]
-  F -- 否 --> H{"给了 subject?"}
-  H -- 是 --> I["create: 新建 cowork-thread 会话，action=created"]
-  H -- 否 --> J["needs_subject: 回候选与分数"]
+  B -- 是 --> C["生命周期读取点"]
+  C --> D{"显式 topicId?"}
+  D -- 是 --> E{"主题存在?"}
+  E -- 否 --> E1["topic/not-found"]
+  E -- 是 --> F{"resolved?"}
+  F -- 是 --> F1["resolved_match: 新建主题 + resolvedMatch"]
+  F -- 否 --> G["reuse"]
+  D -- 否 --> H{"forceCreate?"}
+  H -- 是 --> I["create"]
+  H -- 否 --> J{"第一层命中 focus/lastRoute?"}
+  J -- 是 --> G
+  J -- 否 --> K["第二层打分（resolved 排除）"]
+  K --> L{"榜首 ≥ 4 且领先 ≥ 1?"}
+  L -- 是 --> G
+  L -- 否 --> M{"榜首 < 4?"}
+  M -- 是 --> I
+  M -- 否 --> N["第三层模型（1–3 候选）"]
+  N --> O{"模型给出选择?"}
+  O -- 是 --> G
+  O -- 否 --> P{"最高候选过底线?"}
+  P -- 是 --> G
+  P -- 否 --> I
 ```
 
-## 2. 新建 thread 的时序（create 路径）
-
-```
- master
-   │ cowork_route(intent, subject)
-   ▼
- cowork_route: decideRoute(...) = create
-   ▼
- SessionSlice.createThread({ repoPath, subject, presetId: "cowork-thread" })
-   │
-   ├─▶ 宿主 sessions.create({ workspaceId, agentPreset })
-   │      ◀─ { sessionId, agentPreset }
-   │      ✗ agentPreset ≠ 请求值 ⇒ throw（此刻索引还没写，fail closed）
-   │
-   └─▶ 宿主 sessions.rename({ sessionId, title: "cowork: <subject>" })
-          ◀─ { title }
-   ◀─ { sessionId, workspaceId, title }
-   ▼
- cowork_route: 写索引 addThread(status = "new")
-   ▼
- cowork_route: promptSession(sessionId, buildThreadBrief(repoPath, subject, threadId, intent))
-   ▼
- SessionSlice: 宿主 sessions.prompt({ requestId, mode: "queue", text })   ⏱ 超时保护
-   ◀─ { accepted, requestId }        ← 入队成功，不是“活干完了”
-   ▼
- cowork_route: accepted ?
-   ├─ true  → 索引 status = "active"      ← 全链路唯一把 new 抬成 active 的地方
-   └─ false → 保持 "new"，返回 prompted:false（不重试、不抛错、不回滚会话）
-   ▼
- master 收到 { action: "created", threadId, subject, title, prompted, thread }
-```
-
-`isolated: true` 时顺序不同，因为 threadId 同时是 clone 目录名和分支名：
-
-```
- cowork_route 先铸 threadId = session-<uuid>
-   ├─▶ createCheckout    → git clone 到 .dsh-cowork/threads/<id>，分支 cowork/<id>
-   ├─▶ createCheckoutThread({ checkoutPath, threadId, ... })
-   │      = workspaces.create(checkoutPath) → sessions.create({ sessionId: threadId })
-   │        ✗ 宿主回的 sessionId ≠ threadId ⇒ throw
-   │        ✗ preset 不符 ⇒ throw
-   │        两个检查都在 rename 之前，失败不留半成品
-   ├─▶ 写索引（checkoutPath = clone 路径）→ brief（含 checkoutPath）→ promptSession
-   └─ 任一步抛错 ⇒ 补偿：删索引项、删 clone、删本次创建的 workspace
-                  清理本身失败写进 details，不掩盖原始错误
-```
-
-三个容易看漏的点：`accepted` 只表示 prompt 入队；索引在 brief 之前写，所以投递失败会留下一条 `new` 的 thread；普通路径失败最多留一个孤立会话，isolated 路径失败必须删掉 clone 与 workspace。
+## 2. 工作项、评审请求、verdict 与合并
 
 ```mermaid
 sequenceDiagram
   autonumber
+  participant U as 用户
   participant M as master
-  participant R as cowork_route
-  participant S as SessionSlice
-  participant H as 宿主 sessionController
-  participant I as index.json
-
-  M->>R: cowork_route(intent, subject)
-  Note over R: decideRoute = create
-  R->>S: createThread{repoPath, subject, presetId}
-  S->>H: sessions.create{workspaceId, agentPreset}
-  H-->>S: {sessionId, agentPreset}
-  Note over S: preset 不符 → throw（索引未写）
-  S->>H: sessions.rename("cowork: subject")
-  H-->>S: {title}
-  S-->>R: {sessionId, title}
-  R->>I: addThread(status=new)
-  R->>S: promptSession(brief)
-  S->>H: sessions.prompt{mode:queue}
-  H-->>S: {accepted}
-  S-->>R: {accepted}
-  alt accepted = true
-    R->>I: updateThread(status=active)
-  else accepted = false
-    Note over R,I: 保持 new，prompted=false，不重试
-  end
-  R-->>M: {action:"created", threadId, title, prompted}
-```
-
-## 3. 复用之后的闭环：干活 → 交接 → 审查 → 合并
-
-```
- master: cowork_route = reuse → promptSession(threadId, 用户原话)；索引不变
-   ▼
- thread（唯一写代码的会话）
-   │ cowork_handoff({ status, summary, verification, decisions?, changedPaths?, … })
-   │   仅 thread 可调；status ∈ awaiting_review | blocked | done
-   ├─ 校验失败 → handoff/invalid，什么都不写
-   ├─ 写 handoffs/<threadId>-<ts>.json（deliveredAt: null）
-   ├─ 写索引：status = 交接状态、lastHandoffAt、updatedAt
-   └─ prompt master（摘要 + handoff 路径）
-        ◀ 未被接受 → deliveredAt 保持 null
-          下次 cowork_project_status 重放一次，不阻塞其它 thread
-   ▼
- master
-   │ status 不是 awaiting_review？→ 到此为止（blocked / done）
-   │ cowork_review_request(threadId)          ← master 或 thread 均可调
-   │   门：仅 awaiting_review；reviewStatus = pending 时拒绝
-   ├─ 新建 cowork-reviewer 会话（无 tool-fs，故无 read/write/edit；bash 仍可写，只读靠 protocol，见 KI-15）
-   ├─ 写索引：reviewStatus=pending、reviewerSessionId、reviewRequestedAt、reviewedAt=null
-   ├─ brief = 最新 handoff 路径 + changedPaths + verification + checkoutPath
-   └─ prompt reviewer
-        ◀ 未被接受 → 回滚 pending 并归档 reviewer，返回失败
-   ▼
- reviewer（独立会话）
-   │ 自己读代码、复跑验证命令：thread 的 self-report 只是证据
-   │ cowork_review_verdict({ threadId, verdict, findings?, verification? })
-   │   门：调用者必须是索引里登记的 reviewer；master 与 thread 本人被拒（review/self-review）
-   ├─ 先写 reviews/<threadId>-<ts>.json
-   └─ 再改索引：status ← pass:done / needs_revision:active / reject:blocked
-                 reviewStatus = verdict、reviewedAt、latestReviewPath
-                 needs_revision 与 reject 还把 findings 投回 thread
-   ├─ 再把 verdict 投递给 master（pass 也发；响应里 delivered / masterDelivered 分开）
-   ▼
- master
-   │ pass → cowork_checkout_merge(threadId)     ← 只有 isolated thread 才有 clone
-   │   门：reviewStatus = pass；或 allowUnreviewed + overrideReason
-   │   门：checkoutPath 非空，且 status ∈ {awaiting_review, done}
-   ├─ 合并冲突 → 索引 status=blocked、clone 保留，thread 解决后再合
-   └─ 成功 → 删 clone、删 workspace、归档会话
-             索引 checkoutPath=null、status=done
-             清理失败只进 cleanupErrors，合并结果仍是成功
-   ▼
- 需求闭环。非 isolated thread 没有 clone，到 done 为止
-```
-
-判决定到哪里，由 verdict 唯一决定：
-
-| verdict | `thread.status` 变成 | 是否把 findings 投回 thread |
-|---|---|---|
-| `pass` | `done` | 否 |
-| `needs_revision` | `active` | 是 |
-| `reject` | `blocked` | 是 |
-
-每次 verdict 都会 `prompt` master（含 `pass`），让它从 `cowork_review_request` 之后结束的回合中醒来；`needs_revision` / `reject` 另外把 findings 投回 thread。master 投递失败只进 `masterDeliveryError`，不回滚 verdict（重放缺口见 KI-17）。
-
-## 4. 谁在什么时候写哪个字段
-
-| 写者 | 字段 | 时机 |
-|---|---|---|
-| `cowork_route` | `status`（`new` → `active`） | brief 入队之后 |
-| `cowork_handoff` | `status`（=交接状态）、`lastHandoffAt`、`updatedAt`；handoff 文件的 `deliveredAt` | 先写文件，再改索引，最后投递 |
-| `cowork_review_request` | `reviewStatus="pending"`、`reviewerSessionId`、`reviewRequestedAt` | 建出 reviewer 会话之后 |
-| `cowork_review_verdict` | `status`、`reviewStatus`、`reviewedAt`、`latestReviewPath` | 先写 review 文件，再改索引 |
-| `cowork_checkout_merge` | `status`（`done` / 冲突时 `blocked`）、`checkoutPath`（成功置 `null`） | 合并动作之后 |
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant M as master
-  participant T as thread
-  participant H as handoffs/ + index.json
+  participant T as topic
+  participant W as 工作项 clone
   participant R as reviewer
-  participant G as clone / 主仓库
+  participant I as index.json / reviews/
 
-  M->>T: reuse → prompt(intent)
-  T->>H: writeHandoff(deliveredAt=null)
-  T->>H: status=交接状态, lastHandoffAt
-  T->>M: prompt(masterSessionId, 摘要)
-  alt master 未接受
-    Note over H: deliveredAt 保持 null，下次 project_status 重放一次
-  end
-  M->>R: cowork_review_request(threadId)
-  Note over M,H: reviewStatus=pending, reviewerSessionId
-  M->>R: prompt(brief: handoff 路径 + changedPaths + verification)
-  R->>G: 读代码、复跑验证命令
-  R->>H: writeReview 后改索引
-  alt pass
-    Note over T,H: status=done，不打扰 thread
-    M->>G: cowork_checkout_merge(threadId)
-    Note over G: 门：reviewStatus=pass（或 override）；成功删 clone/workspace/会话
-  else needs_revision / reject
-    H-->>T: 投回 findings
-    Note over T: needs_revision → active；reject → blocked
+  U->>M: 需求
+  M->>T: cowork_route → reuse / create（brief）
+  T->>I: cowork_work_item_create → workItems + 活动
+  T->>W: 在 clone 内实现并提交（cowork/<workItemId>）
+  T->>I: cowork_review_request（purpose/base/head/path/verification）
+  I-->>R: 新建 reviewer + pending 请求文件 + 评审说明
+  R->>W: 自己读改动、复跑验证命令
+  R->>I: cowork_review_verdict(requestId, verdict)
+  alt pass（有工作项）
+    I-->>M: inbox merge-needed
+    M->>I: cowork_checkout_merge(workItemId)
+    Note over I,W: 同一 head 的 pass、干净、非受保护分支；合并后拆除 clone/分支
+  else needs_revision
+    I-->>T: findings 投回主题（不唤醒 master）
+  else reject
+    I-->>T: findings + 主题 blocked
+    I-->>M: inbox review-reject
   end
 ```
+
+### 2.1 工作项
+
+- 主题用 `cowork_work_item_create` 为**自己**创建隔离工作项；master 调用时必须显式给 `topicId`。记录包含 `workItemId / topicId / path / branch / baseCommit`。
+- 目录是 `<repo>/.dsh-cowork/workitems/<workItemId>`，分支是 `cowork/<workItemId>`，基于创建时的仓库 HEAD（[checkout.ts](../src/checkout.ts#L45-L58)、[workItemCheckoutPaths](../src/checkout.ts#L152)）。
+- 执行单元在各自目录里工作并提交；主题是集成分支负责人。多个工作项可并行，合并串行（[checkout-tools.ts](../src/checkout-tools.ts#L574)）。
+- 隔离提供方当前只实现 clone；`isolation.provider` 传其他值会在创建前失败（[KI-27](KNOWN_ISSUES.md)）。
+
+### 2.2 评审请求
+
+- 只有 topic 能调用 `cowork_review_request`；master 调用被拒绝。每次请求定义**一个**评审范围，必须带 `purpose`、`baseCommit`、`headCommit`、`path`、`verification`。
+- 校验（全部通过才写任何状态）：`base` 是 `head` 的祖先；`path` 精确等于仓库根（共享工作区）或该主题的某个工作项 clone；clone 工作区干净；范围内确有改动；`changedPaths` 若提供必须等于 `git diff --name-only base..head`；同一主题/工作项同时只能有一个 pending 请求。
+- 通过后按顺序：新建 `cowork-reviewer` 会话 → 写 `reviews/<topicId>-<requestId>.json`（`pending`）→ 更新索引（`awaitingReview=true`、`reviewStatus=pending`、`latestReviewRequestId`、`reviewerSessionId`；有工作项时置 `reviewing`）→ 投递评审说明 → 写 `review-requested` 活动。
+- 任一步失败会回滚请求文件与索引改动，并归档半成品 reviewer；不会留下“pending 但没有 reviewer”的状态。
+- 请求记录的权威定义在 [review-request.ts](../src/review-request.ts#L121-L140)，文件路径规则在 [reviewRequestFilePath](../src/review-request.ts#L879)。
+
+### 2.3 verdict
+
+- 只有该请求登记的 reviewer 会话能调用 `cowork_review_verdict`，且一个请求只接受一个 verdict。先写请求文件的终态，再改索引；请求文件是评审事实的第一落点。
+- `needs_revision` / `reject` 必须给出具体 findings（id、severity、problem、requiredFix，可选 file/line），`pass` 不要求 findings。
+- 判决定到哪里：
+
+| verdict | 主题 | 工作项 | 是否通知 | master 收件箱 |
+|---|---|---|---|---|
+| `pass` | `reviewStatus=pass`、`awaitingReview=false`、`reviewerSessionId=null` | `reviewing` | 不投回主题 | 有工作项时写 `merge-needed` |
+| `needs_revision` | `reviewStatus=needs_revision`、`awaitingReview=false` | `active` | findings 投回主题 | 不写 |
+| `reject` | `blocked=true`、`reviewStatus=reject` | `active` | findings 投回主题 | 写 `review-reject` |
+
+- verdict 后归档 reviewer；归档失败记录在 `archiveError` 与活动里，不把 verdict 改成失败（[session-visibility.ts](../src/session-visibility.ts#L94)）。
+- 索引或活动写失败会作为 `indexError` / `activityError` 返回；请求文件已经是终态，不假装回滚。
+
+### 2.4 合并
+
+- `cowork_checkout_merge` 只由 master 调用，按 `workItemId` 合并（`threadId` 仅兼容旧 clone）。
+- 门：工作项必须是 `reviewing`；clone 存在且干净；存在**同一 headCommit** 的 `pass` 请求；`baseCommit` 是当前 head 的祖先。head 在评审后移动会被拒绝，需要重新评审。
+- 合并到仓库当前分支，`main` / `master` 受保护、插件拒绝；`main` 引用永远不动，默认分支由人收口。
+- 冲突：中止合并（主仓不留下冲突状态）并保留 clone，冲突文件清单随结果返回；主题解决后重新评审/合并（[KI-4](KNOWN_ISSUES.md)）。
+- 成功：`merge --no-ff` 提交 → 删除 clone 与 `cowork/<workItemId>` 分支 → 工作项置 `merged` → 写 `work-item-merged` 活动。清理失败只进 `cleanupErrors`，合并结果仍是成功。
+- 合并串行只在单进程内保证（[KI-26](KNOWN_ISSUES.md)）。
+
+## 3. 状态归属
+
+| 写者 | 写入 |
+|---|---|
+| `cowork_route` | `lastRouteTopicId`；create 时新增主题行、`topic-created` + `route-created` 活动 |
+| `cowork_topic_create` | 主题行、`topic-created` 活动 |
+| `cowork_work_item_create` | 工作项行、clone、`work-item-created` 活动 |
+| `cowork_review_request` | 请求文件（pending）、主题 `awaitingReview/reviewStatus/latestReviewRequestId/reviewerSessionId`、工作项 `reviewing`、`review-requested` 活动 |
+| `cowork_review_verdict` | 请求文件（终态）、主题 `reviewStatus/awaitingReview/reviewerSessionId/blocked`、工作项状态、收件箱、`review-verdict` 活动；归档 reviewer |
+| `cowork_handoff` | handoff 文件、主题 `digest/lastDeliveryConfirmedAt/blocked`；`blocked` 写 `blocked` 收件箱 |
+| `cowork_checkout_merge` | 工作项 `merged`、clone/分支清理、`work-item-merged` 活动 |
+| 生命周期读取点 | 主题 `active/idle/resolved`、`resolvedAt/resolvedBy`、`status-changed` 活动 |
+| 面板写路由 | `resolve`/`reopen` 清或置 resolved 字段；`route.move` 追加 `aliases` 并写 `route-corrected` |
+
+所有状态写入都尽量落一条活动；活动写失败不回滚状态，只在结果的 `activityError` / `activityErrors` 里报告。
+
+## 4. 已解决与重开
+
+- 三态：`active ↔ idle`，`active|idle → resolved`，`resolved → active`（用户重开）。`awaitingReview`、`blocked` 是标记，不是状态。
+- 自动 resolved 需要同时满足：不在待评审、未阻塞、最新评审不是 `needs_revision`、没有 `active` 工作项、`lastDeliveryConfirmedAt` 非空、`digest` 非空、静默时间 ≥ `resolveAfterMs`（默认 3 天）。评估发生在 `project_status`、`route`、面板 overview 等读取点；没有后台定时器。`turn/end` 只刷新 `lastActiveAt` 并把 idle 拉回 active，不在 `turn/end` 自动 resolved（[topic.ts](../src/topic.ts#L18-L73)、[evaluateProjectLifecycle](../src/tool-runtime.ts#L417)、[topic-events.ts](../src/topic-events.ts#L116-L135)）。
+- 没有撤销：已解决不会因为时间或后续读取变回 active。用户可手动标记 resolved（`cowork_topic_resolve` 或面板），来源记为 `user`；自动来源记为 `master`。
+- 重开是显式用户动作：用户打开已解决主题并发送消息（topic-events 的 `user/message`），或使用面板 `POST /api/cowork.topic.reopen`；状态置回 `active`，清空 `resolvedAt/resolvedBy`，保留摘要与交付确认，写 `topic-reopened` 活动（[topic-events.ts](../src/topic-events.ts#L137-L168)、[reopenResolvedTopic](../src/topic.ts#L104)）。
+- 已解决主题不参与自动路由；新需求会新建主题并返回 `resolvedMatch`，由用户决定是否打开旧主题。
+
+## 5. 活动流与收件箱
+
+- 所有状态、路由、评审、合并与错误都写 `activity.jsonl`；它是证据流，不是状态源。面板 activity 路由默认读 50 条、最多 200；`cowork_project_status` 只带最近 20 条（超出标 `truncated`）。
+- 只有 master 必须决定的事才进 `inbox.json` 并唤醒 master：`merge-needed`、`blocked`、`review-reject`、`cross-topic-conflict`。多条待办合并成一次投递（≤5 条、每条 ≤200 字）。
+- 投递成功后写 `deliveredAt`；失败保留，下一次 `cowork_project_status` 重放。投递是 at-least-once，崩溃窗口可能重复提示但不会丢事件（[KI-23](KNOWN_ISSUES.md)）。
+- `pass` 的 verdict 本身不直接 prompt master；master 只通过 `merge-needed` 收件箱得知“可以合并”。`needs_revision` 只回主题，不唤醒 master。
+
+## 6. 改投与重复提交
+
+- 面板“移动到其他主题”调用 `POST /api/cowork.route.move`：`fromTopicId`、`toTopicId`、`intent` 必填，目标不能是 resolved；把意图 token 追加到目标主题的 `aliases`（每次最多 8 个、总数最多 50、单条 2–32 字符），有变化才写并记录 `route-corrected`，返回 `changed/added/aliases`（[applyRouteCorrection](../src/routing.ts#L382)）。
+- 重复提交同一 intent 不是严格幂等：不会产生重复别名，但会继续追加剩余 token；结果里的 `changed/added` 让这一点可见（[KI-32](KNOWN_ISSUES.md)）。
+- 改投只影响后续路由，不改写历史活动或已有主题的摘要。
