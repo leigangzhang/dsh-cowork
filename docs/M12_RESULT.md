@@ -117,12 +117,13 @@
 
 > 由 delivery 任务（push/PR）填写；在此之前不编造 PR URL、最终分支 HEAD 之外的推送状态。
 
-- push 分支 / PR：
-- 交付 HEAD（delivery 时）：
-- `git diff 1b0801d..HEAD | shasum -a 256`：
-- `git status --porcelain`：
-- tgz sha256 / 文件数：
-- PR URL：
+- push 分支 / PR：`feat/m12-docs-e2e-0.2.0` → [PR #18](https://github.com/leigangzhang/dsh-cowork/pull/18)（head `feat/m12-docs-e2e-0.2.0` → base `main`；首次推送 `0899d27` 之后，本记录提交随之推送到同一分支）
+- 交付 HEAD（delivery 时，代码 artifact）：`0899d274fe9afe8945cc415b5f2ceaef3f16153c`
+- `git diff 1b0801d..0899d27 | shasum -a 256`：`50f2ce81c2d94ac8409928ad7a5639004cfce7cbf6923774196eee7987b618ad`
+- `git status --porcelain`：空（交付面冻结）
+- tgz sha256 / 文件数：`b190af8ef95c1eaea9017fcf12e56be53c21eb9d8ef648a433f109aa040f7ed2` / 135（426,110 B）
+- PR URL：https://github.com/leigangzhang/dsh-cowork/pull/18
+- 发布边界：未创建 GitHub Release、未打 tag、未部署生产；PR 未合并（等用户确认）。
 
 ## 指针
 
