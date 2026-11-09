@@ -12,7 +12,7 @@
     var foot = document.createElement('footer');
     foot.className = 'foot';
     foot.setAttribute('aria-hidden', 'true');
-    foot.innerHTML = '<span>代码与文档生命周期管理 · 提案解读</span><span>' +
+    foot.innerHTML = '<span>代码与文档：怎么保留，怎么删除 · 演示稿</span><span>' +
       (slide.getAttribute('data-sec') || '') + '　·　' +
       String(i + 1).padStart(2, '0') + ' / ' + String(total).padStart(2, '0') + '</span>';
     slide.appendChild(foot);
