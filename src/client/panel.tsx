@@ -484,7 +484,7 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
 
 /** Tab chip title registered into `sidebar.right.pane.tab.title`. */
 export function CoworkPanelTitle(): ReactElement {
-  return <span className="cw-tab-title">{COWORK_TAB_TITLE}</span>
+  return <span className="cw-tab-title"><CoworkGlyph />{COWORK_TAB_TITLE}</span>
 }
 
 /**

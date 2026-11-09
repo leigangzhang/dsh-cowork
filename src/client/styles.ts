@@ -969,7 +969,15 @@ export const PANEL_CSS = `
 }
 
 .cw-tab-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
+}
+
+.cw-tab-title .cw-footer-glyph {
+  width: 14px;
+  height: 14px;
 }
 
 .cw-sr-only {
