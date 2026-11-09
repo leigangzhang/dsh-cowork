@@ -498,11 +498,20 @@ const COWORK_GLYPH_PATHS = [
   'M 571.188 172.032 C 572.805 181.227 573.559 190.552 573.441 199.884 C 573.441 317.063 478.445 412.059 361.266 412.059 C 244.086 412.059 149.094 317.063 149.094 199.884 C 149.027 190.544 149.848 181.216 151.551 172.032',
 ] as const
 
-function CoworkGlyph(): ReactElement {
+/** Props the host passes to a registered guide-entry icon. */
+export interface CoworkGlyphProps {
+  readonly size?: number
+  readonly className?: string
+}
+
+export function CoworkGlyph({ size, className = 'cw-footer-glyph' }: CoworkGlyphProps): ReactElement {
   return (
     <svg
-      className="cw-footer-glyph"
+      className={className}
       viewBox="0 0 820 820"
+      width={size}
+      height={size}
+      style={size === undefined ? undefined : { width: size, height: size }}
       aria-hidden="true"
       fill="none"
       stroke="currentColor"

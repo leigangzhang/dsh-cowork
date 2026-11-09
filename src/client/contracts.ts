@@ -27,12 +27,16 @@ export const COWORK_TAB_KIND = 'cowork'
 /** Tab chip and guide entry title. */
 export const COWORK_TAB_TITLE = 'Cowork'
 
+/** Icon component a guide entry may contribute; the host supplies size and class. */
+export type GuideIcon = ComponentType<{ readonly size?: number; readonly className?: string }>
+
 /** One capsule the right Sidebar guide page offers for this tab type. */
 export interface GuideEntry {
   readonly id: string
   readonly order: number
   readonly title: () => string
   readonly description?: () => string
+  readonly icon?: GuideIcon
 }
 
 /** One registered right Sidebar tab type. */

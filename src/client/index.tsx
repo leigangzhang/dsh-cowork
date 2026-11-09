@@ -8,7 +8,7 @@
  * them still loads the plugin and only degrades the affected action.
  */
 import { ensurePanelStyles } from './styles.ts'
-import { CoworkFooterAction, CoworkPanel, CoworkPanelTitle } from './panel.tsx'
+import { CoworkFooterAction, CoworkGlyph, CoworkPanel, CoworkPanelTitle } from './panel.tsx'
 import {
   COWORK_TAB_ID,
   COWORK_TAB_KIND,
@@ -52,6 +52,7 @@ export function apply(ctx: ClientContext): void {
         order: 35,
         title: () => COWORK_TAB_TITLE,
         description: () => '查看主题列表、详情与活动。',
+        icon: CoworkGlyph,
       }],
     })
   })

@@ -971,7 +971,7 @@ export const PANEL_CSS = `
 .cw-tab-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   white-space: nowrap;
 }
 
