@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>代码与文档生命周期管理 · 提案演示</title>
+<link rel="stylesheet" href="code-and-docs-lifecycle.css">
+</head>
+<body>
+<main class="deck">
+  <div class="stage" id="stage">
+
+    <!-- 01 COVER -->
+    <section class="slide cover is-active" data-sec="封面" data-no="00">
+      <div class="cover-grid">
+        <div>
+          <div class="kicker">dsh-cowork · 工程治理提案 · 2026-11-09</div>
+          <h1>代码与文档<br><em>生命周期管理</em></h1>
+          <p class="lead">从“都留着”到“按状态管理”：五项状态、一张台账、四个交付阶段。每一项资产都要有替代者、退役触发条件，以及删除时的同步清单。</p>
+          <div class="meta">
+            <span class="meta-pill">Status · proposed</span>
+            <span class="meta-pill">依据 · 2026-11-09 提案</span>
+            <span class="meta-pill">先报告，不硬拦截</span>
+            <span class="meta-pill">不自动删代码</span>
+          </div>
+          <div class="cover-stats">
+            <div class="cover-stat"><b>5</b><span>生命周期状态</span></div>
+            <div class="cover-stat"><b>1</b><span>轻量台账</span></div>
+            <div class="cover-stat"><b>4</b><span>交付阶段</span></div>
+          </div>
+          <div class="cover-hint">← → 翻页　·　P 打印 / 导出 PDF</div>
+        </div>
+        <div class="cover-art" aria-hidden="true">
+          <div class="art-back"></div>
+          <div class="art-card">
+            <div class="art-kicker"><span>LIFECYCLE LEDGER / 001</span><span>ASSET</span></div>
+            <div class="art-asset">src/m2-e2e.ts <span style="color:#718096">+ support</span></div>
+            <div class="art-sub">v1 semantics · dev-only E2E driver</div>
+            <div class="art-status"><span class="dot"></span>DEV-ONLY</div>
+            <div class="art-rows">
+              <div class="art-row"><span>OWNER</span><span>V0.3 / KI-18</span></div>
+              <div class="art-row"><span>REPLACES</span><span>m12 E2E + parseIndex migration test</span></div>
+              <div class="art-row"><span>TRIGGER</span><span>legacy read path removed</span></div>
+              <div class="art-row"><span>SYNC</span><span>dev route · contract tests · budget · docs</span></div>
+            </div>
+            <div class="art-footer"><span>DO NOT DELETE YET</span><b>WAIT FOR TRIGGER</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 PROBLEM -->
+    <section class="slide" data-sec="01 · 问题" data-no="01">
+      <header class="head">
+        <div class="kicker">01 · 为什么现在做</div>
+        <h2 class="title">资产还在，不等于它还该在</h2>
+        <p class="lead">仓库跨过 V0.1 与 V0.2，积累了不同评测口径的代码、测试、工具和文档。现在有 KI、文档分类和证据分层，却没有一个统一答案：什么该删、何时删、删前同步什么、什么只归档。</p>
+      </header>
+      <div class="body">
+        <div class="problem-layout">
+          <div class="evidence-grid">
+            <article class="panel evidence">
+              <div class="evidence-top"><div class="big-num">≈135 KB</div><span class="chip amber">预算承压</span></div>
+              <h3>两代 E2E 驱动并存</h3>
+              <p>m2/m3 及 support 是 v1 语义的 dev-only 驱动，只被测试引用，已按 KI-29 标为“非验收”；m12 才是 v2 验收驱动。</p>
+              <div class="signal">→ 处置：等 KI-18 触发；不因“还能跑”续命</div>
+              <div class="src">proposal §Problem · KI-29</div>
+            </article>
+            <article class="panel evidence">
+              <div class="evidence-top"><div class="big-num red">49,923</div><span class="chip red">/ 51,200 B</span></div>
+              <h3>单文件预算逼近上限</h3>
+              <p><code>src/m2-e2e.ts</code> 距 51,200 B 只差 1,277 B；而它仍然留在仓库里，没有退役触发条件。</p>
+              <div class="signal">→ 处置：冻结增长；随驱动退役一起删</div>
+              <div class="src">tests/source-budget.test.mjs</div>
+            </article>
+            <article class="panel evidence">
+              <div class="evidence-top"><div class="big-num purple">3 类</div><span class="chip purple">待判定</span></div>
+              <h3>无产品调用 / 仅测试引用</h3>
+              <p><code>renderMemoryEntry</code>、<code>formatMasterMessage</code>、store 的四个旧评审文件方法：没有产品调用，却在测试里续命。</p>
+              <div class="signal">→ 处置：先迁覆盖，再删代码与断言</div>
+              <div class="src">src/memory.ts:416 · src/handoff.ts:241 · src/store.ts:836</div>
+            </article>
+            <article class="panel evidence">
+              <div class="evidence-top"><div class="big-num amber">0 份</div><span class="chip amber">退役清单</span></div>
+              <h3>兼容层还没有“退出方式”</h3>
+              <p>legacy 视图/字段、thread 别名仍被产品调用；KI-18 只指派到 V0.3，没有写清移除时要同步哪些文件。</p>
+              <div class="signal">→ 处置：先补同步清单，再谈移除</div>
+              <div class="src">src/store-migration.ts · src/tool-runtime.ts:300</div>
+            </article>
+          </div>
+          <aside class="panel gap-panel">
+            <div class="mini-title">现有控制</div>
+            <h3>三类机制，都回答不了“去留”</h3>
+            <p class="source">它们各自有明确职责，但不能互相替代。</p>
+            <ul class="gap-list">
+              <li><b>KNOWN_ISSUES</b><span>只记录已知问题；不覆盖“仍然健康但已过期”的阶段资产。</span></li>
+              <li><b>publish.json</b><span>只保证每个文档被分类；不判断这个文件是否还该在。</span></li>
+              <li><b>testing.md</b><span>只分证据层；不提供状态、owner 和退役触发条件。</span></li>
+            </ul>
+            <div class="control-chain" aria-label="已有控制与缺口">
+              <span class="c">分类</span><span class="arr">→</span><span class="c">证据</span><span class="arr">→</span><span class="c">问题</span><span class="arr">→</span><span class="c missing">生命周期</span>
+            </div>
+            <div class="callout"><b>缺口</b><br>状态 + 触发条件 + 同步清单 + 巡检节奏。</div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 STATES -->
+    <section class="slide" data-sec="02 · 状态" data-no="02">
+      <header class="head">
+        <div class="kicker">02 · 统一模型</div>
+        <h2 class="title">五种状态，五种动作</h2>
+        <p class="lead">状态从机械事实推导，不从目录名推导；每项资产只占一个状态，并绑定一个 owner 阶段。状态是当前判断，不是永久身份。</p>
+      </header>
+      <div class="body">
+        <div class="states-wrap">
+          <div class="states">
+            <article class="state current">
+              <div class="state-id"><div class="state-top"><span class="state-name">current</span><span class="dot" style="color:var(--teal)"></span></div><h3>当前实现</h3></div>
+              <p class="def">产品正在调用，代表当前语义；测试跟随当前行为契约。</p>
+              <div class="act"><b>动作</b>随版本正常演进；不需要退役清单。</div>
+              <div class="state-example"><b>例</b>m12 E2E · 当前行为测试</div>
+            </article>
+            <article class="state compat">
+              <div class="state-id"><div class="state-top"><span class="state-name">compat</span><span class="dot" style="color:var(--blue)"></span></div><h3>兼容层</h3></div>
+              <p class="def">产品仍在调用，但不是目标实现；例如 legacy 字段、视图和 thread 别名。</p>
+              <div class="act"><b>动作</b>绑定移除版本；下一次 minor / major；读写一起处理。</div>
+              <div class="state-example"><b>例</b>legacy fields · thread alias</div>
+            </article>
+            <article class="state dev-only">
+              <div class="state-id"><div class="state-top"><span class="state-name">dev-only</span><span class="dot" style="color:var(--amber)"></span></div><h3>维护者面</h3></div>
+              <p class="def">阶段驱动、探针或维护者工具，非验收面；只在仍有守卫价值时保留。</p>
+              <div class="act"><b>动作</b>写复审触发条件；不能证明价值就退役。</div>
+              <div class="state-example"><b>例</b>m2/m3 driver · probe · fixture</div>
+            </article>
+            <article class="state historical">
+              <div class="state-id"><div class="state-top"><span class="state-name">historical</span><span class="dot" style="color:var(--purple)"></span></div><h3>历史证据</h3></div>
+              <p class="def">阶段交接/结果、归档记录与决策历史；只读保留。</p>
+              <div class="act"><b>动作</b>只追加指针或事实更正；不回填交付证据。</div>
+              <div class="state-example"><b>例</b>M6–M12 RESULT · archived</div>
+            </article>
+            <article class="state dead">
+              <div class="state-id"><div class="state-top"><span class="state-name">dead</span><span class="dot" style="color:var(--red)"></span></div><h3>死资产</h3></div>
+              <p class="def">无产品调用，也没有独立守卫价值；包括为其续命的测试。</p>
+              <div class="act"><b>动作</b>代码 + 续命测试 + 断言一起删；先迁移价值。</div>
+              <div class="state-example"><b>例</b>renderMemoryEntry<br>formatMasterMessage</div>
+            </article>
+          </div>
+          <div class="state-note">
+            <div class="callout"><b>deprecated 不是第六种状态：</b>它是删除前的过渡标记——先标一个发布周期，再 grep 并跑全量检查。</div>
+            <p class="source">本页定义来源：proposal §Proposal 1</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 DECISION -->
+    <section class="slide" data-sec="03 · 判定" data-no="03">
+      <header class="head">
+        <div class="kicker">03 · 判定顺序</div>
+        <h2 class="title">先问三个问题，再决定去留</h2>
+        <p class="lead">判定顺序固定：产品调用 → 守卫价值 → 历史价值。答不上来，就留在原位并写复审触发条件，不要用删除解决不确定。</p>
+      </header>
+      <div class="body">
+        <div class="decision-layout">
+          <div class="flow">
+            <div class="qstep">
+              <div class="idx">01</div>
+              <div><b>产品仍调用？</b><small>真实运行路径；测试引用不算产品使用。</small></div>
+              <div class="outcomes"><span class="out current">current</span><span class="out compat">compat</span></div>
+            </div>
+            <div class="flow-arrow">否　↓</div>
+            <div class="qstep">
+              <div class="idx">02</div>
+              <div><b>仍守卫活兼容面，或提供不可替代的反例证据？</b><small>例如 parseIndex 守卫、KI-29 的反例证据。</small></div>
+              <div class="outcomes"><span class="out dev-only">dev-only</span></div>
+            </div>
+            <div class="flow-arrow">否　↓</div>
+            <div class="qstep">
+              <div class="idx">03</div>
+              <div><b>是历史证据 / 记录？</b><small>只读保留；不是“暂时不用的代码”。</small></div>
+              <div class="outcomes"><span class="out historical">historical</span><span class="out dead">dead</span></div>
+            </div>
+            <div class="decision-evidence">
+              <div class="mini-title" style="margin-bottom:2px">证据从哪里来</div>
+              <div class="src-grid">
+                <div><b>产品调用</b><span>src / presets / 工具与路由注册</span></div>
+                <div><b>测试引用</b><span>只能证明被测试，不等于产品使用</span></div>
+                <div><b>文档指针</b><span>记录移除时要同步的面</span></div>
+              </div>
+            </div>
+            <div class="quick-examples">
+              <div class="quick-example"><b>m12-e2e.ts</b><span>→ current</span></div>
+              <div class="quick-example"><b>m2-e2e.ts</b><span>→ dev-only</span></div>
+              <div class="quick-example"><b>legacyViewOf</b><span>→ compat</span></div>
+              <div class="quick-example"><b>renderMemoryEntry</b><span>→ dead</span></div>
+            </div>
+            <div class="flow-bottom">
+              <div class="callout teal" style="flex:1;padding:8px 12px;font-size:10.4px"><b>输出：</b>一行台账 + 一个触发条件 + 一份同步清单。</div>
+              <p class="source">判定依据 · proposal §Proposal 1–2</p>
+            </div>
+          </div>
+          <aside class="panel discipline">
+            <div class="mini-title">判定纪律</div>
+            <ul class="rule-list">
+              <li><b>产品调用</b>指真实路径；只在测试中出现，不能升级为 current。</li>
+              <li><b>替代者先成立</b>，才能把资产判为 dead；否则先留在 dev-only。</li>
+              <li><b>compat 必须绑定版本</b>；下一次 minor / major，读写同批移除。</li>
+              <li><b>静态 grep 只是线索</b>；删除前先 deprecated 一个周期，并跑全量检查。</li>
+              <li><b>historical 不是垃圾桶</b>；过期代码不能靠改标签变成历史证据。</li>
+              <li><b>一个资产一个状态</b>；跨状态就拆开登记，不共享同一行。</li>
+            </ul>
+            <div class="output-seq"><span>状态</span><span>台账</span><span>触发条件</span></div>
+            <p class="rejudge">状态是当前判断；触发条件变化时重新判定，不沿用旧标签。</p>
+            <div class="anti-patterns">
+              <b>三个容易判错的</b>
+              <div>测试引用 → 不是产品调用</div>
+              <div>暂时不用 → 不是历史证据</div>
+              <div>有替代者 → 不等于已迁移</div>
+            </div>
+            <div class="callout"><b>拿不准时：</b>不删。写清复审触发条件，留给下一个阶段判断。</div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 LEDGER -->
+    <section class="slide" data-sec="04 · 台账" data-no="04">
+      <header class="head">
+        <div class="kicker">04 · 轻量台账</div>
+        <h2 class="title">一张台账，只回答五件事</h2>
+        <p class="lead">台账是索引，不是第二份规格；状态与指针留在台账，细节留在 <code>docs/testing.md</code>、KNOWN_ISSUES 与决策记录里。</p>
+      </header>
+      <div class="body">
+        <div class="ledger-wrap">
+        <div class="ledger-layout">
+          <aside class="panel record">
+            <div class="record-head"><span class="mini-title" style="margin:0">SAMPLE ROW / 01</span><span class="chip amber">Stage 1 · 只登记</span></div>
+            <div class="record-asset">src/m2-e2e.ts <span>+ m3 + support</span></div>
+            <div class="record-status"><span class="dot"></span>DEV-ONLY</div>
+            <div class="record-rows">
+              <div class="record-row"><span class="k">OWNER</span><span class="v">V0.3 / KI-18 阶段</span></div>
+              <div class="record-row"><span class="k">替代者</span><span class="v">m12 E2E + store 迁移测试（承接 parseIndex 断言）</span></div>
+              <div class="record-row"><span class="k">退役触发</span><span class="v">legacy 读路径移除（0.3.0）</span></div>
+              <div class="record-row"><span class="k">同步文件</span><span class="v">/e2e/m2|m3 路由、契约测试、source-budget 断言、文档指针</span></div>
+            </div>
+            <div class="record-read">
+              <div><b>读</b> 先看触发条件是否已经满足</div>
+              <div><b>判</b> 替代者不存在，不能升级为 dead</div>
+            </div>
+            <div class="record-note"><b>字段口径</b>owner 是阶段，不是人；触发条件必须可观察；同步文件写路径或检查名。</div>
+            <div class="record-note"><b>何时更新</b>每次巡检、阶段收口、删除完成后；只改这一行。</div>
+            <div class="callout"><b>Stage 1 不删代码</b><br>先把“谁、替代者、何时、同步什么”写下来。</div>
+          </aside>
+          <div>
+            <table class="ledger-table">
+              <thead><tr><th>首版资产类别</th><th>初判</th><th>为什么 / 退役条件</th></tr></thead>
+              <tbody>
+                <tr><td>m2/m3 E2E + support</td><td><span class="state-pill dev-only">dev-only</span></td><td>v1 语义、非验收；0.3.0 随 legacy 读路径一起退役。</td></tr>
+                <tr><td>m12 E2E 驱动</td><td><span class="state-pill current">current</span></td><td>v2 验收 harness；语义更换即换驱动。</td></tr>
+                <tr><td>probe-engine / s0-probe</td><td><span class="state-pill dev-only">dev-only</span></td><td>只有仍服务诊断 / health 才保留，否则归档或删除。</td></tr>
+                <tr><td>legacy 视图/字段 + thread 别名</td><td><span class="state-pill compat">compat</span></td><td>活路径，绑定 0.3.0；README、KI、迁移与 RESULT 同批。</td></tr>
+                <tr><td>维护者 tools</td><td><span class="state-pill dev-only">dev-only</span></td><td>登记 owner 与适用版本；drill 发布线关闭后归档。</td></tr>
+                <tr><td>历史守卫（e2e-index-compat 等）</td><td><span class="state-pill dev-only">dev-only</span></td><td>守卫价值仍成立；随驱动的退役一起迁移或删除。</td></tr>
+                <tr><td>M6–M12 记录 / archived + publish</td><td><span class="state-pill historical">historical</span></td><td>只读；publish.json 只分类，删文档时同步删条目。</td></tr>
+              </tbody>
+            </table>
+            <p class="ledger-note">首版范围来自 proposal §Proposal 1；初判仅用于演示，最终以台账为准。</p>
+            <div class="ledger-flow"><b>每次巡检按顺序读</b><div><i>01</i>触发条件是否到期　<i>02</i>替代者是否成立　<i>03</i>同步清单是否完整</div></div>
+          </div>
+        </div>
+          <div class="ledger-use">
+            <div class="use-card"><b>不放论证</b>细节与取舍留在决策记录 / KNOWN_ISSUES</div>
+            <div class="use-card"><b>不放证据</b>命令与三态结果留在阶段 RESULT</div>
+            <div class="use-card"><b>不放正文</b>当前行为只留在它自己的 home</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 CODE -->
+    <section class="slide" data-sec="05 · 代码" data-no="05">
+      <header class="head">
+        <div class="kicker">05 · 代码处置</div>
+        <h2 class="title">不同状态，删除的半径不同</h2>
+        <p class="lead">删除不是只删一个函数；它同时改变测试、路由、预算断言和文档指针。按状态选择半径，按版本窗口执行。</p>
+      </header>
+      <div class="body">
+        <div class="disposal-wrap">
+          <div class="disposal">
+            <article class="panel dcard">
+              <div class="dcard-top"><span class="chip red">dead</span><span class="source">首批候选</span></div>
+              <h3>先迁价值，再删续命测试</h3>
+              <p>无产品调用且没有独立守卫价值：删除代码，同时删除只为其续命的测试；有价值的覆盖先迁到新模型。</p>
+              <ul><li><code>renderMemoryEntry</code> / <code>formatMasterMessage</code></li><li>store 四个旧评审方法；测试覆盖迁到新评审请求模型</li><li>删除前先标 deprecated 一版，再 grep + 全量检查</li></ul>
+              <div class="dcard-note">完成：grep 无产品引用，覆盖已迁移，检查仍绿</div>
+              <div class="bottom">同步：测试 · source-budget 断言 · 删除前 grep</div>
+            </article>
+            <article class="panel dcard">
+              <div class="dcard-top"><span class="chip amber">dev-only</span><span class="source">阶段驱动</span></div>
+              <h3>0.3.0 一次性退役</h3>
+              <p>保留条件收敛为“仍守卫活兼容面，或提供不可替代的反例证据”；KI-18 读路径移除时同批删除。</p>
+              <ul><li>驱动 + <code>/e2e/m2|m3</code> 路由 + 契约测试</li><li>source-budget 断言 + 文档指针</li><li><code>parseIndex</code> 断言迁入 store 迁移测试，再删驱动</li></ul>
+              <div class="dcard-note">完成：路由 / 契约 / 断言 / 文档指针全部移除</div>
+              <div class="bottom">触发：0.3.0 / KI-18；保留条件须每阶段复审</div>
+            </article>
+            <article class="panel dcard">
+              <div class="dcard-top"><span class="chip blue">compat</span><span class="source">活兼容层</span></div>
+              <h3>同一版本，读写一起</h3>
+              <p>只在下一次 minor / major 移除；不允许只删读路径或只删写路径。移除前先完成发布面收口。</p>
+              <ul><li>README 破坏性变更 + KI 关闭</li><li>迁移与回滚说明 + 阶段 RESULT</li><li>读路径与写路径同批移除，不拆成两个版本</li></ul>
+              <div class="dcard-note">完成：读写、README、KI、RESULT 同版关闭</div>
+              <div class="bottom">对象：legacy 字段 / 视图 / thread 别名；只删一半不算完成</div>
+            </article>
+            <article class="panel dcard">
+              <div class="dcard-top"><span class="chip purple">dev-only</span><span class="source">阶段探针</span></div>
+              <h3>只服务诊断才保留</h3>
+              <p>probe-engine / s0-probe 不因“曾经有用”而永久保留；不能服务诊断 / health 就退役。</p>
+              <ul><li>归档到 <code>tools/legacy/</code>，或直接删除</li><li>在阶段 RESULT 记录处置</li><li>不再因为“曾经有用”随 dev 门默认打包</li></ul>
+              <div class="dcard-note">完成：归档或删除，并在阶段 RESULT 记录用途</div>
+              <div class="bottom">当前：产品无依赖，仍随 dev 门打包；保留需写诊断用途</div>
+            </article>
+          </div>
+          <div class="sync-strip">
+            <div class="sync-item"><b>01 · 预算</b>更新 source-budget 断言</div>
+            <div class="sync-item"><b>02 · 指针</b>README / KI / 决策记录</div>
+            <div class="sync-item"><b>03 · 发布</b>若删文档，同步 publish.json</div>
+            <div class="sync-item"><b>04 · 收口</b>阶段 RESULT 记录结论</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 TESTS -->
+    <section class="slide" data-sec="06 · 测试与工具" data-no="06">
+      <header class="head">
+        <div class="kicker">06 · 测试与工具</div>
+        <h2 class="title">测试只留三种，工具必须登记 owner</h2>
+        <p class="lead">测试不是资产保险，工具也不是永久基础设施。真实 E2E 是验收 harness；语义更换就换驱动，不用单测替代。</p>
+      </header>
+      <div class="body">
+        <div class="stack-wrap">
+        <div class="two-col">
+          <div class="panel test-panel">
+            <div class="mini-title">tests/ 只保留</div>
+            <div class="test-row"><div class="n">01</div><div><b>当前行为契约</b><span>证明产品现在的语义、边界和错误路径。</span></div></div>
+            <div class="test-row"><div class="n">02</div><div><b>活兼容守卫</b><span>只守仍在运行的 compat 路径；移除兼容层时同批退役。</span></div></div>
+            <div class="test-row"><div class="n">03</div><div><b>仓库自身规则</b><span>预算、发布分类、workflow 与自测。</span></div></div>
+            <div class="callout red"><b>不为死代码续命：</b>测试随代码一起删；有独立价值的断言先迁移，再删。</div>
+            <div class="callout teal"><b>真实 E2E：</b>按版本更新或重写，保持为验收 harness；不要用单测替代。</div>
+            <div class="test-check"><b>删除测试前先问</b><div>① 它还在守活的兼容面吗？</div><div>② 它是否只在保护死代码？</div></div>
+            <div class="test-migrate"><b>迁移顺序</b><div>找到断言 → 迁到新契约 → 删旧测试</div></div>
+          </div>
+          <aside class="panel tool-panel">
+            <div class="mini-title">tools/ 登记</div>
+            <table class="tool-table">
+              <thead><tr><th>工具</th><th>owner</th><th>适用版本</th><th>退出条件</th></tr></thead>
+              <tbody>
+                <tr><td>panel-fixture</td><td>面板维护阶段</td><td>当前发布线</td><td>发布线关闭后复审</td></tr>
+                <tr><td>check-evidence-marker</td><td>发布门禁阶段</td><td>当前发布线</td><td>规则稳定后仍可保留</td></tr>
+                <tr><td>migration drill</td><td>迁移发布阶段</td><td>0.3.0 发布线</td><td>发布线关闭后归档，除非成为低成本永久回归</td></tr>
+              </tbody>
+            </table>
+            <div class="e2e-panel">
+              <div class="mini-title" style="margin-bottom:5px">真实 E2E 的状态</div>
+              <div class="e2e-row"><span class="out current">current</span><span>m12 驱动：v2 验收 harness</span></div>
+              <div class="e2e-row"><span class="out dev-only">dev-only</span><span>m2/m3：保留到 0.3.0，随 legacy 读路径退役</span></div>
+              <p>语义更换即换驱动；单测不能替代真实入口。</p>
+            </div>
+            <div class="tool-notes">
+              <div><b>一次性：</b>发布线关闭后归档</div>
+              <div><b>永久回归：</b>只有低成本且仍在跑才保留</div>
+            </div>
+            <div class="tool-lifecycle"><b>登记顺序</b><div>写 owner → 标适用版本 → 写退出条件</div></div>
+            <div class="callout"><b>登记的是人 / 阶段 + 版本，不是文件路径。</b>没有 owner 的工具，就是下一轮巡检的候选。</div>
+          </aside>
+        </div>
+          <div class="band">
+            <div class="band-item"><b>TEST</b>三类之外，不为死代码留测试。</div>
+            <div class="band-item"><b>TOOL</b>owner + 适用版本 + 退出条件。</div>
+            <div class="band-item"><b>E2E</b>验收 harness；语义更换即换驱动。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 DOCS -->
+    <section class="slide" data-sec="07 · 文档" data-no="07">
+      <header class="head">
+        <div class="kicker">07 · 文档规则</div>
+        <h2 class="title">三类文档，三种寿命</h2>
+        <p class="lead">当前行为、历史记录、发布清单各司其职；one-home 仍然成立，台账不复制正文。阶段收口时写 RESULT，之后只读。</p>
+      </header>
+      <div class="body">
+        <div class="docs-wrap">
+          <div class="docs">
+            <article class="panel doc-col">
+              <div class="kind"><span class="chip teal">current</span><span class="source">现状</span></div>
+              <h3>当前行为文档</h3>
+              <div class="where">README · routing · context · glossary</div>
+              <div class="reader">读者：使用者 · 下一位 agent</div>
+              <ul>
+                <li>只描述现在是什么、怎么用。</li>
+                <li>不写“以前如何”“以后会怎样”。</li>
+                <li>状态腐烂：删除，或把历史迁到记录。</li>
+                <li>发布：public 逐文件列出。</li>
+              </ul>
+              <div class="doc-example"><b>例子</b>README 写怎么装；routing 写怎么走。</div>
+              <div class="hold">判断标准：读者按它操作，今天能成功。</div>
+            </article>
+            <article class="panel doc-col">
+              <div class="kind"><span class="chip purple">historical</span><span class="source">只读</span></div>
+              <h3>历史证据 / 记录</h3>
+              <div class="where">M6–M12 HANDOFF / RESULT · docs/archived</div>
+              <div class="reader">读者：审计者 · 后续阶段</div>
+              <ul>
+                <li>收口时写入；之后只允许追加指针或事实更正。</li>
+                <li>不回填交付证据，不把历史改写成现状。</li>
+                <li>不删历史证据；保留策略按 gitignored 证据处理。</li>
+                <li>索引只路由，不复制正文。</li>
+              </ul>
+              <div class="doc-example"><b>例子</b>M12_RESULT 记录 17/17；之后只追加更正。</div>
+              <div class="hold">阶段 RESULT 在收口时记录台账巡检结论。</div>
+            </article>
+            <article class="panel doc-col">
+              <div class="kind"><span class="chip amber">switch</span><span class="source">分类</span></div>
+              <h3>发布开关</h3>
+              <div class="where">docs/publish.json</div>
+              <div class="reader">读者：发布构建 · 检查脚本</div>
+              <ul>
+                <li>只负责“是否发布”，不判断生命周期。</li>
+                <li>删文档时同步删除条目，避免断链。</li>
+                <li><code>docs/README</code> 索引不列已删除的 home。</li>
+                <li>不替代台账；判断仍在台账。</li>
+              </ul>
+              <div class="doc-example"><b>例子</b>README 是 public；HANDOFF 是 internal。</div>
+              <div class="hold">public 逐文件命名；internal 声明理由。</div>
+            </article>
+          </div>
+          <div class="docs-actions">
+            <div class="doc-action"><b>删文档同步 01</b>删除 publish.json 对应条目</div>
+            <div class="doc-action"><b>删文档同步 02</b>从 docs/README 索引移除 home</div>
+            <div class="doc-action"><b>删文档同步 03</b>修正正文引用，不留断链</div>
+          </div>
+          <div class="docs-note">
+            <div class="callout"><b>阶段收口 = 台账巡检点：</b>结论写进 RESULT；未处理项转 KNOWN_ISSUES，并指派完成阶段。</div>
+            <p class="source">依据 · proposal §Proposal 4 · docs/documentation.md</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 CADENCE -->
+    <section class="slide" data-sec="08 · 节奏" data-no="08">
+      <header class="head">
+        <div class="kicker">08 · 节奏与版本</div>
+        <h2 class="title">在收口和发版时做，而不是想起时做</h2>
+        <p class="lead">把退役绑在已有节拍上，避免一次大扫除。巡检是读、比对、记录，不是自动删除；结论必须回到阶段 RESULT。</p>
+      </header>
+      <div class="body">
+        <div class="cadence-wrap">
+        <div class="cadence">
+          <div class="panel timeline">
+            <div class="mini-title">版本策略</div>
+            <div class="tl">
+              <div class="tl-item"><b>每个里程碑收口</b><span>一次 prune 巡检，建议 ≤30 分钟；结论写进 RESULT。</span><div class="tagline">READ · GREP · CHECK · RECORD</div></div>
+              <div class="tl-item"><b>每次 minor 发布前</b><span>移除已到期的 compat / dev-only 资产；如 0.3.0。</span><div class="tagline">REMOVE DUE ASSETS</div></div>
+              <div class="tl-item"><b>patch</b><span>保留兼容，不做退役；只修当前行为。</span><div class="tagline">KEEP COMPAT</div></div>
+              <div class="tl-item"><b>major</b><span>才允许语义重写；历史与证据链仍然保留。</span><div class="tagline">SEMANTIC REWRITE ONLY</div></div>
+            </div>
+            <div class="trigger-examples"><b>可观察的触发条件</b><span>0.3.0 发布 · legacy 读路径移除 · 发布线关闭 · 预算逼近上限</span></div>
+            <div class="callout"><b>未处理项不消失：</b>转 KNOWN_ISSUES，写清归属阶段与重估触发条件。</div>
+          </div>
+          <div class="panel runbook">
+            <div class="mini-title">30 分钟巡检</div>
+            <div class="run"><div class="n">1</div><div><b>读台账</b><span>找触发条件已满足、owner 缺失、替代者未落地的条目。</span></div></div>
+            <div class="run"><div class="n">2</div><div><b>grep 引用</b><span>产品路径、测试、路由与字符串工具名；静态结果只当线索。</span></div></div>
+            <div class="run"><div class="n">3</div><div><b>跑 owning checks</b><span>source-budget / packaging / <code>npm run check</code> / <code>npm test</code>；按改动面选。</span></div></div>
+            <div class="run"><div class="n">4</div><div><b>判状态</b><span>触发条件成立 → 进入退役；不成立 → 留在原位，写复审条件。</span></div></div>
+            <div class="run"><div class="n">5</div><div><b>写结论</b><span>更新台账与 RESULT；未处理转 KI，并指派阶段。</span></div></div>
+            <div class="run-prep"><b>开始前：</b>打开台账、阶段 RESULT、KNOWN_ISSUES 三处，先确认本次要处理的触发条件。</div>
+            <div class="callout red"><b>巡检不是删除动作。</b>每次删除仍需人工确认，并按同步清单执行。</div>
+          </div>
+        </div>
+          <div class="cadence-output">
+            <div class="out-card"><b>OUTPUT 01</b>台账：状态 / owner / 触发条件更新</div>
+            <div class="out-card"><b>OUTPUT 02</b>RESULT：本次巡检结论与未处理项</div>
+            <div class="out-card"><b>OUTPUT 03</b>KI：指派阶段与重估触发条件</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 STAGES -->
+    <section class="slide" data-sec="09 · 交付顺序" data-no="09">
+      <header class="head">
+        <div class="kicker">09 · 交付顺序</div>
+        <h2 class="title">四步走：先立规则，再动代码</h2>
+        <p class="lead">不要从删除开始。先把状态、替代者和同步清单写下来，再按版本窗口执行；阶段 1 不产生代码删除。</p>
+      </header>
+      <div class="body">
+        <div class="stages-wrap">
+          <div class="stages">
+            <article class="panel stage-card">
+              <div class="no">01</div>
+              <h3>立规则与台账</h3>
+              <p>在 <code>docs/testing.md</code> 增加“生命周期与退役”一节；建台账，登记首批 dead 候选。</p>
+              <ul><li>状态 / owner / 替代者 / 触发 / 同步</li><li>只立规则与清单，不改产品代码</li></ul>
+              <div class="stage-line"><b>完成：</b>A1；<code>npm run check</code> 通过。</div>
+              <div class="stage-risk">风险：台账写成第二份文档</div>
+              <div class="bottom"><span class="chip teal">A1</span><span class="chip">plan-docs</span></div>
+            </article>
+            <article class="panel stage-card">
+              <div class="no">02</div>
+              <h3>首批 dead 清理</h3>
+              <p>清理 <code>renderMemoryEntry</code>、<code>formatMasterMessage</code> 与 store 四个旧评审方法。</p>
+              <ul><li>先迁移有价值的测试覆盖，再删续命测试</li><li>同步测试与 source-budget 断言</li></ul>
+              <div class="stage-line"><b>完成：</b>A2；代码与断言一起消失。</div>
+              <div class="stage-risk">风险：只删代码，不删续命测试</div>
+              <div class="bottom"><span class="chip blue">A2</span><span class="chip">source</span></div>
+            </article>
+            <article class="panel stage-card">
+              <div class="no">03</div>
+              <h3>0.3.0 退役包</h3>
+              <p>legacy 读路径 + m2/m3 驱动 + thread 别名，与 KI-18 同批收口。</p>
+              <ul><li>驱动、路由、契约测试、断言、文档一起删</li><li>README / KI / 迁移回滚 / RESULT 同版本</li></ul>
+              <div class="stage-line"><b>不拆：</b>读写路径同批；A3 / A4 / A7 同版完成。</div>
+              <div class="stage-risk">风险：只删一半，留下半兼容</div>
+              <div class="bottom"><span class="chip amber">A3 / A4 / A7</span><span class="chip">tests</span></div>
+            </article>
+            <article class="panel stage-card">
+              <div class="no">04</div>
+              <h3>可选：只读报告</h3>
+              <p><code>tools/lifecycle-report.mjs</code> 输出候选清单，作为巡检输入，不并入硬门禁。</p>
+              <ul><li>无产品引用 / 仅测试引用</li><li>dev-only 路由 / 过期 KI 资产</li></ul>
+              <div class="stage-line"><b>完成：</b>A5；报告只读，不自动删除。</div>
+              <div class="stage-risk">风险：误报导致改测试绕过</div>
+              <div class="bottom"><span class="chip purple">A5</span><span class="chip">workflow</span></div>
+            </article>
+          </div>
+          <div class="stages-note">
+            <div class="callout"><b>A6 贯穿所有阶段：</b>每次收口的 RESULT 记录巡检结论。Stage 3 不拆成两个版本；读写路径同批移除。</div>
+            <p class="source">依据 · proposal §Delivery stages</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 AUTOMATION -->
+    <section class="slide" data-sec="10 · 自动化" data-no="10">
+      <header class="head">
+        <div class="kicker">10 · 可选的自动化</div>
+        <h2 class="title">先做只读报告，不把它变成门禁</h2>
+        <p class="lead">静态“零引用”有误报；硬门禁会诱导改测试绕过。报告只是巡检输入，去留仍由人判断。</p>
+      </header>
+      <div class="body">
+        <div class="auto-wrap">
+        <div class="auto">
+          <div class="auto-left">
+            <div class="terminal">
+              <div class="term-top"><span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span><span class="term-title">tools/lifecycle-report.mjs · 预期输出（示意）</span></div>
+              <div class="term-body">
+                <div><span class="prompt">$</span> node tools/lifecycle-report.mjs</div>
+                <div class="row"><span>NO_PRODUCT_REF</span><span>&lt;N&gt;</span></div>
+                <div class="row"><span>TEST_ONLY_REF</span><span>&lt;N&gt;</span></div>
+                <div class="row"><span>DEV_ONLY_ROUTE</span><span>&lt;N&gt;</span></div>
+                <div class="row"><span>EXPIRED_KI_ASSET</span><span>&lt;N&gt;</span></div>
+                <div class="muted"># read-only · no writes · no gate</div>
+              </div>
+            </div>
+            <div class="flow-chips">
+              <span class="flow-chip">报告</span><span class="arr">→</span>
+              <span class="flow-chip">人工复核</span><span class="arr">→</span>
+              <span class="flow-chip">台账</span><span class="arr">→</span>
+              <span class="flow-chip">删除 / 归档 / 保留</span>
+            </div>
+            <div class="report-read">
+              <div><b>先看</b><span>NO_PRODUCT_REF：真正没有产品引用的候选</span></div>
+              <div><b>再看</b><span>TEST_ONLY_REF：只在测试里续命的代码</span></div>
+              <div><b>最后</b><span>EXPIRED_KI_ASSET：绑定了已过期 KI 的资产</span></div>
+            </div>
+            <div class="report-limits"><b>报告不回答</b>替代者是否成立 · 触发条件是否到期 · 删除要同步什么 · 保留还是删除</div>
+            <div class="run-cadence"><b>运行频率：</b>每个里程碑收口或每次 minor 前；不进入 CI，也不阻塞合并。</div>
+            <div class="callout"><b>A5 是可选交付：</b>先能列出清单，再谈是否进门禁；没有报告也能执行前四个阶段。</div>
+          </div>
+          <aside class="panel auto-right">
+            <div class="mini-title">为什么不直接当门禁</div>
+            <h3>零引用不是死亡证明</h3>
+            <ul>
+              <li><b>误报来源：</b>动态导入、字符串工具名、测试夹具，都可能让静态扫描看不见调用。</li>
+              <li><b>激励错误：</b>一旦变硬门禁，最省力的变绿方式就是删测试或改夹具。</li>
+              <li><b>先积累：</b>规则稳定两个版本后再评估是否升级；期间只读。</li>
+              <li><b>不自动删：</b>报告给候选，删除仍需人工确认和同步清单。</li>
+            </ul>
+            <div class="gate-checks">
+              <div><b>升级前先满足：</b></div>
+              <div>□ 规则稳定两个版本</div>
+              <div>□ 误报率可接受，且有豁免机制</div>
+              <div>□ 报告仍不自动删除，只给候选</div>
+            </div>
+            <div class="error-examples">
+              <b>三个误报场景</b>
+              <div>动态 import：路径拼在字符串里</div>
+              <div>工具名写在数组或配置里</div>
+              <div>测试夹具仍在调用旧实现</div>
+            </div>
+            <div class="review-questions">
+              <b>人工复核看什么</b>
+              <div>① 替代者是否已经存在？</div>
+              <div>② 触发条件是否可观察、已到期？</div>
+              <div>③ 同步清单是否完整？</div>
+            </div>
+            <div class="callout"><b>顺序不能反：</b>先报告、后判断；先积累、后门禁。</div>
+          </aside>
+        </div>
+          <div class="band">
+            <div class="band-item"><b>POSITION</b>Stage 4 · A5；可选交付，不阻塞前三阶段。</div>
+            <div class="band-item"><b>SCOPE</b>只读；不写文件，不自动删除。</div>
+            <div class="band-item"><b>UPGRADE</b>规则稳定两个版本后，再评估门禁。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 ACCEPTANCE -->
+    <section class="slide" data-sec="11 · 验收" data-no="11">
+      <header class="head">
+        <div class="kicker">11 · 验收标准</div>
+        <h2 class="title">七条验收，每条落到现有检查面</h2>
+        <p class="lead">验收看的是资产有没有被正确管理，不是删了多少行。每条都能落到一个现有 surface，而不是新造一套流程。</p>
+      </header>
+      <div class="body">
+        <table class="accept-table">
+          <thead><tr><th>ID</th><th>验收结果</th><th>证据 / 检查面</th><th>surface</th></tr></thead>
+          <tbody>
+            <tr><td>A1</td><td>规则 + 台账</td><td><code>docs/testing.md</code> 增加状态与节奏；台账逐项记录状态 / owner / 替代者 / 触发 / 同步</td><td><span class="surface">plan-docs</span></td></tr>
+            <tr><td>A2</td><td>首批 dead 处置</td><td>三个 dead 候选进台账并按规则清理；删除时同步测试与 source-budget 断言</td><td><span class="surface">source</span></td></tr>
+            <tr><td>A3</td><td>0.3.0 退役包</td><td>驱动、路由、契约测试、断言同版移除；<code>parseIndex</code> 断言迁入 store 迁移测试；check / test 全绿</td><td><span class="surface">tests</span></td></tr>
+            <tr><td>A4</td><td>compat 同版本收口</td><td>README 破坏性变更、KI 关闭、迁移与回滚说明、阶段 RESULT 在同一发布完成</td><td><span class="surface">publication</span></td></tr>
+            <tr><td>A5</td><td>只读报告 <span class="opt">可选</span></td><td>列出无产品引用 / 仅测试引用 / dev-only 路由清单；不并入硬门禁</td><td><span class="surface">workflow</span></td></tr>
+            <tr><td>A6</td><td>每次收口巡检</td><td>RESULT 记录本次台账巡检结论；未处理项转 KI 并指派阶段</td><td><span class="surface">plan-docs</span></td></tr>
+            <tr><td>A7</td><td>E2E 驱动台账</td><td>状态（current / dev-only）、替代者与退役条件入账；语义更换即换驱动</td><td><span class="surface">decisions</span></td></tr>
+          </tbody>
+        </table>
+        <div class="dod">
+          <div class="callout teal"><b>完成判定：</b>owning checks 仍绿 + 文档指针已同步 + 结论可追溯；不以删除数量计分。</div>
+          <p class="source">proposal §Acceptance criteria A1–A7</p>
+        </div>
+        <div class="accept-after">
+          <div><b>留下 01</b>台账：状态 / owner / 触发条件</div>
+          <div><b>留下 02</b>阶段 RESULT：巡检结论与证据</div>
+          <div><b>留下 03</b>KNOWN_ISSUES：未处理项与阶段</div>
+        </div>
+        <div class="accept-gate">
+          <div><b>A1 / A6 未过</b>不启动退役；先补台账与巡检</div>
+          <div><b>A3 / A4 未过</b>0.3.0 不能发布；读写仍同批</div>
+          <div><b>A5 未过</b>只影响可选报告，不阻塞前三阶段</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 BOUNDARIES -->
+    <section class="slide" data-sec="12 · 边界与风险" data-no="12">
+      <header class="head">
+        <div class="kicker">12 · 边界与风险</div>
+        <h2 class="title">边界比清单更重要</h2>
+        <p class="lead">边界不是谨慎，而是防止“治理”变成另一种破坏。最容易出事的地方，是误删动态引用，以及台账漂移成第二份文档。</p>
+      </header>
+      <div class="body">
+        <div class="boundary-wrap">
+        <div class="boundary">
+          <aside class="panel never">
+            <div class="mini-title">四条不做</div>
+            <ul class="never-list">
+              <li><b>不自动删代码</b><span>删除必须人工确认；报告只给候选。</span></li>
+              <li><b>不删历史证据</b><span>gitignored 证据按保留策略处理，不随代码清理。</span></li>
+              <li><b>不改写已推送历史</b><span>退役通过新提交完成，不重写证据链。</span></li>
+              <li><b>不为“清零”改测试</b><span>不把测试改成夹具了事，也不删掉有效断言。</span></li>
+              <li><b>不把归档当删除</b><span>归档只适合证据 / 记录；仍有 dev 路由的代码不能靠归档消失。</span></li>
+            </ul>
+            <div class="never-note"><b>边界的目的</b>让删除可审计、可回滚；不是让删除变慢。</div>
+            <div class="callout red" style="margin-top:auto;font-size:10px"><b>删除前：</b>grep + deprecated 一个发布周期 + 全量检查。</div>
+          </aside>
+          <div class="panel" style="padding:16px 17px;display:flex;flex-direction:column;min-height:0">
+            <div class="mini-title">风险与对策</div>
+            <table class="risk-table">
+              <thead><tr><th>风险</th><th>对策</th></tr></thead>
+              <tbody>
+                <tr><td>误删动态引用 / 字符串工具名</td><td>先标 deprecated 一个发布周期；删除前 grep，跑全量检查；报告只当线索。</td></tr>
+                <tr><td>台账变成第二份文档而漂移</td><td>台账只放状态与指针；细节归 <code>docs/testing.md</code> / KNOWN_ISSUES；收口时校验一致性。</td></tr>
+                <tr><td>自动报告误报，诱导绕过</td><td>先只读，两个稳定版本后再评估门禁；始终人工确认。</td></tr>
+                <tr><td>把退役做成范围外顺手改</td><td>删除只覆盖当前任务；不做无关重命名或重排，diff 只包含退役面。</td></tr>
+                <tr><td>版本窗口错配</td><td>compat 只在下一次 minor / major 移除；0.3.0 一次性，不跨 patch 拆兼容层。</td></tr>
+                <tr><td>删除后不跑检查</td><td>删除后复跑 owning checks；source-budget 断言随删除一起更新。</td></tr>
+                <tr><td>把历史文档回填成现状</td><td>历史只追加指针或事实更正，不回填交付证据。</td></tr>
+                <tr><td>策略再次失效</td><td>重估条件：出现多团队并行贡献，或单文件 / 文档预算再次逼近上限。</td></tr>
+              </tbody>
+            </table>
+            <div class="callout" style="margin-top:auto;font-size:10px"><b>真正的护栏：</b>替代者先成立、版本绑定、同批同步、检查仍绿。</div>
+          </div>
+        </div>
+          <div class="delete-steps">
+            <div class="delete-step"><b>STEP 01</b>grep 产品 / 测试 / 字符串引用</div>
+            <div class="delete-step"><b>STEP 02</b>deprecated 一个发布周期</div>
+            <div class="delete-step"><b>STEP 03</b>跑全量 / owning checks</div>
+            <div class="delete-step"><b>STEP 04</b>更新台账、RESULT、KI</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 CLOSE -->
+    <section class="slide" data-sec="13 · 下一步" data-no="13">
+      <header class="head">
+        <div class="kicker">13 · 下一步</div>
+        <h2 class="title">从下一次阶段收口开始</h2>
+        <p class="lead">先做 Stage 1：用一张表让资产暴露出来。删除动作，留到规则、替代者和同步清单都写清楚之后。</p>
+      </header>
+      <div class="body">
+        <div class="close-wrap">
+        <div class="close">
+          <div class="panel next">
+            <div class="mini-title">执行顺序</div>
+            <div class="next-item"><div class="n">01</div><div><h3>今天 / 下一次收口：建台账</h3><p>把 7 类首版资产登记进表；先写状态、owner、替代者、触发条件和同步文件，不删代码。</p></div></div>
+            <div class="next-item"><div class="n">02</div><div><h3>本周期：首批 dead 清理</h3><p>迁移有价值的测试覆盖，删除三个 dead 候选及其续命测试；同步预算断言。</p></div></div>
+            <div class="next-item"><div class="n">03</div><div><h3>0.3.0：一次性退役包</h3><p>legacy 读路径、m2/m3 驱动、thread 别名、文档指针同版本收口；check / test 全绿。</p></div></div>
+            <div class="output-box"><b>首版台账产出</b>7 类资产 · 3 个 dead 候选 · 1 份删除同步清单</div>
+            <div class="timebox">
+              <b>第一次巡检的时间盒</b>
+              <div><i>10'</i>读台账：只看触发条件和 owner</div>
+              <div><i>10'</i>grep 三个面：产品、测试、文档</div>
+              <div><i>10'</i>写结论：台账 + RESULT + KI</div>
+            </div>
+            <div class="callout"><b>核心不是“删光”：</b>是让每个资产都有状态、有替代、有触发条件、有同步清单。</div>
+          </div>
+          <aside class="panel finish">
+            <div class="mini-title">完成判定</div>
+            <ul class="checklist">
+              <li><span class="box">✓</span><span>每项资产只占 5 状态之一</span></li>
+              <li><span class="box">✓</span><span>owner、替代者、退役触发条件已写</span></li>
+              <li><span class="box">✓</span><span>删除时的同步文件已列</span></li>
+              <li><span class="box">✓</span><span>owning checks 仍绿</span></li>
+              <li><span class="box">✓</span><span>阶段 RESULT 有巡检结论</span></li>
+            </ul>
+            <div class="now-box"><b>本轮不做</b>不删历史证据 · 不改写已推送历史 · 不为清零改测试</div>
+            <div class="decision-box"><b>先选台账 home：</b>docs/testing.md 内一张表，或 docs/LIFECYCLE.md；不要两处。</div>
+            <div class="next-actions">
+              <b>完成判定之后</b>
+              <div>① 把台账作为交付物提交</div>
+              <div>② 在阶段 RESULT 记录首轮巡检</div>
+              <div>③ 下一次 minor 前复核触发条件</div>
+            </div>
+            <div class="source-panel">
+              <div class="mini-title" style="margin-bottom:4px">事实源</div>
+              <a href="../../.agents/notes/proposed/process/2026-11-09-code-and-docs-lifecycle.md">.agents/notes/proposed/process/2026-11-09-code-and-docs-lifecycle.md</a>
+              <a href="../../docs/testing.md">docs/testing.md</a>
+              <a href="../../docs/documentation.md">docs/documentation.md</a>
+              <a href="../../tools/workflow.json">tools/workflow.json</a>
+              <div class="stamp">Status: proposed · 2026-11-09 · c182ae3</div>
+            </div>
+          </aside>
+        </div>
+          <div class="band">
+            <div class="band-item"><b>BEFORE</b>有引用就留着；没有退役条件。</div>
+            <div class="band-item"><b>AFTER</b>有状态、替代者、触发条件、同步清单。</div>
+            <div class="band-item"><b>NEXT</b>下一次阶段收口，先建 7 行台账。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<div id="progress" aria-hidden="true"><span id="progressFill"></span></div>
+<div class="hud" aria-label="演示导航">
+  <button id="prev" type="button" title="上一页" aria-label="上一页">‹</button>
+  <span class="hud-count" id="hudCount" aria-hidden="true">01 / 14</span>
+  <button id="next" type="button" title="下一页" aria-label="下一页">›</button>
+</div>
+<p class="sr-only" id="live" aria-live="polite"></p>
+
+<script src="code-and-docs-lifecycle.js"></script>
+</body>
+</html>
