@@ -1,8 +1,12 @@
 # M11 交接文档
 
-- 状态：**M11 启动文档（2026-11-08）**。M10 已交付（[M10 交付结果](M10_RESULT.md)）；本文件写给下一个会话，用于启动 V0.2 M11（HTTP API v2 与 CoWork 面板）。不重新论证 M10 的决定，也不重抄 M11 需求全文。
+## 交付状态（2026-11-08）
+
+**M11 已交付**（代码 artifact `6b7beab`，四命令 exit 0、`npm test` 732/732）。交付事实、A1–A10 证据、真实 Chrome 记录、偏差与未验证项见 [M11_RESULT.md](M11_RESULT.md)。本文件保持为 **M11 启动交接（历史）**，不复制交付证据；下方「M10 交付后的状态」「第一步」等段落记录的是启动时的基线，其中被交付状态推翻的表述已就地标注。
+
+- 状态：**M11 启动文档（2026-11-08，历史）**。M10 已交付（[M10 交付结果](M10_RESULT.md)）；本文件写给下一个会话，用于启动 V0.2 M11（HTTP API v2 与 CoWork 面板）。不重新论证 M10 的决定，也不重抄 M11 需求全文。
 - 适用：接手 M11 的 agent 或人。范围：M10 交付后的代码基线、M11 的启动方式、实施顺序与证据、影响面、陷阱、完成定义、回滚与未验证清单。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.3/§2.4/§4.2/§5.3/§5.6/§5.9/§5.10/§6 M11 拥有需求与验收；[M11 执行提案](../.agents/notes/proposed/architecture/2026-11-08-m11-http-api-panel-plan.md) 拥有执行层决定与备选；[面板与会话可见性](../.agents/notes/proposed/feature/2026-11-07-panel-and-session-visibility.md) 与 [可见性降级决策](../.agents/notes/proposed/feature/2026-11-07-topic-visibility-fallback.md) 拥有交互与决策 (b)；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；[AGENTTEAM](AGENTTEAM.md) 与 [testing](testing.md) 拥有流程与证据规则；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.3/§2.4/§4.2/§5.3/§5.6/§5.9/§5.10/§6 M11 拥有需求与验收；[M11 决策记录](../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md) 拥有执行层决定与备选；[面板与会话可见性](../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md) 与 [可见性降级决策](../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md) 拥有交互与决策 (b)；交付事实见 [M11_RESULT.md](M11_RESULT.md)；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；[AGENTTEAM](AGENTTEAM.md) 与 [testing](testing.md) 拥有流程与证据规则；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## M10 交付后的状态（2026-11-08）
 
@@ -10,18 +14,18 @@
 - **验证基线**：`npm test` **701 / 701 pass / 0 fail / 0 cancelled / 0 skipped / 0 todo**；`npm run typecheck`、`npm run build`、`npm run check` 均 exit 0。字节：`src/tools.ts` 2,924 B、`src/store.ts` 48,560 B、`src/**/*.ts` 最大 `src/m2-e2e.ts` 49,923 B（<51,200 B）。
 - **依赖**：M9（路由/工具面/预设）、M10（评审请求/工作项/合并）、M6 探针 5/6（工具面与面板同源 POST）。
 - **数据模型**：canonical v2 已就绪——`.dsh-cowork/index.json` 的 `topics[]`/`workItems[]`、`activity.jsonl`、`inbox.json`、评审请求文件 `reviews/<topicId>-<requestId>.json`、handoff 文件仅审计。M10 的 15 个工具与 4 个预设不变；reviewer 在 verdict 后归档。
-- **面板/API 现状（2026-11-08 在 `b4f6580` 实测）**：`src/api-contract.ts` 11,174 B（v1 thread wire，含 `PanelThread`/`PanelHandoffRecord`/`OVERVIEW_PATH`/`HANDOFF_PATH`）；`src/api.ts` 23,218 B（只注册 overview 与 legacy handoff，overview 读 legacy `readIndex`、评审卡取 `latestReviewPath`）；`src/client/*` 合计 110,436 B（thread 列表/详情/交接单）；`tests/api.test.mjs` 39,029 B、`tests/api-contract.test.mjs` 8,356 B、`tests/panel-model.test.mjs` 14,917 B。M11 会重写这些文件。
+- **面板/API 现状（2026-11-08 在 `b4f6580` 实测）**：`src/api-contract.ts` 11,174 B（v1 thread wire，含 `PanelThread`/`PanelHandoffRecord`/`OVERVIEW_PATH`/`HANDOFF_PATH`）；`src/api.ts` 23,218 B（只注册 overview 与 legacy handoff，overview 读 legacy `readIndex`、评审卡取 `latestReviewPath`）；`src/client/*` 合计 110,436 B（thread 列表/详情/交接单）；`tests/api.test.mjs` 39,029 B、`tests/api-contract.test.mjs` 8,356 B、`tests/panel-model.test.mjs` 14,917 B。M11 已重写这些文件，交付后的字节与交付面见 [M11_RESULT.md](M11_RESULT.md)「交付面」。
 - **M11 要承接的遗留**：KI-18（`api.ts` 仍读 `latestReviewPath`，面板评审卡需切到请求文件）、KI-22（真实宿主 E2E 与真实数据未跑，M12）、KI-28（live reviewer 仍可能在左侧栏出现；面板不列、verdict 后归档是上限）、KI-6（旧 API 字段/路由移除的破坏性变更由 M12 README 记录）；KI-27（provider 仅 clone）与 M11 无关。
 
 ## 先读什么
 
 1. [AGENTS.md](../AGENTS.md) 与 [docs/AGENTTEAM.md](AGENTTEAM.md)：纪律、R8 浏览器验证、R9 面板 fixture、DAG/artifact/交付规则。
 2. [PLAN-V0.2](PLAN-V0.2.md) §2.4（界面与会话可见性）、§5.9（HTTP API 与面板）、§6 M11（范围/完成标准/证据/不做）、§7（测试与验收总则）。
-3. [M11 执行提案](../.agents/notes/proposed/architecture/2026-11-08-m11-http-api-panel-plan.md)：wire v2 字段、读/写路由、client 结构、备选与风险。
+3. [M11 决策记录](../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md)：wire v2 字段、读/写路由、client 结构、备选与后果。
 4. [M10 交付结果](M10_RESULT.md)：「偏差与未验证」与「审查与修复」两节；不要复制它的证据。
 5. [KNOWN_ISSUES](KNOWN_ISSUES.md)：KI-18/22/28 与各自的重估条件。
 6. [M6 探针结果](M6_PROBE_RESULT.md) §3（archive 后行为）、§5（preset 工具面）、§6（同源 POST 与真实 Chrome 的限制）；[M6 交接](M6_HANDOFF.md) 的决策 (b)。
-7. [docs/testing.md](testing.md)（tiers、commands、fixture 规则）与 [面板交互记录](../.agents/notes/proposed/feature/2026-11-07-panel-and-session-visibility.md)。
+7. [docs/testing.md](testing.md)（tiers、commands、fixture 规则）与 [面板交互记录](../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md)。
 8. [M10 交接文档](M10_HANDOFF.md) 作为本文件的模板（只读，启动版保留）。
 
 ## 第一步：M11 启动顺序
@@ -60,7 +64,7 @@
 - **fixture 不能碰真实 `.dsh-cowork`（R9）**。宿主正在服务 panel 请求时不要直接改真实目录；用 fixture repo/独立 DSH_HOME/port，apply/restore 一次完成并校验 hash；`.dsh-cowork` 内不写 Markdown（KI-13）。
 - **client 是预打包产物**。仓库没有 dev watcher；改 `src/client/**` 后必须 `npm run build`（含 `scripts/build-client.mjs` → `lib/client.js`）再验证。注入器/宿主可能命中旧 bundle（KI-11 pkgMeta、KI-16 ESM 缓存）：先核对 bundle 内容/重启宿主，不要把旧行为当新证据。
 - **同源写路由**。沿用宿主 loopback；插件侧要补 `Origin`/`Host` 同源与 JSON content-type（缺 content-type 415、坏来源 403），错误文案可读。M6 探针 6 未验证认证后的 `/api` POST（401 属宿主认证）；不要读取或绕过 cookie/token。
-- **PLAN §4.5 的会话表是过时的**：它仍写「主题会话 | 可见性 隐藏」，与 §2.4/§5.9/§5.10 和决策 (b) 冲突。M11 以 §2.4/§5.9 与决策 (b) 为准（主题可见、reviewer 隐藏），M12 文档收口时修正该行。
+- **PLAN §4.5 的会话表曾是过时的**：启动时它写「主题会话 | 可见性 隐藏」，与 §2.4/§5.9/§5.10 和决策 (b) 冲突；M11 收口已修正该行（主题左侧栏可见、reviewer 隐藏且宿主侧栏可能仍可见）。
 - **上界**：overview ≤500 主题；activity 默认 50、上限 200；详情 workItems ≤50、reviewRequests ≤10、findings ≤20、verification ≤10、changedPaths ≤50；digest/summary ≤200。不要返回完整 handoff/review 全文或 reviewer 会话列表。
 - **文档分类**：新增 `docs/M11_RESULT.md` 等必须在 `docs/publish.json` 分类；`npm run check` 会抓未分类 `.md`。
 
@@ -90,14 +94,14 @@
 
 - 真实宿主全链路 E2E（路由→主题→评审→verdict→合并→已解决→重开→活动流）——M12（KI-22）；M11 只验证面板/API 自身。
 - 真实 v1/v2 数据的迁移与回滚演练（KI-22）；M11 的夹具是临时目录。
-- 认证后的 `/api` POST（M6 探针 6 的 401 边界）需在 M11 的已认证面板上下文补证据；未验证前不得声称生产可用。
+- 认证后的 `/api` POST 已在 M11 的已认证面板上下文补证据（overview/topic/activity 200、写路由 200 与 403/415/400，见 [M11_RESULT](M11_RESULT.md) A8）；Origin 伪造（浏览器 forbidden header）与剪贴板写入仍未验证，未验证前不得声称生产可用。
 - live reviewer 在宿主左侧栏仍可能可见（KI-28，接受上限）；无会话过滤接口。
 - 移动端、多窗口与 headless 差异不在 M11 范围。
 
 ## 指针
 
-- M11 执行提案：[2026-11-08-m11-http-api-panel-plan.md](../.agents/notes/proposed/architecture/2026-11-08-m11-http-api-panel-plan.md)。
-- 面板交互与可见性：[2026-11-07-panel-and-session-visibility.md](../.agents/notes/proposed/feature/2026-11-07-panel-and-session-visibility.md)、[2026-11-07-topic-visibility-fallback.md](../.agents/notes/proposed/feature/2026-11-07-topic-visibility-fallback.md)。
+- M11 决策记录（implemented）：[2026-11-08-m11-http-api-panel.md](../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md)；交付事实：[M11_RESULT.md](M11_RESULT.md)。
+- 面板交互与可见性（implemented）：[2026-11-07-panel-and-session-visibility.md](../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md)、[2026-11-07-topic-visibility-fallback.md](../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)。
 - M10 交付结果：[M10_RESULT.md](M10_RESULT.md)；M10 启动交接（历史）：[M10_HANDOFF.md](M10_HANDOFF.md)。
 - 评审模型与工作项/合并边界（implemented）：[2026-11-07-review-request-model.md](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)、[2026-11-07-parallel-isolation-and-merge.md](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)。
 - M6 探针与决策：[M6_PROBE_RESULT.md](M6_PROBE_RESULT.md)、[M6_HANDOFF.md](M6_HANDOFF.md)。

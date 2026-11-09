@@ -279,9 +279,9 @@ master → 插件：cowork_checkout_merge(workItemId)
 | 会话 | 位置 | 可见性 | 工作目录 |
 |---|---|---|---|
 | master | 左侧栏 | 可见 | 主仓库 |
-| 主题会话 | CoWork tab | 隐藏 | 主仓库或该主题的隔离目录 |
+| 主题会话 | CoWork tab | 左侧栏可见（决策 b：主题保留可打开） | 主仓库或该主题的隔离目录 |
 | 执行单元 | 由主题/AgentTeams 创建 | 不出现在左侧栏 | 各自隔离工作项目录 |
-| reviewer | 由插件创建 | 隐藏；verdict 后归档 | 主仓库（读取工作项路径） |
+| reviewer | 由插件创建 | 隐藏；面板不列，verdict 后归档；宿主左侧栏可能仍可见（KI-28） | 主仓库（读取工作项路径） |
 
 隔离 v1 用现有 clone：`<repo>/.dsh-cowork/workitems/<workItemId>`，分支 `cowork/<workItemId>`；合并串行；`main` 由人收口。worktree 适配器后置。
 
@@ -483,6 +483,7 @@ master → 插件：cowork_checkout_merge(workItemId)
   - 真实 Chrome 面板检查通过。
 - 证据：`tests/api-contract.test.mjs`、`tests/panel-model.test.mjs`、面板截图与 run 记录。
 - 不做：不做主题内嵌多面板；不做移动端新布局。
+- M11 已交付：代码 artifact `6b7beab`，证据与验收见 [M11_RESULT](M11_RESULT.md)。
 
 ### M12 文档、真实 E2E、0.2.0
 
@@ -543,10 +544,12 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 - `.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md`
 - `.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md`
-- `.agents/notes/proposed/feature/2026-11-07-review-request-model.md`
+- `.agents/notes/implemented/feature/2026-11-07-review-request-model.md`
 - `.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md`
-- `.agents/notes/proposed/architecture/2026-11-07-parallel-isolation-and-merge.md`
-- `.agents/notes/proposed/feature/2026-11-07-panel-and-session-visibility.md`
+- `.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md`
+- `.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md`
+- `.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md`
+- `.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md`
 - `.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md`
 
 记录与阶段的主归属见 §6 的「记录与阶段的主归属」表。
