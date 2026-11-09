@@ -176,11 +176,28 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
         // write, so init no longer repairs the index from handoff files.
         const index = await store.readIndex()
         const workspaceId = await slice.resolveWorkspaceId(repoPath)
+        // A workspace record alone does not put the project back in the sidebar:
+        // the host shows a workspace through the sessions attached to it. The
+        // registry's header bootstrap runs only while its domain is
+        // uninitialized, so a lost record is never rebuilt from session headers
+        // after a restart; binding the calling master here is the repair.
+        const attachment = await slice.attachSession(workspaceId, caller.sessionId)
+        if (!attachment.attached) {
+          // A refusal must not undo a successful project init: keep the result
+          // usable but say plainly that the sidebar binding did not happen.
+          deps.log?.(
+            `cowork_project_init: session ${caller.sessionId} was not attached to workspace ${workspaceId}: ${attachment.error ?? 'unknown error'}`,
+          )
+        }
         return toJson(success({
           projectId: index.projectId,
           repoPath,
           masterSessionId: index.masterSessionId,
           workspaceId,
+          sessionAttached: attachment.attached,
+          ...(attachment.attached
+            ? {}
+            : { sessionAttachError: attachment.error ?? 'unknown error' }),
           created: initialized.created,
           rebound,
           previousMasterSessionId,

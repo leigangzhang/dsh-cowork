@@ -51,6 +51,13 @@ export interface SessionHeader {
   agentPreset?: string
 }
 
+/** Outcome of one workspace attachment; a refusal is a value, not a throw. */
+export interface AttachSessionResult {
+  attached: boolean
+  /** The host's refusal reason, present only when `attached` is false. */
+  error?: string
+}
+
 export interface SessionSlicePorts {
   sessions: {
     create(request: SessionCreateRequest): Promise<SessionCreateResult>
@@ -62,6 +69,12 @@ export interface SessionSlicePorts {
   workspaces: {
     resolveByPath(path: string): Promise<{ id: string; path: string } | undefined>
     create(path: string, title?: string): Promise<{ id: string; path: string }>
+    /**
+     * Attach an existing session to a workspace. Optional because hand-built
+     * test ports and older embedders may not expose it; a missing port is
+     * reported as an unattached result, never as a failed project init.
+     */
+    attachSession?(workspaceId: string, sessionId: string): Promise<void>
     /** Remove a workspace; `false` means it was already gone. */
     delete(id: string): Promise<boolean>
     /**
@@ -97,6 +110,28 @@ export class SessionSlice {
     if (existing !== undefined) return existing.id
     const created = await this.#ports.workspaces.create(repoPath)
     return created.id
+  }
+
+  /**
+   * Attach a session to a workspace without failing the caller.
+   *
+   * Project init and the startup repair both need a truthful answer to "can the
+   * sidebar see this project?", and neither may abort because the host refused
+   * the attachment. The host's reason is returned in the value so the caller can
+   * warn and surface it; a port without `attachSession` is reported the same way
+   * instead of being treated as success.
+   */
+  async attachSession(workspaceId: string, sessionId: string): Promise<AttachSessionResult> {
+    const attach = this.#ports.workspaces.attachSession
+    if (attach === undefined) {
+      return { attached: false, error: 'the host workspace port exposes no attachSession' }
+    }
+    try {
+      await attach.call(this.#ports.workspaces, workspaceId, sessionId)
+      return { attached: true }
+    } catch (error) {
+      return { attached: false, error: error instanceof Error ? error.message : String(error) }
+    }
   }
 
   /**

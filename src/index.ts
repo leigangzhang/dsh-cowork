@@ -50,6 +50,7 @@ import { registerCoworkTools } from './tools.js'
 import { TopicEvents } from './topic-events.js'
 import type { TopicEventLike, TopicEventSession } from './topic-events.js'
 import { DEFAULT_IDLE_AFTER_MS, DEFAULT_RESOLVE_AFTER_MS } from './topic.js'
+import { repairCoworkWorkspaces } from './workspace-repair.js'
 
 const packageJson = JSON.parse(
   readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
@@ -243,16 +244,54 @@ function defaultRepoPath(): string {
 }
 
 /**
+ * The host workspace registry as DSH exposes it: the operations the shared
+ * port models, plus `get(id)` for the live entity. Binding an existing session
+ * is an entity operation (`attachSession`), which is why the port takes the
+ * workspace id and the lookup happens here.
+ */
+type HostWorkspaceRegistry = CoworkToolDeps['workspaceRegistry'] & {
+  get(id: string): { attachSession(sessionId: string): Promise<void> } | undefined
+}
+
+/**
  * Host services the M1 assembly reads. The plugin cannot import the app's own
  * types, so these stay structural; the shapes are the ones S0 confirmed
  * (`agentPresets.register`, `sessionController`, `workspaceRegistry`).
  */
 interface CoworkAssemblyHost {
   sessionController: CoworkToolDeps['sessionController']
-  workspaceRegistry: CoworkToolDeps['workspaceRegistry']
+  workspaceRegistry: HostWorkspaceRegistry
   agentPresets: CoworkToolDeps['agentPresets']
   /** The live agent registry, read to attach the memory section to existing agents. */
   agents: { list(): readonly MemoryPromptAgent[] }
+}
+
+/** The workspace port with the entity-backed attachment the repair needs. */
+interface CoworkWorkspacePorts extends Omit<CoworkToolDeps['workspaceRegistry'], 'attachSession'> {
+  attachSession(workspaceId: string, sessionId: string): Promise<void>
+}
+
+/**
+ * Project the host registry onto the slice's workspace port. Every other
+ * operation is forwarded unchanged; `attachSession` resolves the live entity
+ * first, because attaching is an operation on the workspace, not the registry.
+ */
+function workspacePortsOf(registry: HostWorkspaceRegistry): CoworkWorkspacePorts {
+  return {
+    resolveByPath: (path) => registry.resolveByPath(path),
+    create: (path, title) => registry.create(path, title),
+    delete: (id) => registry.delete(id),
+    archiveSession: (sessionId, options) => registry.archiveSession(sessionId, options),
+    attachSession: async (workspaceId, sessionId) => {
+      const workspace = registry.get(workspaceId)
+      if (workspace === undefined) {
+        throw new Error(
+          `workspace '${workspaceId}' is not registered, so it cannot own session '${sessionId}'`,
+        )
+      }
+      await workspace.attachSession(sessionId)
+    },
+  }
 }
 
 /**
@@ -814,12 +853,16 @@ export function apply(ctx: Context, config: Config): void {
   // Only the dev probe canonicalizes it, because only the probe compares paths
   // against a host session cwd.
   const repoPath = settings.repoPath === '' ? defaultRepoPath() : resolve(settings.repoPath)
+  const workspacePorts = workspacePortsOf(assembly.workspaceRegistry)
   const coworkDeps: CoworkToolDeps = {
     sessionController: assembly.sessionController,
-    workspaceRegistry: assembly.workspaceRegistry,
+    workspaceRegistry: workspacePorts,
     agentPresets: assembly.agentPresets,
     clock: () => new Date(),
     resolveRepoPath: () => repoPath,
+    // Non-fatal degradations (for example an unbound workspace) reach the host
+    // log as warnings; a tool result still reports its own failure state.
+    log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
     // M9.1/M9.3a: the tool layer owns the lifecycle read point. The values come
     // from the normalized config, never from a second set of defaults here.
     idleAfterMs: settings.idleAfterMs,
@@ -863,6 +906,44 @@ export function apply(ctx: Context, config: Config): void {
     log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
   })
   ctx.effect(() => topicEvents.attach(), 'dsh-cowork: topic lifecycle events')
+
+  // A workspace record the registry loses is not rebuilt from session headers
+  // once its domain is initialized, so a healthy Cowork project can vanish from
+  // the sidebar after a restart even though its index and sessions are intact.
+  // Re-create only the missing records for sessions that already sit at a
+  // Cowork project root, then attach those sessions. The pass is bounded and
+  // every failure is logged: a failed repair must never fail plugin startup.
+  ctx.effect(() => {
+    let active = true
+    void repairCoworkWorkspaces({
+      listSessions: async () => (await assembly.sessionController.list() as {
+        items: readonly HostSessionListRow[]
+      }).items,
+      resolveProjectRoot: findProjectRoot,
+      resolveWorkspace: (path) => workspacePorts.resolveByPath(path),
+      createWorkspace: (path) => workspacePorts.create(path),
+      attachSession: (workspaceId, sessionId) => workspacePorts.attachSession(workspaceId, sessionId),
+    }).then((result) => {
+      if (!active) return
+      if (result.createdWorkspaces.length > 0 || result.attachedSessions > 0) {
+        ctx.logger?.info?.(
+          `[${PLUGIN_NAME}] workspace repair: created ${result.createdWorkspaces.length} workspace(s), attached ${result.attachedSessions} session(s)`,
+        )
+      }
+      for (const error of result.errors) {
+        ctx.logger?.warn?.(`[${PLUGIN_NAME}] workspace repair: ${error}`)
+      }
+    }).catch((error) => {
+      // The repair reports its own failures; this arm only guards a programming
+      // error and still must not fail startup.
+      ctx.logger?.warn?.(
+        `[${PLUGIN_NAME}] workspace repair failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    })
+    return () => {
+      active = false
+    }
+  }, 'dsh-cowork: workspace repair')
 
   // Dev surfaces are opt-in: an installed profile never exposes the probe
   // routes, the probe tools, the probe presets, or the session event feeds.

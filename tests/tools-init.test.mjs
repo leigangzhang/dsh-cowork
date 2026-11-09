@@ -49,9 +49,11 @@ function fakeExec(sessionId, cwd, agentPreset = 'router-standard') {
   return { agent: { id: sessionId, session: { header: { cwd, agentPreset } } } }
 }
 
-/** The host ports the init tool touches: only the workspace lookup, archive port, and clock. */
-function fakeDeps() {
+/** The host ports the init tool touches: workspace lookup/attach, archive port, and clock. */
+function fakeDeps(overrides = {}) {
+  const warnings = []
   return {
+    warnings,
     sessionController: {
       async create() { return { sessionId: 'session-created', agentPreset: 'cowork-topic' } },
       async rename({ title }) { return { title, seq: 1 } },
@@ -61,15 +63,21 @@ function fakeDeps() {
     },
     workspaceRegistry: {
       archiveCalls: [],
+      attachCalls: [],
       async resolveByPath(path) { return { id: 'workspace-1', path } },
       async create(path) { return { id: 'workspace-1', path } },
       async delete() { return true },
+      async attachSession(workspaceId, sessionId) {
+        this.attachCalls.push({ workspaceId, sessionId })
+        if (overrides.attachError !== undefined) throw new Error(overrides.attachError)
+      },
       async archiveSession(sessionId, options) {
         this.archiveCalls.push({ sessionId, options })
       },
     },
     agentPresets: { async register() { return async () => {} } },
     clock: CLOCK,
+    log: (message) => warnings.push(message),
   }
 }
 
@@ -85,7 +93,8 @@ async function withRepo(run) {
 test('cowork_project_init keeps a different session fail-closed until takeOver is explicit', async () => {
   await withRepo(async (repoPath) => {
     const host = fakeHost()
-    registerCoworkTools(host, fakeDeps())
+    const deps = fakeDeps()
+    registerCoworkTools(host, deps)
     const init = host.registry.get('cowork_project_init')
     assert.ok(init, 'the assembly must register cowork_project_init')
 
@@ -99,6 +108,13 @@ test('cowork_project_init keeps a different session fail-closed until takeOver i
     assert.equal(first.rebound, false)
     assert.equal(first.masterSessionId, 'session-a')
     assert.equal(first.previousMasterSessionId, 'session-a')
+    // The master must be attached to the workspace it just initialized: a
+    // workspace record without a session is invisible in the sidebar.
+    assert.equal(first.sessionAttached, true)
+    assert.equal('sessionAttachError' in first, false)
+    assert.deepEqual(deps.workspaceRegistry.attachCalls, [
+      { workspaceId: 'workspace-1', sessionId: 'session-a' },
+    ])
 
     const denied = await init.execute({}, fakeExec('session-b', repoPath))
     assert.equal(denied.ok, false)
@@ -109,6 +125,8 @@ test('cowork_project_init keeps a different session fail-closed until takeOver i
       sessionId: 'session-b',
       masterSessionId: 'session-a',
     })
+    // A refused call must not touch the workspace attachment.
+    assert.equal(deps.workspaceRegistry.attachCalls.length, 1, 'a non-master call must not attach')
 
     // A thread record must survive the takeover untouched.
     const store = new ProjectStore({ repoPath, clock: CLOCK })
@@ -139,6 +157,12 @@ test('cowork_project_init keeps a different session fail-closed until takeOver i
     assert.equal(taken.index.createdAt, before.createdAt)
     assert.deepEqual(taken.index.threads.map((entry) => entry.threadId), ['session-thread'])
     assert.equal(taken.workspaceId, 'workspace-1')
+    // A takeover rebinds the master, so the new master is the one attached.
+    assert.equal(taken.sessionAttached, true)
+    assert.deepEqual(deps.workspaceRegistry.attachCalls, [
+      { workspaceId: 'workspace-1', sessionId: 'session-a' },
+      { workspaceId: 'workspace-1', sessionId: 'session-b' },
+    ])
 
     const onDisk = JSON.parse(await readFile(join(repoPath, '.dsh-cowork', 'index.json'), 'utf8'))
     assert.equal(onDisk.masterSessionId, 'session-b')
@@ -210,5 +234,34 @@ test('cowork_project_init migrates a v1 index and archives the cancelled reviewe
     // The backup is the byte-exact v1 document, written once before v2.
     assert.equal(await readFile(store.backupFile, 'utf8'), original)
     assert.equal(taken.index.threads[0].status, 'active', 'the cancelled review reads as active')
+  })
+})
+
+test('cowork_project_init survives a refused workspace attachment and reports it', async () => {
+  await withRepo(async (repoPath) => {
+    const host = fakeHost()
+    const deps = fakeDeps({ attachError: 'its cwd resolves elsewhere' })
+    registerCoworkTools(host, deps)
+    const init = host.registry.get('cowork_project_init')
+
+    const result = await init.execute({}, fakeExec('session-a', repoPath))
+
+    // Project initialization is the contract; a sidebar binding is not allowed
+    // to turn a successful init into a failed one.
+    assert.equal(result.ok, true)
+    assert.equal(result.created, true)
+    assert.equal(result.masterSessionId, 'session-a')
+    assert.equal(result.sessionAttached, false)
+    assert.equal(result.sessionAttachError, 'its cwd resolves elsewhere')
+    assert.deepEqual(deps.workspaceRegistry.attachCalls, [
+      { workspaceId: 'workspace-1', sessionId: 'session-a' },
+    ])
+    assert.equal(deps.warnings.length, 1)
+    assert.match(deps.warnings[0], /was not attached to workspace workspace-1/)
+    assert.match(deps.warnings[0], /its cwd resolves elsewhere/)
+
+    // The index is still written, so a retry finds the same project.
+    const onDisk = JSON.parse(await readFile(join(repoPath, '.dsh-cowork', 'index.json'), 'utf8'))
+    assert.equal(onDisk.masterSessionId, 'session-a')
   })
 })

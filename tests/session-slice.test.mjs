@@ -20,6 +20,7 @@ function fakePorts(overrides = {}) {
     inspect: [],
     deleteWorkspace: [],
     archiveSession: [],
+    attachSession: [],
   }
   const ports = {
     sessions: {
@@ -60,6 +61,10 @@ function fakePorts(overrides = {}) {
       async archiveSession(sessionId, options) {
         calls.archiveSession.push({ sessionId, options })
       },
+      async attachSession(workspaceId, sessionId) {
+        calls.attachSession.push({ workspaceId, sessionId })
+        if (overrides.attachError !== undefined) throw new Error(overrides.attachError)
+      },
     },
   }
   return { ports, calls }
@@ -94,6 +99,34 @@ test('resolveWorkspaceId does not cache: a second call asks the registry again',
   await slice.resolveWorkspaceId('/repo')
   assert.equal(calls.resolveByPath.length, 2)
   assert.equal(calls.createWorkspace.length, 2)
+})
+
+test('attachSession forwards the pair and reports success', async () => {
+  const { ports, calls } = fakePorts()
+  const slice = new SessionSlice(ports)
+
+  assert.deepEqual(await slice.attachSession('workspace-1', 'session-a'), { attached: true })
+  assert.deepEqual(calls.attachSession, [{ workspaceId: 'workspace-1', sessionId: 'session-a' }])
+})
+
+test('attachSession reports a host refusal as a value instead of throwing', async () => {
+  const { ports } = fakePorts({ attachError: 'its cwd resolves elsewhere' })
+  const slice = new SessionSlice(ports)
+
+  assert.deepEqual(await slice.attachSession('workspace-1', 'session-a'), {
+    attached: false,
+    error: 'its cwd resolves elsewhere',
+  })
+})
+
+test('attachSession reports a port without attachment instead of claiming success', async () => {
+  const { ports } = fakePorts()
+  delete ports.workspaces.attachSession
+  const slice = new SessionSlice(ports)
+
+  const result = await slice.attachSession('workspace-1', 'session-a')
+  assert.equal(result.attached, false)
+  assert.match(result.error, /attachSession/)
 })
 
 test('createThread creates the session with the resolved workspace and preset, then renames it', async () => {

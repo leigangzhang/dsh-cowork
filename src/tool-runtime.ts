@@ -85,6 +85,8 @@ export interface CoworkToolDeps {
   clock?: () => Date
   /** The plugin's default repository root, used only to improve an error hint. */
   resolveRepoPath?: () => string
+  /** Warning sink for non-fatal degradations the caller must still see. */
+  log?: (message: string) => void
   /** Silence after which a topic becomes idle; defaults to `DEFAULT_IDLE_AFTER_MS`. */
   idleAfterMs?: number
   /** Silence after which a resolvable topic is resolved; defaults to `DEFAULT_RESOLVE_AFTER_MS`. */
