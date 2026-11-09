@@ -113,7 +113,6 @@ export type { M12E2EHost, M12PanelProbe } from './m12-e2e-support.js'
 
 /** Options one run may carry (the dev route reads them from the query string). */
 export interface M12RunOptions {
-  /** Keep the temporary project and workspace after the run. */
   readonly keep?: boolean
   /** Base ref for the artifact diff (e.g. the M12 base commit). */
   readonly baseRef?: string
@@ -250,8 +249,6 @@ export class M12E2ERunner {
       run.error = messageOf(error)
     } finally {
       run.endedAt = isoNow()
-      // Evidence is durable before the throwaway project goes away, so a failed
-      // delete can never take the run's record with it.
       await this.safeArchiveSessions(run)
       await this.persist(run)
       if (shouldRemoveFixture(run.state, this.keepFixture)) await this.removeFixture(run)
@@ -808,7 +805,7 @@ export class M12E2ERunner {
     run.finalIndex = index ?? null
     if (index !== undefined) obs(step, { finalIndex: { topics: index.topics.length, workItems: index.workItems.length } })
     const sessions: M12ArchivedSession[] = []
-    for (const [role, sessionId] of this.sessionPlan()) {
+    for (const [role, sessionId] of this.trackedSessionPlan()) {
       sessions.push(await this.archiveOne(role, sessionId))
     }
     const workspace = await this.dropWorkspace(step)
@@ -840,21 +837,15 @@ export class M12E2ERunner {
     recordCheck(step, 'every created session was archived', sessions.every((session) => session.archived), sessions.filter((session) => !session.archived).map((session) => session.sessionId).join(','))
   }
 
-  private sessionPlan(): Array<[string, string]> {
+  private trackedSessionPlan(): Array<[string, string]> {
     const candidates: Array<[string, string | null]> = [
       ['master', this.masterId],
       ['topic', this.topicId],
       ['reviewer', this.reviewerId],
       ['topic-resolved-match', this.extraTopicId],
     ]
-    const seen = new Set<string>()
-    const plan: Array<[string, string]> = []
-    for (const [role, sessionId] of candidates) {
-      if (sessionId === null || seen.has(sessionId)) continue
-      seen.add(sessionId)
-      plan.push([role, sessionId])
-    }
-    return plan
+    const roles = new Map(candidates.filter((entry): entry is [string, string] => entry[1] !== null).map(([role, id]) => [id, role]))
+    return [...this.tracked].map((sessionId) => [roles.get(sessionId) ?? 'session', sessionId] as [string, string])
   }
 
   private async archiveOne(role: string, sessionId: string): Promise<M12ArchivedSession> {
@@ -1042,27 +1033,32 @@ export class M12E2ERunner {
   private async safeArchiveSessions(run: MutableRun): Promise<void> {
     const cleanup = run.cleanup as M12CleanupReport | Record<string, unknown>
     if (Array.isArray((cleanup as M12CleanupReport).sessions) && (cleanup as M12CleanupReport).sessions.length > 0) return
-    const errors: string[] = []
-    for (const sessionId of this.tracked) {
-      try {
-        await this.host.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
-      } catch (error) {
-        errors.push(`${sessionId}: ${messageOf(error)}`)
-      }
+    const archived: M12ArchivedSession[] = []
+    for (const [role, sessionId] of this.trackedSessionPlan()) archived.push(await this.archiveOne(role, sessionId))
+    if (archived.length === 0) return
+    run.cleanup = {
+      ...run.cleanup,
+      autoArchived: archived,
+      archivedSessionIds: archived.filter((entry) => entry.archived).map((entry) => entry.sessionId),
+      autoArchiveErrors: archived.filter((entry) => !entry.archived).map((entry) => `${entry.sessionId}: ${entry.error ?? 'unknown error'}`),
     }
-    if (errors.length > 0) run.cleanup = { ...run.cleanup, autoArchiveErrors: errors }
   }
 
   private async removeFixture(run: MutableRun): Promise<void> {
-    if (this.fixturePath === null) return
-    try {
-      await rm(this.fixturePath, { recursive: true, force: true })
-    } catch (error) {
-      const cleanup = run.cleanup as M12CleanupReport | Record<string, unknown>
-      const previous = Array.isArray(cleanup.errors) ? cleanup.errors as unknown[] : []
-      run.cleanup = { ...run.cleanup, errors: [...previous, `delete fixture: ${messageOf(error)}`] }
-      await this.persist(run)
+    const errors: string[] = []
+    let removed = false
+    if (this.fixturePath !== null) {
+      try {
+        await rm(this.fixturePath, { recursive: true, force: true })
+        removed = !existsSync(this.fixturePath)
+      } catch (error) {
+        errors.push(`delete fixture: ${messageOf(error)}`)
+      }
     }
+    const cleanup = run.cleanup as M12CleanupReport | Record<string, unknown>
+    const previous = Array.isArray(cleanup.errors) ? cleanup.errors as unknown[] : []
+    run.cleanup = { ...run.cleanup, errors: [...previous, ...errors], fixturePath: this.fixturePath, keepFixture: this.keepFixture, fixtureRemoved: removed }
+    await this.persist(run)
   }
 
   private async persist(run: MutableRun): Promise<void> {
