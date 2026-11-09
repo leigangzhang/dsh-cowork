@@ -68,6 +68,14 @@
 - **D8 打开主题后宿主右栏可能关闭**：新会话没有右栏历史，宿主按会话记忆右栏状态；不是插件调用，左侧栏无增删（R4）。
 - **reopen 不清 `reviewStatus`/`latestReviewRequestId`**：重开只清 `resolvedAt/resolvedBy` 并回 `active`；评审事实保留（历史可审计），面板按字段区分展示。
 
+## 交付记录（2026-11-08）
+
+- **分支与 PR**：`origin/feat/m11-http-api-panel` 已推送；PR [#16](https://github.com/leigangzhang/dsh-cowork/pull/16)（base `main`，未合并，等待确认；不进入 M12）。
+- **代码 artifact 不变**：`6b7beab`（本文件、`KNOWN_ISSUES`/`HANDOFF`/`publish.json`/`README`/`PLAN-V0.2` 与 3 篇决策记录的迁移在 `f60e187`；本交付记录与 `f60e187` 一样只改文档，不改变代码 artifact）。
+- **最终门禁**：文档提交后在分支 tip 上跑 `npm run typecheck`/`build`/`test`/`check` 全部 exit 0（`npm test` 732/732）；`npm run check`（publish 分类、notes 骨架、链接）与 `node --test tests/workflow.test.mjs` 通过；`git status --porcelain` 空。
+- **运行环境清理**：临时别名包（`@dsh-external/dsh-cowork-alias-v1`）已从宿主卸载、junction 与临时目录删除；宿主 profile patch 中本次新增的别名条目已移除（保留原有 `dsh-cowork`/`dsh-cowork-panel` disabled 行）；两个实现 worktree 已清理（分支已合并）。真实 `.dsh-cowork` 数据保持 v1 预验证状态（`index.json` sha256 `f7fec0db…`，3 threads，reviews 3 个旧文件，无 activity/inbox/backup）。
+- **遗留**：KI-31（正式 bundle 安装路径未验证）、KI-32（route.move 追加式）、KI-33（文档索引漂移）由 M12 处理；KI-18/KI-22/KI-28 已更新。
+
 ## 回滚
 
 - **代码**：按提交逆序 `git revert`（`6b7beab` 集成 → `3d553b5`、`46dd1c0` → `bb2f56d`、`b956497`）。wire 与 client 是成对破坏性变更：host 与 `lib/client.js` 必须同批回滚/重装，旧 client 配新 host（或反之）不可用。
