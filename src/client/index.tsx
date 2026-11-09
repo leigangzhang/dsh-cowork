@@ -51,7 +51,7 @@ export function apply(ctx: ClientContext): void {
         id: 'cowork-guide',
         order: 35,
         title: () => COWORK_TAB_TITLE,
-        description: () => '查看 Cowork 项目总览、thread 列表与交接单原文。',
+        description: () => '查看主题列表、详情与活动。',
       }],
     })
   })

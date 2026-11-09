@@ -56,6 +56,12 @@ export interface SidebarRightService {
 /** Workspace navigation: selects a Session and shows its Conversation. */
 export interface UiWorkspaceService {
   openSession(sessionId: string): void
+  /**
+   * Re-enables a Session the user archived by hand. Optional because only newer
+   * hosts expose it; the panel uses it as a tolerance when opening a topic that
+   * was already archived (the normal case needs no unarchive).
+   */
+  unarchiveSession?(sessionId: string): Promise<void>
 }
 
 /** Options accepted by `slots.register`; only the fields the panel uses. */
