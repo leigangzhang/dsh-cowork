@@ -54,6 +54,14 @@
       "reason": "M10 startup handoff (2026-11-08): post-M9 baseline, startup sequence, M10.1-M10.5 implementation order, evidence/artifact rules, impact scan, pitfalls, completion definition, rollback and unverified items; internal engineering handoff for the next session, not a user-facing guide"
     },
     {
+      "pattern": "docs/M10_RESULT.md",
+      "reason": "M10 delivery result: baseline, commit sequence, shipped modules (review requests, reviewer lifecycle, work items, serial merge), A1-A9 evidence, review findings and the batch-repair round, deviations (read-side awaiting_review enum, review-file I/O placement, legacy init payload, audit-only handoff files), rollback, and unverified items for M11; internal engineering record, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M11_HANDOFF.md",
+      "reason": "M11 startup handoff (2026-11-08): post-M10 baseline and expected 701/701, startup sequence, M11 implementation order (wire v2, read/write routes, client rewrite, real Chrome), impact scan, pitfalls (legacy latestReviewPath, reviewer visibility, fixture isolation R9, client bundle cache), completion definition, rollback and unverified items; internal engineering handoff for the next session, not a user-facing guide"
+    },
+    {
       "pattern": ".agents/notes/*",
       "reason": "decision records and their templates; internal history, not a guide"
     },

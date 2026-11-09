@@ -44,6 +44,56 @@ export const REVIEW_STATUSES = ['pending', 'pass', 'needs_revision', 'reject'] a
 /** Review state of a topic's newest review. */
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
 
+/** The verdicts a reviewer may return. `pending` is a request state, not a verdict. */
+export const REVIEW_VERDICTS = ['pass', 'needs_revision', 'reject'] as const
+/** One verdict a reviewer may return. */
+export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number]
+
+/** Finding severities, most severe first. */
+export const REVIEW_SEVERITIES = ['blocker', 'high', 'medium', 'low'] as const
+/** Severity of one review finding. */
+export type ReviewSeverity = (typeof REVIEW_SEVERITIES)[number]
+
+/**
+ * Lifecycle of a v1 thread. Moved here from `src/review.ts` so the legacy review
+ * model has one home that outlives that module (M10.3 deletes it).
+ */
+export type ReviewThreadStatus = 'new' | 'active' | 'awaiting_review' | 'done' | 'blocked' | 'archived'
+
+/** One required fix a legacy review names. */
+export interface ReviewFinding {
+  id: string
+  severity: ReviewSeverity
+  problem: string
+  requiredFix: string
+  file?: string
+  line?: number
+}
+
+/** One check a reviewer actually ran. */
+export interface ReviewVerification {
+  command: string
+  exitCode: number
+  evidence: string
+}
+
+/**
+ * One legacy verdict-only review document
+ * (`<repo>/.dsh-cowork/reviews/<threadId>-<stamp>.json`). M10 replaced this
+ * model with the request file (`src/review-request.ts`); old files stay
+ * readable by `src/store.ts` and are never rewritten.
+ */
+export interface ReviewRecord {
+  version: 1
+  threadId: string
+  reviewerSessionId: string
+  verdict: ReviewVerdict
+  summary: string
+  findings: ReviewFinding[]
+  verification: ReviewVerification[]
+  createdAt: string
+}
+
 /**
  * Event types the activity stream records. PLAN-V0.2 §5.3/§5.4/§5.5/§5.6 name
  * the kinds of event; `route-corrected` is the one name the plan spells out.
@@ -570,9 +620,8 @@ export function reviewRecordProblems(record: unknown): string[] {
   if (!isNonEmptyString(record.reviewerSessionId)) {
     problems.push('review.reviewerSessionId must be a non-empty string')
   }
-  const verdicts = ['pass', 'needs_revision', 'reject'] as const
-  if (!verdicts.includes(record.verdict as (typeof verdicts)[number])) {
-    problems.push(`review.verdict must be one of ${verdicts.join('|')}`)
+  if (!REVIEW_VERDICTS.includes(record.verdict as ReviewVerdict)) {
+    problems.push(`review.verdict must be one of ${REVIEW_VERDICTS.join('|')}`)
   }
   if (!isNonEmptyString(record.summary)) problems.push('review.summary must be a non-empty string')
   if (!Array.isArray(record.findings)) {
@@ -588,9 +637,8 @@ export function reviewRecordProblems(record: unknown): string[] {
         return
       }
       if (!isNonEmptyString(finding.id)) problems.push(`${where}.id must be a non-empty string`)
-      const severities = ['blocker', 'high', 'medium', 'low']
-      if (!severities.includes(finding.severity as string)) {
-        problems.push(`${where}.severity must be one of ${severities.join('|')}`)
+      if (!REVIEW_SEVERITIES.includes(finding.severity as ReviewSeverity)) {
+        problems.push(`${where}.severity must be one of ${REVIEW_SEVERITIES.join('|')}`)
       }
       if (!isNonEmptyString(finding.problem)) {
         problems.push(`${where}.problem must be a non-empty string`)

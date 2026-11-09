@@ -146,7 +146,7 @@ test('failure and success build the one envelope shape the tools return', () => 
   assert.equal(merged.filePath, '/repo/h.json')
 })
 
-test('buildThreadBrief carries the project, the topic, the intent, and the handoff contract', () => {
+test('buildThreadBrief carries the project, the topic, the intent, and the request/handoff contract', () => {
   const brief = buildThreadBrief({
     repoPath: '/repo',
     subject: 'wire the store',
@@ -164,7 +164,9 @@ test('buildThreadBrief carries the project, the topic, the intent, and the hando
   assert.match(brief, /cowork topic session-thread-1/)
   assert.match(brief, /other topics/)
   assert.match(brief, /only inside this topic/)
-  assert.match(brief, /awaiting_review is deprecated/)
+  assert.match(brief, /blocked or done/)
+  assert.match(brief, /cowork_review_request/)
+  assert.equal(/awaiting_review/.test(brief), false)
 
   // No intent means no intent line, and a blank intent is dropped too.
   const withoutIntent = buildThreadBrief({ repoPath: '/repo', subject: 's', topicId: 't' })

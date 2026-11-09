@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { register } from 'node:module'
+import { readFileSync } from 'node:fs'
 import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -121,14 +122,28 @@ const topic = (overrides = {}) => ({
   ...overrides,
 })
 
-/** A real project store with the given v2 topics and `session-master` as master. */
-async function seedProject(repoPath, topics) {
+/** One v2 work-item record belonging to `topicId`. */
+const workItem = (workItemId, topicId, status) => ({
+  workItemId,
+  topicId,
+  path: `/repo/.dsh-cowork/workitems/${workItemId}`,
+  branch: `cowork/${workItemId}`,
+  baseCommit: 'a'.repeat(40),
+  headCommit: 'b'.repeat(40),
+  status,
+  createdAt: NOW_ISO,
+  updatedAt: NOW_ISO,
+})
+
+/** A real project store with the given v2 topics/work items and `session-master` as master. */
+async function seedProject(repoPath, topics, workItems = []) {
   const store = new ProjectStore({ repoPath, clock: () => new Date(NOW_ISO), projectId: 'p' })
   await store.initIndex('session-master')
-  if (topics.length > 0) {
+  if (topics.length > 0 || workItems.length > 0) {
     await store.mutateIndexDocument((document) => ({
       ...document,
       topics: topics.map((entry) => ({ ...entry, cwd: repoPath })),
+      workItems: [...document.workItems, ...workItems],
     }))
   }
   return store
@@ -140,6 +155,15 @@ function statusTool(deps) {
   registerCoworkTools(host, deps)
   const tool = host.registry.get('cowork_project_status')
   assert.ok(tool, 'the assembly must register cowork_project_status')
+  return tool
+}
+
+/** Register the assembly and return the init tool. */
+function initTool(deps) {
+  const host = fakeHost()
+  registerCoworkTools(host, deps)
+  const tool = host.registry.get('cowork_project_init')
+  assert.ok(tool, 'the assembly must register cowork_project_init')
   return tool
 }
 
@@ -162,7 +186,7 @@ const inboxEvents = (count) =>
     summary: `inbox ${index}`,
   }))
 
-test('the assembly registers the fourteen tools in the documented order', () => {
+test('the assembly registers the fifteen tools in the documented order', () => {
   const host = fakeHost()
   registerCoworkTools(host, fakeDeps())
   assert.deepEqual([...host.registry.keys()], [
@@ -175,11 +199,12 @@ test('the assembly registers the fourteen tools in the documented order', () => 
     'cowork_thread_list',
     'cowork_handoff',
     'cowork_topic_resolve',
+    'cowork_work_item_create',
+    'cowork_review_request',
+    'cowork_review_verdict',
     'cowork_memory_write',
     'cowork_memory_search',
     'cowork_checkout_merge',
-    'cowork_review_request',
-    'cowork_review_verdict',
   ])
 })
 
@@ -216,7 +241,7 @@ test('project_status bounds 60 topics, counts flags, and truncates a long digest
     assert.equal(result.lifecycle.evaluated, 60)
     assert.deepEqual(result.lifecycle.changes, [], 'the seeded states are already current')
 
-    for (const field of ['threads', 'checkouts', 'latestReviews', 'pendingHandoffs']) {
+    for (const field of ['threads', 'checkouts', 'latestReviews', 'pendingHandoffs', 'handoffReplay']) {
       assert.equal(field in result, false, `the bounded payload must not return ${field}`)
     }
   })
@@ -331,4 +356,152 @@ test('project_status refuses a session that is neither master nor a thread', asy
     const allowed = await tool.execute({}, fakeExec('session-thread', repoPath))
     assert.equal(allowed.ok, true, 'a thread may read the bounded status')
   })
+})
+
+test('project_status reports work-item and review counts and no handoff replay', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(
+      repoPath,
+      [
+        topic({ topicId: 'topic-a' }),
+        topic({
+          topicId: 'topic-b',
+          awaitingReview: true,
+          reviewStatus: 'pending',
+          latestReviewRequestId: 'request-1',
+          reviewerSessionId: 'reviewer-1',
+        }),
+      ],
+      [
+        workItem('wi-1', 'topic-a', 'active'),
+        workItem('wi-2', 'topic-a', 'reviewing'),
+        workItem('wi-3', 'topic-b', 'merged'),
+        workItem('wi-4', 'topic-b', 'abandoned'),
+      ],
+    )
+
+    const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.workItems, { total: 4, active: 1, reviewing: 1, merged: 1, abandoned: 1 })
+    assert.deepEqual(result.reviews, { pending: 1 })
+    assert.equal('handoffReplay' in result, false, 'the M9 handoff replay window is gone')
+
+    const byId = new Map(result.topics.map((row) => [row.topicId, row]))
+    assert.equal(byId.get('topic-a').activeWorkItems, 2, 'active + reviewing both count as in flight')
+    assert.equal(byId.get('topic-a').reviewsPending, 0)
+    assert.equal(byId.get('topic-b').activeWorkItems, 0, 'merged/abandoned do not count')
+    assert.equal(byId.get('topic-b').reviewsPending, 1)
+  })
+})
+
+test('project_status keeps a topic with active or reviewing work items from resolving (KI-24)', async () => {
+  for (const status of ['active', 'reviewing']) {
+    await withRepo(async (repoPath) => {
+      await seedProject(
+        repoPath,
+        [
+          topic({
+            topicId: 'topic-busy',
+            lastActiveAt: iso(NOW_MS - 4 * DAY_MS),
+            lastDeliveryConfirmedAt: iso(NOW_MS - 4 * DAY_MS),
+            digest: 'delivered work',
+          }),
+        ],
+        [workItem('wi-busy', 'topic-busy', status)],
+      )
+
+      const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
+
+      assert.equal(result.ok, true)
+      assert.equal(result.counts.resolved, 0, `${status} work item must block auto-resolution`)
+      assert.equal(result.topics[0].status, 'idle', 'it may still go idle')
+      assert.deepEqual(
+        result.lifecycle.changes.filter((change) => change.to === 'resolved'),
+        [],
+      )
+    })
+  }
+})
+
+test('the status read point never auto-resolves a topic whose review needs revision (R1)', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [
+      topic({
+        topicId: 'topic-revise',
+        lastActiveAt: iso(NOW_MS - 4 * DAY_MS),
+        lastDeliveryConfirmedAt: iso(NOW_MS - 4 * DAY_MS),
+        digest: 'delivered work',
+        reviewStatus: 'needs_revision',
+      }),
+    ])
+
+    const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(result.counts.resolved, 0, 'a pending revision must not resolve')
+    assert.deepEqual(result.lifecycle.changes.filter((change) => change.to === 'resolved'), [])
+  })
+})
+
+test('the same stale topic with a passed review still resolves (R1 control)', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [
+      topic({
+        topicId: 'topic-passed',
+        lastActiveAt: iso(NOW_MS - 4 * DAY_MS),
+        lastDeliveryConfirmedAt: iso(NOW_MS - 4 * DAY_MS),
+        digest: 'delivered work',
+        reviewStatus: 'pass',
+      }),
+    ])
+
+    const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(result.counts.resolved, 1, 'the guard is specific to needs_revision')
+    assert.equal(result.topics[0].status, 'resolved')
+  })
+})
+
+test('project_init no longer reconciles a stale handoff into the index', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic({ topicId: 'topic-stale' })])
+    await store.writeHandoff({
+      version: 1,
+      threadId: 'topic-stale',
+      masterSessionId: 'session-master',
+      status: 'blocked',
+      subject: 'topic stale',
+      summary: 'an old handoff file',
+      decisions: [],
+      changedPaths: [],
+      artifacts: [],
+      verification: [{ command: 'true', exitCode: 0, evidence: '' }],
+      openIssues: [],
+      nextStep: null,
+      createdAt: NOW_ISO,
+      deliveredAt: null,
+    })
+
+    const result = await initTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
+    assert.equal(result.ok, true)
+
+    const document = await store.readIndexDocument()
+    assert.equal(document.topics[0].blocked, false, 'the old handoff file stays read-only')
+    assert.equal(document.topics[0].awaitingReview, false)
+  })
+})
+
+test('the compatibility replay and the fixed work-item count are gone from the sources', () => {
+  const projectSource = readFileSync(new URL('../src/project-tools.ts', import.meta.url), 'utf8')
+  const routeSource = readFileSync(new URL('../src/route-tools.ts', import.meta.url), 'utf8')
+  const runtimeSource = readFileSync(new URL('../src/tool-runtime.ts', import.meta.url), 'utf8')
+
+  assert.equal(/reconcileIndex|replayPendingHandoffs|handoffReplay/.test(projectSource), false)
+  assert.equal(/export async function reconcileIndex/.test(runtimeSource), false)
+  assert.equal(/activeWorkItems: 0/.test(runtimeSource), false)
+  assert.equal(/activeWorkItems\?: number/.test(runtimeSource), false)
+  assert.match(projectSource, /activeWorkItemsOf/)
+  assert.match(routeSource, /activeWorkItemsOf/)
 })

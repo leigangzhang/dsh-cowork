@@ -36,6 +36,7 @@ import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js
 import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
 import { createLlmRoutingPort } from './llm-port.js'
 import type { HostLlmLike } from './llm-port.js'
+import { DEFAULT_ISOLATION_PROVIDER, DEFAULT_REVIEWER_RECLAIM } from './tool-runtime.js'
 import type { CoworkToolDeps, CurrentModelRoute } from './tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
 import { TopicEvents } from './topic-events.js'
@@ -83,6 +84,18 @@ export interface RoutingConfig {
   maxTokens: number
 }
 
+/** Work-item isolation settings (PLAN-V0.2 §4.5); M10 implements `clone`. */
+export interface IsolationConfig {
+  /** Provider that creates an isolated work item; unknown values fail the tool. */
+  provider: string
+}
+
+/** Reviewer lifecycle settings (PLAN-V0.2 §5.4); M10 supports one value. */
+export interface ReviewerConfig {
+  /** When the reviewer session is reclaimed after a verdict. */
+  reclaim: string
+}
+
 /** Working defaults for the fields a caller may omit. */
 const DEFAULT_PROMPT_TIMEOUT_MS = 120_000
 const DEFAULT_STORE_RELATIVE_PATH = '.dsh-cowork/probe/store.json'
@@ -111,6 +124,10 @@ export interface Config {
   resolveAfterMs: number
   /** Third-layer model fallback (PLAN §5.10). */
   routing: RoutingConfig
+  /** Isolation used for work items (PLAN §4.5). */
+  isolation: IsolationConfig
+  /** Reviewer lifecycle (PLAN §5.4). */
+  reviewer: ReviewerConfig
 }
 
 export const Config: z<Config> = z.object({
@@ -129,6 +146,12 @@ export const Config: z<Config> = z.object({
     timeoutMs: z.number().min(1).default(DEFAULT_ROUTING_TIMEOUT_MS),
     maxTokens: z.number().min(1).default(DEFAULT_ROUTING_MAX_TOKENS),
   }),
+  isolation: z.object({
+    provider: z.string().default(DEFAULT_ISOLATION_PROVIDER),
+  }),
+  reviewer: z.object({
+    reclaim: z.string().default(DEFAULT_REVIEWER_RECLAIM),
+  }),
 })
 
 /**
@@ -140,7 +163,11 @@ export const Config: z<Config> = z.object({
  * `apply` uses only its result.
  */
 export function normalizeConfig(
-  config: Partial<Config> & { routing?: Partial<RoutingConfig> | null },
+  config: Partial<Config> & {
+    routing?: Partial<RoutingConfig> | null
+    isolation?: Partial<IsolationConfig> | null
+    reviewer?: Partial<ReviewerConfig> | null
+  },
 ): Config {
   return {
     repoPath: config.repoPath ?? '',
@@ -157,6 +184,12 @@ export function normalizeConfig(
       effort: config.routing?.effort ?? '',
       timeoutMs: config.routing?.timeoutMs ?? DEFAULT_ROUTING_TIMEOUT_MS,
       maxTokens: config.routing?.maxTokens ?? DEFAULT_ROUTING_MAX_TOKENS,
+    },
+    isolation: {
+      provider: config.isolation?.provider ?? DEFAULT_ISOLATION_PROVIDER,
+    },
+    reviewer: {
+      reclaim: config.reviewer?.reclaim ?? DEFAULT_REVIEWER_RECLAIM,
     },
   }
 }
@@ -616,7 +649,14 @@ export function apply(ctx: Context, config: Config): void {
   // One normalized view of the settings: a hand-built partial config (tests,
   // embedders) must not crash routing because `routing` is absent.
   const settings = normalizeConfig(config)
-  // M1 assembly services: one dependency bag for the presets and the fourteen tools.
+  // M10 supports exactly one reviewer reclaim mode. Any other value fails
+  // startup instead of quietly pretending to support it (PLAN §5.4, M10 §8).
+  if (settings.reviewer.reclaim !== DEFAULT_REVIEWER_RECLAIM) {
+    throw new Error(
+      `${PLUGIN_NAME}: reviewer.reclaim must be '${DEFAULT_REVIEWER_RECLAIM}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
+    )
+  }
+  // M1 assembly services: one dependency bag for the presets and the fifteen tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: identical in both dev modes and unchanged from M0-M3.
   // Only the dev probe canonicalizes it, because only the probe compares paths
@@ -632,6 +672,8 @@ export function apply(ctx: Context, config: Config): void {
     // from the normalized config, never from a second set of defaults here.
     idleAfterMs: settings.idleAfterMs,
     resolveAfterMs: settings.resolveAfterMs,
+    isolationProvider: settings.isolation.provider,
+    reviewerReclaim: settings.reviewer.reclaim,
     routing: settings.routing,
     // M9.3b: the only host LLM entry point. Missing services leave the third
     // layer on its structured fallback; they never fail a route.

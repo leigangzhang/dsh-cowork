@@ -33,10 +33,12 @@ const HOOK_SOURCE = [
 ].join('\n')
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
-const { apply, Config } = await import('../src/index.ts')
+const { apply, Config, normalizeConfig } = await import('../src/index.ts')
+const { DEFAULT_ISOLATION_PROVIDER } = await import('../src/tool-runtime.ts')
+const { CLONE_ISOLATION_PROVIDER } = await import('../src/checkout.ts')
 const { HANDOFF_PATH, OVERVIEW_PATH } = await import('../src/api-contract.ts')
 
-/** The fourteen business tools — stable public names, pinned here on purpose. */
+/** The fifteen business tools — stable public names, pinned here on purpose. */
 const BUSINESS_TOOLS = [
   'cowork_checkout_merge',
   'cowork_handoff',
@@ -52,6 +54,29 @@ const BUSINESS_TOOLS = [
   'cowork_topic_create',
   'cowork_topic_list',
   'cowork_topic_resolve',
+  'cowork_work_item_create',
+]
+
+/**
+ * The registration order is the public surface (PLAN-V0.2 §5.7), pinned by name
+ * so a reorder is a red test, not a silent change.
+ */
+const BUSINESS_TOOL_ORDER = [
+  'cowork_project_init',
+  'cowork_project_status',
+  'cowork_route',
+  'cowork_topic_create',
+  'cowork_thread_create',
+  'cowork_topic_list',
+  'cowork_thread_list',
+  'cowork_handoff',
+  'cowork_topic_resolve',
+  'cowork_work_item_create',
+  'cowork_review_request',
+  'cowork_review_verdict',
+  'cowork_memory_write',
+  'cowork_memory_search',
+  'cowork_checkout_merge',
 ]
 
 /** The four runtime presets every mode registers (thread is the deprecated topic alias). */
@@ -170,6 +195,62 @@ test('Config defaults enableDevRoutes to false', () => {
   assert.equal(Config({}).enableDevRoutes, false)
 })
 
+test('Config defaults pin the M10 isolation and reviewer settings', () => {
+  const normalized = normalizeConfig({})
+  assert.deepEqual(normalized.isolation, { provider: 'clone' })
+  assert.deepEqual(normalized.reviewer, { reclaim: 'after-verdict' })
+  assert.equal(BUSINESS_TOOL_ORDER.length, 15)
+})
+
+test('the isolation provider has one source of truth', () => {
+  assert.equal(CLONE_ISOLATION_PROVIDER, 'clone')
+  assert.equal(DEFAULT_ISOLATION_PROVIDER, CLONE_ISOLATION_PROVIDER)
+})
+
+test('apply refuses an unsupported reviewer reclaim value at startup', () => {
+  const host = fakeHost()
+  assert.throws(
+    () => apply(host.ctx, { ...config(false), reviewer: { reclaim: 'immediate' } }),
+    /reviewer\.reclaim must be 'after-verdict'/,
+  )
+  // The guard runs before any registration: nothing is half-mounted.
+  assert.deepEqual(host.tools, [])
+  assert.deepEqual(host.presets, [])
+  assert.deepEqual(host.effects, [])
+})
+
+test('the business surface registers exactly fifteen tools in the documented order', async () => {
+  const host = fakeHost()
+  apply(host.ctx, config(false))
+  await settle()
+
+  assert.deepEqual(host.tools.map((tool) => tool.name), BUSINESS_TOOL_ORDER)
+  assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
+})
+
+test('cowork_handoff accepts exactly blocked and done (KI-25)', async () => {
+  const host = fakeHost()
+  apply(host.ctx, config(false))
+  await settle()
+
+  const handoff = host.tools.find((tool) => tool.name === 'cowork_handoff')
+  assert.ok(handoff, 'cowork_handoff must be registered')
+  assert.deepEqual(handoff.parameters.properties.status.enum, ['blocked', 'done'])
+  assert.ok(handoff.parameters.required.includes('status'), 'status stays a required argument')
+})
+
+test('cowork_checkout_merge no longer accepts an unreviewed override (KI-25)', async () => {
+  const host = fakeHost()
+  apply(host.ctx, config(false))
+  await settle()
+
+  const merge = host.tools.find((tool) => tool.name === 'cowork_checkout_merge')
+  assert.ok(merge, 'cowork_checkout_merge must be registered')
+  assert.deepEqual(Object.keys(merge.parameters.properties).sort(), ['message', 'threadId', 'workItemId'])
+  assert.equal('allowUnreviewed' in merge.parameters.properties, false)
+  assert.equal('overrideReason' in merge.parameters.properties, false)
+})
+
 test('enableDevRoutes=false keeps the business surface and registers no dev surface', async () => {
   const host = fakeHost()
   apply(host.ctx, config(false))
@@ -179,7 +260,7 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   assert.deepEqual(host.routes, [])
   assert.deepEqual(fetchPaths(host), sorted([OVERVIEW_PATH, HANDOFF_PATH]))
 
-  // Exactly the fourteen business tools: the probe tools are absent.
+  // Exactly the fifteen business tools: the probe tools are absent.
   assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
 
   // The four runner session feeds are not attached; the business topic

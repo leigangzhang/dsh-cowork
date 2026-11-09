@@ -577,3 +577,46 @@ test('cowork_route resolves a four-day settled topic before force-creating a new
     assert.deepEqual(changed.details, { topicId: 'session-resolved', from: 'active', to: 'resolved' })
   })
 })
+
+test('the read point will not auto-resolve a topic that still has in-flight work items', async () => {
+  await withRepo(async (repoPath) => {
+    const stale = new Date(NOW_MS - 4 * DAY_MS).toISOString()
+    await seedProject(
+      repoPath,
+      [
+        topic({
+          topicId: 'session-busy',
+          lastActiveAt: stale,
+          lastDeliveryConfirmedAt: stale,
+          digest: 'delivered work',
+        }),
+      ],
+      {
+        workItems: [{
+          workItemId: 'wi-busy',
+          topicId: 'session-busy',
+          path: '/repo/.dsh-cowork/workitems/wi-busy',
+          branch: 'cowork/wi-busy',
+          baseCommit: 'a'.repeat(40),
+          headCommit: 'b'.repeat(40),
+          status: 'reviewing',
+          createdAt: stale,
+          updatedAt: stale,
+        }],
+      },
+    )
+
+    const result = await routeTool(fakeDeps()).execute(
+      { intent: 'continue the work', topicId: 'session-busy' },
+      fakeExec('session-master', repoPath),
+    )
+
+    assert.equal(result.ok, true)
+    assert.equal(result.action, 'reuse')
+
+    const store = new ProjectStore({ repoPath, clock: () => new Date(NOW_ISO) })
+    const document = await store.readIndexDocument()
+    assert.equal(document.topics[0].status, 'idle', 'a reviewing work item keeps the topic from resolving')
+    assert.equal(document.topics[0].resolvedAt, null)
+  })
+})

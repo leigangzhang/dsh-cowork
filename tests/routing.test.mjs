@@ -495,6 +495,9 @@ test('normalizeConfig tolerates a hand-built partial config', () => {
       timeoutMs: 2_000,
       maxTokens: 256,
     },
+    // M10.1: the isolation and reviewer settings carry their own defaults.
+    isolation: { provider: 'clone' },
+    reviewer: { reclaim: 'after-verdict' },
   })
 
   const partial = normalizeConfig({ repoPath: '/repo', promptTimeoutMs: 60_000, routing: null })

@@ -1,24 +1,21 @@
 /**
- * Handoff module: validate a thread's report, persist it, update the project
- * index, deliver it to the master, and replay the ones whose delivery failed.
+ * Handoff module: validate a topic's report and format the record it persists.
  *
- * This module owns no I/O of its own. It reaches the on-disk store only
- * through the injected {@link HandoffStorePort} (the type-only import keeps the
- * store implementation out of the module graph), so the delivery ordering can
- * be exercised in a unit test with a fake port.
+ * M10 removed the legacy submit/replay path: the `cowork_handoff` tool writes
+ * the file as an audit record, updates the canonical topic, and (for `blocked`)
+ * delivers one bounded inbox item. The full handoff text is no longer prompted
+ * into the master turn, and nothing rewrites an old handoff file.
  *
- * Ordering is fixed and load-bearing: validate (no file on failure) → write the
- * handoff file (the source of truth) → update the index → prompt the master.
- * A failed prompt keeps both the file and the index entry, and only a
- * successful prompt writes `deliveredAt`; whatever is left pending is what
- * {@link replayPendingHandoffs} retries.
+ * The module owns no I/O: validation and formatting are pure, and the tool
+ * layer supplies the store. The accepted write statuses are `blocked` and
+ * `done` only. Reading is deliberately wider — `handoffRecordProblems` in
+ * `src/store-schema.ts` still accepts the historical `awaiting_review` value so
+ * old files stay readable.
  */
 import type {
-  HandoffFile,
   HandoffRecord,
   HandoffStatus,
   HandoffVerification,
-  ProjectIndex,
 } from './store.js'
 
 /** The validated handoff a thread submits. */
@@ -47,7 +44,11 @@ export type HandoffValidation =
   | { ok: true; value: HandoffDraft }
   | { ok: false; errors: HandoffFieldError[] }
 
-const HANDOFF_STATUSES: readonly HandoffStatus[] = ['awaiting_review', 'blocked', 'done']
+/**
+ * Statuses a handoff may be *written* with (M10). The read-side vocabulary in
+ * `src/store-schema.ts` keeps `awaiting_review` so old files stay readable.
+ */
+const HANDOFF_STATUSES: readonly HandoffStatus[] = ['blocked', 'done']
 
 /** Optional string-array fields, normalized to `[]` when the caller omits them. */
 const STRING_ARRAY_FIELDS = ['decisions', 'changedPaths', 'artifacts', 'openIssues'] as const
@@ -161,7 +162,7 @@ export function validateHandoff(input: unknown): HandoffValidation {
   const masterSessionId = readRequiredString(input, 'masterSessionId', errors)
   const subject = readRequiredString(input, 'subject', errors)
 
-  let status: HandoffStatus = 'awaiting_review'
+  let status: HandoffStatus = 'blocked'
   const rawStatus = input.status
   if (rawStatus === undefined || rawStatus === null) {
     errors.push({ field: 'status', message: 'status is required' })
@@ -262,157 +263,4 @@ export function formatMasterMessage(record: HandoffRecord, filePath: string): st
   }
   lines.push(`file: ${filePath}`)
   return lines.join('\n')
-}
-
-/** The slice of the store this module needs; the real `ProjectStore` satisfies it. */
-export interface HandoffStorePort {
-  writeHandoff(record: HandoffRecord): Promise<HandoffFile>
-  markHandoffDelivered(filePath: string, deliveredAt: string): Promise<HandoffFile>
-  readIndex(): Promise<ProjectIndex>
-  mutateIndex(mutator: (index: ProjectIndex) => ProjectIndex): Promise<ProjectIndex>
-  listHandoffs(): Promise<HandoffFile[]>
-}
-
-/** Everything a handoff submission needs from the host. */
-export interface HandoffPorts {
-  store: HandoffStorePort
-  /** Deliver the summary to the master session; resolves with its acceptance. */
-  promptMaster(text: string): Promise<{ accepted: boolean }>
-  /** Injected clock for `createdAt`/`deliveredAt`. */
-  clock?: () => Date
-}
-
-/** Result of one submission. A failed delivery is still a stored handoff. */
-export type SubmitHandoffResult =
-  | {
-      ok: true
-      delivered: boolean
-      record: HandoffRecord
-      filePath: string
-      deliveryError?: string
-    }
-  | {
-      ok: false
-      error: {
-        code: 'handoff/invalid'
-        message: string
-        errors: HandoffFieldError[]
-      }
-    }
-
-/** Result of replaying every undelivered handoff once. */
-export interface ReplayResult {
-  attempted: number
-  delivered: number
-  failed: number
-  failures: { threadId: string; filePath: string; error: string }[]
-}
-
-/** A readable message for a thrown value. */
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-/** Resolve the injected clock, defaulting to the wall clock. */
-function clockNow(ports: HandoffPorts): Date {
-  return ports.clock === undefined ? new Date() : ports.clock()
-}
-
-/** Fold one handoff's status and timestamps into its index thread entry. */
-function applyHandoffToIndex(index: ProjectIndex, record: HandoffRecord): ProjectIndex {
-  const threads = index.threads.map((thread) =>
-    thread.threadId === record.threadId
-      ? {
-          ...thread,
-          status: record.status,
-          lastHandoffAt: record.createdAt,
-          updatedAt: record.createdAt,
-        }
-      : thread,
-  )
-  return { ...index, threads }
-}
-
-/**
- * Validate, persist, index, and deliver one handoff to the master.
- *
- * Invalid input returns `handoff/invalid` with per-field reasons and writes
- * nothing. A delivery failure (throw or `accepted !== true`) returns
- * `ok: true, delivered: false` with a replayable file and index entry, and
- * leaves `deliveredAt` null.
- */
-export async function submitHandoff(ports: HandoffPorts, input: unknown): Promise<SubmitHandoffResult> {
-  const validation = validateHandoff(input)
-  if (!validation.ok) {
-    const summary = validation.errors.map((error) => `${error.field}: ${error.message}`).join('; ')
-    return {
-      ok: false,
-      error: { code: 'handoff/invalid', message: `handoff is invalid: ${summary}`, errors: validation.errors },
-    }
-  }
-  const record = buildHandoffRecord(validation.value, clockNow(ports))
-  const file = await ports.store.writeHandoff(record)
-  await ports.store.mutateIndex((index) => applyHandoffToIndex(index, record))
-
-  let acceptance: { accepted: boolean }
-  try {
-    acceptance = await ports.promptMaster(formatMasterMessage(record, file.filePath))
-  } catch (error) {
-    return {
-      ok: true,
-      delivered: false,
-      record,
-      filePath: file.filePath,
-      deliveryError: errorText(error),
-    }
-  }
-  if (acceptance.accepted !== true) {
-    return {
-      ok: true,
-      delivered: false,
-      record,
-      filePath: file.filePath,
-      deliveryError: 'master did not accept the handoff',
-    }
-  }
-
-  try {
-    const delivered = await ports.store.markHandoffDelivered(file.filePath, clockNow(ports).toISOString())
-    return { ok: true, delivered: true, record: delivered.record, filePath: file.filePath }
-  } catch (error) {
-    // The master already has the summary; report the bookkeeping failure
-    // instead of pretending nothing was delivered.
-    return { ok: true, delivered: true, record, filePath: file.filePath, deliveryError: errorText(error) }
-  }
-}
-
-/**
- * Retry every handoff whose `deliveredAt` is null, exactly once each.
- *
- * A successful prompt writes `deliveredAt` for that file only; a failure is
- * counted and the loop continues, so one bad file cannot block the rest.
- */
-export async function replayPendingHandoffs(ports: HandoffPorts): Promise<ReplayResult> {
-  const files = await ports.store.listHandoffs()
-  const pending = files.filter((file) => file.record.deliveredAt === null)
-  const failures: { threadId: string; filePath: string; error: string }[] = []
-  let delivered = 0
-  for (const file of pending) {
-    try {
-      const acceptance = await ports.promptMaster(formatMasterMessage(file.record, file.filePath))
-      if (acceptance.accepted !== true) {
-        failures.push({
-          threadId: file.record.threadId,
-          filePath: file.filePath,
-          error: 'master did not accept the handoff',
-        })
-        continue
-      }
-      await ports.store.markHandoffDelivered(file.filePath, clockNow(ports).toISOString())
-      delivered += 1
-    } catch (error) {
-      failures.push({ threadId: file.record.threadId, filePath: file.filePath, error: errorText(error) })
-    }
-  }
-  return { attempted: pending.length, delivered, failed: failures.length, failures }
 }

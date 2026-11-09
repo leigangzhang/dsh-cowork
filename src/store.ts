@@ -22,7 +22,6 @@ import { mkdir, open, readFile, readdir, realpath, stat } from 'node:fs/promises
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import type { ReviewRecord, ReviewStatus } from './review.js'
 import {
   ACTIVITY_MAX_BYTES,
   ACTIVITY_MAX_EVENTS,
@@ -48,6 +47,8 @@ import type {
   InboxItem,
   ProjectIndexV2,
   ReadActivityResult,
+  ReviewRecord,
+  ReviewStatus,
 } from './store-schema.js'
 export type { ReadActivityResult } from './store-schema.js'
 import type {

@@ -7,8 +7,10 @@
  * `.agents/notes/proposed/feature/2026-11-07-three-state-lifecycle.md`:
  *
  * - `idle` needs strictly more than `idleAfterMs` of silence and neither flag.
- * - `resolved` needs all five conditions; there is no undo. Reopening
- *   ({@link reopenResolvedTopic}) is a user action, not a reversal.
+ * - `resolved` needs all six conditions; there is no undo. Reopening
+ *   ({@link reopenResolvedTopic}) is a user action, not a reversal. A topic
+ *   whose latest review asked for changes (`needs_revision`) is not resolvable:
+ *   the topic still owes a fix and the review round is not finished.
  */
 import type { TopicRecordV2 } from './store-schema.js'
 
@@ -39,6 +41,9 @@ function isResolvable(topic: TopicRecordV2, activeWorkItems: number): boolean {
   return (
     !topic.awaitingReview &&
     !topic.blocked &&
+    // A review that asked for changes means the round is not over; resolving
+    // here would hide a pending fix and has no undo (review R1, M10.5 repair).
+    topic.reviewStatus !== 'needs_revision' &&
     activeWorkItems === 0 &&
     topic.lastDeliveryConfirmedAt !== null &&
     topic.digest.trim() !== ''

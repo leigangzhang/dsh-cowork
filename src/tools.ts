@@ -1,27 +1,30 @@
 /**
- * The cowork tool assembly (M9.3b): registration orchestration only.
+ * The cowork tool assembly (M10.4b): registration orchestration only.
  *
- * The fourteen tools live in their domain modules:
+ * The fifteen tools live in their domain modules:
  *
  * - `project-tools.ts` — project_init, project_status
  * - `route-tools.ts` — route
  * - `topic-tools.ts` — topic_create, thread_create (deprecated), topic_list,
  *   thread_list (deprecated), handoff, topic_resolve
- * - `memory-tools.ts` — memory_write, memory_search
- * - `checkout-tools.ts` — checkout_merge
+ * - `checkout-tools.ts` — work_item_create, checkout_merge
  * - `review-tools.ts` — review_request, review_verdict
+ * - `memory-tools.ts` — memory_write, memory_search
  *
- * The registration order is part of the public surface:
+ * The registration order is part of the public surface (PLAN-V0.2 §5.7):
  * project_init, project_status, route, topic_create, thread_create,
- * topic_list, thread_list, handoff, topic_resolve, memory_write,
- * memory_search, checkout_merge, review_request, review_verdict.
+ * topic_list, thread_list, handoff, topic_resolve, work_item_create,
+ * review_request, review_verdict, memory_write, memory_search, checkout_merge.
  *
  * Host services arrive through `CoworkToolDeps`; nothing throws across the tool
  * boundary, and the review tools keep receiving their helpers by injection so
- * the dependency stays one-way.
+ * the dependency stays one-way. The legacy read-only surface — the M2/M3 dev
+ * runners, `src/api.ts`/`src/api-contract.ts`, and `src/store-migration.ts` — is
+ * kept for M11's panel switch and M12's real-host replacement; this assembly
+ * writes canonical v2 state only.
  */
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { registerCheckoutTools } from './checkout-tools.js'
+import { registerCheckoutTools, registerWorkItemTools } from './checkout-tools.js'
 import { registerMemoryTools } from './memory-tools.js'
 import { registerProjectTools } from './project-tools.js'
 import { registerReviewTools } from './review-tools.js'
@@ -45,8 +48,9 @@ interface ToolHost {
 }
 
 /**
- * Register the fourteen cowork tools and return their disposers. The caller
- * owns the effect scope; this function only composes the domain registrars.
+ * Register the fifteen cowork tools and return their disposers. The caller owns
+ * the effect scope; this function only composes the domain registrars, in the
+ * documented order (the review tools before memory, merge last).
  */
 export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<() => void> {
   const host = ctx as ToolHost
@@ -54,8 +58,7 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
     ...registerProjectTools(host, deps),
     ...registerRouteTools(host, deps),
     ...registerTopicTools(host, deps),
-    ...registerMemoryTools(host, deps),
-    ...registerCheckoutTools(host, deps),
+    ...registerWorkItemTools(host, deps),
     ...registerReviewTools(host, {
       callerOf,
       openProject: (caller) => openProject(caller, deps),
@@ -66,6 +69,8 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
       threadView,
       isFailure,
     }),
+    ...registerMemoryTools(host, deps),
+    ...registerCheckoutTools(host, deps),
   ]
   return disposers
 }

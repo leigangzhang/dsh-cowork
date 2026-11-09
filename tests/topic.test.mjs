@@ -115,7 +115,7 @@ test('new activity moves an idle topic back to active', () => {
   assert.equal(changed.topic.updatedAt, NOW_ISO)
 })
 
-test('a topic is resolved only when all five conditions hold', () => {
+test('a topic is resolved only when all six conditions hold', () => {
   const old = ago(RESOLVE_AFTER_MS)
 
   // 1) an in-flight review: an active topic three days stale stays put, no idle.
@@ -163,6 +163,40 @@ test('a topic is resolved only when all five conditions hold', () => {
   assert.equal(resolved.topic.resolvedAt, NOW_ISO)
   assert.equal(resolved.topic.updatedAt, NOW_ISO)
   assert.equal(resolved.topic.lastActiveAt, old, 'resolution does not rewrite last activity')
+})
+
+test('a topic whose latest review needs revision is never auto-resolved (R1)', () => {
+  const old = ago(RESOLVE_AFTER_MS)
+
+  // Every other resolution condition holds (no flags, delivery confirmed,
+  // digest present, no active work items); only the review outcome blocks the
+  // resolution. The idle rule is untouched: a stale active topic still goes
+  // idle (it does not resolve), and an idle one stays where it is.
+  assert.equal(
+    evaluateTopicLifecycle(topicV2({ lastActiveAt: old, reviewStatus: 'needs_revision' }), context()).kind,
+    'idle',
+    'a stale active topic goes idle, never resolved',
+  )
+  assert.deepEqual(
+    evaluateTopicLifecycle(topicV2({ status: 'idle', lastActiveAt: old, reviewStatus: 'needs_revision' }), context()),
+    { kind: 'none' },
+    'a stale idle topic stays idle, never resolved',
+  )
+
+  // The guard is specific to needs_revision: the same input with a pass, a
+  // rejection (already blocked), or no review at all still resolves.
+  for (const reviewStatus of ['pass', 'reject', null]) {
+    const resolved = evaluateTopicLifecycle(topicV2({ lastActiveAt: old, reviewStatus }), context())
+    assert.equal(resolved.kind, 'resolved', String(reviewStatus))
+  }
+
+  // The idle↔active rule is untouched: needs_revision is not an idle flag, so
+  // a quiet active topic still goes idle, and an idle topic with fresh activity
+  // still returns to active.
+  const quiet = topicV2({ lastActiveAt: ago(IDLE_AFTER_MS + 1), reviewStatus: 'needs_revision' })
+  assert.equal(evaluateTopicLifecycle(quiet, context()).kind, 'idle')
+  const fresh = topicV2({ status: 'idle', lastActiveAt: ago(MINUTE), reviewStatus: 'needs_revision' })
+  assert.equal(evaluateTopicLifecycle(fresh, context()).kind, 'active')
 })
 
 test('the three-day threshold is inclusive and wins over idle', () => {

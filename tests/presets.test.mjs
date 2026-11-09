@@ -2,10 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { register } from 'node:module'
 
-// `src/presets.ts` imports its reviewer id from `./review.js` — the build's
-// specifier. Node's type stripping does not retry relative `.js` as `.ts`, so
-// this test installs the same small resolve hook tests/api.test.mjs uses. No
-// host is assembled here: the presets are plain data.
+// `src/presets.ts` is plain data with no sibling imports, but the rest of the
+// preset/assembly surface it is compared against uses the build's `.js`
+// specifiers. Node's type stripping does not retry relative `.js` as `.ts`, so
+// this test keeps the same small resolve hook tests/api.test.mjs uses. No host
+// is assembled here.
 const HOOK_SOURCE = [
   'export async function resolve(specifier, context, nextResolve) {',
   "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
@@ -17,6 +18,7 @@ const HOOK_SOURCE = [
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const {
+  MASTER_PERSONA,
   MASTER_PRESET_ID,
   REVIEWER_PERSONA,
   REVIEWER_PRESET_ID,
@@ -109,14 +111,26 @@ test('the thread alias registers exactly the topic rows and persona', () => {
   assert.equal(THREAD_PERSONA, TOPIC_PERSONA)
 })
 
-test('the topic persona states one topic per session, self-requested review, and handoff', () => {
+test('the topic persona states one topic per session, self-requested review, and a blocked|done handoff', () => {
   const persona = personaPrefixOf(presetById(TOPIC_PRESET_ID))
 
   assert.equal(typeof persona, 'string')
   assert.match(persona, /one topic per session/i)
-  assert.match(persona, /review requests/i)
+  assert.match(persona, /cowork_review_request/)
   assert.match(persona, /cowork_handoff/)
+  assert.match(persona, /blocked or done/)
   assert.match(persona, /evidence/i)
+  assert.equal(/awaiting_review/.test(persona), false)
+})
+
+test('the reviewer persona works from the request scope and does not read the handoff in full', () => {
+  const persona = personaPrefixOf(presetById(REVIEWER_PRESET_ID))
+
+  assert.match(persona, /review request/i)
+  assert.match(persona, /requestId/i)
+  assert.match(persona, /changed paths/i)
+  assert.match(persona, /do not read the handoff in full/i)
+  assert.match(persona, /evidence, not truth/i)
 })
 
 test('the reviewer preset keeps shell plus search, has no file tools, and states its scope boundary', () => {
@@ -163,4 +177,11 @@ test('presetDefinitions returns fresh row arrays so callers cannot mutate a shar
   const topic = first.find((preset) => preset.id === TOPIC_PRESET_ID)
   topic.plugins.length = 0
   assert.equal(rowNames(presetById(TOPIC_PRESET_ID)).length, 10)
+})
+
+test('the personas carry no legacy handoff state or merge override (KI-25)', () => {
+  const text = [MASTER_PERSONA, TOPIC_PERSONA, REVIEWER_PERSONA].join('\n')
+  assert.equal(/awaiting_review/.test(text), false, 'awaiting_review is no longer a review trigger')
+  assert.equal(/allowUnreviewed|overrideReason/.test(text), false, 'the merge override is gone')
+  assert.match(MASTER_PERSONA, /topics? request/i, 'the master no longer orchestrates reviews')
 })
