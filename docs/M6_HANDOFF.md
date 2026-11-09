@@ -3,7 +3,7 @@
 - 状态：**M6 与 M11 可见性决策已完成（2026-11-07）**。7 项宿主探针都有真实宿主证据；7 份 proposed 记录已与结论对齐；用户拍板 M11 采用降级方案 (b)；M7 执行提案已就绪。M6 主体经 PR #10 合并进 `origin/main`（`739f7e9`），本交接在其后补充 M7 执行摘要。团队 `m6-probes` 保留未删。
 - 当前事实（M7 收尾）：M7 已落地并终审通过——实现提交 `73d4083`、测试拆分 `a262273`、迁移记录转 implemented `ffd7c7f`、A1 宿主接线与 E2E 索引 v2 兼容 `6cb294c`（均在 `feat/m7-store-v2`，未 push）。A1 的 `archiveSession` 宿主端口已补齐（SessionSlicePorts 透传 → `tools.ts` 单一构造 helper → `index.ts` 的 `createStore`），M7 遗留与归属见 [KNOWN_ISSUES](KNOWN_ISSUES.md)；本文件其余内容保留为 M6 历史记录。
 - 适用：接手 V0.2 后续阶段（M7 起）的 agent 或人。范围：M6 的探针结论与证据位置、已定决策、未验证项，以及 M7 的启动方式；不重新论证探针。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §3/§5/§6 拥有阶段、架构与验收；[M6 探针结果](M6_PROBE_RESULT.md) 拥有 7 项结论、证据命令与限制；[M11 可见性降级决策](../.agents/notes/proposed/feature/2026-11-07-topic-visibility-fallback.md) 拥有 (b) 的决定、代价与验收；[M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md) 拥有 M7 的执行顺序、迁移事务与测试先行；[索引 v2 与迁移](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md) 拥有数据模型与六态映射；[面板与会话可见性](../.agents/notes/proposed/feature/2026-11-07-panel-and-session-visibility.md) 拥有面板交互。本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §3/§5/§6 拥有阶段、架构与验收；[M6 探针结果](M6_PROBE_RESULT.md) 拥有 7 项结论、证据命令与限制；[M11 可见性降级决策](../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md) 拥有 (b) 的决定、代价与验收；[M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md) 拥有 M7 的执行顺序、迁移事务与测试先行；[索引 v2 与迁移](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md) 拥有数据模型与六态映射；[面板与会话可见性](../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md) 拥有面板交互。本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## 交付后状态（2026-11-07）
 
@@ -22,7 +22,7 @@
 1. [AGENTS.md](../AGENTS.md)：纪律、命令、no-multi-orchestrator。
 2. [PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.4、§3、§5.2/§5.9、§6 M6/M7：阶段、架构与验收。
 3. [M6 探针结果](M6_PROBE_RESULT.md)：7 项结论、证据命令、限制、M7–M12 影响。
-4. [M11 可见性降级决策](../.agents/notes/proposed/feature/2026-11-07-topic-visibility-fallback.md)：为什么是 (b)、代价、验收。
+4. [M11 可见性降级决策](../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)：为什么是 (b)、代价、验收。
 5. [M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)：M7 的执行顺序、事务与测试先行。
 6. [索引 v2 与迁移](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md)：数据模型、字段与六态映射。
 7. [docs/testing.md](testing.md)、[docs/documentation.md](documentation.md)、[tools/workflow.json](../tools/workflow.json)：证据面、文档分类与检查映射。

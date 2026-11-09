@@ -29,7 +29,7 @@ M4 的插件已经能在真实宿主上运行，但两次真实使用暴露了�
 
 **不再保留 thread 实体。** 不按任务新建会话；不设每任务生命周期；不做多段会话；不设独立的讨论型主题类。旧 `cowork_thread_*` 工具和 `cowork-thread` preset 只作为 `cowork_topic_*` / `cowork-topic` 的弃用别名保留一个版本，版本升到 `0.2.0`。
 
-**界面位置由另一份记录拥有。** 主题会话不进左侧栏、CoWork 放右侧栏 tab、打开主题切换主区，这些交互决定见 [面板与会话可见性](../feature/2026-11-07-panel-and-session-visibility.md)，本记录只固定「主题是会话入口」这一点。
+**界面位置由另一份记录拥有。** 主题会话不进左侧栏、CoWork 放右侧栏 tab、打开主题切换主区，这些交互决定见 [面板与会话可见性](../../implemented/feature/2026-11-07-panel-and-session-visibility.md)，本记录只固定「主题是会话入口」这一点。
 
 ## Alternatives considered
 
@@ -37,7 +37,7 @@ M4 的插件已经能在真实宿主上运行，但两次真实使用暴露了�
 
 **master 继续编排评审与合并。** 否决：每次评审至少多两次 master 往返，主会话内容随事件线性增长；评审创建是固定动作，不需要模型判断。master 只保留合并、发布等例外决定。
 
-**把任务拆成多个 thread，主题只做分组。** 否决：这会把生命周期重新拉回任务级；并行需求应由主题内的隔离工作项解决，而不是新建会话。相关决定见 [并行隔离与合并](2026-11-07-parallel-isolation-and-merge.md)。
+**把任务拆成多个 thread，主题只做分组。** 否决：这会把生命周期重新拉回任务级；并行需求应由主题内的隔离工作项解决，而不是新建会话。相关决定见 [并行隔离与合并](../../implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)。
 
 **引入 AgentTeams 或其他多编排器运行时。** 否决：会与 cowork 抢 `sessionController`、`workspaceRegistry` 和子代理池；本插件只借 AgentTeams 的隔离与合并语义，不引入其运行时依赖。
 

@@ -1,8 +1,8 @@
 # M10 交付结果
 
-- 状态：**M10 已交付（2026-11-08）**。评审请求、reviewer 生命周期、工作项与串行合并、handoff/status/persona 收口在 `feat/m10-review-request-workitems` 上落地；独立验证、隔离 review 与修复后的 delta review 均通过，最终代码 artifact 为 `e25a36f`（t15 独立复验，701/701）；delivery（t13）的最终 HEAD/PR 见后续 delivery 小节。本文件记录交付基线、清单、证据、审查与修复、偏差、回滚与未验证项，供 M11 接手。M10 启动时的交接见 [M10_HANDOFF.md](M10_HANDOFF.md)（保留启动版，状态行指向本文件）。执行层决定见 [M10 执行提案](../.agents/notes/proposed/architecture/2026-11-08-m10-review-request-workitems-plan.md)（仍 proposed）；评审规则与工作项/合并边界见已迁移的两份记录（[评审按请求触发](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)、[并行隔离与合并](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)）。
+- 状态：**M10 已交付（2026-11-08）**。评审请求、reviewer 生命周期、工作项与串行合并、handoff/status/persona 收口在 `feat/m10-review-request-workitems` 上落地；独立验证、隔离 review 与修复后的 delta review 均通过，最终代码 artifact 为 `e25a36f`（t15 独立复验，701/701）；delivery（t13）的最终 HEAD/PR 见后续 delivery 小节。本文件记录交付基线、清单、证据、审查与修复、偏差、回滚与未验证项，供 M11 接手。M10 启动时的交接见 [M10_HANDOFF.md](M10_HANDOFF.md)（保留启动版，状态行指向本文件）。执行层决定见 [M10 执行提案](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md)（已迁 implemented）；评审规则与工作项/合并边界见已迁移的两份记录（[评审按请求触发](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)、[并行隔离与合并](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)）。
 - 适用：接手 V0.2 M11（面板/API v2 与会话可见性）的 agent 或人。范围：M10 的实际交付、验证证据、偏差与未验证项；不重新论证 M10 的决定。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.3/§4.2/§4.3/§4.5/§5.4/§5.5/§5.7/§5.10/§6 M10 拥有需求、数据模型、工具角色与验收；执行层决定、备选与测试影响面由 [M10 执行提案](../.agents/notes/proposed/architecture/2026-11-08-m10-review-request-workitems-plan.md) 拥有；评审规则与隔离/合并边界由两份 implemented 记录拥有；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
+- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.3/§4.2/§4.3/§4.5/§5.4/§5.5/§5.7/§5.10/§6 M10 拥有需求、数据模型、工具角色与验收；执行层决定、备选与测试影响面由 [M10 执行提案](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md) 拥有；评审规则与隔离/合并边界由两份 implemented 记录拥有；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
 - **数字口径**：本文件的最终数字来自 t15（repair verification，最终代码 HEAD `e25a36f`）：`npm test` 701/701、diff sha `098a0ac4…`、四命令 exit 0、字节未变。review 当时（`e683a12`）的 698/698 与 diff sha `5e40f01b…` 只作为审查阶段的身份保留，不再代表最终代码状态；delivery 还会追加交付文档提交与 PR，最终交付 HEAD/PR 以 delivery 小节为准，本文件不预写。
 
 ## 交付基线
@@ -75,7 +75,7 @@
   - `reviews.pending`/`reviewsPending` 以 `topic.reviewStatus === 'pending'` 计数（每 topic 至多一个 pending），不直接列 review 文件（无 list 端口）；M11 面板可改数据源。
   - `deliverInbox` 的未知异常分支返回 `failed: 0`（计数未知），仅防御性路径；正常投递失败与 `InboxMarkError` 均返回准确计数。
   - `src/tool-model.ts` 保留 `review/override-reason-required` 码（pinned 表未删，现无调用者）；`src/m2-e2e.ts`/`src/m3-e2e.ts` 旧 dev 面仍含 `awaiting_review`/`allowUnreviewed` 文本（KI-29，M12 取代）。（`src/index.ts` 的 "fourteen tools" 注释已由 t14 的 `ea3bbb6` 修正，不再是偏差。）
-  - 文档指针：`docs/PLAN-V0.2.md` §8（`proposed/feature`/`proposed/architecture` 两行）与仍 proposed 的 `topic-store-v2`/`topic-session-model`、M10 执行提案中仍引用两份记录的 `proposed/` 路径；本次收口只改 inScope 文件，M11/M12 收口文档时一并修正。
+  - 文档指针：M10 遗留收口（2026-11-08）已把 M10 执行提案迁 implemented 并修正 `docs/README`、`docs/PLAN-V0.2.md` §8、M6 文档与 proposal/implemented 记录之间的旧 `proposed/` 链接；`topic-store-v2` 与 `topic-session-model` 仍 proposed，按 [M12 交接](M12_HANDOFF.md) 的文档发布面迁移。
 - **未验证**：
   - 真实宿主端到端全链路（评审请求 → reviewer 创建 → verdict → 收件箱/主题 → 工作项 → 合并）——M12（KI-22）；M10 只跑到 fake host + 真实 store 文件，`fake-host` 通过不等于真机可用。
   - 本机 web profile 仍把 `dsh-cowork` 设为 `disabled: true`；插件在启用 cowork 的 profile 里的真实装配未验证（M12）。
@@ -105,10 +105,10 @@
 ## 指针
 
 - M10 启动交接（保留启动版）：[M10_HANDOFF.md](M10_HANDOFF.md)。
-- 执行层决定与备选（仍 proposed）：[2026-11-08-m10-review-request-workitems-plan.md](../.agents/notes/proposed/architecture/2026-11-08-m10-review-request-workitems-plan.md)。
+- 执行层决定与备选（implemented）：[2026-11-08-m10-review-request-workitems-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md)。
 - 评审规则（implemented）：[2026-11-07-review-request-model.md](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)。
 - 工作项与合并边界（implemented）：[2026-11-07-parallel-isolation-and-merge.md](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)。
-- 角色模型（仍 proposed，M11 收口）：[2026-11-07-topic-session-model.md](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md)。
-- 索引 v2 与迁移（仍 proposed，M11/M12 收口）：[2026-11-07-topic-store-v2.md](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md)。
+- 角色模型（仍 proposed，M12 收口）：[2026-11-07-topic-session-model.md](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md)。
+- 索引 v2 与迁移（仍 proposed，M12 收口）：[2026-11-07-topic-store-v2.md](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md)。
 - M9 交付结果：[M9_RESULT.md](M9_RESULT.md)。
 - 遗留问题与归属：[KNOWN_ISSUES](KNOWN_ISSUES.md)。
