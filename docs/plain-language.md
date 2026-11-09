@@ -18,15 +18,17 @@ The main session that routes requests and approves finished work.
 
 *Instead of* "master 会把需求路由到最相关 thread" → *say* "主会话会把需求派给最相关的话题会话".
 
-### thread
+### topic（主题会话）
 
-One feature's own conversation, which you can open and continue like any other chat.
+One feature's own conversation, which you can open and continue like any other chat. A work item and its review request live inside that topic.
 
 *Instead of* "thread 完成 handoff" → *say* "这个话题会话做完后，会交回一份结构化汇报".
 
+*Instead of* "thread" → *say* "话题会话"（`thread` 是 0.1.0 的旧名，不要用来描述当前行为）。
+
 ### handoff
 
-The structured report a thread leaves when it finishes or needs a decision.
+The structured report a topic leaves when it finishes or needs a decision.
 
 *Instead of* "handoff 未到达" → *say* "话题会话的交接汇报还没有投递给主会话".
 
@@ -40,7 +42,7 @@ A small folder in the project that remembers decisions, constraints, and facts a
 
 A ready-made conversation mode that sets the assistant's role and rules.
 
-*Instead of* "用 cowork-thread preset" → *say* "新会话选择 cowork-thread 这个预设".
+*Instead of* "用 cowork-thread preset" → *say* "新会话选择 cowork-topic 这个预设"（`cowork-thread` 只是旧会话的弃用别名）。
 
 ### surface
 
@@ -86,6 +88,6 @@ A small state file kept next to the thing it describes.
 
 ### worktree
 
-A separate working copy of the project for one thread, so two threads do not overwrite each other.
+A separate working copy of the project for one work item, so two work items do not overwrite each other.
 
-*Instead of* "thread 落到 worktree" → *say* "这个话题会话在自己的独立目录里改代码，合并时不会互相覆盖".
+*Instead of* "thread 落到 worktree" → *say* "这个工作项在自己的独立克隆里改代码，合并时不会互相覆盖".
