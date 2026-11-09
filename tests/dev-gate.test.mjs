@@ -33,7 +33,7 @@ const HOOK_SOURCE = [
 ].join('\n')
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
-const { apply, Config, normalizeConfig } = await import('../src/index.ts')
+const { apply, Config, normalizeConfig, panelRoutePathname } = await import('../src/index.ts')
 const { DEFAULT_ISOLATION_PROVIDER } = await import('../src/tool-runtime.ts')
 const { CLONE_ISOLATION_PROVIDER } = await import('../src/checkout.ts')
 const {
@@ -317,6 +317,23 @@ test('enableDevRoutes=true restores the M0/S0/M2/M3/M12 surface unchanged', asyn
     assert.equal(labels.includes(`dsh-cowork: route ${path}`), true, `missing effect for ${path}`)
   }
   assert.equal(labels.includes('dsh-cowork: M12 E2E session event feed'), true)
+})
+
+test('the M12 panel probe matches a query-string path to the bare registered route (F1)', () => {
+  // The host registers the panel routes under the bare path; the probe calls
+  // overview with `?sessionId=…`, so a raw Map lookup missed it in t6.
+  const routes = new Map([[OVERVIEW_PATH, { path: OVERVIEW_PATH }]])
+  const probePath = `${OVERVIEW_PATH}?sessionId=session-1`
+
+  assert.equal(panelRoutePathname(probePath), OVERVIEW_PATH)
+  assert.equal(routes.get(panelRoutePathname(probePath)), routes.get(OVERVIEW_PATH))
+  assert.equal(panelRoutePathname(OVERVIEW_PATH), OVERVIEW_PATH)
+  assert.equal(routes.get(panelRoutePathname('/api/cowork.unknown')), undefined)
+  assert.equal(routes.get(panelRoutePathname(`${OVERVIEW_PATH}?sessionId=`)), routes.get(OVERVIEW_PATH))
+
+  // The Request still carries the query string the handler reads.
+  const request = new Request(`http://127.0.0.1${probePath}`)
+  assert.equal(new URL(request.url).searchParams.get('sessionId'), 'session-1')
 })
 
 test('the dev probe canonicalizes a symlinked repoPath (P0-F1)', async () => {
