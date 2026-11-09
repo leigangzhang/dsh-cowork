@@ -1,43 +1,89 @@
 /**
- * Read-only HTTP surface of the Cowork panel.
+ * HTTP surface of the CoWork panel (M11, wire v2).
  *
- * The two routes are mounted on the host `connection` service, whose Exact
- * Fetch channel authenticates browser requests before they reach us; unlike the
- * M0 probe routes on `ctx.webServer` this module therefore registers no
- * loopback guard of its own. Everything the routes need sits behind ports so
- * the wire mapping (overview assembly, latest-handoff choice, error mapping)
- * is unit-testable without a running host.
+ * Six Exact Fetch routes live on the host `connection` service: three reads
+ * (`overview`, `activity`, `topic`) and three master-only writes (`resolve`,
+ * `reopen`, `route.move`). The browser never names a filesystem path: the
+ * project root comes from `sessionId` → session cwd → `findProjectRoot`, and
+ * everything the routes need sits behind ports so the wire mapping is testable
+ * without a running host.
  *
- * Read-only by construction: the store port exposes only reads, and the
- * project root always comes from `sessionId` → session cwd → `findProjectRoot`.
- * A path sent by the browser is never trusted.
+ * Two rules from the M11 handoff shape this module:
+ *
+ * - Reads report facts, not process. A topic carries its lifecycle, its review
+ *   state, and its open work-item count; the reviewer session and the handoff
+ *   text are not on the wire. Review cards come from the request files in
+ *   `reviews/` (KI-18); the legacy per-topic review pointer is never read, and
+ *   the write-only review helpers of the old store are not on the port.
+ * - A write is one lock-scoped transaction. `mutateIndexDocument` owns the
+ *   project lock and its activity row is appended afterwards, in a second
+ *   independent lock acquisition: wrapping both in `withWriteLock` would
+ *   deadlock on the non-reentrant file lock. An activity failure is logged and
+ *   never turns a committed write into an error response.
  */
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
-  HANDOFF_FORMATTER_VERSION,
-  HANDOFF_PATH,
-  MAX_PANEL_THREADS,
+  ACTIVITY_DEFAULT_LIMIT,
+  ACTIVITY_MAX_LIMIT,
+  ACTIVITY_PATH,
+  MAX_INBOX_ITEMS,
+  MAX_PANEL_TOPICS,
+  MAX_REQUEST_BODY_BYTES,
+  MAX_REVIEW_CHANGED_PATHS,
+  MAX_REVIEW_FINDINGS,
+  MAX_REVIEW_VERIFICATION,
+  MAX_TOPIC_OWNED_PATHS,
+  MAX_TOPIC_REVIEW_REQUESTS,
+  MAX_TOPIC_WORK_ITEMS,
   OVERVIEW_PATH,
-  countThreads,
+  REOPEN_PATH,
+  RESOLVE_PATH,
+  ROUTE_MOVE_PATH,
+  TOPIC_ACTIVITY_LIMIT,
+  TOPIC_PATH,
+  countPanel,
   isPanelReviewSeverity,
   isPanelReviewStatus,
-  isPanelReviewVerdict,
-  isPanelThreadStatus,
-  sortThreadsForPanel,
-  type HandoffPayload,
-  type HandoffResponse,
-  type OverviewPayload,
+  isPanelWorkItemStatus,
+  sortTopicsForPanel,
+  truncateSummary,
+  type ActivityResponse,
   type OverviewResponse,
+  type PanelActivityEvent,
   type PanelErrorBody,
   type PanelErrorCode,
+  type PanelInboxItem,
+  type PanelProject,
   type PanelReviewFinding,
-  type PanelReviewPayload,
-  type PanelReviewRecord,
+  type PanelReviewRequest,
   type PanelReviewVerification,
-  type PanelThread,
+  type PanelTopic,
+  type PanelWorkItem,
+  type ReopenResponse,
+  type ResolveResponse,
+  type RouteMoveResponse,
+  type TopicResponse,
 } from './api-contract.js'
-import { formatMasterMessage } from './handoff.js'
-import type { HandoffFile, ProjectIndex, ThreadRecord } from './store.js'
+import { buildActivityEvent, topicReopenedActivity } from './activity.js'
+import { isLoopbackHost } from './probe-model.js'
+import { parseReviewRequestRecord, reviewRequestFileName } from './review-request.js'
+import type { ReviewRequestRecord } from './review-request.js'
+import { applyRouteCorrection } from './routing.js'
+import type {
+  ActivityEvent,
+  InboxItem,
+  ProjectIndexV2,
+  ReadActivityResult,
+  ReviewFinding,
+  ReviewVerification,
+  TopicRecordV2,
+  WorkItemRecordV2,
+} from './store-schema.js'
 import { StoreError } from './store.js'
+import { DEFAULT_IDLE_AFTER_MS, DEFAULT_RESOLVE_AFTER_MS, reopenResolvedTopic } from './topic.js'
+import { activeWorkItemCount } from './work-item.js'
+import { evaluateProjectLifecycle } from './tool-runtime.js'
 
 /** One metadata row of the host's session listing; only id and cwd matter here. */
 export interface PanelSessionRow {
@@ -47,32 +93,21 @@ export interface PanelSessionRow {
 }
 
 /**
- * Store reads the routes may perform. `ProjectStore` satisfies this
- * structurally. The review reader is optional because the M3 review module and
- * the panel land on separate lines: when the store does not expose it yet, the
- * route falls back to the project's own text read, so a review pointer never
- * becomes a panel failure just because the store predates the field.
+ * Store operations the routes may perform. `ProjectStore` satisfies this
+ * structurally. The writer half (`mutateIndexDocument`/`appendActivity`) is used
+ * only by the three POST routes; the reads never call a write.
  */
 export interface CoworkStorePort {
   hasIndex(): Promise<boolean>
-  readIndex(): Promise<ProjectIndex>
-  listHandoffs(): Promise<HandoffFile[]>
-  /** Read and validate one review file; `store/not-found` when it is gone. */
-  readReview?(filePath: string): Promise<unknown>
-  /** Raw text read of a project-owned file; `null` when the file is gone. */
-  readText?(absPath: string): Promise<string | null>
-}
-
-/**
- * Optional review fields of one index thread. Indexes written before M3 carry
- * none of them, and this module must stay readable against such a project.
- */
-interface ThreadReviewFields {
-  readonly reviewStatus?: unknown
-  readonly reviewedAt?: unknown
-  readonly reviewerSessionId?: unknown
-  /** Absolute path of the thread's latest review file, or null. */
-  readonly latestReviewPath?: unknown
+  readIndexDocument(): Promise<ProjectIndexV2>
+  mutateIndexDocument(mutator: (document: ProjectIndexV2) => ProjectIndexV2 | null): Promise<ProjectIndexV2>
+  appendActivity(event: ActivityEvent): Promise<void>
+  readActivity(limit?: number): Promise<ReadActivityResult>
+  readInbox(): Promise<InboxItem[]>
+  /** Raw text read of one project-owned file; `null` when the file is gone. */
+  readText(absPath: string): Promise<string | null>
+  /** `<repo>/.dsh-cowork/reviews`, the only home of review-request facts. */
+  readonly reviewsDir: string
 }
 
 /** The host facts a route needs, injected so tests can stand in for the host. */
@@ -93,6 +128,17 @@ export interface CoworkApiPorts {
   listSessionsTimeoutMs?: number
   findProjectRoot(startPath: string): Promise<string | null>
   createStore(repoPath: string): CoworkStorePort
+  /**
+   * Clock for the write routes and the lifecycle read point. Production passes
+   * the same `() => new Date()` that the store stamps with; tests freeze it.
+   */
+  now?(): Date
+  /** Idle threshold for the lifecycle read point; `src/topic.ts` owns the default. */
+  idleAfterMs?: number
+  /** Resolve threshold for the lifecycle read point; `src/topic.ts` owns it. */
+  resolveAfterMs?: number
+  /** Diagnostic sink for a non-fatal failure (lifecycle/activity write). */
+  log?(message: string): void
 }
 
 /** Methods the connection channel supports for a registered route. */
@@ -125,6 +171,12 @@ export interface CoworkApiHost {
   effect(execute: () => unknown, label?: string): void
 }
 
+/** The longest `route.move` intent the panel accepts, in code points. */
+const ROUTE_MOVE_INTENT_MAX_CHARS = 500
+
+/** Most alias tokens one `route-corrected` activity carries. */
+const ROUTE_CORRECTION_DETAILS_MAX_TOKENS = 20
+
 /** A failure the routes map to a stable panel error code and HTTP status. */
 export class PanelApiError extends Error {
   readonly code: PanelErrorCode
@@ -144,15 +196,26 @@ export interface PanelErrorResult {
   readonly body: PanelErrorBody
 }
 
-/** HTTP status per stable error code; the panel keys its states off the code. */
+/**
+ * HTTP status per stable error code. Typed as a complete `Record`, so adding a
+ * code to the contract without deciding its status is a compile error.
+ */
 const PANEL_ERROR_STATUS: Readonly<Record<PanelErrorCode, number>> = {
   'request/session-required': 400,
-  'request/thread-required': 400,
+  'request/topic-required': 400,
+  'request/invalid-query': 400,
+  'request/invalid-body': 400,
+  'request/body-too-large': 413,
+  'request/content-type': 415,
+  'request/origin': 403,
+  'request/not-master': 403,
+  'topic/not-found': 404,
+  'topic/not-resolved': 409,
+  'route/move-invalid': 400,
   'session/unknown': 400,
   'session/cwd-unavailable': 400,
   'session/list-timeout': 504,
   'project/not-initialized': 404,
-  'handoff/not-found': 404,
   'store/corrupt': 500,
   internal: 500,
 }
@@ -201,7 +264,7 @@ export function toErrorResponse(error: unknown): PanelErrorResult {
   return { status: 500, body: errorBody('internal', message) }
 }
 
-/** One JSON response with the headers both panel endpoints share. */
+/** One JSON response with the headers every panel route shares. */
 export function jsonResponse(status: number, payload: unknown): Response {
   return new Response(JSON.stringify(payload), { status, headers: JSON_HEADERS })
 }
@@ -212,6 +275,15 @@ function queryParam(request: Request, name: string): string | null {
   if (value === null) return null
   const trimmed = value.trim()
   return trimmed === '' ? null : trimmed
+}
+
+/** A required query parameter; a blank value is missing, not empty. */
+function requireQueryParam(request: Request, name: string, code: PanelErrorCode): string {
+  const value = queryParam(request, name)
+  if (value === null) {
+    throw new PanelApiError(code, `query parameter ${name} is required`)
+  }
+  return value
 }
 
 /**
@@ -275,73 +347,116 @@ async function resolveProjectRoot(ports: CoworkApiPorts, sessionId: string): Pro
   return repoPath
 }
 
-/** Whether one index entry belongs in the panel (archived threads never do). */
-export function isListableThread(
-  thread: ThreadRecord,
-): thread is ThreadRecord & { readonly status: PanelThread['status'] } {
-  return thread.status !== 'archived' && isPanelThreadStatus(thread.status)
+/** A project store opened for one request, plus the root the panel reports. */
+interface OpenedProject {
+  readonly store: CoworkStorePort
+  readonly repoPath: string
 }
 
-/** A trimmed non-empty string, or null: the index may hold '' or a non-string. */
+/**
+ * Discover the project and refuse an index that vanished between discovery and
+ * read. `findProjectRoot` guarantees an index, so the check only fires when the
+ * file was removed by a concurrent checkout switch.
+ */
+async function openProject(ports: CoworkApiPorts, sessionId: string): Promise<OpenedProject> {
+  const repoPath = await resolveProjectRoot(ports, sessionId)
+  const store = ports.createStore(repoPath)
+  if (!(await store.hasIndex())) {
+    throw new PanelApiError('project/not-initialized', `project index is missing under ${repoPath}`, repoPath)
+  }
+  return { store, repoPath }
+}
+
+/**
+ * The M9/M10 lifecycle read point, now on the panel's read path: evaluate every
+ * topic inside the project lock with real in-flight work-item counts (KI-24),
+ * so a topic whose work is still running is never auto-resolved. A failing
+ * activity row is reported to the host log; the panel request still serves.
+ */
+async function runLifecycle(store: CoworkStorePort, ports: CoworkApiPorts): Promise<void> {
+  const evaluation = await evaluateProjectLifecycle(store, {
+    now: ports.now?.() ?? new Date(),
+    idleAfterMs: ports.idleAfterMs ?? DEFAULT_IDLE_AFTER_MS,
+    resolveAfterMs: ports.resolveAfterMs ?? DEFAULT_RESOLVE_AFTER_MS,
+    activeWorkItemsOf: (topicId, document) => activeWorkItemCount(document, topicId),
+  })
+  for (const failure of evaluation.activityErrors) {
+    ports.log?.(`panel overview: lifecycle activity not recorded: ${failure}`)
+  }
+}
+
+/** A trimmed non-empty string, or null: an index may hold '' or a non-string. */
 function optionalString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null
 }
 
-/** Project one index entry into the wire shape the panel renders. */
-export function toPanelThread(
-  record: ThreadRecord & { readonly status: PanelThread['status'] },
-): PanelThread {
-  // Review fields are read through the optional view: an index written before
-  // M3 has none of them, and that must degrade to null, not to a broken row.
-  const review = record as unknown as ThreadReviewFields
+/**
+ * Project one v2 topic onto the wire shape. Review state comes from the index
+ * row (the request files carry the detail); `reviews` are read separately by
+ * the topic route. No reviewer session or handoff text is copied onto the wire.
+ */
+export function toPanelTopic(document: ProjectIndexV2, topic: TopicRecordV2): PanelTopic {
   return {
-    threadId: record.threadId,
-    subject: record.subject,
-    status: record.status,
-    cwd: record.cwd,
-    checkoutPath: record.checkoutPath,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    lastHandoffAt: record.lastHandoffAt,
-    // The panel only needs the marker; deriving it keeps the wire honest when
-    // an older index lacks the derived field.
-    hasHandoff: record.lastHandoffAt !== null,
-    reviewStatus: isPanelReviewStatus(review.reviewStatus) ? review.reviewStatus : null,
-    reviewedAt: optionalString(review.reviewedAt),
-    reviewerSessionId: optionalString(review.reviewerSessionId),
+    topicId: topic.topicId,
+    title: topic.title,
+    status: topic.status,
+    blocked: topic.blocked,
+    awaitingReview: topic.awaitingReview,
+    reviewStatus: isPanelReviewStatus(topic.reviewStatus) ? topic.reviewStatus : null,
+    latestReviewRequestId: optionalString(topic.latestReviewRequestId),
+    digest: truncateSummary(topic.digest),
+    scope: truncateSummary(topic.scope),
+    ownedPaths: topic.ownedPaths.slice(0, MAX_TOPIC_OWNED_PATHS),
+    lastActiveAt: topic.lastActiveAt,
+    updatedAt: topic.updatedAt,
+    lastDeliveryConfirmedAt: optionalString(topic.lastDeliveryConfirmedAt),
+    resolvedAt: optionalString(topic.resolvedAt),
+    resolvedBy: topic.resolvedBy === 'user' || topic.resolvedBy === 'master' ? topic.resolvedBy : null,
+    activeWorkItems: activeWorkItemCount(document, topic.topicId),
   }
 }
 
-/**
- * Overview body: listable threads in panel order, capped, with counts computed
- * from the returned rows so the header chips can never disagree with the list.
- */
-export function buildOverview(index: ProjectIndex, repoPath: string): OverviewPayload {
-  const threads = sortThreadsForPanel(index.threads.filter(isListableThread).map(toPanelThread))
-    .slice(0, MAX_PANEL_THREADS)
+/** Project one v2 work item onto the wire shape; an unknown state is skipped. */
+function toPanelWorkItem(item: WorkItemRecordV2): PanelWorkItem | null {
+  if (!isPanelWorkItemStatus(item.status)) return null
   return {
-    project: {
-      repoPath,
-      projectId: index.projectId,
-      masterSessionId: index.masterSessionId,
-      createdAt: index.createdAt,
-    },
-    counts: countThreads(threads),
-    threads,
+    workItemId: item.workItemId,
+    topicId: item.topicId,
+    path: item.path,
+    branch: item.branch,
+    baseCommit: optionalString(item.baseCommit),
+    headCommit: optionalString(item.headCommit),
+    status: item.status,
+    updatedAt: item.updatedAt,
   }
 }
 
-/**
- * Normalize one finding of a review file. A row the panel cannot render is
- * dropped rather than blanking the whole review: the file path stays visible,
- * so the raw document can still be inspected.
- */
-function toPanelReviewFinding(value: unknown): PanelReviewFinding | null {
-  if (typeof value !== 'object' || value === null) return null
-  const row = value as Record<string, unknown>
-  if (!optionalString(row.id) || !optionalString(row.problem) || !optionalString(row.requiredFix)) return null
-  if (!isPanelReviewSeverity(row.severity)) return null
-  const finding: {
+/** Project one inbox item onto the wire shape. */
+function toPanelInboxItem(item: InboxItem): PanelInboxItem {
+  return {
+    id: item.id,
+    time: item.time,
+    topicId: item.topicId,
+    kind: item.kind,
+    summary: truncateSummary(item.summary),
+    deliveredAt: optionalString(item.deliveredAt),
+  }
+}
+
+/** Project one activity row onto the wire shape. */
+function toPanelActivityEvent(event: ActivityEvent): PanelActivityEvent {
+  return {
+    eventId: event.eventId,
+    time: event.time,
+    type: event.type,
+    topicId: event.topicId,
+    summary: truncateSummary(event.summary),
+  }
+}
+
+/** Project one stored finding; its text is already bounded by the schema. */
+function toPanelFinding(finding: ReviewFinding): PanelReviewFinding {
+  const row: {
     id: string
     severity: PanelReviewFinding['severity']
     problem: string
@@ -349,217 +464,493 @@ function toPanelReviewFinding(value: unknown): PanelReviewFinding | null {
     file?: string
     line?: number
   } = {
-    id: row.id as string,
-    severity: row.severity,
-    problem: row.problem as string,
-    requiredFix: row.requiredFix as string,
+    id: finding.id,
+    severity: isPanelReviewSeverity(finding.severity) ? finding.severity : 'low',
+    problem: finding.problem,
+    requiredFix: finding.requiredFix,
   }
-  const file = optionalString(row.file)
-  if (file !== null) finding.file = file
-  if (typeof row.line === 'number' && Number.isInteger(row.line) && row.line > 0) finding.line = row.line
-  return finding
+  const file = optionalString(finding.file)
+  if (file !== null) row.file = file
+  if (typeof finding.line === 'number' && Number.isInteger(finding.line) && finding.line > 0) {
+    row.line = finding.line
+  }
+  return row
 }
 
-/** Normalize one reviewer verification row; same leniency as findings. */
-function toPanelReviewVerification(value: unknown): PanelReviewVerification | null {
-  if (typeof value !== 'object' || value === null) return null
-  const row = value as Record<string, unknown>
-  if (!optionalString(row.command)) return null
-  if (typeof row.exitCode !== 'number' || !Number.isInteger(row.exitCode)) return null
-  if (typeof row.evidence !== 'string') return null
-  return { command: row.command as string, exitCode: row.exitCode, evidence: row.evidence }
+/** Project one stored verification row onto the wire shape. */
+function toPanelVerification(row: ReviewVerification): PanelReviewVerification {
+  return { command: row.command, exitCode: row.exitCode, evidence: row.evidence }
 }
 
 /**
- * Narrow one review document to the wire record. Returns null when the verdict
- * or one of the identity fields is unusable: without a verdict the panel cannot
- * label the review, so the caller reports the file as corrupt instead of
- * inventing a state.
+ * Project one parsed request file onto the review card. Collections are
+ * truncated here rather than in the contract, so the browser bundle stays
+ * unaware of the file format; `purpose` is shown verbatim (the schema bounds it
+ * to {@link REVIEW_PURPOSE_MAX_CHARS}).
  */
-export function toPanelReviewRecord(document: unknown): PanelReviewRecord | null {
-  if (typeof document !== 'object' || document === null) return null
-  const record = document as Record<string, unknown>
-  if (!isPanelReviewVerdict(record.verdict)) return null
-  if (typeof record.summary !== 'string') return null
-  if (!optionalString(record.reviewerSessionId)) return null
-  if (!optionalString(record.createdAt)) return null
-  const findings = Array.isArray(record.findings)
-    ? record.findings.map(toPanelReviewFinding).filter((row): row is PanelReviewFinding => row !== null)
-    : []
-  const verification = Array.isArray(record.verification)
-    ? record.verification.map(toPanelReviewVerification).filter((row): row is PanelReviewVerification => row !== null)
-    : []
+function toPanelReviewRequest(record: ReviewRequestRecord): PanelReviewRequest {
   return {
-    version: 1,
-    threadId: optionalString(record.threadId) ?? '',
-    reviewerSessionId: record.reviewerSessionId as string,
-    verdict: record.verdict,
-    summary: record.summary,
-    findings,
-    verification,
-    createdAt: record.createdAt as string,
+    requestId: record.requestId,
+    topicId: record.topicId,
+    workItemId: optionalString(record.workItemId),
+    purpose: record.purpose,
+    status: record.status,
+    baseCommit: record.baseCommit,
+    headCommit: record.headCommit,
+    changedPaths: record.changedPaths.slice(0, MAX_REVIEW_CHANGED_PATHS),
+    requestedAt: record.requestedAt,
+    reviewedAt: optionalString(record.reviewedAt),
+    summary: typeof record.summary === 'string' ? truncateSummary(record.summary) : null,
+    findings: record.findings.slice(0, MAX_REVIEW_FINDINGS).map(toPanelFinding),
+    verification: record.reviewVerification.slice(0, MAX_REVIEW_VERIFICATION).map(toPanelVerification),
   }
 }
 
-/** Whether a read failure means "the pointer file is gone" rather than "unreadable". */
-function isMissingReviewFile(error: unknown): boolean {
-  return error instanceof StoreError && error.code === 'store/not-found'
+/** Descending comparison of two ISO timestamps; unparseable values sort last. */
+function compareRequestedAtDescending(left: string, right: string): number {
+  const leftTime = Date.parse(left)
+  const rightTime = Date.parse(right)
+  const leftValue = Number.isFinite(leftTime) ? leftTime : Number.NEGATIVE_INFINITY
+  const rightValue = Number.isFinite(rightTime) ? rightTime : Number.NEGATIVE_INFINITY
+  if (leftValue === rightValue) return 0
+  return leftValue > rightValue ? -1 : 1
 }
 
 /**
- * Read the review file an index pointer names. `null` means the pointer file no
- * longer exists; a damaged document is `store/corrupt`, and any other failure
- * propagates to the shared error mapping. The path is never guessed from the
- * reviews directory: only the index pointer decides which verdict is current.
+ * Every review request of one topic, newest first and bounded.
+ *
+ * The request files are the only source (KI-18): a file is accepted only when
+ * it parses as a request record AND its name equals
+ * `reviewRequestFileName(record.topicId, record.requestId)`. A legacy
+ * verdict-only file, a damaged file, a request of another topic, and a request
+ * stored under a mismatched name are all skipped — never guessed at. Reading
+ * them cannot fail the topic: an unreadable reviews directory is an empty list.
  */
-export async function readReviewPayload(
-  store: CoworkStorePort,
-  filePath: string,
-): Promise<PanelReviewPayload | null> {
-  let document: unknown
-  if (typeof store.readReview === 'function') {
-    try {
-      document = await store.readReview(filePath)
-    } catch (error) {
-      if (isMissingReviewFile(error)) return null
-      throw error
-    }
-  } else if (typeof store.readText === 'function') {
-    const text = await store.readText(filePath)
-    if (text === null) return null
-    try {
-      document = JSON.parse(text)
-    } catch (error) {
-      throw new StoreError(
-        'store/corrupt',
-        `${filePath}: invalid review JSON (${(error as Error).message})`,
-        filePath,
-      )
-    }
-  } else {
-    // A host whose store exposes no read path at all: the review is unknown,
-    // and the panel must still render the handoff.
-    return null
+async function readReviewRequests(store: CoworkStorePort, topicId: string): Promise<PanelReviewRequest[]> {
+  const prefix = `${topicId}-`
+  let names: string[]
+  try {
+    names = (await readdir(store.reviewsDir)).sort()
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return []
+    throw error
   }
-  const record = toPanelReviewRecord(document)
-  if (record === null) {
-    throw new StoreError('store/corrupt', `${filePath}: invalid review document`, filePath)
+  const requests: PanelReviewRequest[] = []
+  for (const fileName of names) {
+    if (!fileName.startsWith(prefix) || !fileName.endsWith('.json')) continue
+    const text = await store.readText(join(store.reviewsDir, fileName))
+    if (text === null) continue
+    const parsed = parseReviewRequestRecord(text)
+    if (!parsed.ok) continue
+    const record = parsed.record
+    if (reviewRequestFileName(record.topicId, record.requestId) !== fileName) continue
+    requests.push(toPanelReviewRequest(record))
   }
-  return { record, filePath }
+  return requests
+    .sort((left, right) => compareRequestedAtDescending(left.requestedAt, right.requestedAt))
+    .slice(0, MAX_TOPIC_REVIEW_REQUESTS)
 }
 
-/** The review pointer of one index thread, or null when it has none. */
-function latestReviewPathOf(record: ThreadRecord | undefined): string | null {
-  if (record === undefined) return null
-  return optionalString((record as unknown as ThreadReviewFields).latestReviewPath)
-}
-
-/** Latest review of one thread, resolved through the index pointer only. */
-export async function readThreadReview(
-  store: CoworkStorePort,
-  index: ProjectIndex,
-  threadId: string,
-): Promise<PanelReviewPayload | null> {
-  const pointer = latestReviewPathOf(index.threads.find((thread) => thread.threadId === threadId))
-  if (pointer === null) return null
-  return readReviewPayload(store, pointer)
-}
-
-
-/** Whether `candidate` is newer than `current`; equal timestamps fall back to the file name. */
-function isNewerHandoff(candidate: HandoffFile, current: HandoffFile): boolean {
-  const delta = Date.parse(candidate.record.createdAt) - Date.parse(current.record.createdAt)
-  if (Number.isFinite(delta) && delta !== 0) return delta > 0
-  // Names carry a sortable stamp; the larger one is the later write.
-  return candidate.fileName.localeCompare(current.fileName) > 0
-}
-
-/** The newest handoff of one thread, or null when it has none. */
-export function selectLatestHandoff(
-  files: readonly HandoffFile[],
-  threadId: string,
-): HandoffFile | null {
-  let latest: HandoffFile | null = null
-  for (const file of files) {
-    if (file.record.threadId !== threadId) continue
-    if (latest === null || isNewerHandoff(file, latest)) latest = file
-  }
-  return latest
-}
-
-/**
- * Handoff body: the stored record plus the message the master received. The
- * message is re-rendered on read (never stored), so the formatter version
- * travels with it and a rendering change is visible instead of silent. The
- * optional review is the thread's latest verdict, already resolved by the
- * caller from the index pointer.
- */
-export function buildHandoffPayload(
-  file: HandoffFile,
-  review: PanelReviewPayload | null = null,
-): HandoffPayload {
+/** The header counts and project identity shared by the overview body. */
+function overviewProject(index: ProjectIndexV2, repoPath: string): PanelProject {
   return {
-    record: file.record,
-    filePath: file.filePath,
-    masterMessage: formatMasterMessage(file.record, file.filePath),
-    formatterVersion: HANDOFF_FORMATTER_VERSION,
-    review,
+    repoPath,
+    projectId: index.projectId,
+    masterSessionId: index.masterSessionId,
+    createdAt: index.createdAt,
   }
 }
 
+/** `GET overview`: project header, ordered topics, counts, and pending inbox. */
 async function handleOverview(request: Request, ports: CoworkApiPorts): Promise<Response> {
+  const sessionId = requireQueryParam(request, 'sessionId', 'request/session-required')
+  const { store, repoPath } = await openProject(ports, sessionId)
+  await runLifecycle(store, ports)
+  // Read after the lifecycle pass: the document the panel shows must include
+  // the transitions that pass just committed.
+  const document = await store.readIndexDocument()
+  const topics = sortTopicsForPanel(document.topics.map((topic) => toPanelTopic(document, topic)))
+    .slice(0, MAX_PANEL_TOPICS)
+  const inbox = (await store.readInbox())
+    .filter((item) => item.deliveredAt === null)
+    .slice(-MAX_INBOX_ITEMS)
+    .map(toPanelInboxItem)
+  const response: OverviewResponse = {
+    ok: true,
+    project: overviewProject(document, repoPath),
+    counts: countPanel(topics, document.workItems),
+    topics,
+    inbox,
+  }
+  return jsonResponse(200, response)
+}
+
+/** Parse `limit`: absent means the default, anything else must be 1..max. */
+function parseActivityLimit(request: Request): number {
+  const raw = queryParam(request, 'limit')
+  if (raw === null) return ACTIVITY_DEFAULT_LIMIT
+  const invalid = (detail: string): PanelApiError => new PanelApiError(
+    'request/invalid-query',
+    `query parameter limit ${detail}; expected an integer between 1 and ${ACTIVITY_MAX_LIMIT}`,
+  )
+  if (!/^\d+$/.test(raw)) throw invalid(`is not an integer: ${raw}`)
+  const limit = Number(raw)
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > ACTIVITY_MAX_LIMIT) {
+    throw invalid(`is out of range: ${raw}`)
+  }
+  return limit
+}
+
+/** `GET activity`: the newest events, oldest first, plus skipped-line count. */
+async function handleActivity(request: Request, ports: CoworkApiPorts): Promise<Response> {
+  const sessionId = requireQueryParam(request, 'sessionId', 'request/session-required')
+  const limit = parseActivityLimit(request)
+  const { store } = await openProject(ports, sessionId)
+  const { events, skippedLines } = await store.readActivity(limit)
+  const response: ActivityResponse = {
+    ok: true,
+    events: events.map(toPanelActivityEvent),
+    skippedLines,
+  }
+  return jsonResponse(200, response)
+}
+
+/** `GET topic`: one topic with its bounded work items, reviews, and activity. */
+async function handleTopic(request: Request, ports: CoworkApiPorts): Promise<Response> {
+  const sessionId = requireQueryParam(request, 'sessionId', 'request/session-required')
+  const topicId = requireQueryParam(request, 'topicId', 'request/topic-required')
+  const { store } = await openProject(ports, sessionId)
+  const document = await store.readIndexDocument()
+  const record = document.topics.find((topic) => topic.topicId === topicId)
+  if (record === undefined) {
+    throw new PanelApiError('topic/not-found', `unknown topic: ${topicId}`)
+  }
+  const workItems = document.workItems
+    .filter((item) => item.topicId === topicId)
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+    .slice(0, MAX_TOPIC_WORK_ITEMS)
+    .map(toPanelWorkItem)
+    .filter((item): item is PanelWorkItem => item !== null)
+  const reviewRequests = await readReviewRequests(store, topicId)
+  const { events } = await store.readActivity(ACTIVITY_MAX_LIMIT)
+  const activity = events
+    .filter((event) => event.topicId === topicId)
+    .slice(-TOPIC_ACTIVITY_LIMIT)
+    .map(toPanelActivityEvent)
+  const response: TopicResponse = {
+    ok: true,
+    topic: toPanelTopic(document, record),
+    workItems,
+    reviewRequests,
+    activity,
+  }
+  return jsonResponse(200, response)
+}
+
+/**
+ * Reject a request that does not come from this machine and this origin.
+ *
+ * The host `connection` channel already authenticates the browser, but the
+ * plugin repeats the loopback check on the `Host` header (DNS-rebinding guard)
+ * and requires a present `Origin` to equal the request authority. A missing
+ * Origin is allowed: server-side callers do not send one.
+ */
+function assertSameOrigin(request: Request): void {
+  const host = request.headers.get('host')
+  if (!isLoopbackHost(host ?? undefined)) {
+    throw new PanelApiError(
+      'request/origin',
+      `request host ${host === null ? '(missing)' : host} is not a loopback authority`,
+    )
+  }
+  const origin = request.headers.get('origin')
+  if (origin === null || origin.trim() === '') return
+  let originHost: string
   try {
-    const sessionId = queryParam(request, 'sessionId')
-    if (sessionId === null) {
-      throw new PanelApiError('request/session-required', 'query parameter sessionId is required')
-    }
-    const repoPath = await resolveProjectRoot(ports, sessionId)
-    const store = ports.createStore(repoPath)
-    if (!(await store.hasIndex())) {
-      // findProjectRoot guarantees an index, so this only fires when the file
-      // vanished between discovery and read (concurrent checkout switch).
-      throw new PanelApiError('project/not-initialized', `project index is missing under ${repoPath}`, repoPath)
-    }
-    const response: OverviewResponse = { ok: true, ...buildOverview(await store.readIndex(), repoPath) }
-    return jsonResponse(200, response)
-  } catch (error) {
-    const { status, body } = toErrorResponse(error)
-    return jsonResponse(status, body)
+    originHost = new URL(origin).host
+  } catch {
+    throw new PanelApiError('request/origin', `origin is not a valid URL: ${origin}`)
+  }
+  if (originHost !== host) {
+    throw new PanelApiError('request/origin', `origin ${origin} does not match request host ${host}`)
   }
 }
 
-async function handleHandoff(request: Request, ports: CoworkApiPorts): Promise<Response> {
-  try {
-    const sessionId = queryParam(request, 'sessionId')
-    if (sessionId === null) {
-      throw new PanelApiError('request/session-required', 'query parameter sessionId is required')
-    }
-    const threadId = queryParam(request, 'threadId')
-    if (threadId === null) {
-      throw new PanelApiError('request/thread-required', 'query parameter threadId is required')
-    }
-    const repoPath = await resolveProjectRoot(ports, sessionId)
-    const store = ports.createStore(repoPath)
-    if (!(await store.hasIndex())) {
-      throw new PanelApiError('project/not-initialized', `project index is missing under ${repoPath}`, repoPath)
-    }
-    const latest = selectLatestHandoff(await store.listHandoffs(), threadId)
-    if (latest === null) {
-      throw new PanelApiError('handoff/not-found', `thread has no handoff: ${threadId}`)
-    }
-    // The review pointer lives on the thread's index row: a review file that
-    // exists in the directory but is not pointed at is not the current verdict.
-    const review = await readThreadReview(store, await store.readIndex(), threadId)
-    const response: HandoffResponse = { ok: true, handoff: buildHandoffPayload(latest, review) }
-    return jsonResponse(200, response)
-  } catch (error) {
-    const { status, body } = toErrorResponse(error)
-    return jsonResponse(status, body)
+/** Require `content-type: application/json` (parameters such as charset are fine). */
+function assertJsonContentType(request: Request): void {
+  const header = request.headers.get('content-type')
+  if (header === null) {
+    throw new PanelApiError('request/content-type', 'content-type must be application/json')
+  }
+  const media = header.split(';', 1)[0].trim().toLowerCase()
+  if (media !== 'application/json') {
+    throw new PanelApiError('request/content-type', `content-type must be application/json, got ${header}`)
   }
 }
 
 /**
- * Register both panel routes on the host connection service.
+ * Read one bounded JSON object body. The order is the wire contract's: the
+ * media type, the size, then the JSON shape, each with its own stable code.
+ */
+async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
+  assertJsonContentType(request)
+  const declared = Number(request.headers.get('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > MAX_REQUEST_BODY_BYTES) {
+    throw new PanelApiError(
+      'request/body-too-large',
+      `request body must not exceed ${MAX_REQUEST_BODY_BYTES} bytes`,
+    )
+  }
+  const buffer = await request.arrayBuffer()
+  if (buffer.byteLength > MAX_REQUEST_BODY_BYTES) {
+    throw new PanelApiError(
+      'request/body-too-large',
+      `request body is ${buffer.byteLength} bytes; the limit is ${MAX_REQUEST_BODY_BYTES}`,
+    )
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(buffer))
+  } catch {
+    throw new PanelApiError('request/invalid-body', 'request body is not valid JSON')
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new PanelApiError('request/invalid-body', 'request body must be a JSON object')
+  }
+  return parsed as Record<string, unknown>
+}
+
+/** One required non-blank string field of a write body. */
+function requireBodyString(body: Record<string, unknown>, name: string, code: PanelErrorCode): string {
+  const value = body[name]
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new PanelApiError(code, `body field ${name} is required`)
+  }
+  return value.trim()
+}
+
+/** The project store of a write, already proven to belong to the master. */
+interface OpenedWrite {
+  readonly store: CoworkStorePort
+  readonly now: Date
+}
+
+/**
+ * Open the project for a write and refuse a caller that is not its master
+ * before anything is mutated. The same check runs again inside the lock, so a
+ * concurrent master rebind cannot slip a write through.
+ */
+async function openWrite(ports: CoworkApiPorts, sessionId: string): Promise<OpenedWrite> {
+  const { store } = await openProject(ports, sessionId)
+  const now = ports.now?.() ?? new Date()
+  const document = await store.readIndexDocument()
+  assertMaster(document, sessionId)
+  return { store, now }
+}
+
+/** Refuse a write from a session that does not own the project. */
+function assertMaster(document: ProjectIndexV2, sessionId: string): void {
+  if (document.masterSessionId !== sessionId) {
+    throw new PanelApiError(
+      'request/not-master',
+      `session ${sessionId} is not the master of this project`,
+    )
+  }
+}
+
+/**
+ * Build and append one activity row after a committed write. The index is
+ * already durable, so both a failed build and a failed append are a log line:
+ * rolling the write back would claim a state the index does not hold.
+ */
+async function appendActivityLogged(
+  store: CoworkStorePort,
+  ports: CoworkApiPorts,
+  build: () => ActivityEvent,
+): Promise<void> {
+  try {
+    await store.appendActivity(build())
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    ports.log?.(`panel write: activity not recorded: ${message}`)
+  }
+}
+
+/** The topic the response reports, or `internal` when the write lost it. */
+function topicAfterWrite(document: ProjectIndexV2, topicId: string): PanelTopic {
+  const record = document.topics.find((topic) => topic.topicId === topicId)
+  if (record === undefined) {
+    throw new PanelApiError('internal', `topic disappeared from the index: ${topicId}`)
+  }
+  return toPanelTopic(document, record)
+}
+
+/** `POST resolve`: mark one topic resolved by the user, idempotently. */
+async function handleResolve(request: Request, ports: CoworkApiPorts): Promise<Response> {
+  const body = await readJsonBody(request)
+  const sessionId = requireBodyString(body, 'sessionId', 'request/session-required')
+  const topicId = requireBodyString(body, 'topicId', 'request/topic-required')
+  const { store, now } = await openWrite(ports, sessionId)
+  let changed = false
+  let from: string | null = null
+  const document = await store.mutateIndexDocument((base) => {
+    assertMaster(base, sessionId)
+    const topic = base.topics.find((entry) => entry.topicId === topicId)
+    if (topic === undefined) {
+      throw new PanelApiError('topic/not-found', `unknown topic: ${topicId}`)
+    }
+    if (topic.status === 'resolved') {
+      // Idempotent: the second resolve of a resolved topic writes nothing.
+      changed = false
+      return null
+    }
+    changed = true
+    from = topic.status
+    const stamp = now.toISOString()
+    const resolved: TopicRecordV2 = {
+      ...topic,
+      status: 'resolved',
+      resolvedBy: 'user',
+      resolvedAt: stamp,
+      updatedAt: stamp,
+    }
+    return { ...base, topics: base.topics.map((entry) => (entry.topicId === topicId ? resolved : entry)) }
+  })
+  if (changed) {
+    await appendActivityLogged(store, ports, () => buildActivityEvent({
+      type: 'status-changed',
+      topicId,
+      summary: `changed topic status from ${String(from)} to resolved`,
+      details: { topicId, from: String(from), to: 'resolved', by: 'user' },
+    }, now))
+  }
+  const response: ResolveResponse = {
+    ok: true,
+    topic: topicAfterWrite(document, topicId),
+    alreadyResolved: !changed,
+  }
+  return jsonResponse(200, response)
+}
+
+/** `POST reopen`: return a resolved topic to `active` (never an undo). */
+async function handleReopen(request: Request, ports: CoworkApiPorts): Promise<Response> {
+  const body = await readJsonBody(request)
+  const sessionId = requireBodyString(body, 'sessionId', 'request/session-required')
+  const topicId = requireBodyString(body, 'topicId', 'request/topic-required')
+  const { store, now } = await openWrite(ports, sessionId)
+  let resolvedBefore: TopicRecordV2 | null = null
+  const document = await store.mutateIndexDocument((base) => {
+    assertMaster(base, sessionId)
+    const topic = base.topics.find((entry) => entry.topicId === topicId)
+    if (topic === undefined) {
+      throw new PanelApiError('topic/not-found', `unknown topic: ${topicId}`)
+    }
+    const reopened = reopenResolvedTopic(topic, now.getTime())
+    if (reopened === null) {
+      throw new PanelApiError('topic/not-resolved', `topic is not resolved: ${topicId}`)
+    }
+    resolvedBefore = topic
+    return { ...base, topics: base.topics.map((entry) => (entry.topicId === topicId ? reopened : entry)) }
+  })
+  if (resolvedBefore !== null) {
+    // The event keeps the resolution it replaced, so activity.jsonl stays auditable.
+    const before: TopicRecordV2 = resolvedBefore
+    await appendActivityLogged(store, ports, () => topicReopenedActivity(before, now))
+  }
+  const response: ReopenResponse = { ok: true, topic: topicAfterWrite(document, topicId) }
+  return jsonResponse(200, response)
+}
+
+/** `POST route.move`: append one intent's tokens to the target topic's aliases. */
+async function handleRouteMove(request: Request, ports: CoworkApiPorts): Promise<Response> {
+  const body = await readJsonBody(request)
+  const sessionId = requireBodyString(body, 'sessionId', 'request/session-required')
+  const fromTopicId = requireBodyString(body, 'fromTopicId', 'request/topic-required')
+  const toTopicId = requireBodyString(body, 'toTopicId', 'request/topic-required')
+  if (fromTopicId === toTopicId) {
+    throw new PanelApiError('route/move-invalid', 'fromTopicId and toTopicId must differ')
+  }
+  const intent = typeof body.intent === 'string' ? body.intent.trim() : ''
+  if (intent === '') {
+    throw new PanelApiError('route/move-invalid', 'intent must be a non-empty string')
+  }
+  if (Array.from(intent).length > ROUTE_MOVE_INTENT_MAX_CHARS) {
+    throw new PanelApiError(
+      'route/move-invalid',
+      `intent must be at most ${ROUTE_MOVE_INTENT_MAX_CHARS} characters`,
+    )
+  }
+  const { store, now } = await openWrite(ports, sessionId)
+  let changed = false
+  let added: string[] = []
+  let aliases: string[] = []
+  const document = await store.mutateIndexDocument((base) => {
+    assertMaster(base, sessionId)
+    const source = base.topics.find((entry) => entry.topicId === fromTopicId)
+    if (source === undefined) {
+      throw new PanelApiError('topic/not-found', `unknown topic: ${fromTopicId}`)
+    }
+    const target = base.topics.find((entry) => entry.topicId === toTopicId)
+    if (target === undefined) {
+      throw new PanelApiError('topic/not-found', `unknown topic: ${toTopicId}`)
+    }
+    if (target.status === 'resolved') {
+      throw new PanelApiError('route/move-invalid', `target topic is resolved: ${toTopicId}`)
+    }
+    const corrected = applyRouteCorrection(target, intent)
+    aliases = [...corrected.aliases]
+    if (corrected === target) {
+      changed = false
+      added = []
+      return null
+    }
+    changed = true
+    added = corrected.aliases.slice(target.aliases.length)
+    return { ...base, topics: base.topics.map((entry) => (entry.topicId === toTopicId ? corrected : entry)) }
+  })
+  if (changed) {
+    await appendActivityLogged(store, ports, () => buildActivityEvent({
+      type: 'route-corrected',
+      topicId: toTopicId,
+      summary: `corrected route to topic ${toTopicId}`,
+      details: {
+        topicId: toTopicId,
+        added: added.slice(0, ROUTE_CORRECTION_DETAILS_MAX_TOKENS),
+        aliasCount: aliases.length,
+      },
+    }, now))
+  }
+  const response: RouteMoveResponse = {
+    ok: true,
+    topic: topicAfterWrite(document, toTopicId),
+    changed,
+    added,
+    aliases,
+  }
+  return jsonResponse(200, response)
+}
+
+/** One handler plus the guards every panel route shares. */
+function serve(
+  ports: CoworkApiPorts,
+  handler: (request: Request) => Promise<Response>,
+): (request: Request) => Promise<Response> {
+  return async (request) => {
+    try {
+      // The same-origin fence runs before any host or store work, so a
+      // cross-origin request learns nothing about the project.
+      assertSameOrigin(request)
+      return await handler(request)
+    } catch (error) {
+      const { status, body } = toErrorResponse(error)
+      return jsonResponse(status, body)
+    }
+  }
+}
+
+/**
+ * Register the six panel routes on the host connection service.
  *
  * A host without `connection` (older builds, unit hosts) simply gets no panel
  * API: this returns without throwing so the rest of the plugin keeps loading.
@@ -575,13 +966,37 @@ export function registerCoworkApi(host: CoworkApiHost, ports: CoworkApiPorts): v
       path: OVERVIEW_PATH,
       methods: ['GET'],
       requestBody: 'buffered',
-      fetch: (request) => handleOverview(request, ports),
+      fetch: serve(ports, (request) => handleOverview(request, ports)),
     },
     {
-      path: HANDOFF_PATH,
+      path: ACTIVITY_PATH,
       methods: ['GET'],
       requestBody: 'buffered',
-      fetch: (request) => handleHandoff(request, ports),
+      fetch: serve(ports, (request) => handleActivity(request, ports)),
+    },
+    {
+      path: TOPIC_PATH,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: serve(ports, (request) => handleTopic(request, ports)),
+    },
+    {
+      path: RESOLVE_PATH,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: serve(ports, (request) => handleResolve(request, ports)),
+    },
+    {
+      path: REOPEN_PATH,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: serve(ports, (request) => handleReopen(request, ports)),
+    },
+    {
+      path: ROUTE_MOVE_PATH,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: serve(ports, (request) => handleRouteMove(request, ports)),
     },
   ]
   for (const route of routes) {

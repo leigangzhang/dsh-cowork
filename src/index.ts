@@ -681,8 +681,9 @@ export function apply(ctx: Context, config: Config): void {
     currentModelRoute: hostCurrentModelRoute(ctx),
   }
 
-  // M2 panel: read-only HTTP routes over the host connection service. The
-  // project root is derived from the session's own cwd, never from the request.
+  // M11 panel: three read routes and three master-only write routes over the
+  // host connection service. The project root is derived from the session's own
+  // cwd, never from the request.
   const panelPorts: CoworkApiPorts = {
     // Metadata only: `inspect` also reads the session event log and hung the
     // panel requests on running or large sessions.
@@ -694,8 +695,16 @@ export function apply(ctx: Context, config: Config): void {
     // archive a cancelled reviewer through the host, not record a fake failure.
     createStore: (repoPath) => new ProjectStore({
       repoPath,
+      clock: () => new Date(),
       archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
     }),
+    // M11: the panel's lifecycle read point uses the same clock and thresholds
+    // as the tool layer, and logs a failed activity row instead of failing the
+    // request.
+    now: () => new Date(),
+    idleAfterMs: settings.idleAfterMs,
+    resolveAfterMs: settings.resolveAfterMs,
+    log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
   }
   registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
 

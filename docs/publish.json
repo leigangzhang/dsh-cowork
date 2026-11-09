@@ -62,6 +62,14 @@
       "reason": "M11 startup handoff (2026-11-08): post-M10 baseline and expected 701/701, startup sequence, M11 implementation order (wire v2, read/write routes, client rewrite, real Chrome), impact scan, pitfalls (legacy latestReviewPath, reviewer visibility, fixture isolation R9, client bundle cache), completion definition, rollback and unverified items; internal engineering handoff for the next session, not a user-facing guide"
     },
     {
+      "pattern": "docs/M11_RESULT.md",
+      "reason": "M11 delivery result: baseline and code artifact (6b7beab, diff sha, 732/732), delivered surface with byte budgets, A1-A10 evidence (contract/read/write/security tests, client model, real Chrome run record and screenshots, four commands), verification and review verdict, accepted deviations (idempotent resolve, append-only route.move, on-write migration, unarchive path, copy-path, port addition, flat counts, right-sidebar host behaviour), rollback, and unverified items for M12; internal engineering record, not a user-facing guide"
+    },
+    {
+      "pattern": "docs/M12_HANDOFF.md",
+      "reason": "M12 startup handoff (2026-11-08): post-M11 baseline and expected 732/732, startup sequence, M12 implementation order (real E2E driver, migration drill, installed-profile packaging, docs release pass), impact scan, pitfalls (migration on first open, reviewer visibility, real-data isolation, KIs), completion definition, rollback and unverified items; internal engineering handoff for the next session, not a user-facing guide"
+    },
+    {
       "pattern": ".agents/notes/*",
       "reason": "decision records and their templates; internal history, not a guide"
     },

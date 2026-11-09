@@ -3,190 +3,478 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import {
+  ACTIVITY_DEFAULT_LIMIT,
+  ACTIVITY_MAX_LIMIT,
+  ACTIVITY_PATH,
+  MAX_INBOX_ITEMS,
+  MAX_PANEL_TOPICS,
+  MAX_REQUEST_BODY_BYTES,
+  MAX_REVIEW_CHANGED_PATHS,
+  MAX_REVIEW_FINDINGS,
+  MAX_REVIEW_VERIFICATION,
+  MAX_SUMMARY_CHARS,
+  MAX_TOPIC_OWNED_PATHS,
+  MAX_TOPIC_REVIEW_REQUESTS,
+  MAX_TOPIC_WORK_ITEMS,
+  OVERVIEW_PATH,
   PANEL_REVIEW_SEVERITIES,
   PANEL_REVIEW_STATUSES,
   PANEL_REVIEW_VERDICTS,
-  PANEL_STATUS_ORDER,
-  countThreads,
-  defaultSelectedThreadId,
+  PANEL_TOPIC_STATUS_ORDER,
+  PANEL_WORK_ITEM_STATUSES,
+  REOPEN_PATH,
+  RESOLVE_PATH,
+  ROUTE_MOVE_PATH,
+  TOPIC_ACTIVITY_LIMIT,
+  TOPIC_PATH,
+  countPanel,
+  defaultSelectedTopicId,
   isPanelError,
   isPanelReviewSeverity,
   isPanelReviewStatus,
   isPanelReviewVerdict,
-  isPanelThreadStatus,
-  sortThreadsForPanel,
+  isPanelTopicStatus,
+  isPanelWorkItemStatus,
+  sortTopicsForPanel,
+  truncateSummary,
 } from '../src/api-contract.ts'
 
-const STORE_SOURCE = fileURLToPath(new URL('../src/store.ts', import.meta.url))
+const STORE_SCHEMA_SOURCE = fileURLToPath(new URL('../src/store-schema.ts', import.meta.url))
+const CONTRACT_SOURCE = fileURLToPath(new URL('../src/api-contract.ts', import.meta.url))
+
+/** Read `src/store-schema.ts` once; it is the canonical home of the lifecycle lists. */
+let schemaText
+async function storeSchemaText() {
+  if (schemaText === undefined) schemaText = await readFile(STORE_SCHEMA_SOURCE, 'utf8')
+  return schemaText
+}
 
 /**
- * Read the store's own lifecycle list. The type union is erased at runtime, so
- * the declaration is the only authoritative copy to pin the panel order to.
+ * Pull one `export const NAME = ['a', 'b'] as const` list out of the store
+ * schema source. The type unions are erased at runtime, so the declaration is
+ * the only authoritative copy the wire schema can be pinned to.
  */
-async function storeThreadStatuses() {
-  const source = await readFile(STORE_SOURCE, 'utf8')
-  const match = /const THREAD_STATUSES: readonly ThreadStatus\[\] = \[([\s\S]*?)\]/.exec(source)
-  assert.ok(match, 'src/store.ts must declare const THREAD_STATUSES: readonly ThreadStatus[]')
+async function storeList(name) {
+  const source = await storeSchemaText()
+  const match = new RegExp(`export const ${name} = \\[([^\\]]*)\\] as const`).exec(source)
+  assert.ok(match, `src/store-schema.ts must declare export const ${name} = [...] as const`)
   return [...match[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1])
 }
 
-test('panel status order covers the store lifecycle minus archived', async () => {
-  const storeStatuses = await storeThreadStatuses()
-  assert.ok(storeStatuses.includes('archived'), 'the store still tracks archived threads')
-  const listable = storeStatuses.filter((status) => status !== 'archived')
+/** A complete wire topic; every test overrides only the field it is about. */
+function topic(overrides = {}) {
+  return {
+    topicId: 't',
+    title: 'Topic',
+    status: 'active',
+    blocked: false,
+    awaitingReview: false,
+    reviewStatus: null,
+    latestReviewRequestId: null,
+    digest: '',
+    scope: '',
+    ownedPaths: [],
+    lastActiveAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    lastDeliveryConfirmedAt: null,
+    resolvedAt: null,
+    resolvedBy: null,
+    activeWorkItems: 0,
+    ...overrides,
+  }
+}
+
+/** A complete wire work item. */
+function workItem(overrides = {}) {
+  return {
+    workItemId: 'w',
+    topicId: 't',
+    path: '/tmp/w',
+    branch: 'dsh-wt/t/w',
+    baseCommit: null,
+    headCommit: null,
+    status: 'active',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+test('the wire status unions are exactly the canonical store-schema lists', async () => {
+  const pairs = [
+    ['TOPIC_STATUSES', PANEL_TOPIC_STATUS_ORDER],
+    ['WORK_ITEM_STATUSES', PANEL_WORK_ITEM_STATUSES],
+    ['REVIEW_STATUSES', PANEL_REVIEW_STATUSES],
+    ['REVIEW_VERDICTS', PANEL_REVIEW_VERDICTS],
+    ['REVIEW_SEVERITIES', PANEL_REVIEW_SEVERITIES],
+  ]
+  for (const [name, wire] of pairs) {
+    const store = await storeList(name)
+    assert.deepEqual([...wire], store, `${name} must match the store-schema declaration in order`)
+  }
+  // The list priority order is a second fact, so keep it next to the lifecycle.
+  assert.deepEqual([...PANEL_TOPIC_STATUS_ORDER], ['active', 'idle', 'resolved'])
+})
+
+test('sortTopicsForPanel ranks blocked, awaitingReview, then active/idle/resolved', () => {
+  // Built in reverse priority order: the projection must reorder.
+  const rows = [
+    topic({ topicId: 'resolved', status: 'resolved' }),
+    topic({ topicId: 'idle', status: 'idle' }),
+    topic({ topicId: 'active', status: 'active' }),
+    topic({ topicId: 'awaiting', awaitingReview: true }),
+    topic({ topicId: 'blocked', blocked: true }),
+  ]
   assert.deepEqual(
-    [...PANEL_STATUS_ORDER].sort(),
-    [...listable].sort(),
-    'the panel lists exactly the non-archived store statuses',
-  )
-  assert.deepEqual(
-    storeStatuses.filter((status) => !PANEL_STATUS_ORDER.includes(status)),
-    ['archived'],
-    'archived is the only status the panel hides',
+    sortTopicsForPanel(rows).map((row) => row.topicId),
+    ['blocked', 'awaiting', 'active', 'idle', 'resolved'],
   )
 })
 
-test('sortThreadsForPanel orders by priority first, recency second', () => {
-  // Deliberately built in reverse priority order: the projection must reorder.
-  const threads = [
-    { threadId: 'done', status: 'done', updatedAt: '2026-01-05T00:00:00.000Z' },
-    { threadId: 'new', status: 'new', updatedAt: '2026-01-05T00:00:00.000Z' },
-    { threadId: 'active', status: 'active', updatedAt: '2026-01-05T00:00:00.000Z' },
-    { threadId: 'blocked', status: 'blocked', updatedAt: '2026-01-05T00:00:00.000Z' },
-    { threadId: 'awaiting_review', status: 'awaiting_review', updatedAt: '2026-01-05T00:00:00.000Z' },
+test('the markers outrank status and blocked outranks awaitingReview', () => {
+  const rows = [
+    topic({ topicId: 'resolved', status: 'resolved' }),
+    topic({ topicId: 'awaiting-resolved', status: 'resolved', awaitingReview: true }),
+    topic({ topicId: 'active', status: 'active' }),
+    topic({ topicId: 'blocked-idle', status: 'idle', blocked: true }),
+    topic({ topicId: 'both', status: 'resolved', blocked: true, awaitingReview: true }),
   ]
   assert.deepEqual(
-    sortThreadsForPanel(threads).map((thread) => thread.status),
-    [...PANEL_STATUS_ORDER],
-    'status priority follows PANEL_STATUS_ORDER exactly',
+    sortTopicsForPanel(rows).map((row) => row.topicId),
+    ['blocked-idle', 'both', 'awaiting-resolved', 'active', 'resolved'],
+    'blocked rows lead, then awaiting review, then the plain topic states',
   )
 })
 
-test('sortThreadsForPanel sorts one status by updatedAt descending', () => {
-  const threads = [
-    { threadId: 'old', status: 'active', updatedAt: '2026-01-01T00:00:00.000Z' },
-    { threadId: 'newest', status: 'active', updatedAt: '2026-01-03T00:00:00.000Z' },
-    { threadId: 'middle', status: 'active', updatedAt: '2026-01-02T00:00:00.000Z' },
+test('one rank sorts by lastActiveAt first and updatedAt second, both descending', () => {
+  const byActive = [
+    topic({ topicId: 'old', lastActiveAt: '2026-01-01T00:00:00.000Z' }),
+    topic({ topicId: 'newest', lastActiveAt: '2026-01-03T00:00:00.000Z' }),
+    topic({ topicId: 'middle', lastActiveAt: '2026-01-02T00:00:00.000Z' }),
   ]
   assert.deepEqual(
-    sortThreadsForPanel(threads).map((thread) => thread.threadId),
+    sortTopicsForPanel(byActive).map((row) => row.topicId),
     ['newest', 'middle', 'old'],
   )
-})
 
-test('sortThreadsForPanel is stable for equal timestamps and handles empty input', () => {
-  assert.deepEqual(sortThreadsForPanel([]), [])
-  const threads = [
-    { threadId: 'first', status: 'blocked', updatedAt: '2026-01-01T00:00:00.000Z' },
-    { threadId: 'second', status: 'blocked', updatedAt: '2026-01-01T00:00:00.000Z' },
-    { threadId: 'third', status: 'blocked', updatedAt: '2026-01-01T00:00:00.000Z' },
+  const byUpdated = [
+    topic({ topicId: 'stale', updatedAt: '2026-01-01T00:00:00.000Z' }),
+    topic({ topicId: 'fresh', updatedAt: '2026-01-05T00:00:00.000Z' }),
+    topic({ topicId: 'middle', updatedAt: '2026-01-03T00:00:00.000Z' }),
   ]
   assert.deepEqual(
-    sortThreadsForPanel(threads).map((thread) => thread.threadId),
+    sortTopicsForPanel(byUpdated).map((row) => row.topicId),
+    ['fresh', 'middle', 'stale'],
+    'updatedAt only decides when lastActiveAt ties',
+  )
+
+  const mixed = [
+    // Same updatedAt, different lastActiveAt: recency of activity wins.
+    topic({ topicId: 'later-updated-earlier-active', updatedAt: '2026-02-01T00:00:00.000Z', lastActiveAt: '2026-01-01T00:00:00.000Z' }),
+    topic({ topicId: 'earlier-updated-later-active', updatedAt: '2026-01-15T00:00:00.000Z', lastActiveAt: '2026-01-20T00:00:00.000Z' }),
+  ]
+  assert.deepEqual(
+    sortTopicsForPanel(mixed).map((row) => row.topicId),
+    ['earlier-updated-later-active', 'later-updated-earlier-active'],
+  )
+})
+
+test('sortTopicsForPanel is stable, handles empty input and never mutates its argument', () => {
+  assert.deepEqual(sortTopicsForPanel([]), [])
+
+  const rows = [
+    topic({ topicId: 'first', blocked: true }),
+    topic({ topicId: 'second', blocked: true }),
+    topic({ topicId: 'third', blocked: true }),
+  ]
+  assert.deepEqual(
+    sortTopicsForPanel(rows).map((row) => row.topicId),
     ['first', 'second', 'third'],
     'ties keep the input order',
   )
-  const original = [...threads]
-  sortThreadsForPanel(threads)
-  assert.deepEqual(threads, original, 'the input array is not mutated')
+  const original = rows.map((row) => row.topicId)
+  sortTopicsForPanel(rows)
+  assert.deepEqual(rows.map((row) => row.topicId), original, 'the input array is not reordered')
 })
 
-test('countThreads zero-fills every listable status and never counts archived', () => {
-  assert.deepEqual(countThreads([]), {
-    new: 0, active: 0, awaiting_review: 0, blocked: 0, done: 0,
-  })
-  const threads = [
-    { status: 'new' },
-    { status: 'new' },
-    { status: 'active' },
-    { status: 'awaiting_review' },
-    { status: 'done' },
-    // A hand-written index can carry archived or unknown rows; neither is counted.
-    { status: 'archived' },
-    { status: 'unexpected' },
+test('sortTopicsForPanel tolerates unknown states and unparseable timestamps', () => {
+  const rows = [
+    topic({ topicId: 'archived', status: 'archived' }),
+    topic({ topicId: 'active', status: 'active' }),
+    topic({ topicId: 'resolved', status: 'resolved' }),
   ]
-  const counts = countThreads(threads)
-  assert.deepEqual(counts, { new: 2, active: 1, awaiting_review: 1, blocked: 0, done: 1 })
-  assert.equal(Object.hasOwn(counts, 'archived'), false, 'archived has no chip')
-})
-
-test('defaultSelectedThreadId picks the first row, or null for an empty list', () => {
-  assert.equal(defaultSelectedThreadId([]), null)
-  assert.equal(
-    defaultSelectedThreadId([{ threadId: 'b' }, { threadId: 'a' }]),
-    'b',
-    'selection follows the projection, it does not re-sort',
-  )
-})
-
-test('isPanelThreadStatus accepts exactly the five listable statuses', () => {
-  for (const status of PANEL_STATUS_ORDER) assert.equal(isPanelThreadStatus(status), true)
-  assert.equal(isPanelThreadStatus('archived'), false)
-  assert.equal(isPanelThreadStatus('unknown'), false)
-  assert.equal(isPanelThreadStatus(undefined), false)
-})
-
-test('review states are their own union and never mix with thread statuses', () => {
-  assert.deepEqual([...PANEL_REVIEW_STATUSES], ['pending', 'pass', 'needs_revision', 'reject'])
-  assert.deepEqual([...PANEL_REVIEW_VERDICTS], ['pass', 'needs_revision', 'reject'])
-  assert.deepEqual([...PANEL_REVIEW_SEVERITIES], ['blocker', 'high', 'medium', 'low'])
-
-  for (const status of PANEL_REVIEW_STATUSES) assert.equal(isPanelReviewStatus(status), true)
-  for (const status of PANEL_STATUS_ORDER) assert.equal(isPanelReviewStatus(status), false)
-  assert.equal(isPanelReviewStatus('archived'), false)
-  assert.equal(isPanelReviewStatus(undefined), false)
-  assert.equal(isPanelReviewStatus(null), false)
-
-  // A review state is never a thread status, and vice versa.
-  for (const status of PANEL_REVIEW_STATUSES) assert.equal(isPanelThreadStatus(status), false)
-  assert.equal(isPanelThreadStatus('pass'), false)
-  assert.equal(isPanelThreadStatus('pending'), false)
-  assert.equal(isPanelThreadStatus('awaiting_review'), true)
-
-  // `pending` is a lifecycle state, never a recorded verdict.
-  assert.equal(isPanelReviewVerdict('pending'), false)
-  for (const verdict of PANEL_REVIEW_VERDICTS) assert.equal(isPanelReviewVerdict(verdict), true)
-  assert.equal(isPanelReviewVerdict('approved'), false)
-
-  assert.equal(isPanelReviewSeverity('blocker'), true)
-  assert.equal(isPanelReviewSeverity('high'), true)
-  assert.equal(isPanelReviewSeverity('medium'), true)
-  assert.equal(isPanelReviewSeverity('low'), true)
-  assert.equal(isPanelReviewSeverity('critical'), false)
-})
-
-test('review state does not change the panel order, counts or default selection', () => {
   assert.deepEqual(
-    [...PANEL_STATUS_ORDER],
-    ['awaiting_review', 'blocked', 'active', 'new', 'done'],
-    'the list order still names thread statuses only',
+    sortTopicsForPanel(rows).map((row) => row.topicId),
+    ['active', 'resolved', 'archived'],
+    'an invented state sorts after every known rank instead of throwing',
   )
-  const threads = [
-    { threadId: 'a', status: 'done', updatedAt: '2026-01-02T00:00:00.000Z', reviewStatus: 'needs_revision' },
-    { threadId: 'b', status: 'done', updatedAt: '2026-01-03T00:00:00.000Z', reviewStatus: 'pass' },
+
+  const times = [
+    topic({ topicId: 'broken-active', lastActiveAt: 'not-a-date' }),
+    topic({ topicId: 'valid-active', lastActiveAt: '2026-01-02T00:00:00.000Z' }),
+    // Pre-epoch on purpose: an unparseable time must sort below a valid old one,
+    // which a naive `0` fallback would get backwards.
+    topic({ topicId: 'valid-ancient', lastActiveAt: '1960-01-01T00:00:00.000Z' }),
+    topic({ topicId: 'broken-updated', lastActiveAt: 'not-a-date', updatedAt: 'not-a-date' }),
   ]
-  const sorted = sortThreadsForPanel(threads)
   assert.deepEqual(
-    sorted.map((thread) => thread.threadId),
-    ['b', 'a'],
-    'review state never reorders rows',
+    sortTopicsForPanel(times).map((row) => row.topicId),
+    ['valid-active', 'valid-ancient', 'broken-active', 'broken-updated'],
+    'unparseable times sort last inside their rank, still deterministically',
   )
-  assert.deepEqual(countThreads(threads), {
-    new: 0, active: 0, awaiting_review: 0, blocked: 0, done: 2,
+})
+
+test('countPanel zero-fills every wire field', () => {
+  assert.deepEqual(countPanel([], []), {
+    active: 0,
+    idle: 0,
+    resolved: 0,
+    blocked: 0,
+    awaitingReview: 0,
+    pendingReview: 0,
+    workItemActive: 0,
+    workItemReviewing: 0,
+    workItemMerged: 0,
+    workItemAbandoned: 0,
   })
-  assert.equal(defaultSelectedThreadId(sorted), 'b', 'the default row is still the first sorted row')
+})
+
+test('countPanel counts topic states, resolved included, plus the markers', () => {
+  const topics = [
+    topic({ topicId: 'a1' }),
+    topic({ topicId: 'a2', blocked: true }),
+    topic({ topicId: 'i1', status: 'idle', awaitingReview: true }),
+    topic({ topicId: 'r1', status: 'resolved', reviewStatus: 'pending' }),
+  ]
+  assert.deepEqual(countPanel(topics, []), {
+    active: 2,
+    idle: 1,
+    resolved: 1,
+    blocked: 1,
+    awaitingReview: 1,
+    pendingReview: 1,
+    workItemActive: 0,
+    workItemReviewing: 0,
+    workItemMerged: 0,
+    workItemAbandoned: 0,
+  })
+  // A resolved row still carries its state chip; it is never folded away.
+  assert.equal(countPanel([topic({ status: 'resolved' })], []).resolved, 1)
+})
+
+test('countPanel counts only the work items of the listed topics', () => {
+  const topics = [
+    topic({ topicId: 'a1' }),
+    topic({ topicId: 'a2' }),
+    topic({ topicId: 'i1', status: 'idle' }),
+    topic({ topicId: 'r1', status: 'resolved' }),
+  ]
+  const items = [
+    workItem({ workItemId: 'w1', topicId: 'a1', status: 'active' }),
+    workItem({ workItemId: 'w2', topicId: 'i1', status: 'reviewing' }),
+    workItem({ workItemId: 'w3', topicId: 'r1', status: 'merged' }),
+    workItem({ workItemId: 'w4', topicId: 'a2', status: 'abandoned' }),
+    // Not in `topics`: a stray record is ignored, not counted.
+    workItem({ workItemId: 'stray', topicId: 'other', status: 'active' }),
+    // An invented state is ignored too.
+    workItem({ workItemId: 'weird', topicId: 'a1', status: 'unknown' }),
+  ]
+  const counts = countPanel(topics, items)
+  assert.equal(counts.workItemActive, 1)
+  assert.equal(counts.workItemReviewing, 1)
+  assert.equal(counts.workItemMerged, 1)
+  assert.equal(counts.workItemAbandoned, 1)
+  const counted = counts.workItemActive + counts.workItemReviewing
+    + counts.workItemMerged + counts.workItemAbandoned
+  assert.equal(counted, 4, 'neither the stray topic nor the invented state is counted')
+})
+
+test('truncateSummary bounds long text to the default 200 code points', () => {
+  const result = truncateSummary('x'.repeat(300))
+  assert.equal(Array.from(result).length, MAX_SUMMARY_CHARS)
+  assert.equal(result.endsWith('…'), true)
+  assert.equal(result, `${'x'.repeat(MAX_SUMMARY_CHARS - 1)}…`)
+})
+
+test('truncateSummary keeps the 200/201 boundary exact', () => {
+  const atLimit = 'y'.repeat(MAX_SUMMARY_CHARS)
+  assert.equal(truncateSummary(atLimit), atLimit, 'exactly 200 code points is not truncated')
+
+  const overLimit = 'y'.repeat(MAX_SUMMARY_CHARS + 1)
+  const result = truncateSummary(overLimit)
+  assert.equal(Array.from(result).length, MAX_SUMMARY_CHARS)
+  assert.equal(result.endsWith('…'), true)
+  assert.equal(result, `${'y'.repeat(MAX_SUMMARY_CHARS - 1)}…`)
+})
+
+test('truncateSummary flattens whitespace and counts code points, not UTF-16 units', () => {
+  assert.equal(truncateSummary('  a\n\n b\t c  '), 'a b c', 'every whitespace run becomes one space')
+  assert.equal(truncateSummary('line one\nline two\r\nline three'), 'line one line two line three')
+
+  const chinese = truncateSummary('中'.repeat(300))
+  assert.equal(Array.from(chinese).length, MAX_SUMMARY_CHARS)
+  assert.equal(chinese.isWellFormed(), true)
+
+  // An emoji is one code point but two UTF-16 units: the cap is code points.
+  const emoji = truncateSummary('😀'.repeat(300))
+  assert.equal(Array.from(emoji).length, MAX_SUMMARY_CHARS)
+  assert.equal(emoji.endsWith('…'), true)
+  assert.equal(emoji.isWellFormed(), true, 'truncation never splits a surrogate pair')
+
+  // Collapsing happens before counting, so no summary can smuggle in a newline.
+  const dense = truncateSummary(`${'a'.repeat(150)}\n${'b'.repeat(150)}`)
+  assert.equal(Array.from(dense).length, MAX_SUMMARY_CHARS)
+  assert.equal(dense.includes('\n'), false)
+})
+
+test('truncateSummary returns an empty string for non-strings and honours a custom limit', () => {
+  for (const value of [undefined, null, 42, true, {}, [], () => 'x']) {
+    assert.equal(truncateSummary(value), '', `non-string ${String(value)} becomes an empty summary`)
+  }
+  assert.equal(truncateSummary(''), '')
+  assert.equal(truncateSummary('   \n\t '), '', 'whitespace-only text flattens to nothing')
+
+  assert.equal(truncateSummary('abcdef', 4), 'abc…')
+  assert.equal(truncateSummary('abcd', 4), 'abcd', 'a text at the custom limit is unchanged')
+  assert.equal(Array.from(truncateSummary('abcdef', 1)).length, 1)
+  assert.equal(truncateSummary('abcdef', 0), '')
+})
+
+test('the exported bounds keep the documented values and their relations', () => {
+  assert.equal(MAX_PANEL_TOPICS, 500)
+  assert.equal(ACTIVITY_DEFAULT_LIMIT, 50)
+  assert.equal(ACTIVITY_MAX_LIMIT, 200)
+  assert.equal(TOPIC_ACTIVITY_LIMIT, 50)
+  assert.equal(MAX_TOPIC_WORK_ITEMS, 50)
+  assert.equal(MAX_TOPIC_REVIEW_REQUESTS, 10)
+  assert.equal(MAX_REVIEW_FINDINGS, 20)
+  assert.equal(MAX_REVIEW_VERIFICATION, 10)
+  assert.equal(MAX_REVIEW_CHANGED_PATHS, 50)
+  assert.equal(MAX_TOPIC_OWNED_PATHS, 50)
+  assert.equal(MAX_SUMMARY_CHARS, 200)
+  assert.equal(MAX_INBOX_ITEMS, 20)
+  assert.equal(MAX_REQUEST_BODY_BYTES, 8192)
+
+  const bounds = [
+    MAX_PANEL_TOPICS,
+    ACTIVITY_DEFAULT_LIMIT,
+    ACTIVITY_MAX_LIMIT,
+    TOPIC_ACTIVITY_LIMIT,
+    MAX_TOPIC_WORK_ITEMS,
+    MAX_TOPIC_REVIEW_REQUESTS,
+    MAX_REVIEW_FINDINGS,
+    MAX_REVIEW_VERIFICATION,
+    MAX_REVIEW_CHANGED_PATHS,
+    MAX_TOPIC_OWNED_PATHS,
+    MAX_SUMMARY_CHARS,
+    MAX_INBOX_ITEMS,
+    MAX_REQUEST_BODY_BYTES,
+  ]
+  for (const bound of bounds) {
+    assert.equal(Number.isInteger(bound) && bound > 0, true, `${bound} must be a positive integer cap`)
+  }
+  assert.ok(ACTIVITY_DEFAULT_LIMIT <= ACTIVITY_MAX_LIMIT, 'the default activity limit fits under the maximum')
+  assert.ok(TOPIC_ACTIVITY_LIMIT <= ACTIVITY_MAX_LIMIT, 'a topic tail never exceeds the activity maximum')
+  assert.ok(MAX_INBOX_ITEMS <= MAX_PANEL_TOPICS, 'the inbox is a subset of one overview response')
+  assert.equal(MAX_REQUEST_BODY_BYTES, 8 * 1024, 'the write body cap is 8 KiB')
+})
+
+test('the six route paths are unique, absolute and stable', () => {
+  const paths = [
+    OVERVIEW_PATH,
+    ACTIVITY_PATH,
+    TOPIC_PATH,
+    RESOLVE_PATH,
+    REOPEN_PATH,
+    ROUTE_MOVE_PATH,
+  ]
+  assert.deepEqual(paths, [
+    '/api/cowork.overview',
+    '/api/cowork.activity',
+    '/api/cowork.topic',
+    '/api/cowork.topic.resolve',
+    '/api/cowork.topic.reopen',
+    '/api/cowork.route.move',
+  ])
+  assert.equal(new Set(paths).size, paths.length, 'every route has its own path')
+  for (const path of paths) assert.equal(path.startsWith('/api/'), true, `${path} stays below /api`)
+  assert.equal(paths.includes('/api/cowork.handoff'), false, 'the legacy route is gone')
 })
 
 test('isPanelError recognizes the shared error envelope only', () => {
   assert.equal(isPanelError({ ok: false, error: { code: 'internal', message: 'x' } }), true)
   assert.equal(isPanelError({ ok: false, error: { code: 'store/corrupt' } }), true)
-  // The M3L-1 timeout code rides the same envelope as every other failure; the
-  // 504 status lives in the HTTP layer, not in the body.
-  assert.equal(isPanelError({ ok: false, error: { code: 'session/list-timeout', message: 'x' } }), true)
+  assert.equal(
+    isPanelError({ ok: false, error: { code: 'topic/not-found', message: 'missing', path: 'topic-1' } }),
+    true,
+    'the optional path rides the same envelope',
+  )
+  // Write-route codes are ordinary envelope codes; the HTTP status lives in the layer.
+  for (const code of [
+    'request/topic-required',
+    'request/not-master',
+    'request/content-type',
+    'request/origin',
+    'route/move-invalid',
+    'topic/not-resolved',
+  ]) {
+    assert.equal(isPanelError({ ok: false, error: { code, message: 'x' } }), true)
+  }
   assert.equal(isPanelError({ ok: true }), false)
   assert.equal(isPanelError({ ok: false }), false, 'a bare ok:false is not the envelope')
   assert.equal(isPanelError({ ok: false, error: null }), false)
   assert.equal(isPanelError({ ok: false, error: { message: 'no code' } }), false)
   assert.equal(isPanelError(null), false)
   assert.equal(isPanelError('error'), false)
+})
+
+test('every status guard accepts its own members and rejects everything else', () => {
+  const guards = [
+    [isPanelTopicStatus, PANEL_TOPIC_STATUS_ORDER],
+    [isPanelWorkItemStatus, PANEL_WORK_ITEM_STATUSES],
+    [isPanelReviewStatus, PANEL_REVIEW_STATUSES],
+    [isPanelReviewVerdict, PANEL_REVIEW_VERDICTS],
+    [isPanelReviewSeverity, PANEL_REVIEW_SEVERITIES],
+  ]
+  for (const [guard, members] of guards) {
+    for (const member of members) assert.equal(guard(member), true, `${String(member)} must be accepted`)
+    for (const value of ['archived', 'unknown', '', 'Active', 'PENDING', null, undefined, 0, {}, []]) {
+      assert.equal(guard(value), false, `${String(value)} must be rejected`)
+    }
+  }
+  // The vocabularies do not bleed into each other.
+  assert.equal(isPanelTopicStatus('pass'), false)
+  assert.equal(isPanelWorkItemStatus('resolved'), false)
+  assert.equal(isPanelReviewStatus('active'), false)
+  assert.equal(isPanelReviewVerdict('pending'), false, 'pending is a request state, never a verdict')
+  for (const verdict of PANEL_REVIEW_VERDICTS) assert.equal(isPanelReviewStatus(verdict), true)
+  assert.equal(isPanelReviewSeverity('critical'), false)
+})
+
+test('defaultSelectedTopicId picks the first row, or null for an empty list', () => {
+  assert.equal(defaultSelectedTopicId([]), null)
+  assert.equal(
+    defaultSelectedTopicId([{ topicId: 'b' }, { topicId: 'a' }]),
+    'b',
+    'selection follows the projection, it does not re-sort',
+  )
+})
+
+test('the contract carries no v1 vocabulary, no imports and stays inside the size cap', async () => {
+  const source = await readFile(CONTRACT_SOURCE, 'utf8')
+  for (const symbol of [
+    'PanelThread',
+    'PanelHandoff',
+    'HANDOFF_PATH',
+    'HANDOFF_FORMATTER_VERSION',
+    'sortThreadsForPanel',
+    'countThreads',
+    'THREAD',
+    "'request/thread-required'",
+    "'handoff/not-found'",
+  ]) {
+    assert.equal(source.includes(symbol), false, `src/api-contract.ts must not mention ${symbol}`)
+  }
+  assert.equal(/^\s*import\b/m.test(source), false, 'the shared contract imports nothing')
+  assert.equal(source.includes('node:'), false, 'no node builtin reaches the client bundle')
+  assert.ok(Buffer.byteLength(source, 'utf8') < 51_200, 'src/api-contract.ts stays below the 50 KiB read cap')
 })
