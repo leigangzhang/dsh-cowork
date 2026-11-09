@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { register } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 // `src/api.ts` imports its siblings with the build's `.js` specifiers, and
 // Node's type stripping does not rewrite those to `.ts`. The rest of the repo's
@@ -19,250 +22,205 @@ register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const api = await import('../src/api.ts')
 const contract = await import('../src/api-contract.ts')
-const handoff = await import('../src/handoff.ts')
+const reviewRequest = await import('../src/review-request.ts')
 const store = await import('../src/store.ts')
 
-const INDEX_CREATED_AT = '2026-01-01T00:00:00.000Z'
+const CREATED_AT = '2026-01-01T00:00:00.000Z'
+/** A clock ten minutes after the fixture's `lastActiveAt`, so nothing transitions. */
+const NOW = new Date('2026-01-02T00:10:00.000Z')
+/** An activity timestamp old enough to be idle (2 h) but not resolvable (3 d). */
+const STALE = '2026-01-01T00:00:00.000Z'
+const HOST = '127.0.0.1:3080'
+const ORIGIN = `http://${HOST}`
+const MASTER = 'master-session'
+const OTHER_SESSION = 'other-session'
 
-function thread(overrides = {}) {
+/** One v2 topic with every field the schema requires. */
+function makeTopic(overrides = {}) {
   return {
-    threadId: 't1',
-    subject: 'thread one',
-    status: 'new',
+    topicId: 'topic-1',
+    title: 'topic one',
+    status: 'active',
+    awaitingReview: false,
+    blocked: false,
+    scope: 'scope one',
+    ownedPaths: ['src/api.ts'],
+    aliases: [],
+    digest: 'did the work',
     cwd: '/repo',
-    checkoutPath: null,
-    createdAt: INDEX_CREATED_AT,
-    updatedAt: INDEX_CREATED_AT,
-    lastHandoffAt: null,
+    legacyCheckoutPath: null,
+    createdAt: CREATED_AT,
+    updatedAt: '2026-01-02T00:00:00.000Z',
+    lastActiveAt: '2026-01-02T00:00:00.000Z',
+    lastDeliveryConfirmedAt: '2026-01-02T00:00:00.000Z',
+    resolvedAt: null,
+    resolvedBy: null,
+    latestReviewRequestId: null,
+    reviewStatus: null,
+    reviewerSessionId: null,
     ...overrides,
   }
 }
 
-function projectIndex(threads) {
+/** One v2 work item with every field the schema requires. */
+function makeWorkItem(overrides = {}) {
   return {
-    version: 1,
-    projectId: 'example.com/acme/repo',
-    masterSessionId: 'master-session',
-    createdAt: INDEX_CREATED_AT,
-    threads,
+    workItemId: 'wi-1',
+    topicId: 'topic-1',
+    path: '/repo/.dsh-cowork/workitems/wi-1',
+    branch: 'cowork/wi-1',
+    baseCommit: 'aaaaaaa',
+    headCommit: 'bbbbbbb',
+    status: 'active',
+    createdAt: CREATED_AT,
+    updatedAt: '2026-01-02T00:00:00.000Z',
+    ...overrides,
   }
 }
 
-function handoffRecord(overrides = {}) {
+/** One canonical v2 index document. */
+function makeDocument(overrides = {}) {
   return {
-    version: 1,
-    threadId: 't1',
-    masterSessionId: 'master-session',
-    status: 'awaiting_review',
-    subject: 'thread one',
-    summary: 'did the work',
-    decisions: ['keep it simple'],
-    changedPaths: ['src/api.ts'],
-    artifacts: [],
-    verification: [{ command: 'npm test', exitCode: 0, evidence: '65 passed' }],
-    openIssues: [],
-    nextStep: null,
-    createdAt: '2026-01-02T00:00:00.000Z',
+    version: 2,
+    projectId: 'example.com/acme/repo',
+    masterSessionId: MASTER,
+    createdAt: CREATED_AT,
+    masterFocusTopicId: null,
+    lastRouteTopicId: null,
+    topics: [makeTopic()],
+    workItems: [],
+    ...overrides,
+  }
+}
+
+/** One activity row as the store writes it. */
+function makeEvent(overrides = {}) {
+  return {
+    eventId: `event-${Math.random().toString(16).slice(2)}`,
+    time: '2026-01-02T00:00:00.000Z',
+    type: 'status-changed',
+    topicId: 'topic-1',
+    summary: 'changed something',
+    details: {},
+    ...overrides,
+  }
+}
+
+/** One inbox item; `deliveredAt: null` is the only state the overview lists. */
+function makeInboxItem(overrides = {}) {
+  return {
+    id: 'inbox-1',
+    time: '2026-01-02T00:00:00.000Z',
+    topicId: 'topic-1',
+    kind: 'blocked',
+    summary: 'blocked on the master',
     deliveredAt: null,
     ...overrides,
   }
 }
 
-function handoffFile(threadId, createdAt, fileName, overrides = {}) {
-  return {
-    filePath: `/repo/.dsh-cowork/handoffs/${fileName}`,
-    fileName,
-    record: handoffRecord({ threadId, createdAt, ...overrides }),
+/**
+ * Route-facing ports with a store whose calls are recorded. The fake store
+ * intentionally exposes NO `listReviews`/`latestReviews`/`writeReview` and no
+ * `readReview`: a route that fell back to the legacy review model would fail
+ * with a TypeError and show up as `internal`, never quietly pass.
+ */
+function fakePorts(options = {}) {
+  const state = {
+    document: options.document ?? makeDocument(),
+    storeCalls: [],
+    writes: 0,
+    appended: [],
+    activityReads: [],
+    logs: [],
+    roots: [],
+    listCalls: 0,
+    readTexts: [],
   }
+  const sessions = options.sessions ?? [{ sessionId: MASTER, cwd: '/repo' }]
+  const storePort = {
+    reviewsDir: options.reviewsDir ?? '/repo/.dsh-cowork/reviews',
+    async hasIndex() {
+      state.storeCalls.push('hasIndex')
+      return options.hasIndex ?? true
+    },
+    async readIndexDocument() {
+      state.storeCalls.push('readIndexDocument')
+      if (options.readError !== undefined) throw options.readError
+      return options.readDocument ?? state.document
+    },
+    async mutateIndexDocument(mutator) {
+      state.storeCalls.push('mutateIndexDocument')
+      const next = mutator(state.document)
+      if (next === null) return state.document
+      state.writes += 1
+      state.document = next
+      return next
+    },
+    async appendActivity(event) {
+      state.storeCalls.push('appendActivity')
+      if (options.appendError !== undefined) throw options.appendError
+      state.appended.push(event)
+    },
+    async readActivity(limit = 50) {
+      state.activityReads.push(limit)
+      if (options.activityError !== undefined) throw options.activityError
+      const events = options.activity ?? []
+      return { events: limit > 0 ? events.slice(-limit) : [], skippedLines: options.skippedLines ?? 0 }
+    },
+    async readInbox() {
+      state.storeCalls.push('readInbox')
+      if (options.inboxError !== undefined) throw options.inboxError
+      return options.inbox ?? []
+    },
+    async readText(absPath) {
+      state.readTexts.push(absPath)
+      if (options.readTextError !== undefined) throw options.readTextError
+      try {
+        return await readFile(absPath, 'utf8')
+      } catch (error) {
+        const code = error.code
+        if (code === 'ENOENT' || code === 'ENOTDIR') return null
+        throw error
+      }
+    },
+  }
+  const ports = {
+    // Deliberately no `inspectSession`: the routes must resolve the cwd from
+    // session metadata, so any regression back to `inspect` fails loudly.
+    async listSessions() {
+      state.listCalls += 1
+      if (options.listDelayMs !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, options.listDelayMs))
+      }
+      if (options.listError !== undefined) throw options.listError
+      if (options.listHangs === true) return new Promise(() => {})
+      if (options.listLateErrorAfterMs !== undefined) {
+        return new Promise((_resolve, reject) => {
+          setTimeout(
+            () => reject(options.listLateError ?? new Error('listing failed late')),
+            options.listLateErrorAfterMs,
+          )
+        })
+      }
+      return { items: sessions }
+    },
+    ...(options.listTimeoutMs === undefined ? {} : { listSessionsTimeoutMs: options.listTimeoutMs }),
+    async findProjectRoot(startPath) {
+      state.roots.push(startPath)
+      return Object.hasOwn(options, 'root') ? options.root : '/repo'
+    },
+    createStore(repoPath) {
+      state.roots.push(`store:${repoPath}`)
+      return storePort
+    },
+    ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.idleAfterMs === undefined ? {} : { idleAfterMs: options.idleAfterMs }),
+    ...(options.resolveAfterMs === undefined ? {} : { resolveAfterMs: options.resolveAfterMs }),
+    log: (message) => state.logs.push(message),
+  }
+  return { ports, state }
 }
-
-function reviewRecord(overrides = {}) {
-  return {
-    version: 1,
-    threadId: 't1',
-    reviewerSessionId: 'reviewer-session',
-    verdict: 'needs_revision',
-    summary: 'two findings need work',
-    findings: [
-      { id: 'F1', severity: 'high', problem: 'missing guard', requiredFix: 'add the guard', file: 'src/api.ts', line: 12 },
-      { id: 'F2', severity: 'low', problem: 'typo', requiredFix: 'rename' },
-    ],
-    verification: [{ command: 'node --test', exitCode: 0, evidence: '65 passed' }],
-    createdAt: '2026-01-03T00:00:00.000Z',
-    ...overrides,
-  }
-}
-
-test('buildOverview drops archived threads and keeps the panel order', () => {
-  const index = projectIndex([
-    thread({ threadId: 'done-1', status: 'done', updatedAt: '2026-01-09T00:00:00.000Z' }),
-    thread({ threadId: 'active-1', status: 'active', updatedAt: '2026-01-02T00:00:00.000Z' }),
-    thread({ threadId: 'archived-1', status: 'archived', updatedAt: '2026-01-03T00:00:00.000Z' }),
-    thread({ threadId: 'review-1', status: 'awaiting_review', updatedAt: '2026-01-04T00:00:00.000Z' }),
-    thread({
-      threadId: 'blocked-1',
-      status: 'blocked',
-      updatedAt: '2026-01-05T00:00:00.000Z',
-      lastHandoffAt: '2026-01-05T00:00:00.000Z',
-    }),
-    thread({ threadId: 'new-1', status: 'new', updatedAt: '2026-01-06T00:00:00.000Z' }),
-  ])
-  const overview = api.buildOverview(index, '/repo')
-  assert.deepEqual(
-    overview.threads.map((row) => row.threadId),
-    ['review-1', 'blocked-1', 'active-1', 'new-1', 'done-1'],
-  )
-  assert.equal(overview.threads.some((row) => row.status === 'archived'), false)
-  assert.deepEqual(
-    overview.threads.filter((row) => row.hasHandoff).map((row) => row.threadId),
-    ['blocked-1'],
-    'hasHandoff is derived from lastHandoffAt',
-  )
-  assert.equal(overview.threads.find((row) => row.threadId === 'blocked-1').lastHandoffAt, '2026-01-05T00:00:00.000Z')
-  assert.deepEqual(overview.project, {
-    repoPath: '/repo',
-    projectId: 'example.com/acme/repo',
-    masterSessionId: 'master-session',
-    createdAt: INDEX_CREATED_AT,
-  })
-})
-
-test('buildOverview counts agree with the returned threads', () => {
-  const index = projectIndex([
-    thread({ threadId: 'a', status: 'awaiting_review' }),
-    thread({ threadId: 'b', status: 'blocked' }),
-    thread({ threadId: 'c', status: 'blocked' }),
-    thread({ threadId: 'd', status: 'active' }),
-    thread({ threadId: 'e', status: 'new' }),
-    thread({ threadId: 'f', status: 'done' }),
-    thread({ threadId: 'g', status: 'archived' }),
-  ])
-  const overview = api.buildOverview(index, '/repo')
-  const tally = { new: 0, active: 0, awaiting_review: 0, blocked: 0, done: 0 }
-  for (const row of overview.threads) tally[row.status] += 1
-  assert.deepEqual(overview.counts, tally)
-  assert.equal(
-    overview.threads.length,
-    Object.values(overview.counts).reduce((sum, value) => sum + value, 0),
-    'the chips add up to the list length',
-  )
-})
-
-test('buildOverview truncates to MAX_PANEL_THREADS without dropping attention rows', () => {
-  const total = contract.MAX_PANEL_THREADS + 7
-  const threads = []
-  for (let at = 0; at < total; at += 1) {
-    threads.push(thread({
-      threadId: `t${at}`,
-      status: 'new',
-      updatedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, at)).toISOString(),
-    }))
-  }
-  // One row that must survive the cap regardless of age.
-  threads.push(thread({
-    threadId: 'review-first',
-    status: 'awaiting_review',
-    updatedAt: '2025-01-01T00:00:00.000Z',
-  }))
-  const overview = api.buildOverview(projectIndex(threads), '/repo')
-  assert.equal(overview.threads.length, contract.MAX_PANEL_THREADS)
-  assert.equal(overview.threads[0].threadId, 'review-first')
-  assert.equal(
-    overview.threads[contract.MAX_PANEL_THREADS - 1].threadId,
-    `t${total - (contract.MAX_PANEL_THREADS - 1)}`,
-    'the cap keeps the newest rows after the attention row',
-  )
-  assert.deepEqual(overview.counts, {
-    new: contract.MAX_PANEL_THREADS - 1,
-    active: 0,
-    awaiting_review: 1,
-    blocked: 0,
-    done: 0,
-  })
-})
-
-test('selectLatestHandoff picks the newest record of one thread only', () => {
-  const files = [
-    handoffFile('t1', '2026-01-01T00:00:00.000Z', 't1-a.json'),
-    handoffFile('t2', '2026-01-09T00:00:00.000Z', 't2-a.json'),
-    handoffFile('t1', '2026-01-05T00:00:00.000Z', 't1-b.json'),
-    handoffFile('t1', '2026-01-03T00:00:00.000Z', 't1-c.json'),
-  ]
-  assert.equal(api.selectLatestHandoff(files, 't1').fileName, 't1-b.json')
-  assert.equal(api.selectLatestHandoff(files, 't2').fileName, 't2-a.json')
-  assert.equal(api.selectLatestHandoff(files, 'missing'), null)
-  assert.equal(api.selectLatestHandoff([], 't1'), null)
-})
-
-test('selectLatestHandoff breaks equal timestamps by file name', () => {
-  const at = '2026-01-05T00:00:00.000Z'
-  const files = [
-    handoffFile('t1', at, 't1-a.json'),
-    handoffFile('t1', at, 't1-c.json'),
-    handoffFile('t1', at, 't1-b.json'),
-  ]
-  assert.equal(api.selectLatestHandoff(files, 't1').fileName, 't1-c.json')
-})
-
-test('buildHandoffPayload carries the exact master message and formatter version', () => {
-  const file = handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')
-  const payload = api.buildHandoffPayload(file)
-  assert.equal(payload.filePath, '/repo/.dsh-cowork/handoffs/t1-a.json')
-  assert.equal(payload.filePath, file.filePath, 'the absolute path is passed through')
-  assert.equal(payload.masterMessage, handoff.formatMasterMessage(file.record, file.filePath))
-  assert.match(payload.masterMessage, /^handoff from thread t1/)
-  assert.equal(payload.formatterVersion, contract.HANDOFF_FORMATTER_VERSION)
-  assert.equal(payload.record, file.record)
-})
-
-test('toErrorResponse maps every stable code to its status and envelope', () => {
-  const table = [
-    ['request/session-required', 400],
-    ['request/thread-required', 400],
-    ['session/unknown', 400],
-    ['session/cwd-unavailable', 400],
-    ['session/list-timeout', 504],
-    ['project/not-initialized', 404],
-    ['handoff/not-found', 404],
-    ['store/corrupt', 500],
-    ['internal', 500],
-  ]
-  for (const [code, status] of table) {
-    const result = api.toErrorResponse(new api.PanelApiError(code, 'message', '/tmp/where'))
-    assert.equal(result.status, status, `${code} status`)
-    assert.deepEqual(result.body, {
-      ok: false,
-      error: { code, message: 'message', path: '/tmp/where' },
-    })
-  }
-  assert.equal(api.panelErrorStatus('request/session-required'), 400)
-  assert.equal(api.panelErrorStatus('handoff/not-found'), 404)
-  assert.equal(api.panelErrorStatus('session/list-timeout'), 504, 'a hung listing is a gateway timeout')
-  assert.equal(api.panelErrorStatus('internal'), 500)
-  assert.equal(api.LIST_SESSIONS_TIMEOUT_MS, 30_000, 'production waits about 30 s, not forever')
-  const pathless = api.toErrorResponse(new api.PanelApiError('session/unknown', 'who?'))
-  assert.deepEqual(pathless.body, { ok: false, error: { code: 'session/unknown', message: 'who?' } })
-})
-
-test('toErrorResponse keeps the store path for corruption and degrades the rest', () => {
-  const corrupt = api.toErrorResponse(new store.StoreError(
-    'store/corrupt',
-    'index is invalid',
-    '/repo/.dsh-cowork/index.json',
-  ))
-  assert.equal(corrupt.status, 500)
-  assert.deepEqual(corrupt.body, {
-    ok: false,
-    error: { code: 'store/corrupt', message: 'index is invalid', path: '/repo/.dsh-cowork/index.json' },
-  })
-  const otherStoreError = api.toErrorResponse(new store.StoreError('store/invalid-handoff', 'bad record', '/x'))
-  assert.equal(otherStoreError.status, 500)
-  assert.equal(otherStoreError.body.error.code, 'internal')
-  const plain = api.toErrorResponse(new Error('boom'))
-  assert.deepEqual(plain, { status: 500, body: { ok: false, error: { code: 'internal', message: 'boom' } } })
-  const thrown = api.toErrorResponse('boom')
-  assert.deepEqual(thrown, { status: 500, body: { ok: false, error: { code: 'internal', message: 'boom' } } })
-})
 
 /** A Cordis-like host: `get` returns the connection service or undefined. */
 function fakeHost(connection) {
@@ -301,89 +259,6 @@ function fakeConnection() {
   }
 }
 
-/** Route-facing ports with a read-only store whose calls are recorded. */
-function fakePorts(options = {}) {
-  const storeCalls = []
-  const roots = []
-  const reviewReads = []
-  const counters = { listCalls: 0 }
-  const sessions = options.sessions ?? [{ sessionId: 'session-1', cwd: '/repo' }]
-  const reviewFiles = options.reviewFiles ?? {}
-  const reviewTexts = options.reviewTexts ?? {}
-  const storePort = {
-    async hasIndex() {
-      storeCalls.push('hasIndex')
-      return options.hasIndex ?? true
-    },
-    async readIndex() {
-      storeCalls.push('readIndex')
-      if (options.readError !== undefined) throw options.readError
-      return options.index ?? projectIndex([thread({ threadId: 't1' })])
-    },
-    async listHandoffs() {
-      storeCalls.push('listHandoffs')
-      if (options.handoffError !== undefined) throw options.handoffError
-      return options.handoffs ?? []
-    },
-    async readReview(filePath) {
-      storeCalls.push('readReview')
-      reviewReads.push(filePath)
-      if (options.reviewError !== undefined) throw options.reviewError
-      if (!Object.hasOwn(reviewFiles, filePath)) {
-        throw new store.StoreError('store/not-found', `review file not found: ${filePath}`, filePath)
-      }
-      return reviewFiles[filePath]
-    },
-    async readText(absPath) {
-      storeCalls.push('readText')
-      reviewReads.push(absPath)
-      if (options.readTextError !== undefined) throw options.readTextError
-      return Object.hasOwn(reviewTexts, absPath) ? reviewTexts[absPath] : null
-    },
-  }
-  // A host whose store predates the review reader: the route must fall back to
-  // the project's own text read instead of failing the handoff.
-  if (options.omitReadReview === true) delete storePort.readReview
-  const ports = {
-    // Deliberately no `inspectSession`: the routes must resolve the cwd from
-    // session metadata, so any regression back to `inspect` fails the test with
-    // a TypeError instead of quietly passing.
-    async listSessions() {
-      counters.listCalls += 1
-      // A listing that answers late is still a valid answer when it beats the
-      // bound; the route must not turn a slow host into a failure by itself.
-      if (options.listDelayMs !== undefined) {
-        await new Promise((resolve) => setTimeout(resolve, options.listDelayMs))
-      }
-      if (options.listError !== undefined) throw options.listError
-      // A host listing that never settles: the route must bound it instead of
-      // leaving the panel request pending forever.
-      if (options.listHangs === true) return new Promise(() => {})
-      // A listing that rejects only after the route has already answered 504.
-      if (options.listLateErrorAfterMs !== undefined) {
-        return new Promise((_resolve, reject) => {
-          setTimeout(
-            () => reject(options.listLateError ?? new Error('listing failed late')),
-            options.listLateErrorAfterMs,
-          )
-        })
-      }
-      return { items: sessions }
-    },
-    // Only present when a test injects it; production gets the 30 s default.
-    ...(options.listTimeoutMs === undefined ? {} : { listSessionsTimeoutMs: options.listTimeoutMs }),
-    async findProjectRoot(startPath) {
-      roots.push(startPath)
-      return Object.hasOwn(options, 'root') ? options.root : '/repo'
-    },
-    createStore(repoPath) {
-      roots.push(`store:${repoPath}`)
-      return storePort
-    },
-  }
-  return { ports, storeCalls, roots, counters, reviewReads }
-}
-
 async function registerRoutes(portBag) {
   const fake = fakeConnection()
   const { host, effects } = fakeHost(fake.connection)
@@ -391,37 +266,181 @@ async function registerRoutes(portBag) {
   return { ...fake, effects, host }
 }
 
-function overviewRequest(query) {
-  return new Request(`http://panel.test${contract.OVERVIEW_PATH}${query}`)
+/** A GET from the panel origin; `headers` overrides the defaults. */
+function getRequest(path, query = '', headers = {}) {
+  return new Request(`http://${HOST}${path}${query}`, { headers: { host: HOST, ...headers } })
 }
 
-function handoffRequest(query) {
-  return new Request(`http://panel.test${contract.HANDOFF_PATH}${query}`)
+/** A POST from the panel origin; `contentType: null` omits the header. */
+function postRequest(path, body, options = {}) {
+  const text = typeof body === 'string' ? body : JSON.stringify(body)
+  const headers = new Headers({ host: HOST, ...options.headers })
+  if (options.contentType !== null) headers.set('content-type', options.contentType ?? 'application/json')
+  return new Request(`http://${HOST}${path}`, { method: 'POST', headers, body: text })
 }
 
-test('registerCoworkApi registers both GET routes and disposes them', async () => {
+/** Body of one served response, plus its status and headers. */
+async function readResponse(response) {
+  return { status: response.status, headers: response.headers, body: await response.json() }
+}
+
+const overviewQuery = (sessionId = MASTER) => `?sessionId=${encodeURIComponent(sessionId)}`
+
+const topicsById = (rows) => new Map(rows.map((row) => [row.topicId, row]))
+
+// ---------------------------------------------------------------------------
+// wire mapping and error contract
+// ---------------------------------------------------------------------------
+
+test('toPanelTopic maps a v2 topic, bounds its text, and counts open work', () => {
+  const topic = makeTopic({
+    topicId: 't1',
+    blocked: true,
+    awaitingReview: true,
+    reviewStatus: 'needs_revision',
+    latestReviewRequestId: 'req-1',
+    digest: 'x'.repeat(250),
+    scope: '  two   words  ',
+    ownedPaths: Array.from({ length: 60 }, (_, index) => `path-${index}`),
+    resolvedAt: null,
+    resolvedBy: null,
+  })
+  const document = makeDocument({
+    topics: [topic],
+    workItems: [
+      makeWorkItem({ workItemId: 'w1', topicId: 't1', status: 'active' }),
+      makeWorkItem({ workItemId: 'w2', topicId: 't1', status: 'reviewing' }),
+      makeWorkItem({ workItemId: 'w3', topicId: 't1', status: 'merged' }),
+      makeWorkItem({ workItemId: 'w4', topicId: 't1', status: 'abandoned' }),
+      makeWorkItem({ workItemId: 'w5', topicId: 'other', status: 'active' }),
+    ],
+  })
+  const panel = api.toPanelTopic(document, topic)
+  assert.equal(panel.topicId, 't1')
+  assert.equal(panel.status, 'active')
+  assert.equal(panel.blocked, true)
+  assert.equal(panel.awaitingReview, true)
+  assert.equal(panel.reviewStatus, 'needs_revision')
+  assert.equal(panel.latestReviewRequestId, 'req-1')
+  assert.equal(panel.scope, 'two words', 'scope is folded and trimmed')
+  assert.equal(Array.from(panel.digest).length, contract.MAX_SUMMARY_CHARS, 'digest is cut to its wire bound')
+  assert.ok(panel.digest.endsWith('…'))
+  assert.equal(panel.ownedPaths.length, contract.MAX_TOPIC_OWNED_PATHS)
+  assert.equal(panel.activeWorkItems, 2, 'active + reviewing count as in flight; merged/abandoned/stray do not')
+  assert.equal(panel.resolvedBy, null)
+  // The wire carries no thread/reviewer/handoff facts: the exact key set pins it.
+  assert.deepEqual(Object.keys(panel).sort(), [
+    'activeWorkItems',
+    'awaitingReview',
+    'blocked',
+    'digest',
+    'lastActiveAt',
+    'lastDeliveryConfirmedAt',
+    'latestReviewRequestId',
+    'ownedPaths',
+    'resolvedAt',
+    'resolvedBy',
+    'reviewStatus',
+    'scope',
+    'status',
+    'title',
+    'topicId',
+    'updatedAt',
+  ])
+})
+
+test('toPanelTopic degrades an unknown review state and a bogus resolver to null', () => {
+  const topic = makeTopic({ reviewStatus: 'invented', resolvedBy: 'someone', resolvedAt: '2026-01-02T00:00:00.000Z' })
+  const panel = api.toPanelTopic(makeDocument({ topics: [topic] }), topic)
+  assert.equal(panel.reviewStatus, null)
+  assert.equal(panel.resolvedBy, null)
+  assert.equal(panel.resolvedAt, '2026-01-02T00:00:00.000Z')
+})
+
+test('toErrorResponse maps every stable code to its documented status', () => {
+  // One home for the status table; the contract's code list cannot grow
+  // without this table and `panelErrorStatus` disagreeing.
+  const expected = {
+    'request/session-required': 400,
+    'request/topic-required': 400,
+    'request/invalid-query': 400,
+    'request/invalid-body': 400,
+    'request/body-too-large': 413,
+    'request/content-type': 415,
+    'request/origin': 403,
+    'request/not-master': 403,
+    'topic/not-found': 404,
+    'topic/not-resolved': 409,
+    'route/move-invalid': 400,
+    'session/unknown': 400,
+    'session/cwd-unavailable': 400,
+    'session/list-timeout': 504,
+    'project/not-initialized': 404,
+    'store/corrupt': 500,
+    internal: 500,
+  }
+  assert.equal(Object.keys(expected).length, 17, 'a new PanelErrorCode must decide its status here')
+  for (const [code, status] of Object.entries(expected)) {
+    assert.equal(api.panelErrorStatus(code), status, code)
+    assert.deepEqual(api.toErrorResponse(new api.PanelApiError(code, 'm')), {
+      status,
+      body: { ok: false, error: { code, message: 'm' } },
+    })
+  }
+  const withPath = api.toErrorResponse(new api.PanelApiError('topic/not-found', 'gone', '/repo'))
+  assert.deepEqual(withPath.body.error, { code: 'topic/not-found', message: 'gone', path: '/repo' })
+})
+
+test('toErrorResponse keeps the store path for corruption and degrades the rest', () => {
+  const corrupt = api.toErrorResponse(
+    new store.StoreError('store/corrupt', 'invalid JSON', '/repo/.dsh-cowork/index.json'),
+  )
+  assert.deepEqual(corrupt, {
+    status: 500,
+    body: {
+      ok: false,
+      error: { code: 'store/corrupt', message: 'invalid JSON', path: '/repo/.dsh-cowork/index.json' },
+    },
+  })
+  const notFound = api.toErrorResponse(new store.StoreError('store/not-found', 'gone', '/repo/x'))
+  assert.equal(notFound.body.error.code, 'internal')
+  assert.deepEqual(api.toErrorResponse(new Error('boom')), {
+    status: 500,
+    body: { ok: false, error: { code: 'internal', message: 'boom' } },
+  })
+})
+
+// ---------------------------------------------------------------------------
+// route registration
+// ---------------------------------------------------------------------------
+
+const ROUTES = [
+  [contract.OVERVIEW_PATH, 'GET'],
+  [contract.ACTIVITY_PATH, 'GET'],
+  [contract.TOPIC_PATH, 'GET'],
+  [contract.RESOLVE_PATH, 'POST'],
+  [contract.REOPEN_PATH, 'POST'],
+  [contract.ROUTE_MOVE_PATH, 'POST'],
+]
+
+test('registerCoworkApi registers the six v2 routes and disposes them', async () => {
   const portBag = fakePorts()
   const fake = fakeConnection()
   const { host, effects } = fakeHost(fake.connection)
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(effects.length, 2, 'one fiber effect per route')
-  assert.deepEqual(effects.map((effect) => effect.label), [
-    `dsh-cowork: panel route ${contract.OVERVIEW_PATH}`,
-    `dsh-cowork: panel route ${contract.HANDOFF_PATH}`,
-  ])
-  assert.deepEqual(fake.registered.map((route) => route.path), [
-    contract.OVERVIEW_PATH,
-    contract.HANDOFF_PATH,
-  ])
+  assert.equal(effects.length, 6, 'one fiber effect per route')
+  assert.deepEqual(effects.map((effect) => effect.label), ROUTES.map(
+    ([path]) => `dsh-cowork: panel route ${path}`,
+  ))
+  assert.deepEqual(fake.registered.map((route) => [route.path, route.methods.join(',')]), ROUTES)
   for (const route of fake.registered) {
-    assert.deepEqual([...route.methods], ['GET'])
     assert.equal(route.requestBody, 'buffered')
     assert.equal(typeof route.fetch, 'function')
   }
   for (const effect of effects) await effect.disposer()
-  assert.equal(fake.routes.size, 0, 'disposal unregisters both routes')
+  assert.equal(fake.routes.size, 0, 'disposal unregisters every route')
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(fake.routes.size, 2, 'a reload re-registers without a duplicate error')
+  assert.equal(fake.routes.size, 6, 'a reload re-registers without a duplicate error')
 })
 
 test('registerCoworkApi is a no-op when the host has no connection service', () => {
@@ -433,139 +452,259 @@ test('registerCoworkApi is a no-op when the host has no connection service', () 
     },
   }
   assert.doesNotThrow(() => api.registerCoworkApi(host, portBag.ports))
-  assert.deepEqual(portBag.storeCalls, [])
+  assert.deepEqual(portBag.state.storeCalls, [])
 })
 
-test('overview route serves the panel body with no-store headers', async () => {
-  const portBag = fakePorts({
-    index: projectIndex([
-      thread({ threadId: 't1', status: 'awaiting_review' }),
-      thread({ threadId: 'hidden', status: 'archived' }),
-    ]),
+// ---------------------------------------------------------------------------
+// overview
+// ---------------------------------------------------------------------------
+
+test('overview serves v2 topics, counts, and only the undelivered inbox', async () => {
+  const document = makeDocument({
+    topics: [
+      makeTopic({ topicId: 'resolved-1', status: 'resolved', resolvedBy: 'user', resolvedAt: '2026-01-02T00:00:00.000Z' }),
+      makeTopic({ topicId: 'idle-1', status: 'idle', lastActiveAt: STALE }),
+      makeTopic({ topicId: 'blocked-1', blocked: true }),
+      makeTopic({ topicId: 'review-1', awaitingReview: true, reviewStatus: 'pending' }),
+    ],
+    workItems: [
+      makeWorkItem({ workItemId: 'w1', topicId: 'review-1', status: 'reviewing' }),
+      makeWorkItem({ workItemId: 'w2', topicId: 'idle-1', status: 'merged' }),
+      makeWorkItem({ workItemId: 'w3', topicId: 'ghost', status: 'active' }),
+    ],
   })
+  const inbox = [
+    makeInboxItem({ id: 'inbox-delivered', deliveredAt: '2026-01-02T00:00:00.000Z' }),
+    makeInboxItem({ id: 'inbox-1', summary: 'y'.repeat(240) }),
+    makeInboxItem({ id: 'inbox-2' }),
+  ]
+  const portBag = fakePorts({ document, inbox, now: () => NOW })
   const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
+  const response = await routes.get(contract.OVERVIEW_PATH).fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery()))
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('content-type'), 'application/json; charset=utf-8')
   assert.equal(response.headers.get('cache-control'), 'no-store')
   const body = await response.json()
   assert.equal(body.ok, true)
-  assert.deepEqual(body.threads.map((row) => row.threadId), ['t1'])
-  assert.deepEqual(body.counts, { new: 0, active: 0, awaiting_review: 1, blocked: 0, done: 0 })
-  assert.equal(body.project.repoPath, '/repo')
-  assert.equal(portBag.counters.listCalls, 1, 'the cwd comes from one metadata listing')
-  assert.deepEqual(portBag.roots, ['/repo', 'store:/repo'])
+  assert.deepEqual(body.topics.map((row) => row.topicId), ['blocked-1', 'review-1', 'idle-1', 'resolved-1'])
+  assert.deepEqual(body.topics[3].resolvedBy, 'user')
+  assert.deepEqual(body.counts, {
+    active: 2,
+    idle: 1,
+    resolved: 1,
+    blocked: 1,
+    awaitingReview: 1,
+    pendingReview: 1,
+    workItemActive: 0,
+    workItemReviewing: 1,
+    workItemMerged: 1,
+    workItemAbandoned: 0,
+  })
+  assert.deepEqual(body.inbox.map((row) => row.id), ['inbox-1', 'inbox-2'], 'delivered items are hidden')
+  assert.equal(Array.from(body.inbox[0].summary).length, contract.MAX_SUMMARY_CHARS)
+  assert.deepEqual(body.project, {
+    repoPath: '/repo',
+    projectId: 'example.com/acme/repo',
+    masterSessionId: MASTER,
+    createdAt: CREATED_AT,
+  })
+  assert.equal(portBag.state.listCalls, 1, 'the cwd comes from one metadata listing')
+  assert.deepEqual(portBag.state.roots, ['/repo', 'store:/repo'])
+  assert.ok(portBag.state.storeCalls.includes('mutateIndexDocument'), 'the read point evaluates the lifecycle')
+  assert.equal(portBag.state.writes, 0, 'nothing had to transition, so the lifecycle wrote nothing')
 })
 
-test('the project root comes from the session cwd, never from the query', async () => {
-  const portBag = fakePorts()
+test('overview passes real in-flight work-item counts to the lifecycle', async () => {
+  const resolvable = {
+    status: 'active',
+    lastActiveAt: STALE,
+    lastDeliveryConfirmedAt: CREATED_AT,
+  }
+  const document = makeDocument({
+    topics: [
+      makeTopic({ topicId: 'busy', ...resolvable }),
+      makeTopic({ topicId: 'quiet', ...resolvable }),
+    ],
+    // `busy` has a review in flight: it must not be resolved even though every
+    // clock condition holds.
+    workItems: [makeWorkItem({ workItemId: 'w1', topicId: 'busy', status: 'reviewing' })],
+  })
+  const portBag = fakePorts({ document, now: () => new Date('2026-01-10T00:00:00.000Z') })
   const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.OVERVIEW_PATH)
-    .fetch(overviewRequest('?sessionId=session-1&path=/etc&repoPath=/etc'))
-  assert.equal(response.status, 200)
-  assert.deepEqual(portBag.roots, ['/repo', 'store:/repo'], 'the browser path is ignored')
+  const { status, body } = await readResponse(
+    await routes.get(contract.OVERVIEW_PATH).fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery())),
+  )
+  assert.equal(status, 200)
+  const byId = topicsById(body.topics)
+  assert.equal(byId.get('quiet').status, 'resolved', 'a topic without open work is resolved by the read point')
+  assert.notEqual(byId.get('busy').status, 'resolved', 'an open work item blocks resolution')
+  assert.equal(byId.get('busy').status, 'idle')
+  assert.equal(byId.get('busy').activeWorkItems, 1)
+  assert.deepEqual(
+    portBag.state.appended.map((event) => [event.type, event.topicId, event.details.to]),
+    // The lifecycle walks the document order: `busy` first, then `quiet`.
+    [
+      ['status-changed', 'busy', 'idle'],
+      ['status-changed', 'quiet', 'resolved'],
+    ],
+  )
+  assert.ok(portBag.state.writes >= 1, 'the transition was committed inside the lock')
 })
 
-test('overview route rejects a missing session id before touching the store', async () => {
+test('a lifecycle activity failure is logged, not a failed overview', async () => {
+  const document = makeDocument({
+    topics: [makeTopic({ topicId: 'quiet', status: 'active', lastActiveAt: STALE })],
+  })
+  const portBag = fakePorts({
+    document,
+    now: () => new Date('2026-01-10T00:00:00.000Z'),
+    appendError: new Error('activity write failed'),
+  })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.OVERVIEW_PATH).fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery())),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(topicsById(body.topics).get('quiet').status, 'resolved')
+  assert.equal(portBag.state.logs.length, 1)
+  assert.match(portBag.state.logs[0], /lifecycle activity not recorded/)
+  assert.match(portBag.state.logs[0], /activity write failed/)
+})
+
+test('overview caps the list at MAX_PANEL_TOPICS after sorting', async () => {
+  const idle = Array.from({ length: 500 }, (_, index) => makeTopic({
+    topicId: `idle-${index}`,
+    status: 'idle',
+    // Descending lastActiveAt: idle-0 is the freshest, idle-499 the oldest.
+    lastActiveAt: new Date(Date.parse('2026-01-01T00:00:00.000Z') - index * 60_000).toISOString(),
+  }))
+  const document = makeDocument({ topics: [makeTopic({ topicId: 'blocked', blocked: true }), ...idle] })
+  const portBag = fakePorts({ document, now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { body } = await readResponse(
+    await routes.get(contract.OVERVIEW_PATH).fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery())),
+  )
+  assert.equal(body.topics.length, contract.MAX_PANEL_TOPICS)
+  assert.equal(body.topics[0].topicId, 'blocked')
+  assert.equal(body.topics.at(-1).topicId, 'idle-498')
+  assert.equal(body.counts.blocked, 1)
+  assert.equal(body.counts.idle + body.counts.blocked, contract.MAX_PANEL_TOPICS)
+})
+
+test('overview requires sessionId before any host or store call', async () => {
   const portBag = fakePorts()
   const { routes } = await registerRoutes(portBag)
   for (const query of ['', '?sessionId=', '?sessionId=%20']) {
-    const response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest(query))
-    assert.equal(response.status, 400)
-    assert.equal(response.headers.get('cache-control'), 'no-store')
-    assert.deepEqual(await response.json(), {
+    const { status, headers, body } = await readResponse(
+      await routes.get(contract.OVERVIEW_PATH).fetch(getRequest(contract.OVERVIEW_PATH, query)),
+    )
+    assert.equal(status, 400)
+    assert.equal(headers.get('cache-control'), 'no-store')
+    assert.deepEqual(body, {
       ok: false,
       error: { code: 'request/session-required', message: 'query parameter sessionId is required' },
     })
   }
-  assert.equal(portBag.counters.listCalls, 0)
+  assert.equal(portBag.state.listCalls, 0)
+  assert.deepEqual(portBag.state.storeCalls, [])
 })
 
-test('the session cwd is looked up by id in the metadata listing', async () => {
+test('the project root comes from the session cwd, never from the query', async () => {
   const portBag = fakePorts({
     sessions: [
-      { sessionId: 'other-session', cwd: '/elsewhere' },
-      { sessionId: 'session-1', cwd: '/repo' },
+      { sessionId: OTHER_SESSION, cwd: '/elsewhere' },
+      { sessionId: MASTER, cwd: '/repo' },
     ],
   })
   const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
-  assert.equal(response.status, 200)
-  assert.equal((await response.json()).project.repoPath, '/repo')
-  assert.equal(portBag.counters.listCalls, 1)
-  assert.deepEqual(portBag.roots, ['/repo', 'store:/repo'], 'only the matching session cwd is used')
-})
-
-test('the routes never call inspectSession, only the metadata listing', async () => {
-  const portBag = fakePorts()
+  const { status, body } = await readResponse(
+    await routes.get(contract.OVERVIEW_PATH)
+      .fetch(getRequest(contract.OVERVIEW_PATH, `${overviewQuery()}&path=/etc&repoPath=/etc`)),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.project.repoPath, '/repo')
+  assert.deepEqual(portBag.state.roots, ['/repo', 'store:/repo'], 'the browser path is ignored')
   assert.equal('inspectSession' in portBag.ports, false, 'fake ports expose listSessions only')
-  const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  // A thread without handoffs still proves the session lookup ran: it reaches
-  // handoff/not-found instead of failing on a missing inspectSession.
-  assert.equal(response.status, 404)
-  assert.equal((await response.json()).error.code, 'handoff/not-found')
-  assert.equal(portBag.counters.listCalls, 1)
 })
 
-test('overview route maps session failures to the shared envelope', async () => {
-  const unknown = fakePorts({ sessions: [{ sessionId: 'someone-else', cwd: '/repo' }] })
-  let { routes } = await registerRoutes(unknown)
-  let response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=ghost'))
-  assert.equal(response.status, 400)
-  assert.deepEqual(await response.json(), {
-    ok: false,
-    error: { code: 'session/unknown', message: 'unknown session: ghost' },
-  })
-  assert.equal(unknown.counters.listCalls, 1)
-
-  const noCwd = fakePorts({ sessions: [{ sessionId: 'session-1' }] })
-  ;({ routes } = await registerRoutes(noCwd))
-  response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
-  assert.equal(response.status, 400)
-  assert.deepEqual(await response.json(), {
-    ok: false,
-    error: { code: 'session/cwd-unavailable', message: 'session has no working directory: session-1' },
-  })
+test('session and project failures map to the shared envelope', async () => {
+  const cases = [
+    {
+      name: 'unknown session',
+      options: { sessions: [{ sessionId: OTHER_SESSION, cwd: '/repo' }] },
+      status: 400,
+      error: { code: 'session/unknown', message: 'unknown session: master-session' },
+    },
+    {
+      name: 'session without cwd',
+      options: { sessions: [{ sessionId: MASTER }] },
+      status: 400,
+      error: { code: 'session/cwd-unavailable', message: 'session has no working directory: master-session' },
+    },
+    {
+      name: 'uninitialized project',
+      options: { root: null },
+      status: 404,
+      error: { code: 'project/not-initialized', message: 'no .dsh-cowork project above /repo', path: '/repo' },
+    },
+    {
+      name: 'vanished index',
+      options: { hasIndex: false },
+      status: 404,
+      error: { code: 'project/not-initialized', message: 'project index is missing under /repo', path: '/repo' },
+    },
+    {
+      name: 'corrupt store',
+      options: { readError: new store.StoreError('store/corrupt', 'invalid JSON', '/repo/.dsh-cowork/index.json') },
+      status: 500,
+      error: { code: 'store/corrupt', message: 'invalid JSON', path: '/repo/.dsh-cowork/index.json' },
+    },
+    {
+      name: 'unexpected store failure',
+      options: { readError: new Error('disk on fire') },
+      status: 500,
+      error: { code: 'internal', message: 'disk on fire' },
+    },
+    {
+      name: 'failing session listing',
+      options: { listError: new Error('session store unavailable') },
+      status: 500,
+      error: { code: 'internal', message: 'session store unavailable' },
+    },
+  ]
+  for (const entry of cases) {
+    const portBag = fakePorts({ ...entry.options, now: () => NOW })
+    const { routes } = await registerRoutes(portBag)
+    const { status, headers, body } = await readResponse(
+      await routes.get(contract.OVERVIEW_PATH).fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery())),
+    )
+    assert.equal(status, entry.status, entry.name)
+    assert.equal(headers.get('cache-control'), 'no-store', entry.name)
+    assert.deepEqual(body, { ok: false, error: entry.error }, entry.name)
+  }
 })
 
-test('a failing metadata listing is a host failure, not an unknown session', async () => {
-  const portBag = fakePorts({ listError: new Error('session store unavailable') })
-  const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
-  assert.equal(response.status, 500)
-  assert.deepEqual(await response.json(), {
-    ok: false,
-    error: { code: 'internal', message: 'session store unavailable' },
-  })
-})
-
-test('a hung metadata listing answers 504 session/list-timeout on both routes', async () => {
+test('a hung session listing answers 504 on the read routes', async () => {
   const portBag = fakePorts({ listHangs: true, listTimeoutMs: 5 })
   const { routes } = await registerRoutes(portBag)
   const started = Date.now()
-
   const overview = await routes.get(contract.OVERVIEW_PATH)
-    .fetch(overviewRequest('?sessionId=session-1'))
+    .fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery()))
   assert.equal(overview.status, 504)
-  assert.equal(overview.headers.get('cache-control'), 'no-store')
-  const overviewBody = await overview.json()
-  assert.equal(overviewBody.ok, false)
-  assert.equal(overviewBody.error.code, 'session/list-timeout')
-  assert.match(overviewBody.error.message, /5 ms/, 'the message names the waited duration')
-  assert.match(overviewBody.error.message, /retry/i, 'the message says the request is retryable')
-  assert.equal(Object.hasOwn(overviewBody.error, 'path'), false, 'a timeout names no file path')
+  const body = await overview.json()
+  assert.equal(body.error.code, 'session/list-timeout')
+  assert.match(body.error.message, /5 ms/)
+  assert.match(body.error.message, /retry/i)
+  assert.equal(Object.hasOwn(body.error, 'path'), false)
 
-  const handoff = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(handoff.status, 504)
-  assert.equal(handoff.headers.get('cache-control'), 'no-store')
-  assert.equal((await handoff.json()).error.code, 'session/list-timeout')
-
-  assert.equal(portBag.counters.listCalls, 2, 'each route bounded its own listing call')
+  const activity = await routes.get(contract.ACTIVITY_PATH)
+    .fetch(getRequest(contract.ACTIVITY_PATH, overviewQuery()))
+  assert.equal(activity.status, 504)
+  assert.equal((await activity.json()).error.code, 'session/list-timeout')
+  assert.equal(portBag.state.listCalls, 2, 'each route bounded its own listing call')
   assert.ok(Date.now() - started < 1_000, 'the injected bound keeps the timeout path fast')
-  assert.deepEqual(portBag.roots, [], 'the timeout fires before cwd or store are touched')
+  assert.deepEqual(portBag.state.roots, [], 'the timeout fires before cwd or store are touched')
 })
 
 test('a late rejection from a timed-out listing never becomes unhandled', async () => {
@@ -580,9 +719,8 @@ test('a late rejection from a timed-out listing never becomes unhandled', async 
     })
     const { routes } = await registerRoutes(portBag)
     const response = await routes.get(contract.OVERVIEW_PATH)
-      .fetch(overviewRequest('?sessionId=session-1'))
+      .fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery()))
     assert.equal(response.status, 504)
-    assert.equal((await response.json()).error.code, 'session/list-timeout')
     // Wait past the late rejection: the route already answered, so the original
     // promise must have a handler attached or this becomes an unhandled rejection.
     await new Promise((resolve) => setTimeout(resolve, 60))
@@ -593,334 +731,819 @@ test('a late rejection from a timed-out listing never becomes unhandled', async 
 })
 
 test('a slow but answering listing inside the bound still serves 200', async () => {
-  const portBag = fakePorts({
-    listDelayMs: 5,
-    listTimeoutMs: 50,
-    handoffs: [handoffFile('t1', '2026-01-01T00:00:00.000Z', 't1-a.json')],
-  })
+  const portBag = fakePorts({ listDelayMs: 5, listTimeoutMs: 50, now: () => NOW })
   const { routes } = await registerRoutes(portBag)
-
-  const overview = await routes.get(contract.OVERVIEW_PATH)
-    .fetch(overviewRequest('?sessionId=session-1'))
-  assert.equal(overview.status, 200)
-  assert.equal(overview.headers.get('cache-control'), 'no-store')
-
-  const handoff = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(handoff.status, 200)
-  assert.equal(handoff.headers.get('cache-control'), 'no-store')
-  assert.equal(portBag.counters.listCalls, 2)
+  const response = await routes.get(contract.OVERVIEW_PATH)
+    .fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery()))
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
 })
 
-test('overview route reports a project that was never initialized with the searched cwd', async () => {
-  const portBag = fakePorts({ root: null })
+// ---------------------------------------------------------------------------
+// activity
+// ---------------------------------------------------------------------------
+
+test('activity defaults to 50 rows, accepts up to 200, and maps the wire shape', async () => {
+  const events = Array.from({ length: 260 }, (_, index) => makeEvent({
+    eventId: `event-${index}`,
+    time: new Date(Date.parse(CREATED_AT) + index * 1_000).toISOString(),
+    summary: index === 259 ? 'z'.repeat(240) : `event ${index}`,
+  }))
+  const portBag = fakePorts({ activity: events, skippedLines: 3, now: () => NOW })
   const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
+  const route = routes.get(contract.ACTIVITY_PATH)
+
+  const byDefault = await readResponse(
+    await route.fetch(getRequest(contract.ACTIVITY_PATH, overviewQuery())),
+  )
+  assert.equal(byDefault.status, 200)
+  assert.equal(byDefault.headers.get('cache-control'), 'no-store')
+  assert.equal(byDefault.body.events.length, contract.ACTIVITY_DEFAULT_LIMIT)
+  assert.equal(byDefault.body.skippedLines, 3)
+  assert.equal(byDefault.body.events[0].eventId, 'event-210', 'the newest window, oldest first')
+  assert.equal(Array.from(byDefault.body.events.at(-1).summary).length, contract.MAX_SUMMARY_CHARS)
+  assert.deepEqual(Object.keys(byDefault.body.events[0]).sort(), [
+    'eventId', 'summary', 'time', 'topicId', 'type',
+  ])
+
+  const capped = await readResponse(
+    await route.fetch(getRequest(contract.ACTIVITY_PATH, `${overviewQuery()}&limit=200`)),
+  )
+  assert.equal(capped.status, 200)
+  assert.equal(capped.body.events.length, 200)
+  assert.deepEqual(portBag.state.activityReads, [
+    contract.ACTIVITY_DEFAULT_LIMIT,
+    contract.ACTIVITY_MAX_LIMIT,
+  ])
+})
+
+test('activity rejects a limit outside 1..200 or a non-integer', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const route = routes.get(contract.ACTIVITY_PATH)
+  for (const raw of ['0', '201', 'abc', '1.5', '-1', '1e2']) {
+    const { status, body } = await readResponse(
+      await route.fetch(getRequest(contract.ACTIVITY_PATH, `${overviewQuery()}&limit=${encodeURIComponent(raw)}`)),
+    )
+    assert.equal(status, 400, raw)
+    assert.equal(body.error.code, 'request/invalid-query', raw)
+    assert.match(body.error.message, /limit/, raw)
+    assert.match(body.error.message, /between 1 and 200/, raw)
+  }
+  assert.deepEqual(portBag.state.activityReads, [], 'an invalid limit reads no activity')
+  assert.deepEqual(portBag.state.storeCalls, [])
+})
+
+// ---------------------------------------------------------------------------
+// topic detail
+// ---------------------------------------------------------------------------
+
+/** One valid review-request record, pending unless overridden. */
+function makeReviewRequest(overrides = {}) {
+  return {
+    version: 1,
+    requestId: 'req-pending',
+    topicId: 'topic-1',
+    workItemId: null,
+    purpose: 'review the panel API',
+    notes: '',
+    extra: {},
+    baseCommit: 'aaaaaaa',
+    headCommit: 'bbbbbbb',
+    path: '/repo',
+    branch: 'feat/m11',
+    changedPaths: ['src/api.ts'],
+    verification: [{ command: 'node --test tests/api.test.mjs', exitCode: 0, evidence: '21 passed' }],
+    previousRequestId: null,
+    status: 'pending',
+    reviewerSessionId: 'reviewer-session',
+    requestedAt: '2026-01-02T00:00:00.000Z',
+    reviewedAt: null,
+    summary: null,
+    findings: [],
+    reviewVerification: [],
+    ...overrides,
+  }
+}
+
+/** Write a request record under its canonical file name and returns the path. */
+async function writeReviewFile(dir, record) {
+  const fileName = reviewRequest.reviewRequestFileName(record.topicId, record.requestId)
+  assert.ok(fileName !== null, `request id must be file-name safe: ${record.requestId}`)
+  await writeFile(join(dir, fileName), `${JSON.stringify(record, null, 2)}\n`)
+  return fileName
+}
+
+test('topic reads review requests from real files and bounds every collection', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'cowork-topic-'))
+  const reviews = join(root, 'reviews')
+  await mkdir(reviews)
+  t.after(() => rm(root, { recursive: true, force: true }))
+
+  const bigChangedPaths = Array.from({ length: 60 }, (_, index) => `src/file-${index}.ts`)
+  const bigFindings = Array.from({ length: 25 }, (_, index) => ({
+    id: `F${index}`,
+    severity: 'high',
+    problem: `problem ${index}`,
+    requiredFix: `fix ${index}`,
+    file: 'src/api.ts',
+    line: index + 1,
+  }))
+  const bigVerification = Array.from({ length: 12 }, (_, index) => ({
+    command: `command ${index}`,
+    exitCode: index === 11 ? 1 : 0,
+    evidence: `evidence ${index}`,
+  }))
+  await writeReviewFile(reviews, makeReviewRequest({
+    requestId: 'req-pass',
+    status: 'pass',
+    requestedAt: '2026-01-02T03:00:00.000Z',
+    reviewedAt: '2026-01-02T04:00:00.000Z',
+    summary: 's'.repeat(240),
+    findings: bigFindings,
+    reviewVerification: bigVerification,
+    changedPaths: bigChangedPaths,
+  }))
+  await writeReviewFile(reviews, makeReviewRequest({
+    requestId: 'req-needs',
+    status: 'needs_revision',
+    requestedAt: '2026-01-02T02:00:00.000Z',
+    reviewedAt: '2026-01-02T02:30:00.000Z',
+    summary: 'needs a fix',
+    findings: [{
+      id: 'F1',
+      severity: 'blocker',
+      problem: 'missing guard',
+      requiredFix: 'add the guard',
+      file: 'src/api.ts',
+      line: 42,
+    }],
+  }))
+  await writeReviewFile(reviews, makeReviewRequest({
+    requestId: 'req-pending',
+    requestedAt: '2026-01-02T01:00:00.000Z',
+    purpose: 'p'.repeat(400),
+  }))
+  // Skipped: damaged JSON, a name that does not match the record, a legacy
+  // verdict-only review, and another topic's request.
+  await writeFile(join(reviews, 'topic-1-broken.json'), '{ not json\n')
+  await writeFile(
+    join(reviews, 'topic-1-mismatched.json'),
+    `${JSON.stringify(makeReviewRequest({ requestId: 'req-other-name' }))}\n`,
+  )
+  await writeFile(join(reviews, 'topic-1-20260101T000000000Z.json'), `${JSON.stringify({
+    version: 1,
+    threadId: 'topic-1',
+    reviewerSessionId: 'reviewer-session',
+    verdict: 'pass',
+    summary: 'legacy verdict file',
+    findings: [],
+    verification: [],
+    createdAt: CREATED_AT,
+  })}\n`)
+  await writeReviewFile(reviews, makeReviewRequest({ topicId: 'topic-2', requestId: 'req-other-topic' }))
+
+  const workItems = Array.from({ length: 55 }, (_, index) => makeWorkItem({
+    workItemId: `wi-${index}`,
+    topicId: 'topic-1',
+    updatedAt: new Date(Date.parse('2026-01-02T00:00:00.000Z') + index * 1_000).toISOString(),
+  }))
+  const document = makeDocument({
+    topics: [
+      makeTopic({ topicId: 'topic-1', reviewStatus: 'needs_revision', latestReviewRequestId: 'req-needs' }),
+      makeTopic({ topicId: 'topic-2' }),
+    ],
+    workItems: [
+      ...workItems,
+      makeWorkItem({ workItemId: 'other-1', topicId: 'topic-2' }),
+    ],
+  })
+  const events = [
+    ...Array.from({ length: 60 }, (_, index) => makeEvent({
+      eventId: `topic-event-${index}`,
+      time: new Date(Date.parse(CREATED_AT) + index * 1_000).toISOString(),
+      topicId: 'topic-1',
+    })),
+    ...Array.from({ length: 10 }, (_, index) => makeEvent({
+      eventId: `other-event-${index}`,
+      topicId: 'topic-2',
+    })),
+  ]
+  const portBag = fakePorts({ document, reviewsDir: reviews, activity: events, now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.TOPIC_PATH)
+      .fetch(getRequest(contract.TOPIC_PATH, `${overviewQuery()}&topicId=topic-1`)),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(body.topic.topicId, 'topic-1')
+  assert.equal(body.topic.activeWorkItems, 55)
+
+  assert.equal(body.workItems.length, contract.MAX_TOPIC_WORK_ITEMS)
+  assert.equal(body.workItems[0].workItemId, 'wi-54', 'newest first')
+  assert.equal(body.workItems.at(-1).workItemId, 'wi-5')
+  assert.deepEqual(Object.keys(body.workItems[0]).sort(), [
+    'baseCommit', 'branch', 'headCommit', 'path', 'status', 'topicId', 'updatedAt', 'workItemId',
+  ])
+
+  assert.deepEqual(body.reviewRequests.map((row) => row.requestId), ['req-pass', 'req-needs', 'req-pending'])
+  const pass = body.reviewRequests[0]
+  assert.equal(pass.status, 'pass')
+  assert.equal(pass.findings.length, contract.MAX_REVIEW_FINDINGS)
+  assert.equal(pass.verification.length, contract.MAX_REVIEW_VERIFICATION)
+  assert.equal(pass.changedPaths.length, contract.MAX_REVIEW_CHANGED_PATHS)
+  assert.equal(Array.from(pass.summary).length, contract.MAX_SUMMARY_CHARS)
+  assert.equal(pass.reviewedAt, '2026-01-02T04:00:00.000Z')
+  const needs = body.reviewRequests[1]
+  assert.equal(needs.findings[0].id, 'F1')
+  assert.equal(needs.findings[0].line, 42)
+  assert.equal(body.reviewRequests[2].purpose.length, 400, 'purpose is shown verbatim')
+  assert.equal(body.reviewRequests[2].summary, null)
+
+  assert.equal(body.activity.length, contract.TOPIC_ACTIVITY_LIMIT)
+  assert.ok(body.activity.every((row) => row.topicId === 'topic-1'))
+  assert.equal(body.activity[0].eventId, 'topic-event-10', 'the newest 50 of this topic only')
+  assert.equal(portBag.state.activityReads[0], contract.ACTIVITY_MAX_LIMIT)
+  assert.equal(portBag.state.writes, 0, 'a topic read never writes the index')
+  // The legacy review model is gone: these methods are not even on the port.
+  for (const legacy of ['listReviews', 'latestReviews', 'writeReview', 'readReview']) {
+    assert.equal(legacy in portBag.ports.createStore('/repo'), false, legacy)
+  }
+})
+
+test('topic caps review requests at 10, newest first', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'cowork-topic-cap-'))
+  const reviews = join(root, 'reviews')
+  await mkdir(reviews)
+  t.after(() => rm(root, { recursive: true, force: true }))
+  for (let index = 1; index <= 12; index += 1) {
+    const stamp = String(index).padStart(2, '0')
+    await writeReviewFile(reviews, makeReviewRequest({
+      requestId: `req-${stamp}`,
+      requestedAt: `2026-01-02T00:${stamp}:00.000Z`,
+    }))
+  }
+  const portBag = fakePorts({ reviewsDir: reviews, now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { body } = await readResponse(
+    await routes.get(contract.TOPIC_PATH)
+      .fetch(getRequest(contract.TOPIC_PATH, `${overviewQuery()}&topicId=topic-1`)),
+  )
+  assert.equal(body.reviewRequests.length, contract.MAX_TOPIC_REVIEW_REQUESTS)
+  assert.deepEqual(body.reviewRequests.map((row) => row.requestId), [
+    'req-12', 'req-11', 'req-10', 'req-09', 'req-08',
+    'req-07', 'req-06', 'req-05', 'req-04', 'req-03',
+  ])
+})
+
+test('topic requires its ids and reports an unknown topic', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const route = routes.get(contract.TOPIC_PATH)
+
+  let response = await readResponse(await route.fetch(getRequest(contract.TOPIC_PATH, '')))
+  assert.equal(response.status, 400)
+  assert.equal(response.body.error.code, 'request/session-required')
+
+  response = await readResponse(await route.fetch(getRequest(contract.TOPIC_PATH, overviewQuery())))
+  assert.equal(response.status, 400)
+  assert.deepEqual(response.body.error, {
+    code: 'request/topic-required',
+    message: 'query parameter topicId is required',
+  })
+  assert.equal(portBag.state.listCalls, 0, 'ids are validated before any host call')
+
+  response = await readResponse(
+    await route.fetch(getRequest(contract.TOPIC_PATH, `${overviewQuery()}&topicId=ghost`)),
+  )
   assert.equal(response.status, 404)
-  assert.deepEqual(await response.json(), {
-    ok: false,
-    error: {
-      code: 'project/not-initialized',
-      message: 'no .dsh-cowork project above /repo',
-      path: '/repo',
+  assert.equal(response.body.error.code, 'topic/not-found')
+  assert.match(response.body.error.message, /ghost/)
+})
+
+// ---------------------------------------------------------------------------
+// security fence
+// ---------------------------------------------------------------------------
+
+test('a non-loopback Host is refused on every route', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const requests = [
+    [contract.OVERVIEW_PATH, new Request(`http://evil.test${contract.OVERVIEW_PATH}`, { headers: { host: 'evil.test' } })],
+    [contract.ACTIVITY_PATH, new Request(`http://evil.test${contract.ACTIVITY_PATH}`, { headers: { host: 'evil.test' } })],
+    [contract.TOPIC_PATH, new Request(`http://evil.test${contract.TOPIC_PATH}`, { headers: { host: 'evil.test' } })],
+  ]
+  for (const [path, request] of requests) {
+    const { status, body } = await readResponse(await routes.get(path).fetch(request))
+    assert.equal(status, 403, path)
+    assert.equal(body.error.code, 'request/origin', path)
+    assert.match(body.error.message, /loopback/, path)
+  }
+  const writeRequest = new Request(`http://evil.test${contract.RESOLVE_PATH}`, {
+    method: 'POST',
+    headers: { host: 'evil.test', 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId: MASTER, topicId: 'topic-1' }),
+  })
+  const write = await readResponse(await routes.get(contract.RESOLVE_PATH).fetch(writeRequest))
+  assert.equal(write.status, 403)
+  assert.equal(write.body.error.code, 'request/origin')
+  assert.equal(portBag.state.writes, 0)
+  assert.equal(portBag.state.listCalls, 0, 'the fence runs before any host or store work')
+})
+
+test('a missing Host header and a foreign Origin are refused', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const route = routes.get(contract.OVERVIEW_PATH)
+
+  const noHost = await readResponse(await route.fetch(new Request(`http://${HOST}${contract.OVERVIEW_PATH}?sessionId=${MASTER}`)))
+  assert.equal(noHost.status, 403)
+  assert.match(noHost.body.error.message, /\(missing\)/)
+
+  const foreign = await readResponse(await route.fetch(getRequest(
+    contract.OVERVIEW_PATH,
+    overviewQuery(),
+    { origin: 'http://evil.test' },
+  )))
+  assert.equal(foreign.status, 403)
+  assert.equal(foreign.body.error.code, 'request/origin')
+  assert.match(foreign.body.error.message, /does not match request host/)
+
+  const malformed = await readResponse(await route.fetch(getRequest(
+    contract.OVERVIEW_PATH,
+    overviewQuery(),
+    { origin: 'not a url' },
+  )))
+  assert.equal(malformed.status, 403)
+  assert.match(malformed.body.error.message, /not a valid URL/)
+
+  const sameOrigin = await readResponse(await route.fetch(getRequest(
+    contract.OVERVIEW_PATH,
+    overviewQuery(),
+    { origin: ORIGIN },
+  )))
+  assert.equal(sameOrigin.status, 200, 'the browser origin is allowed')
+  const noOrigin = await readResponse(await route.fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery())))
+  assert.equal(noOrigin.status, 200, 'a server-side caller sends no Origin')
+})
+
+test('write routes refuse a missing or wrong content type with 415', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const bodies = {
+    [contract.RESOLVE_PATH]: { sessionId: MASTER, topicId: 'topic-1' },
+    [contract.REOPEN_PATH]: { sessionId: MASTER, topicId: 'topic-1' },
+    [contract.ROUTE_MOVE_PATH]: { sessionId: MASTER, fromTopicId: 'topic-1', toTopicId: 'topic-2', intent: 'alpha' },
+  }
+  for (const [path, body] of Object.entries(bodies)) {
+    for (const contentType of [null, 'text/plain', 'application/x-www-form-urlencoded']) {
+      const { status, headers, body: payload } = await readResponse(
+        await routes.get(path).fetch(postRequest(path, body, { contentType })),
+      )
+      assert.equal(status, 415, `${path} ${contentType}`)
+      assert.equal(payload.error.code, 'request/content-type', `${path} ${contentType}`)
+      assert.equal(headers.get('cache-control'), 'no-store')
+      assert.match(headers.get('content-type'), /application\/json/)
+    }
+  }
+  assert.equal(portBag.state.writes, 0)
+})
+
+test('write routes refuse a body over 8 KiB with 413', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const oversized = JSON.stringify({
+    sessionId: MASTER,
+    topicId: 'topic-1',
+    fromTopicId: 'topic-1',
+    toTopicId: 'topic-2',
+    intent: 'alpha',
+    padding: 'x'.repeat(contract.MAX_REQUEST_BODY_BYTES),
+  })
+  for (const path of [contract.RESOLVE_PATH, contract.REOPEN_PATH, contract.ROUTE_MOVE_PATH]) {
+    const { status, body } = await readResponse(
+      await routes.get(path).fetch(postRequest(path, oversized)),
+    )
+    assert.equal(status, 413, path)
+    assert.equal(body.error.code, 'request/body-too-large', path)
+    assert.match(body.error.message, /8192/, path)
+  }
+  assert.equal(portBag.state.storeCalls.length, 0)
+})
+
+test('write routes refuse invalid JSON and a non-object body with 400', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const route = routes.get(contract.RESOLVE_PATH)
+  for (const body of ['not json', '[1,2]', 'null', '"text"', '42', '']) {
+    const { status, body: payload } = await readResponse(await route.fetch(postRequest(contract.RESOLVE_PATH, body)))
+    assert.equal(status, 400, body)
+    assert.equal(payload.error.code, 'request/invalid-body', body)
+  }
+  assert.equal(portBag.state.writes, 0)
+})
+
+test('write routes require a session id and topic ids', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const cases = [
+    [contract.RESOLVE_PATH, {}, 'request/session-required'],
+    [contract.RESOLVE_PATH, { sessionId: '   ' }, 'request/session-required'],
+    [contract.RESOLVE_PATH, { sessionId: MASTER }, 'request/topic-required'],
+    [contract.RESOLVE_PATH, { sessionId: MASTER, topicId: ' ' }, 'request/topic-required'],
+    [contract.REOPEN_PATH, { sessionId: MASTER }, 'request/topic-required'],
+    [contract.ROUTE_MOVE_PATH, { sessionId: MASTER }, 'request/topic-required'],
+    [contract.ROUTE_MOVE_PATH, { sessionId: MASTER, fromTopicId: 'topic-1' }, 'request/topic-required'],
+  ]
+  for (const [path, body, code] of cases) {
+    const { status, body: payload } = await readResponse(await routes.get(path).fetch(postRequest(path, body)))
+    assert.equal(status, 400, JSON.stringify(body))
+    assert.equal(payload.error.code, code, JSON.stringify(body))
+  }
+  assert.equal(portBag.state.listCalls, 0, 'missing ids never reach the host')
+})
+
+// ---------------------------------------------------------------------------
+// resolve
+// ---------------------------------------------------------------------------
+
+test('resolve marks a topic resolved once and is idempotent afterwards', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const route = routes.get(contract.RESOLVE_PATH)
+  const body = { sessionId: MASTER, topicId: 'topic-1' }
+
+  const first = await readResponse(await route.fetch(postRequest(contract.RESOLVE_PATH, body)))
+  assert.equal(first.status, 200)
+  assert.equal(first.body.ok, true)
+  assert.equal(first.body.alreadyResolved, false)
+  assert.equal(first.body.topic.status, 'resolved')
+  assert.equal(first.body.topic.resolvedBy, 'user')
+  assert.equal(first.body.topic.resolvedAt, NOW.toISOString())
+  assert.equal(first.body.topic.updatedAt, NOW.toISOString())
+  assert.equal(portBag.state.writes, 1)
+  assert.equal(portBag.state.appended.length, 1)
+  const event = portBag.state.appended[0]
+  assert.equal(event.type, 'status-changed')
+  assert.equal(event.topicId, 'topic-1')
+  assert.equal(event.time, NOW.toISOString())
+  assert.deepEqual(event.details, { topicId: 'topic-1', from: 'active', to: 'resolved', by: 'user' })
+  assert.ok(typeof event.eventId === 'string' && event.eventId.length > 0)
+
+  const second = await readResponse(await route.fetch(postRequest(contract.RESOLVE_PATH, body)))
+  assert.equal(second.status, 200)
+  assert.equal(second.body.alreadyResolved, true)
+  assert.equal(second.body.topic.status, 'resolved')
+  assert.equal(portBag.state.writes, 1, 'the second resolve writes nothing')
+  assert.equal(portBag.state.appended.length, 1, 'and records no second activity row')
+})
+
+test('resolve reports an unknown topic with 404 and no write', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.RESOLVE_PATH)
+      .fetch(postRequest(contract.RESOLVE_PATH, { sessionId: MASTER, topicId: 'ghost' })),
+  )
+  assert.equal(status, 404)
+  assert.equal(body.error.code, 'topic/not-found')
+  assert.equal(portBag.state.writes, 0)
+  assert.equal(portBag.state.appended.length, 0)
+})
+
+test('resolve keeps a committed write when the activity append fails', async () => {
+  const portBag = fakePorts({ now: () => NOW, appendError: new Error('activity lock timed out') })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.RESOLVE_PATH)
+      .fetch(postRequest(contract.RESOLVE_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.topic.status, 'resolved')
+  assert.equal(portBag.state.writes, 1)
+  assert.equal(portBag.state.logs.length, 1)
+  assert.match(portBag.state.logs[0], /activity not recorded/)
+})
+
+// ---------------------------------------------------------------------------
+// reopen
+// ---------------------------------------------------------------------------
+
+test('reopen clears the resolution and records topic-reopened', async () => {
+  const document = makeDocument({
+    topics: [makeTopic({
+      topicId: 'topic-1',
+      status: 'resolved',
+      resolvedAt: '2026-01-01T12:00:00.000Z',
+      resolvedBy: 'master',
+      updatedAt: '2026-01-01T12:00:00.000Z',
+    })],
+  })
+  const portBag = fakePorts({ document, now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.REOPEN_PATH)
+      .fetch(postRequest(contract.REOPEN_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.topic.status, 'active')
+  assert.equal(body.topic.resolvedAt, null)
+  assert.equal(body.topic.resolvedBy, null)
+  assert.equal(body.topic.lastActiveAt, NOW.toISOString())
+  assert.equal(body.topic.updatedAt, NOW.toISOString())
+  assert.equal(portBag.state.writes, 1)
+  assert.equal(portBag.state.appended.length, 1)
+  assert.equal(portBag.state.appended[0].type, 'topic-reopened')
+  assert.deepEqual(portBag.state.appended[0].details, {
+    topicId: 'topic-1',
+    resolvedAt: '2026-01-01T12:00:00.000Z',
+    resolvedBy: 'master',
+  })
+})
+
+test('reopen of a topic that is not resolved is 409 with no write', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.REOPEN_PATH)
+      .fetch(postRequest(contract.REOPEN_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(status, 409)
+  assert.equal(body.error.code, 'topic/not-resolved')
+  assert.equal(portBag.state.writes, 0)
+  assert.equal(portBag.state.appended.length, 0)
+})
+
+// ---------------------------------------------------------------------------
+// route.move
+// ---------------------------------------------------------------------------
+
+function moveDocument(overrides = {}) {
+  return makeDocument({
+    topics: [
+      makeTopic({ topicId: 'topic-1' }),
+      makeTopic({ topicId: 'topic-2', aliases: ['alpha'] }),
+    ],
+    ...overrides,
+  })
+}
+
+test('route.move appends the intent aliases and records route-corrected', async () => {
+  const portBag = fakePorts({ document: moveDocument(), now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.ROUTE_MOVE_PATH).fetch(postRequest(contract.ROUTE_MOVE_PATH, {
+      sessionId: MASTER,
+      fromTopicId: 'topic-1',
+      toTopicId: 'topic-2',
+      intent: '  Alpha  beta gamma ',
+    })),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(body.changed, true)
+  assert.deepEqual(body.added, ['beta', 'gamma'])
+  assert.deepEqual(body.aliases, ['alpha', 'beta', 'gamma'], 'existing aliases stay and duplicates are dropped')
+  assert.equal(portBag.state.writes, 1)
+  assert.equal(portBag.state.appended.length, 1)
+  const event = portBag.state.appended[0]
+  assert.equal(event.type, 'route-corrected')
+  assert.equal(event.topicId, 'topic-2')
+  assert.deepEqual(event.details, { topicId: 'topic-2', added: ['beta', 'gamma'], aliasCount: 3 })
+})
+
+test('route.move writes nothing when the intent adds no alias', async () => {
+  const portBag = fakePorts({ document: moveDocument(), now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.ROUTE_MOVE_PATH).fetch(postRequest(contract.ROUTE_MOVE_PATH, {
+      sessionId: MASTER,
+      fromTopicId: 'topic-1',
+      toTopicId: 'topic-2',
+      intent: 'alpha',
+    })),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.changed, false)
+  assert.deepEqual(body.added, [])
+  assert.deepEqual(body.aliases, ['alpha'])
+  assert.equal(portBag.state.writes, 0)
+  assert.equal(portBag.state.appended.length, 0)
+})
+
+test('route.move keeps aliases deduplicated, under 50 items, and under 32 characters', async () => {
+  const existing = Array.from({ length: 48 }, (_, index) => `alias-${index}`)
+  const tooLong = 'a'.repeat(40)
+  const document = moveDocument({
+    topics: [
+      makeTopic({ topicId: 'topic-1' }),
+      makeTopic({ topicId: 'topic-2', aliases: existing }),
+    ],
+  })
+  const portBag = fakePorts({ document, now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { body } = await readResponse(
+    await routes.get(contract.ROUTE_MOVE_PATH).fetch(postRequest(contract.ROUTE_MOVE_PATH, {
+      sessionId: MASTER,
+      fromTopicId: 'topic-1',
+      toTopicId: 'topic-2',
+      intent: `alias-0 ${tooLong} x1 x2 x3 x4 x5 x6`,
+    })),
+  )
+  assert.equal(body.changed, true)
+  // `alias-0` tokenizes to `alias` (and a dropped one-character token); only two
+  // additions fit, so `x1` is the last one accepted and `x2` is cut by the bound.
+  assert.deepEqual(body.added, ['alias', 'x1'])
+  assert.equal(body.aliases.length, 50)
+  assert.ok(body.aliases.every((alias) => Array.from(alias).length <= 32))
+  assert.equal(body.aliases.includes(tooLong), false)
+})
+
+test('route.move rejects the same topic, a blank intent, and a resolved target', async () => {
+  const document = moveDocument({
+    topics: [
+      makeTopic({ topicId: 'topic-1' }),
+      makeTopic({ topicId: 'topic-2', aliases: ['alpha'] }),
+      makeTopic({ topicId: 'resolved-2', status: 'resolved', resolvedBy: 'user', resolvedAt: CREATED_AT }),
+    ],
+  })
+  const portBag = fakePorts({ document, now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const route = routes.get(contract.ROUTE_MOVE_PATH)
+  const cases = [
+    [{ sessionId: MASTER, fromTopicId: 'topic-1', toTopicId: 'topic-1', intent: 'beta' }, 'same topic'],
+    [{ sessionId: MASTER, fromTopicId: 'topic-1', toTopicId: 'topic-2' }, 'missing intent'],
+    [{ sessionId: MASTER, fromTopicId: 'topic-1', toTopicId: 'topic-2', intent: '   ' }, 'blank intent'],
+    [{ sessionId: MASTER, fromTopicId: 'topic-1', toTopicId: 'topic-2', intent: 'a'.repeat(501) }, 'long intent'],
+    [{ sessionId: MASTER, fromTopicId: 'topic-1', toTopicId: 'resolved-2', intent: 'beta' }, 'resolved target'],
+  ]
+  for (const [body, name] of cases) {
+    const { status, body: payload } = await readResponse(await route.fetch(postRequest(contract.ROUTE_MOVE_PATH, body)))
+    assert.equal(status, 400, name)
+    assert.equal(payload.error.code, 'route/move-invalid', name)
+    assert.ok(payload.error.message.length > 0, name)
+  }
+  assert.equal(portBag.state.writes, 0)
+  assert.equal(portBag.state.appended.length, 0)
+})
+
+test('route.move reports an unknown source or target topic with 404', async () => {
+  const portBag = fakePorts({ document: moveDocument(), now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const route = routes.get(contract.ROUTE_MOVE_PATH)
+  for (const body of [
+    { sessionId: MASTER, fromTopicId: 'ghost', toTopicId: 'topic-2', intent: 'beta' },
+    { sessionId: MASTER, fromTopicId: 'topic-1', toTopicId: 'ghost', intent: 'beta' },
+  ]) {
+    const { status, body: payload } = await readResponse(await route.fetch(postRequest(contract.ROUTE_MOVE_PATH, body)))
+    assert.equal(status, 404)
+    assert.equal(payload.error.code, 'topic/not-found')
+  }
+  assert.equal(portBag.state.writes, 0)
+})
+
+// ---------------------------------------------------------------------------
+// master-only writes
+// ---------------------------------------------------------------------------
+
+test('every write route refuses a non-master session with 403 and zero writes', async () => {
+  const portBag = fakePorts({
+    document: moveDocument(),
+    sessions: [{ sessionId: OTHER_SESSION, cwd: '/repo' }],
+    now: () => NOW,
+  })
+  const { routes } = await registerRoutes(portBag)
+  const cases = [
+    [contract.RESOLVE_PATH, { sessionId: OTHER_SESSION, topicId: 'topic-1' }],
+    [contract.REOPEN_PATH, { sessionId: OTHER_SESSION, topicId: 'topic-1' }],
+    [contract.ROUTE_MOVE_PATH, { sessionId: OTHER_SESSION, fromTopicId: 'topic-1', toTopicId: 'topic-2', intent: 'beta' }],
+  ]
+  for (const [path, body] of cases) {
+    const { status, body: payload } = await readResponse(await routes.get(path).fetch(postRequest(path, body)))
+    assert.equal(status, 403, path)
+    assert.equal(payload.error.code, 'request/not-master', path)
+    assert.match(payload.error.message, /not the master/, path)
+  }
+  assert.equal(portBag.state.writes, 0)
+  assert.equal(portBag.state.appended.length, 0)
+})
+
+test('the master check runs again inside the write lock', async () => {
+  // The read that precedes the lock sees this session as master; the document
+  // the mutator re-reads does not. A stale pre-check must not write.
+  const stale = makeDocument()
+  const live = makeDocument({ masterSessionId: 'another-master' })
+  const portBag = fakePorts({ document: live, readDocument: stale, now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.RESOLVE_PATH)
+      .fetch(postRequest(contract.RESOLVE_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(status, 403)
+  assert.equal(body.error.code, 'request/not-master')
+  assert.equal(portBag.state.writes, 0)
+  assert.equal(portBag.state.appended.length, 0)
+})
+
+// ---------------------------------------------------------------------------
+// real store integration (one lock per transaction, no nesting)
+// ---------------------------------------------------------------------------
+
+test('a real ProjectStore serves the six routes over real files and locks', async (t) => {
+  // The unit tests above use a fake store; this one wires the routes to the
+  // real store so the two independent lock acquisitions (index transaction,
+  // then activity append) are exercised for real. A nested `withWriteLock`
+  // would time out here instead of passing.
+  const repoPath = await mkdtemp(join(tmpdir(), 'cowork-api-real-'))
+  t.after(() => rm(repoPath, { recursive: true, force: true }))
+  const realStore = new store.ProjectStore({ repoPath, clock: () => NOW })
+  await realStore.initIndex(MASTER)
+  await realStore.mutateIndexDocument((document) => ({
+    ...document,
+    topics: [
+      makeTopic({ topicId: 'topic-1', lastActiveAt: NOW.toISOString(), updatedAt: NOW.toISOString() }),
+      makeTopic({ topicId: 'topic-2', aliases: ['alpha'], lastActiveAt: NOW.toISOString() }),
+    ],
+    workItems: [makeWorkItem({ workItemId: 'wi-1', topicId: 'topic-1', status: 'active' })],
+  }))
+  const fileName = reviewRequest.reviewRequestFileName('topic-1', 'req-real')
+  assert.ok(fileName !== null)
+  await mkdir(realStore.reviewsDir, { recursive: true })
+  await writeFile(join(realStore.reviewsDir, fileName), `${JSON.stringify(makeReviewRequest({
+    requestId: 'req-real',
+    reviewedAt: '2026-01-02T00:05:00.000Z',
+    status: 'pass',
+    summary: 'real store review',
+  }), null, 2)}\n`)
+
+  const { routes } = await registerRoutes({
+    ports: {
+      listSessions: async () => ({ items: [{ sessionId: MASTER, cwd: repoPath }] }),
+      findProjectRoot: async (startPath) => (startPath === repoPath ? repoPath : null),
+      createStore: () => realStore,
+      now: () => NOW,
+      log: () => {},
     },
   })
-})
 
-test('overview route reports a vanished index and a corrupt store distinctly', async () => {
-  const vanished = fakePorts({ hasIndex: false })
-  let { routes } = await registerRoutes(vanished)
-  let response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
-  assert.equal(response.status, 404)
-  assert.equal((await response.json()).error.code, 'project/not-initialized')
-
-  const corrupt = fakePorts({
-    readError: new store.StoreError('store/corrupt', 'invalid JSON', '/repo/.dsh-cowork/index.json'),
-  })
-  ;({ routes } = await registerRoutes(corrupt))
-  response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
-  assert.equal(response.status, 500)
-  assert.equal(response.headers.get('cache-control'), 'no-store')
-  assert.deepEqual(await response.json(), {
-    ok: false,
-    error: { code: 'store/corrupt', message: 'invalid JSON', path: '/repo/.dsh-cowork/index.json' },
-  })
-})
-
-test('overview route maps unexpected store failures to internal', async () => {
-  const portBag = fakePorts({ readError: new Error('disk on fire') })
-  const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1'))
-  assert.equal(response.status, 500)
-  assert.deepEqual(await response.json(), {
-    ok: false,
-    error: { code: 'internal', message: 'disk on fire' },
-  })
-})
-
-test('handoff route requires both ids in order', async () => {
-  const portBag = fakePorts()
-  const { routes } = await registerRoutes(portBag)
-  const route = routes.get(contract.HANDOFF_PATH)
-  let response = await route.fetch(handoffRequest('?threadId=t1'))
-  assert.equal(response.status, 400)
-  assert.equal((await response.json()).error.code, 'request/session-required')
-  response = await route.fetch(handoffRequest('?sessionId=session-1'))
-  assert.equal(response.status, 400)
-  assert.deepEqual(await response.json(), {
-    ok: false,
-    error: { code: 'request/thread-required', message: 'query parameter threadId is required' },
-  })
-  assert.equal(portBag.counters.listCalls, 0, 'ids are validated before any host call')
-})
-
-test('handoff route serves the latest handoff of the requested thread', async () => {
-  const handoffs = [
-    handoffFile('t1', '2026-01-01T00:00:00.000Z', 't1-a.json'),
-    handoffFile('t2', '2026-01-09T00:00:00.000Z', 't2-a.json'),
-    handoffFile('t1', '2026-01-07T00:00:00.000Z', 't1-b.json'),
-  ]
-  const portBag = fakePorts({ handoffs })
-  const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 200)
-  assert.equal(response.headers.get('cache-control'), 'no-store')
-  const body = await response.json()
-  assert.equal(body.ok, true)
-  assert.equal(body.handoff.filePath, '/repo/.dsh-cowork/handoffs/t1-b.json')
-  assert.equal(body.handoff.formatterVersion, contract.HANDOFF_FORMATTER_VERSION)
-  const expected = handoff.formatMasterMessage(
-    handoffs[2].record,
-    handoffs[2].filePath,
+  const overview = await readResponse(
+    await routes.get(contract.OVERVIEW_PATH).fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery())),
   )
-  assert.equal(body.handoff.masterMessage, expected)
-  assert.equal(body.handoff.record.threadId, 't1')
-})
+  assert.equal(overview.status, 200)
+  assert.deepEqual(overview.body.topics.map((row) => row.topicId), ['topic-1', 'topic-2'])
+  assert.equal(topicsById(overview.body.topics).get('topic-1').activeWorkItems, 1)
 
-test('overview maps the index review fields and degrades older or odd rows to null', () => {
-  const index = projectIndex([
-    thread({
-      threadId: 'reviewed',
-      status: 'awaiting_review',
-      reviewStatus: 'needs_revision',
-      reviewedAt: '2026-01-03T00:00:00.000Z',
-      reviewerSessionId: 'reviewer-1',
-      latestReviewPath: '/repo/.dsh-cowork/reviews/t1-a.json',
-    }),
-    // An index written before M3 has none of the review fields.
-    thread({ threadId: 'legacy', status: 'active' }),
-    // A hand-written index may carry values the union does not allow.
-    thread({
-      threadId: 'odd',
-      status: 'done',
-      reviewStatus: 'passing',
-      reviewedAt: 42,
-      reviewerSessionId: '   ',
-    }),
-  ])
-  const overview = api.buildOverview(index, '/repo')
-  const reviewed = overview.threads.find((row) => row.threadId === 'reviewed')
-  assert.equal(reviewed.reviewStatus, 'needs_revision')
-  assert.equal(reviewed.reviewedAt, '2026-01-03T00:00:00.000Z')
-  assert.equal(reviewed.reviewerSessionId, 'reviewer-1')
+  const detail = await readResponse(
+    await routes.get(contract.TOPIC_PATH)
+      .fetch(getRequest(contract.TOPIC_PATH, `${overviewQuery()}&topicId=topic-1`)),
+  )
+  assert.equal(detail.status, 200)
+  assert.deepEqual(detail.body.reviewRequests.map((row) => row.requestId), ['req-real'])
 
-  const legacy = overview.threads.find((row) => row.threadId === 'legacy')
-  assert.equal(legacy.reviewStatus, null)
-  assert.equal(legacy.reviewedAt, null)
-  assert.equal(legacy.reviewerSessionId, null)
-
-  const odd = overview.threads.find((row) => row.threadId === 'odd')
-  assert.equal(odd.reviewStatus, null, 'an unknown review state is no review')
-  assert.equal(odd.reviewedAt, null, 'a non-string timestamp is no timestamp')
-  assert.equal(odd.reviewerSessionId, null, 'a blank session id is no session')
-
-  // Review state never enters the counts or the sort.
-  assert.deepEqual(overview.counts, { new: 0, active: 1, awaiting_review: 1, blocked: 0, done: 1 })
+  const resolved = await readResponse(
+    await routes.get(contract.RESOLVE_PATH)
+      .fetch(postRequest(contract.RESOLVE_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(resolved.status, 200)
+  assert.equal(resolved.body.alreadyResolved, false)
+  let document = await realStore.readIndexDocument()
+  assert.equal(document.topics.find((topic) => topic.topicId === 'topic-1').status, 'resolved')
   assert.deepEqual(
-    overview.threads.map((row) => row.threadId),
-    ['reviewed', 'legacy', 'odd'],
-    'the panel order stays status-then-recency',
+    (await realStore.readActivity(50)).events.map((event) => event.type),
+    ['status-changed'],
   )
-})
 
-test('handoff route returns the review its index pointer names', async () => {
-  const pointer = '/repo/.dsh-cowork/reviews/t1-b.json'
-  const portBag = fakePorts({
-    handoffs: [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')],
-    index: projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })]),
-    reviewFiles: { [pointer]: reviewRecord() },
-  })
-  const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 200)
-  assert.equal(response.headers.get('cache-control'), 'no-store')
-  const body = await response.json()
-  assert.equal(body.handoff.review.filePath, pointer)
-  assert.equal(body.handoff.review.record.verdict, 'needs_revision')
-  assert.equal(body.handoff.review.record.summary, 'two findings need work')
-  assert.equal(body.handoff.review.record.reviewerSessionId, 'reviewer-session')
-  assert.equal(body.handoff.review.record.createdAt, '2026-01-03T00:00:00.000Z')
-  assert.deepEqual(body.handoff.review.record.findings.map((row) => row.id), ['F1', 'F2'])
-  assert.equal(body.handoff.review.record.findings[0].line, 12)
-  assert.deepEqual(body.handoff.review.record.verification, [
-    { command: 'node --test', exitCode: 0, evidence: '65 passed' },
-  ])
-  assert.deepEqual(portBag.reviewReads, [pointer], 'only the pointed file is read, never a directory guess')
-})
+  const reopened = await readResponse(
+    await routes.get(contract.REOPEN_PATH)
+      .fetch(postRequest(contract.REOPEN_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(reopened.status, 200)
+  assert.equal(reopened.body.topic.status, 'active')
+  document = await realStore.readIndexDocument()
+  assert.equal(document.topics.find((topic) => topic.topicId === 'topic-1').resolvedBy, null)
+  assert.deepEqual(
+    (await realStore.readActivity(50)).events.map((event) => event.type),
+    ['status-changed', 'topic-reopened'],
+  )
 
-test('handoff review is null without a pointer, with a null pointer, or when the file is gone', async () => {
-  const handoffAt = '2026-01-02T00:00:00.000Z'
-  const handoffs = [handoffFile('t1', handoffAt, 't1-a.json')]
-
-  // 1. Legacy index: the field itself is missing.
-  let portBag = fakePorts({ handoffs, index: projectIndex([thread({ threadId: 't1' })]) })
-  let { routes } = await registerRoutes(portBag)
-  let response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 200)
-  assert.equal((await response.json()).handoff.review, null)
-  assert.deepEqual(portBag.reviewReads, [], 'no pointer means no read at all')
-
-  // 2. Explicit null pointer.
-  portBag = fakePorts({
-    handoffs,
-    index: projectIndex([thread({ threadId: 't1', latestReviewPath: null })]),
-  })
-  ;({ routes } = await registerRoutes(portBag))
-  response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 200)
-  assert.equal((await response.json()).handoff.review, null)
-
-  // 3. Pointer kept, file removed after the verdict: still a usable handoff.
-  portBag = fakePorts({
-    handoffs,
-    index: projectIndex([thread({ threadId: 't1', latestReviewPath: '/repo/.dsh-cowork/reviews/gone.json' })]),
-  })
-  ;({ routes } = await registerRoutes(portBag))
-  response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 200)
-  const body = await response.json()
-  assert.equal(body.handoff.review, null)
-  assert.equal(body.handoff.filePath, '/repo/.dsh-cowork/handoffs/t1-a.json', 'the handoff still renders')
-})
-
-test('a store without readReview falls back to the project text read', async () => {
-  const pointer = '/repo/.dsh-cowork/reviews/t1-a.json'
-  const portBag = fakePorts({
-    handoffs: [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')],
-    index: projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })]),
-    omitReadReview: true,
-    reviewTexts: { [pointer]: JSON.stringify(reviewRecord({ verdict: 'pass' })) },
-  })
-  const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 200)
-  const body = await response.json()
-  assert.equal(body.handoff.review.record.verdict, 'pass')
-  assert.equal(body.handoff.review.filePath, pointer)
-})
-
-test('a missing fallback file is no review, not an error', async () => {
-  const pointer = '/repo/.dsh-cowork/reviews/t1-a.json'
-  const portBag = fakePorts({
-    handoffs: [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')],
-    index: projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })]),
-    omitReadReview: true,
-  })
-  const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 200)
-  assert.equal((await response.json()).handoff.review, null)
-})
-
-test('a damaged review document is store/corrupt, other read failures stay internal', async () => {
-  const pointer = '/repo/.dsh-cowork/reviews/t1-a.json'
-  const handoffs = [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')]
-  const index = projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })])
-
-  // A document without a valid verdict cannot be labelled: report the file.
-  let portBag = fakePorts({
-    handoffs,
-    index,
-    reviewFiles: { [pointer]: { verdict: 'pending', summary: 'x', reviewerSessionId: 'r', createdAt: 'nope' } },
-  })
-  let { routes } = await registerRoutes(portBag)
-  let response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 500)
-  let body = await response.json()
-  assert.equal(body.error.code, 'store/corrupt')
-  assert.equal(body.error.path, pointer)
-  assert.equal(response.headers.get('cache-control'), 'no-store')
-
-  // A typed store error keeps its corrupt mapping.
-  portBag = fakePorts({
-    handoffs,
-    index,
-    reviewError: new store.StoreError('store/corrupt', 'review JSON is invalid', pointer),
-  })
-  ;({ routes } = await registerRoutes(portBag))
-  response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 500)
-  body = await response.json()
-  assert.deepEqual(body.error, { code: 'store/corrupt', message: 'review JSON is invalid', path: pointer })
-
-  // Anything else degrades to internal, like every other unexpected read.
-  portBag = fakePorts({ handoffs, index, reviewError: new Error('disk on fire') })
-  ;({ routes } = await registerRoutes(portBag))
-  response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 500)
-  body = await response.json()
-  assert.deepEqual(body.error, { code: 'internal', message: 'disk on fire' })
-})
-
-test('a malformed fallback review document is store/corrupt', async () => {
-  const pointer = '/repo/.dsh-cowork/reviews/t1-a.json'
-  const portBag = fakePorts({
-    handoffs: [handoffFile('t1', '2026-01-02T00:00:00.000Z', 't1-a.json')],
-    index: projectIndex([thread({ threadId: 't1', latestReviewPath: pointer })]),
-    omitReadReview: true,
-    reviewTexts: { [pointer]: '{not json' },
-  })
-  const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 500)
-  const body = await response.json()
-  assert.equal(body.error.code, 'store/corrupt')
-  assert.equal(body.error.path, pointer)
-})
-
-test('handoff route reports a thread without a handoff', async () => {
-  const portBag = fakePorts({ handoffs: [handoffFile('other', '2026-01-01T00:00:00.000Z', 'other-a.json')] })
-  const { routes } = await registerRoutes(portBag)
-  const response = await routes.get(contract.HANDOFF_PATH)
-    .fetch(handoffRequest('?sessionId=session-1&threadId=t1'))
-  assert.equal(response.status, 404)
-  assert.deepEqual(await response.json(), {
-    ok: false,
-    error: { code: 'handoff/not-found', message: 'thread has no handoff: t1' },
-  })
-})
-
-test('neither route ever calls a store write', async () => {
-  const portBag = fakePorts({
-    handoffs: [handoffFile('t1', '2026-01-01T00:00:00.000Z', 't1-a.json')],
-  })
-  const { routes } = await registerRoutes(portBag)
-  const results = await Promise.all([
-    routes.get(contract.OVERVIEW_PATH).fetch(overviewRequest('?sessionId=session-1')),
-    routes.get(contract.HANDOFF_PATH).fetch(handoffRequest('?sessionId=session-1&threadId=t1')),
-  ])
-  assert.deepEqual(results.map((response) => response.status), [200, 200])
-  const allowed = new Set(['hasIndex', 'readIndex', 'listHandoffs', 'readReview', 'readText'])
-  for (const call of portBag.storeCalls) assert.ok(allowed.has(call), `unexpected store call: ${call}`)
+  const moved = await readResponse(
+    await routes.get(contract.ROUTE_MOVE_PATH).fetch(postRequest(contract.ROUTE_MOVE_PATH, {
+      sessionId: MASTER,
+      fromTopicId: 'topic-1',
+      toTopicId: 'topic-2',
+      intent: 'panel api',
+    })),
+  )
+  assert.equal(moved.status, 200)
+  assert.deepEqual(moved.body.added, ['panel', 'api'])
+  document = await realStore.readIndexDocument()
+  assert.deepEqual(
+    document.topics.find((topic) => topic.topicId === 'topic-2').aliases,
+    ['alpha', 'panel', 'api'],
+  )
+  assert.deepEqual(
+    (await realStore.readActivity(50)).events.map((event) => event.type),
+    ['status-changed', 'topic-reopened', 'route-corrected'],
+  )
 })
