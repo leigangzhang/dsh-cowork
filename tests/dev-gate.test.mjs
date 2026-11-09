@@ -34,6 +34,7 @@ const HOOK_SOURCE = [
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { apply, Config, normalizeConfig, panelRoutePathname } = await import('../src/index.ts')
+const { panelProbeRequest } = await import('../src/panel-probe.ts')
 const { DEFAULT_ISOLATION_PROVIDER } = await import('../src/tool-runtime.ts')
 const { CLONE_ISOLATION_PROVIDER } = await import('../src/checkout.ts')
 const {
@@ -331,9 +332,11 @@ test('the M12 panel probe matches a query-string path to the bare registered rou
   assert.equal(routes.get(panelRoutePathname('/api/cowork.unknown')), undefined)
   assert.equal(routes.get(panelRoutePathname(`${OVERVIEW_PATH}?sessionId=`)), routes.get(OVERVIEW_PATH))
 
-  // The Request still carries the query string the handler reads.
-  const request = new Request(`http://127.0.0.1${probePath}`)
+  // The Request still carries the query string and the same-origin headers.
+  const request = panelProbeRequest(probePath)
   assert.equal(new URL(request.url).searchParams.get('sessionId'), 'session-1')
+  assert.equal(request.headers.get('host'), '127.0.0.1')
+  assert.equal(request.headers.get('origin'), 'http://127.0.0.1')
 })
 
 test('the dev probe canonicalizes a symlinked repoPath (P0-F1)', async () => {
