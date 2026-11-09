@@ -1,6 +1,6 @@
-# Proposal: 主题索引 v2、评审请求文件、活动流与收件箱
+# Decision: 主题索引 v2、评审请求文件、活动流与收件箱
 
-Status: proposed
+Status: implemented
 Date: 2026-11-07
 Class: architecture
 
@@ -8,11 +8,11 @@ Class: architecture
 
 M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`checkoutPath`、review 字段直接挂在 thread 上。评审文件是 verdict-only，没有请求范围；没有活动流，也没有 master 收件箱。用户需要三态主题、评审请求、活动流与收件箱，但这些事实在现有数据模型里没有位置。
 
-迁移也不能简单改字段：v1 的 `awaiting_review` 有在途 reviewer，`done/archived` 是结果而不是进行中，`checkoutPath` 是旧 clone。直接覆盖会让旧数据不可读、评审会话悬挂、旧 clone 失联。本记录固定 v2 存储、文件布局与 v1 迁移策略；评审请求的业务规则由 [评审请求模型](../../implemented/feature/2026-11-07-review-request-model.md) 拥有，状态规则由 [三态生命周期](../../implemented/feature/2026-11-07-three-state-lifecycle.md) 拥有。详细字段见 [PLAN-V0.2 §4.3/§5.2](../../../../docs/PLAN-V0.2.md)。
+迁移也不能简单改字段：v1 的 `awaiting_review` 有在途 reviewer，`done/archived` 是结果而不是进行中，`checkoutPath` 是旧 clone。直接覆盖会让旧数据不可读、评审会话悬挂、旧 clone 失联。本记录固定 v2 存储、文件布局与 v1 迁移策略；评审请求的业务规则由 [评审请求模型](../feature/2026-11-07-review-request-model.md) 拥有，状态规则由 [三态生命周期](../feature/2026-11-07-three-state-lifecycle.md) 拥有。详细字段见 [PLAN-V0.2 §4.3/§5.2](../../../../docs/PLAN-V0.2.md)。
 
-## Proposal
+## Decision
 
-**索引 v2。** `index.json` 写 `version: 2`、`topics[]`、`workItems[]`。`TopicRecord` 字段：`topicId/title/status/awaitingReview/blocked/scope/ownedPaths/aliases/digest/cwd/legacyCheckoutPath/createdAt/updatedAt/lastActiveAt/lastDeliveryConfirmedAt/resolvedAt/resolvedBy/latestReviewRequestId/reviewStatus/reviewerSessionId`。`WorkItemRecord` 字段见 [并行隔离与合并](../../implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)。写只写 v2；读兼容 v1，内存里归一化。
+**索引 v2。** `index.json` 写 `version: 2`、`topics[]`、`workItems[]`。`TopicRecord` 字段：`topicId/title/status/awaitingReview/blocked/scope/ownedPaths/aliases/digest/cwd/legacyCheckoutPath/createdAt/updatedAt/lastActiveAt/lastDeliveryConfirmedAt/resolvedAt/resolvedBy/latestReviewRequestId/reviewStatus/reviewerSessionId`。`WorkItemRecord` 字段见 [并行隔离与合并](./2026-11-07-parallel-isolation-and-merge.md)。写只写 v2；读兼容 v1，内存里归一化。
 
 **评审请求文件。** `reviews/<topicId>-<requestId>.json` 保存请求与 verdict 在同一文件：请求字段、`status`、`reviewerSessionId`、`requestedAt`、`reviewedAt`、`verdict`。一次请求一个文件，verdict 后不再新建文件；上一轮通过 `previousRequestId` 关联。旧的 `reviews/<threadId>-<stamp>.json` 保留只读，不重写。
 
@@ -57,26 +57,20 @@ M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`chec
 
 **把旧 handoff/review 文件改写成 v2。** 否决：历史证据不该被改写；新代码只读新布局，旧文件保留只读，M12 文档说明。
 
-## Acceptance criteria
-
-- [A1] v1 六态逐条迁移到 v2；`awaiting_review` 取消在途评审并归档旧 reviewer；`done/archived` 转 resolved — `tests`
-- [A2] 迁移前写 `index.v1.backup.json`；迁移失败保留备份并报 `store/corrupt`，不静默重建 — `tests`
-- [A3] v2 round-trip 读写稳定；写只写 v2，读兼容 v1；索引/活动/收件箱共用锁 — `tests`
-- [A4] 活动流上限 500 条/512 KiB 并裁剪最旧；收件箱投递失败保留并可重放 — `tests`
-- [A5] 旧工具/preset 别名映射到 v2；`0.2.0` 的迁移、回滚与别名写进 README 与 M12 交接 — `decisions`
-
-## Risks
+## Consequences
 
 - 迁移数据丢失：备份 + fail closed + 逐状态测试；迁移前不删旧文件。重审条件：出现无法映射的状态或字段。
 - 旧 clone 失联：`legacyCheckoutPath` 只保留路径，不自动转工作项；旧隔离主题需要人工处理。重审条件：用户有未合并的旧 isolated thread。
 - 活动/收件箱文件损坏：损坏行跳过并记录；整文件损坏时报错，不静默覆盖。重审条件：出现并发写入或磁盘错误。
 - schema 漂移：v2 字段只在 `store-schema.ts` 定义；新增字段必须带默认值和迁移说明。重审条件：出现第二个写索引的模块。
 - 版本兼容：0.2.0 不能读回 v1 的运行时；回滚必须恢复备份并重装。重审条件：需要双向迁移。
+- 落地路径：M6 探针 3/4 已确认 archive 语义与 reviewer 回收时机（见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §3/§4）；M7 落地 v2 schema、迁移、备份与 activity/inbox 文件读写和锁（见 [M7 执行记录](./2026-11-07-store-v2-migration-plan.md)）；M8 把活动流裁剪、收件箱合并/重放接入生命周期（见 [M8 交付结果](../../../../docs/M8_RESULT.md)）；M10 落地评审请求文件写入与 verdict 合并（见 [M10 交付结果](../../../../docs/M10_RESULT.md)）；M12 完成迁移/回滚的真实 E2E 与文档收口。
+- 本记录由 M12 从 `proposed/architecture/` 下的同名提案迁入 `implemented/architecture/` 并按 implemented 骨架重写；交付事实与证据见 [M8 交付结果](../../../../docs/M8_RESULT.md) 与 [M10 交付结果](../../../../docs/M10_RESULT.md)。
 
-## Delivery stages
+## Testing
 
-- M6：探针 3/4 已确认 archive 语义与 reviewer 回收时机；结论见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §3/§4。
-- M7：实现 v2 schema、迁移、备份、activity/inbox 文件读写与锁；新增 store 测试。
-- M8：活动流裁剪、收件箱合并/重放接入生命周期。
-- M10：评审请求文件写入、verdict 合并到同一文件。
-- M12：迁移/回滚的真实 E2E 与文档收口。
+- [A1] v1 六态逐条迁移到 v2；`awaiting_review` 取消在途评审并归档旧 reviewer；`done/archived` 转 resolved — `tests`：`tests/store-v2.test.mjs`
+- [A2] 迁移前写 `index.v1.backup.json`；迁移失败保留备份并报 `store/corrupt`，不静默重建 — `tests`：`tests/store-v2.test.mjs`
+- [A3] v2 round-trip 读写稳定；写只写 v2，读兼容 v1；索引/活动/收件箱共用锁 — `tests`：`tests/store-v2.test.mjs`、`tests/store.test.mjs`
+- [A4] 活动流上限 500 条/512 KiB 并裁剪最旧；收件箱投递失败保留并可重放 — `tests`：`tests/activity.test.mjs`、`tests/inbox.test.mjs`
+- [A5] 旧工具/preset 别名映射到 v2；`0.2.0` 的迁移、回滚与别名写进 README 与 M12 交接 — `decisions`：本记录、[PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §4.3/§5.2、[README](../../../../README.md)、[M12 交接](../../../../docs/M12_HANDOFF.md)

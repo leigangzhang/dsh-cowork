@@ -17,8 +17,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import z from '@deepseek-ai/schemastery'
-import type { CoworkApiHost, CoworkApiPorts } from './api.js'
+import type { CoworkApiHost, CoworkApiPorts, PanelFetchRoute } from './api.js'
 import { registerCoworkApi } from './api.js'
+import { OVERVIEW_PATH, REOPEN_PATH } from './api-contract.js'
+import { panelProbeRequest, panelRoutePathname } from './panel-probe.js'
+
+export { panelRoutePathname }
 import type { HealthView, ProbeConfig, ProbeHost } from './probe-engine.js'
 import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
 import { MEMORY_FILES, MEMORY_KINDS, memoryFilePath, parseMemoryFile, renderMemoryBlock } from './memory.js'
@@ -29,6 +33,8 @@ import { M2E2ERunner } from './m2-e2e.js'
 import type { M2E2EHost } from './m2-e2e.js'
 import { M3E2ERunner, M3_E2E_RUN_PATH, M3_E2E_STATUS_PATH } from './m3-e2e.js'
 import type { M3E2EHost } from './m3-e2e.js'
+import { M12E2ERunner, M12_E2E_RUN_PATH, M12_E2E_STATUS_PATH } from './m12-e2e.js'
+import type { M12E2EHost, M12PanelProbe } from './m12-e2e.js'
 import { canonicalRepoPath, isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 import { registerPresets } from './presets.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
@@ -293,6 +299,11 @@ interface DevSurfaceOptions {
   promptTimeoutMs: number
   storeRelativePath: string
   worktreeRelativePath: string
+  /** In-process panel API probe the M12 driver uses for its route assertions. */
+  panel: M12PanelProbe
+  /** Configured lifecycle thresholds; the M12 driver refuses anything but the short ones. */
+  idleAfterMs: number
+  resolveAfterMs: number
 }
 
 /**
@@ -331,6 +342,18 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
     promptTimeoutMs: probeConfig.promptTimeoutMs,
     pluginName: PLUGIN_NAME,
     pluginVersion: PLUGIN_VERSION,
+    log: (message) => ctx.logger?.info?.(`[${PLUGIN_NAME}] ${message}`),
+  })
+  // M12 real-host E2E: the 0.2.0 topic-session chain, run in a throwaway
+  // repository under os.tmpdir(); evidence under .dsh-cowork/e2e/M12_E2E.json.
+  const m12e2e = new M12E2ERunner(ctx as unknown as M12E2EHost, {
+    repoPath: probeConfig.repoPath,
+    promptTimeoutMs: probeConfig.promptTimeoutMs,
+    idleAfterMs: options.idleAfterMs,
+    resolveAfterMs: options.resolveAfterMs,
+    pluginName: PLUGIN_NAME,
+    pluginVersion: PLUGIN_VERSION,
+    panel: options.panel,
     log: (message) => ctx.logger?.info?.(`[${PLUGIN_NAME}] ${message}`),
   })
 
@@ -584,6 +607,56 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
         ...(run.error === undefined ? {} : { error: run.error }),
       })
     },
+  }, {
+    kind: 'exact',
+    path: M12_E2E_RUN_PATH,
+    handler: (request, response) => {
+      if (!guard(request, response, 'POST')) return
+      request.resume()
+      try {
+        // `keep=1` keeps the throwaway project for a debug run; `base=<ref>`
+        // names the artifact diff base (the M12 base commit).
+        const keep = readQuery(request.url, 'keep')
+        const run = m12e2e.start({
+          keep: keep === '1' || keep === 'true',
+          baseRef: readQuery(request.url, 'base') ?? '',
+        })
+        sendJson(response, 200, { ok: true, runId: run.runId })
+      } catch (error) {
+        sendJson(response, 409, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    },
+  }, {
+    kind: 'exact',
+    path: M12_E2E_STATUS_PATH,
+    handler: async (request, response) => {
+      if (!guard(request, response, 'GET')) return
+      let runId: string
+      try {
+        runId = requireRunId(readQuery(request.url, 'runId'))
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        return
+      }
+      const run = await m12e2e.resolve(runId)
+      if (run === undefined) {
+        sendJson(response, 404, { ok: false, error: `unknown M12 E2E runId: ${runId}` })
+        return
+      }
+      sendJson(response, 200, {
+        ok: true,
+        runId: run.runId,
+        state: run.state,
+        startedAt: run.startedAt,
+        ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
+        steps: run.steps,
+        evidenceFile: run.evidenceFile,
+        ...(run.error === undefined ? {} : { error: run.error }),
+      })
+    },
   })
 
   for (const route of routes) {
@@ -594,11 +667,13 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
   ctx.effect(() => s0.attachEvents(), 'dsh-cowork: S0 session event feed')
   ctx.effect(() => m2e2e.attachEvents(), 'dsh-cowork: M2 E2E session event feed')
   ctx.effect(() => m3e2e.attachEvents(), 'dsh-cowork: M3 E2E session event feed')
+  ctx.effect(() => m12e2e.attachEvents(), 'dsh-cowork: M12 E2E session event feed')
   ctx.effect(() => () => {
     runner.dispose()
     s0.dispose()
     m2e2e.dispose()
     m3e2e.dispose()
+    m12e2e.dispose()
   }, 'dsh-cowork: probe runners')
 
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M0 probe ready at ${HEALTH_PATH} (repo ${probeConfig.repoPath})`)
@@ -644,6 +719,81 @@ function hostCurrentModelRoute(ctx: Context): () => CurrentModelRoute | null {
   }
 }
 
+/** The six panel routes' shared ports; production and the M12 probe use the same ones. */
+function createPanelPorts(ctx: Context, assembly: CoworkAssemblyHost, settings: Config): CoworkApiPorts {
+  return {
+    // Metadata only: `inspect` also reads the session event log and hung the
+    // panel requests on running or large sessions.
+    listSessions: () => assembly.sessionController.list() as Promise<{
+      items: readonly HostSessionListRow[]
+    }>,
+    findProjectRoot,
+    // Same construction as the tool layer: a panel-triggered migration must
+    // archive a cancelled reviewer through the host, not record a fake failure.
+    createStore: (repoPath) => new ProjectStore({
+      repoPath,
+      clock: () => new Date(),
+      archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
+    }),
+    // M11: the panel's lifecycle read point uses the same clock and thresholds
+    // as the tool layer, and logs a failed activity row instead of failing the
+    // request.
+    now: () => new Date(),
+    idleAfterMs: settings.idleAfterMs,
+    resolveAfterMs: settings.resolveAfterMs,
+    log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
+  }
+}
+
+/**
+ * In-process probe for the M12 E2E driver. A plugin has no client for the host
+ * `connection` channel, so the probe registers the production panel handlers on
+ * a private connection and calls them with a real `Request`. The handlers,
+ * guards, store, and lifecycle read point are the shipped ones; only the host's
+ * HTTP transport is bypassed, which the evidence document states.
+ */
+function createM12PanelProbe(ports: CoworkApiPorts): M12PanelProbe {
+  const routes = new Map<string, PanelFetchRoute>()
+  const connection = {
+    fetch: {
+      register(route: PanelFetchRoute): () => Promise<void> {
+        routes.set(route.path, route)
+        return async () => {}
+      },
+    },
+  }
+  const host: CoworkApiHost = {
+    get: (name) => (name === 'connection' ? connection : undefined),
+    effect: (execute) => {
+      execute()
+    },
+  }
+  registerCoworkApi(host, ports)
+  const call = async (path: string, init: RequestInit): Promise<{ status: number; body: unknown }> => {
+    const route = routes.get(panelRoutePathname(path))
+    if (route === undefined) throw new Error(`M12 panel probe: no route registered for ${path}`)
+    const response = await route.fetch(panelProbeRequest(path, init))
+    let body: unknown = null
+    try {
+      body = await response.json()
+    } catch {
+      body = null
+    }
+    return { status: response.status, body }
+  }
+  return {
+    overview: (input) => call(
+      `${OVERVIEW_PATH}?sessionId=${encodeURIComponent(input.sessionId)}`,
+      { method: 'GET' },
+    ),
+    reopen: (input) => call(REOPEN_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: input.sessionId, topicId: input.topicId }),
+    }),
+  }
+}
+
 /** Register the business surface, plus the opt-in dev probe surface when enabled. */
 export function apply(ctx: Context, config: Config): void {
   // One normalized view of the settings: a hand-built partial config (tests,
@@ -684,28 +834,7 @@ export function apply(ctx: Context, config: Config): void {
   // M11 panel: three read routes and three master-only write routes over the
   // host connection service. The project root is derived from the session's own
   // cwd, never from the request.
-  const panelPorts: CoworkApiPorts = {
-    // Metadata only: `inspect` also reads the session event log and hung the
-    // panel requests on running or large sessions.
-    listSessions: () => assembly.sessionController.list() as Promise<{
-      items: readonly HostSessionListRow[]
-    }>,
-    findProjectRoot,
-    // Same construction as the tool layer: a panel-triggered migration must
-    // archive a cancelled reviewer through the host, not record a fake failure.
-    createStore: (repoPath) => new ProjectStore({
-      repoPath,
-      clock: () => new Date(),
-      archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
-    }),
-    // M11: the panel's lifecycle read point uses the same clock and thresholds
-    // as the tool layer, and logs a failed activity row instead of failing the
-    // request.
-    now: () => new Date(),
-    idleAfterMs: settings.idleAfterMs,
-    resolveAfterMs: settings.resolveAfterMs,
-    log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
-  }
+  const panelPorts = createPanelPorts(ctx, assembly, settings)
   registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
 
   // M8.2: the session event stream keeps topic activity fresh and reopens a
@@ -741,6 +870,9 @@ export function apply(ctx: Context, config: Config): void {
       promptTimeoutMs: settings.promptTimeoutMs,
       storeRelativePath: settings.storeRelativePath,
       worktreeRelativePath: settings.worktreeRelativePath,
+      panel: createM12PanelProbe(panelPorts),
+      idleAfterMs: settings.idleAfterMs,
+      resolveAfterMs: settings.resolveAfterMs,
     })
   }
 

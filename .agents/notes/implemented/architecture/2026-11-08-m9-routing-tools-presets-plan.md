@@ -14,7 +14,7 @@ M8 已经把主题生命周期、活动与收件箱落到代码里（[M8 交付�
 - `src/tools.ts` 43,854 B、11 个工具与所有共享 helper 挤在一个文件；`cowork-master` 仍挂 fs/search/bash/jobs/present，`cowork-thread` 仍是唯一的主题 preset，memory 只识别 `cowork-master`/`cowork-thread`。
 - `digest`、`lastDeliveryConfirmedAt`、`masterFocusTopicId` 仍没有写入者，M8 的五条件在实际数据上不会成立。
 
-M9 的范围、工具角色表、预设与配置默认值由 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §2.2/§5.3/§5.7/§5.8/§5.10/§6 M9 拥有；三层路由的需求规则由 [主会话到主题的三层路由](../feature/2026-11-07-three-layer-routing.md) 拥有；角色模型由 [用主题会话取代 thread](../../proposed/architecture/2026-11-07-topic-session-model.md) 拥有；v2 数据模型由 [索引 v2 与迁移](../../proposed/architecture/2026-11-07-topic-store-v2.md) 拥有。本记录固定执行层：模块边界、数据/配置扩展、读取点、工具拆分、预设与测试顺序；交付事实与证据见 [M9_RESULT](../../../../docs/M9_RESULT.md)。
+M9 的范围、工具角色表、预设与配置默认值由 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §2.2/§5.3/§5.7/§5.8/§5.10/§6 M9 拥有；三层路由的需求规则由 [主会话到主题的三层路由](../feature/2026-11-07-three-layer-routing.md) 拥有；角色模型由 [用主题会话取代 thread](./2026-11-07-topic-session-model.md) 拥有；v2 数据模型由 [索引 v2 与迁移](./2026-11-07-topic-store-v2.md) 拥有。本记录固定执行层：模块边界、数据/配置扩展、读取点、工具拆分、预设与测试顺序；交付事实与证据见 [M9_RESULT](../../../../docs/M9_RESULT.md)。
 
 ## Decision
 

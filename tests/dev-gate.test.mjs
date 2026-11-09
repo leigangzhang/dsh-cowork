@@ -33,7 +33,8 @@ const HOOK_SOURCE = [
 ].join('\n')
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
-const { apply, Config, normalizeConfig } = await import('../src/index.ts')
+const { apply, Config, normalizeConfig, panelRoutePathname } = await import('../src/index.ts')
+const { panelProbeRequest } = await import('../src/panel-probe.ts')
 const { DEFAULT_ISOLATION_PROVIDER } = await import('../src/tool-runtime.ts')
 const { CLONE_ISOLATION_PROVIDER } = await import('../src/checkout.ts')
 const {
@@ -96,6 +97,8 @@ const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-thread', '
 const DEV_TOOLS = ['cowork_identity_probe', 'cowork_probe']
 const DEV_PRESETS = ['cowork-probe', 'cowork-thread-s0']
 const DEV_ROUTES = [
+  '/dsh-cowork/e2e/m12/run',
+  '/dsh-cowork/e2e/m12/status',
   '/dsh-cowork/e2e/m2/run',
   '/dsh-cowork/e2e/m2/status',
   '/dsh-cowork/e2e/m3/run',
@@ -288,12 +291,12 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   assert.deepEqual(devLabels, [])
 })
 
-test('enableDevRoutes=true restores the M0/S0/M2/M3 surface unchanged', async () => {
+test('enableDevRoutes=true restores the M0/S0/M2/M3/M12 surface unchanged', async () => {
   const host = fakeHost()
   apply(host.ctx, config(true))
   await settle()
 
-  // Same nine loopback-only routes and the same exact-match shape as before.
+  // Same eleven loopback-only routes and the same exact-match shape as before.
   assert.deepEqual(sorted(host.routes.map((route) => route.path)), DEV_ROUTES)
   assert.equal(host.routes.every((route) => route.kind === 'exact'), true)
   assert.equal(host.routes.every((route) => typeof route.handler === 'function'), true)
@@ -303,10 +306,37 @@ test('enableDevRoutes=true restores the M0/S0/M2/M3 surface unchanged', async ()
   assert.deepEqual(toolNames(host), sorted([...BUSINESS_TOOLS, ...DEV_TOOLS]))
   assert.deepEqual(presetIds(host), sorted([...BUSINESS_PRESETS, ...DEV_PRESETS]))
 
-  // One session/event listener per runner (M0, S0, M2, M3) plus the business
-  // topic lifecycle listener.
-  assert.equal(sessionListeners(host).length, 5)
+  // One session/event listener per runner (M0, S0, M2, M3, M12) plus the
+  // business topic lifecycle listener.
+  assert.equal(sessionListeners(host).length, 6)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
+
+  // Every dev route and the M12 event feed are fiber-owned effects with a
+  // label a later diagnostic can recognise.
+  const labels = host.effects.map((entry) => entry.label)
+  for (const path of ['/dsh-cowork/e2e/m12/run', '/dsh-cowork/e2e/m12/status']) {
+    assert.equal(labels.includes(`dsh-cowork: route ${path}`), true, `missing effect for ${path}`)
+  }
+  assert.equal(labels.includes('dsh-cowork: M12 E2E session event feed'), true)
+})
+
+test('the M12 panel probe matches a query-string path to the bare registered route (F1)', () => {
+  // The host registers the panel routes under the bare path; the probe calls
+  // overview with `?sessionId=…`, so a raw Map lookup missed it in t6.
+  const routes = new Map([[OVERVIEW_PATH, { path: OVERVIEW_PATH }]])
+  const probePath = `${OVERVIEW_PATH}?sessionId=session-1`
+
+  assert.equal(panelRoutePathname(probePath), OVERVIEW_PATH)
+  assert.equal(routes.get(panelRoutePathname(probePath)), routes.get(OVERVIEW_PATH))
+  assert.equal(panelRoutePathname(OVERVIEW_PATH), OVERVIEW_PATH)
+  assert.equal(routes.get(panelRoutePathname('/api/cowork.unknown')), undefined)
+  assert.equal(routes.get(panelRoutePathname(`${OVERVIEW_PATH}?sessionId=`)), routes.get(OVERVIEW_PATH))
+
+  // The Request still carries the query string and the same-origin headers.
+  const request = panelProbeRequest(probePath)
+  assert.equal(new URL(request.url).searchParams.get('sessionId'), 'session-1')
+  assert.equal(request.headers.get('host'), '127.0.0.1')
+  assert.equal(request.headers.get('origin'), 'http://127.0.0.1')
 })
 
 test('the dev probe canonicalizes a symlinked repoPath (P0-F1)', async () => {
@@ -336,7 +366,7 @@ test('disposing the plugin releases the dev session listeners', async () => {
   const host = fakeHost()
   apply(host.ctx, config(true))
   await settle()
-  assert.equal(sessionListeners(host).length, 5)
+  assert.equal(sessionListeners(host).length, 6)
 
   await disposeAll(host)
 

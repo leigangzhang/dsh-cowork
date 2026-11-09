@@ -24,6 +24,7 @@ const api = await import('../src/api.ts')
 const contract = await import('../src/api-contract.ts')
 const reviewRequest = await import('../src/review-request.ts')
 const store = await import('../src/store.ts')
+const panelProbe = await import('../src/panel-probe.ts')
 
 const CREATED_AT = '2026-01-01T00:00:00.000Z'
 /** A clock ten minutes after the fixture's `lastActiveAt`, so nothing transitions. */
@@ -1086,6 +1087,41 @@ test('a missing Host header and a foreign Origin are refused', async () => {
   assert.equal(sameOrigin.status, 200, 'the browser origin is allowed')
   const noOrigin = await readResponse(await route.fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery())))
   assert.equal(noOrigin.status, 200, 'a server-side caller sends no Origin')
+})
+
+test('the M12 panel probe clears the same-origin guard (F4)', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+
+  // The probe states the loopback authority explicitly; the production
+  // overview handler must accept it and read the sessionId query string.
+  const probe = await readResponse(await routes.get(contract.OVERVIEW_PATH).fetch(
+    panelProbe.panelProbeRequest(`${contract.OVERVIEW_PATH}${overviewQuery()}`),
+  ))
+  assert.equal(probe.status, 200)
+  assert.equal(probe.body.ok, true)
+  assert.equal(probe.body.project.masterSessionId, MASTER)
+
+  // Negative control: a bare Request carries no Host header (undici computes
+  // it only when sending), which is the exact shape t22 hit as a 403.
+  const bare = new Request(`http://127.0.0.1${contract.OVERVIEW_PATH}${overviewQuery()}`)
+  assert.equal(bare.headers.get('host'), null)
+  const refused = await readResponse(await routes.get(contract.OVERVIEW_PATH).fetch(bare))
+  assert.equal(refused.status, 403)
+  assert.equal(refused.body.error.code, 'request/origin')
+
+  // The write half keeps the caller's content-type/body and adds the same
+  // origin headers: the reopen route reaches its own business gate (409 for an
+  // active topic), so no other host gate rejects the probe.
+  const write = await readResponse(await routes.get(contract.REOPEN_PATH).fetch(
+    panelProbe.panelProbeRequest(contract.REOPEN_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: MASTER, topicId: 'topic-1' }),
+    }),
+  ))
+  assert.equal(write.status, 409)
+  assert.equal(write.body.error.code, 'topic/not-resolved')
 })
 
 test('write routes refuse a missing or wrong content type with 415', async () => {

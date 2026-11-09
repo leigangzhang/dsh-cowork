@@ -98,8 +98,8 @@
 - M10 启动交接：[M10_HANDOFF.md](M10_HANDOFF.md)。
 - M9 执行记录与备选：[2026-11-08-m9-routing-tools-presets-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)。
 - 路由需求规则：[2026-11-07-three-layer-routing.md](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
-- 角色模型（仍 proposed，M11 收口）：[2026-11-07-topic-session-model.md](../.agents/notes/proposed/architecture/2026-11-07-topic-session-model.md)。
-- 索引 v2 与迁移（仍 proposed，M10 收口）：[2026-11-07-topic-store-v2.md](../.agents/notes/proposed/architecture/2026-11-07-topic-store-v2.md)。
+- 角色模型（implemented，M12 迁入）：[2026-11-07-topic-session-model.md](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)。
+- 索引 v2 与迁移（implemented，M12 迁入）：[2026-11-07-topic-store-v2.md](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)。
 - 宿主能力证据：[M6_PROBE_RESULT.md](M6_PROBE_RESULT.md) §1（`prepareCall`/关闭推理）、§5（preset 工具面）。
 - M8 交付结果：[M8_RESULT.md](M8_RESULT.md)。
 - 遗留问题与归属：[KNOWN_ISSUES](KNOWN_ISSUES.md)。

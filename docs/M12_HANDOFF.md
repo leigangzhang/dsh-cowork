@@ -1,13 +1,13 @@
 # M12 交接文档
 
-- 状态：**M12 启动文档（2026-11-08）**。M11 已交付（[M11 交付结果](M11_RESULT.md)）；本文件写给下一个会话，用于启动 V0.2 M12（文档、真实 E2E、0.2.0）。不重新论证 M11 的决定，也不重抄 M12 需求全文。
+- 状态：**M12 启动文档（2026-11-08）**。M11 已交付（[M11 交付结果](M11_RESULT.md)）；本文件写给下一个会话，用于启动 V0.2 M12（文档、真实 E2E、0.2.0）。不重新论证 M11 的决定，也不重抄 M12 需求全文；交付证据的 home 是 [M12_RESULT](M12_RESULT.md)，本文件保留启动时的计划与陷阱。
 - 适用：接手 M12 的 agent 或人。范围：M11 交付后的代码基线、M12 的启动方式、分阶段实施与证据、影响面、陷阱、完成定义、回滚与未验证清单。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §6 M12 与 §7 拥有需求、范围与验收编号 A1–A10；[M12 执行提案](../.agents/notes/proposed/architecture/2026-11-08-m12-docs-e2e-release-plan.md) 拥有执行层决定与备选；[M11 交付结果](M11_RESULT.md) 拥有 M11 的交付面与证据；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；[AGENTTEAM](AGENTTEAM.md) 与 [testing](testing.md) 拥有流程与证据规则；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §6 M12 与 §7 拥有需求、范围与验收编号 A1–A10；[M12 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m12-docs-e2e-release-plan.md) 拥有执行层决定与备选（已随交付迁入 implemented）；[M11 交付结果](M11_RESULT.md) 拥有 M11 的交付面与证据；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；[AGENTTEAM](AGENTTEAM.md) 与 [testing](testing.md) 拥有流程与证据规则；交付事实、A1–A10 证据与回滚记录由 [M12_RESULT](M12_RESULT.md) 拥有；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## M11 交付后的状态（2026-11-08）
 
 - **M11 代码 artifact**：HEAD `6b7beab01ddd4d1ff1370187802a965a5019e1fd`；`git diff 6a5310e..6b7beab | shasum -a 256` = `e1e0f88dabf4eff5390ea6203b84bb06899a7d6870f15553f96a972b22e85669`；`npm test` **732 / 732**、四命令 exit 0；`lib/client.js` 89,235 B、sha256 `3b1b3588a72b7b0ad7608511149e9f10b52cfd271007b8dd2896bc59c896ab47`（构建可复现）。
-- **M11 分支与 PR**：`feat/m11-http-api-panel`，PR [#16](https://github.com/leigangzhang/dsh-cowork/pull/16)（base `main`）。分支 tip `c9c74f4` 是 M11 交付记录之后的文档提交；`6a5310e..c9c74f4` 的 diff sha256 = `408c65facaa0b3ac0a0a262a736bf92526850982781a34b81b247037058ff419`。**M12 启动时以实际合并 sha 为准，不猜 sha。**
+- **M11 分支与 PR**：`feat/m11-http-api-panel`，PR [#16](https://github.com/leigangzhang/dsh-cowork/pull/16)（base `main`）**已合并**；M12 的基线是 `origin/main` 上的 merge commit `1b0801d`（合并提交信息见 `git log --oneline -1 1b0801d`）。分支 tip `c9c74f4` 是 M11 交付记录之后的文档提交；M12 不再以 M11 分支 HEAD 为基线。
 - **M11 交付面**：`src/api-contract.ts`（v2 wire，17,046 B）、`src/api.ts`（六条路由 + 同源安全，39,114 B）、`src/index.ts`（仅装配端口）、`src/client/*`（9 文件，主题面板）、`tools/panel-fixture.mjs`（v2 fixture）、4 个测试文件重写/扩展；细节见 M11_RESULT「交付面」。未新增工具/预设，未改 canonical v2 store/schema 语义。
 - **面板/API 现状（`6b7beab` 实测）**：六条路由 `/api/cowork.overview`、`/activity`、`/topic`（GET）与 `/topic.resolve`、`/topic.reopen`、`/route.move`（POST，master-only + Host/Origin/content-type/8 KiB 校验）；面板显示主题列表/详情/工作项/评审请求（来自 `reviews/<topicId>-<requestId>.json`）/活动/操作；打开主题只切主区、面包屑回 master、footer 入口保留；reviewer 不列为行（KI-28：宿主左侧栏仍可能可见）。
 - **数据模型**：canonical v2（`topics[]`/`workItems[]`、`activity.jsonl`、`inbox.json`、评审请求文件）；真实项目 `.dsh-cowork` 目前仍是 v1（`index.json` sha256 `f7fec0dba4aa6378ee0c591ecc18276ddd5a75c7091d285331c70ae7a3bdbc24`，3 threads、reviews 3 个旧文件、无 activity/inbox/backup）——M11 验证期间触发过一次 on-write 迁移，已用 `index.v1.backup.json` 恢复。
@@ -27,7 +27,7 @@
 
 1. [AGENTS.md](../AGENTS.md) 与 [docs/AGENTTEAM.md](AGENTTEAM.md)：纪律、R8 浏览器验证、R9 fixture、DAG/artifact/交付规则。
 2. [PLAN-V0.2](PLAN-V0.2.md) §6 M12（范围/完成标准/证据/不做）、§7（测试与验收总则与 A1–A10）、§2.1–§2.4（角色、流程、状态机、可见性）、§5.1–§5.6（生命周期、store、路由、评审、工作项、活动/收件箱）。
-3. [M12 执行提案](../.agents/notes/proposed/architecture/2026-11-08-m12-docs-e2e-release-plan.md)：E2E 驱动、迁移演练、安装路径、文档发布面的执行决定与备选。
+3. [M12 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m12-docs-e2e-release-plan.md)：E2E 驱动、迁移演练、安装路径、文档发布面的执行决定与备选（已迁 implemented）。
 4. [M11 交付结果](M11_RESULT.md)：交付面、A1–A10 证据、偏差 D1–D8、回滚与未验证项；不要复制它的证据。
 5. [KNOWN_ISSUES](KNOWN_ISSUES.md)：KI-22/29/31/32 与保持项（含 KI-30）的重估条件。
 6. [docs/testing.md](testing.md)（tiers、commands、fixture 规则）、[M6 探针结果](M6_PROBE_RESULT.md) §3/§4/§6（archive 后行为、reviewer 回收、同源 POST 限制）、[M4 交付结果](archived/M4_RESULT.md)（安装/卸载路径与 15/15 真实 flow 的做法）。
@@ -36,9 +36,9 @@
 ## 第一步：M12 启动顺序
 
 1. `git fetch origin`；工作区必须干净（`git status --porcelain` 为空）。
-2. 定基线：**若 M11 PR #16 已合并**，用 `origin/main` 的 merge sha；**未合并**时用 `origin/feat/m11-http-api-panel` HEAD（预期 `c9c74f4`，以实际为准）。记录实际 sha，不猜测，不 rebase、不 force。
+2. 定基线：M11 PR #16 已合并，基线是 `origin/main` 的 merge sha `1b0801d`；从它新建 M12 分支，不 rebase、不 force。
 3. 新建 `feat/m12-docs-e2e-0.2.0`（不在 M11 分支上继续开发）。
-4. 先跑基线四命令：`npm test`（期望 **732/732**）、`npm run typecheck`、`npm run build`、`npm run check`，全部 exit 0 才改代码；任何红先停下报告。
+4. 先跑基线四命令：`npm test`（实际基线 **732/732**）、`npm run typecheck`、`npm run build`、`npm run check`，全部 exit 0 才改代码；任何红先停下报告。M12 最终为 **773/773**（新增迁移演练 7 + m12-e2e 32 + dev-gate 1 + api 1）。
 5. 建团队前读 [docs/AGENTTEAM.md](AGENTTEAM.md)，用已配置 profile；先派 **impact-scan** 任务：
    `grep -rn "m2-e2e\|m3-e2e\|M12\|archived\|thread\|handoff" src tests tools docs/README.md README.md | head -80`、`wc -c src/*.ts`、核对 `tests/workflow.test.mjs`/`tests/source-budget.test.mjs` 对文件与预算的既有断言、核对 `package.json` 版本与 `docs/publish.json` 分类。
 6. 并行的写任务用 `worktree_create` 隔离并把 `worktreePath` 写进任务；合并由队长独占；verifier/reviewer 用 `verify-only` 只读策略且不得由实现者自审（M11 的做法）。
@@ -105,7 +105,7 @@
 
 ## 指针
 
-- M12 执行提案：[2026-11-08-m12-docs-e2e-release-plan.md](../.agents/notes/proposed/architecture/2026-11-08-m12-docs-e2e-release-plan.md)。
+- M12 执行记录：[2026-11-08-m12-docs-e2e-release-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m12-docs-e2e-release-plan.md)。
 - M11 交付结果与证据：[M11_RESULT.md](M11_RESULT.md)、[M11_HANDOFF.md](M11_HANDOFF.md)。
 - 需求与验收：[PLAN-V0.2](PLAN-V0.2.md) §6 M12、§7 A1–A10。
 - 流程与证据：[AGENTTEAM](AGENTTEAM.md)、[testing](testing.md)。

@@ -99,6 +99,17 @@
         "npm run check:self-test"
       ],
       "why": "A guard is only real if a violation makes it red; the workflow surface proves the guards can fail."
+    },
+    {
+      "name": "drill",
+      "patterns": [
+        "tools/m12-migration-drill.mjs"
+      ],
+      "evidence": [
+        "node tools/m12-migration-drill.mjs",
+        "node --test tests/m12-migration-drill.test.mjs"
+      ],
+      "why": "The v1-to-v2 migration drill is the only executable proof of backup byte equality, second-write idempotence and backup rollback; changing the drill changes that evidence."
     }
   ]
 }
