@@ -14,6 +14,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | M9 怎么启动、分阶段、证据与坑 | [M9_HANDOFF.md](M9_HANDOFF.md) |
 | M9 交付了什么、拿什么证明、怎么回滚、M10 前置 | [M9_RESULT.md](M9_RESULT.md) |
 | M10 怎么启动、分阶段、证据与坑 | [M10_HANDOFF.md](M10_HANDOFF.md) |
+| M10 交付了什么、拿什么证明、怎么回滚、M11 前置 | [M10_RESULT.md](M10_RESULT.md) |
 | M11 怎么启动、分阶段、证据与坑（历史启动交接） | [M11_HANDOFF.md](M11_HANDOFF.md) |
 | M11 交付了什么、拿什么证明、怎么回滚、M12 前置 | [M11_RESULT.md](M11_RESULT.md) |
 | M12 怎么启动、分阶段、证据与坑 | [M12_HANDOFF.md](M12_HANDOFF.md) |
@@ -45,6 +46,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/M9_HANDOFF.md` | handoff | M8 交付后的基线、M9 启动顺序、分阶段实施、证据、陷阱、完成定义、回滚与未验证清单 |
 | `docs/M9_RESULT.md` | result | M9 实际交付：基线、模块清单、四命令证据、探针边界、已知偏差、回滚与未验证项 |
 | `docs/M10_HANDOFF.md` | handoff | M9 交付后的基线、M10 启动顺序、分阶段实施、证据、陷阱、完成定义、回滚与未验证清单 |
+| `docs/M10_RESULT.md` | result | M10 实际交付：基线、模块清单、A1–A9 证据、审查与修复、偏差、回滚与未验证项 |
 | `docs/M11_HANDOFF.md` | handoff | M10 交付后的基线、M11 启动顺序、分阶段实施、证据、陷阱、完成定义、回滚与未验证清单（历史启动版） |
 | `docs/M11_RESULT.md` | result | M11 实际交付：基线、v2 wire/读写路由/client/fixture 交付面、A1-A10 证据、真实 Chrome 记录、偏差、回滚与未验证项 |
 | `docs/M12_HANDOFF.md` | handoff | M11 交付后的基线、M12 启动顺序、真实 E2E/迁移演练/安装路径/文档发布的分阶段实施、影响面、陷阱、完成定义、回滚与未验证清单 |

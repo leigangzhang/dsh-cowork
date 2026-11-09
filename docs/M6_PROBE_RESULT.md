@@ -170,7 +170,7 @@ main worktree git status after: "" ; cloneCleanupSucceeded=true
 - **M11 必须改计划假设（探针 3）。** `docs/PLAN-V0.2.md:143`（§2.4）与 `:380`（§5.9）要求「主题会话隐藏」同时「`openSession` 必须可用」。探针 3 证明两者不能按原假设同时成立：archive 后 prompt 被 `blocked`、消息不落盘；unarchive 后恢复；无替代过滤接口。两个候选，留给 M11 与用户决定：
   - **(a)** 打开前 `unarchiveSession`、离开后重新 `archiveSession`；打开期间主题会出现在左侧栏。真实 UI 点击与 `clearArchivedCurrent`（`dsh-client-ui-workspace/lib/client.js:1640`，reconcile 调用点 `:1578`）仍待 M11 实测。
   - **(b)** 采用 §8 的降级：主题会话保留在左侧栏，只把 reviewer 隐藏；CoWork 仍是主题列表与打开入口。
-- **决定（2026-11-07）**：用户采用 (b)。实现与计划表述以 [会话可见性降级决策](../.agents/notes/proposed/feature/2026-11-07-topic-visibility-fallback.md) 为准；PLAN-V0.2 已按 (b) 修正。
+- **决定（2026-11-07）**：用户采用 (b)。实现与计划表述以 [会话可见性降级决策](../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md) 为准；PLAN-V0.2 已按 (b) 修正。
 - **M10（探针 4）。** `reviewer.reclaim` 默认必须是 **after-verdict**：创建后立即归档（`stopActivity:true`）的 reviewer turn 以 `blocked` 结束、无 verdict；先跑完 verdict 再归档正常。另：`archiveSession` 默认参数要求会话不活跃，回收须用 `stopActivity:true`（`dsh-workspace/lib/index.js:531-533`）。
 - **M9（探针 1/5）。** 路由第三层用 `reasoningEffort="off"`、`maxTokens` 16–256、2s 超时，失败回退结构化候选/新建。工具面分两层：preset 行决定该 agent 注册什么；`agent.ctx.tools.restrict({deny})` 掩宿主全局与 preset 继承名，不能掩 agent 自身注册的工具；per-agent 视图必须 `schemas(agent)`。
 - **M8（探针 2）。** `session/event` 的 `turn/end` 可用于更新 `lastActiveAt`；限制是仅宿主进程内、500 条缓冲未验证。

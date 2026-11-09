@@ -20,7 +20,7 @@
 - **KI-29**：legacy dev E2E（m2/m3）仍是 v1 语义，不能当验收；M12 用新驱动替代其验收角色。
 - **KI-31**：v2 面板/API 未在正式 bundle 安装路径验证 → M12 打包/安装/卸载验收。
 - **KI-32**：`route.move` 重复 intent 会继续追加别名（每次 ≤8，非严格幂等，已接受）→ M12 文档说明或评估。
-- **KI-33**：`docs/README.md` 缺 `M10_RESULT` 行；M6 文档与 `topic-session-model` 仍指向已迁移记录的 `proposed/` 旧路径 → M12 文档收口统一修。
+- **KI-33（已关闭，不再承接）**：`docs/README.md` 已补 `M10_RESULT` 行；M6 文档与 `topic-session-model`/`topic-store-v2` 的旧 `proposed/` 链接已修；M10 执行提案已迁 implemented。剩余「`topic-session-model`/`topic-store-v2` 仍 proposed」由 M12 文档发布面承接。
 - 保持项不要改语义：KI-28（reviewer 左侧栏可见是接受上限）、KI-27（isolation 只有 clone）、KI-23（inbox at-least-once）、KI-19（迁移报告只在内存）、KI-21（fsync 无崩溃注入证据）、KI-26（合并串行只在本进程）、KI-30（评审分级未实现，M12 视需要）。
 
 ## 先读什么
@@ -29,7 +29,7 @@
 2. [PLAN-V0.2](PLAN-V0.2.md) §6 M12（范围/完成标准/证据/不做）、§7（测试与验收总则与 A1–A10）、§2.1–§2.4（角色、流程、状态机、可见性）、§5.1–§5.6（生命周期、store、路由、评审、工作项、活动/收件箱）。
 3. [M12 执行提案](../.agents/notes/proposed/architecture/2026-11-08-m12-docs-e2e-release-plan.md)：E2E 驱动、迁移演练、安装路径、文档发布面的执行决定与备选。
 4. [M11 交付结果](M11_RESULT.md)：交付面、A1–A10 证据、偏差 D1–D8、回滚与未验证项；不要复制它的证据。
-5. [KNOWN_ISSUES](KNOWN_ISSUES.md)：KI-22/29/31/32/33 与保持项的重估条件。
+5. [KNOWN_ISSUES](KNOWN_ISSUES.md)：KI-22/29/31/32 与保持项（含 KI-30）的重估条件。
 6. [docs/testing.md](testing.md)（tiers、commands、fixture 规则）、[M6 探针结果](M6_PROBE_RESULT.md) §3/§4/§6（archive 后行为、reviewer 回收、同源 POST 限制）、[M4 交付结果](archived/M4_RESULT.md)（安装/卸载路径与 15/15 真实 flow 的做法）。
 7. [M11 交接文档](M11_HANDOFF.md)（历史启动版，只读）与 [M11 决策记录](../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md)。
 
@@ -50,7 +50,7 @@
 2. **真实 E2E 驱动（M12.3）**：新增 `src/m12-e2e.ts`（可拆 `src/m12-e2e-support.ts`）与 `tests/m12-e2e.test.mjs`；dev 门 `Config.enableDevRoutes` 下的 `/dsh-cowork/e2e/m12/run`、`/status`；临时仓库运行；按 PLAN §6 M12 的步骤逐步断言并写 `.dsh-cowork/e2e/M12_E2E.json`（带 artifact identity）。先 host-free 契约测试绿，再真实宿主跑一次；模型路由在 E2E 中关闭（PLAN §7）。
 3. **迁移演练与回滚（M12.4）**：`tools/m12-migration-drill.mjs`（或驱动的一个阶段）；v1 快照 → 首次写 → v2 + `index.v1.backup.json` 逐字节一致 → 幂等 → 备份回滚；覆盖 pending reviewer 归档失败进 `archiveFailures` 的边界；证据 JSON。
 4. **打包与安装路径（M12.5）**：`package.json` 0.2.0；`npm run build` 后 `npm pack` 并检查清单；`m12verify` profile 安装、独立端口宿主重启、四 preset/15 工具/六路由/v2 client 验证、真实 Chrome 面板截图；在同一 profile 用 `enableDevRoutes: true` + 临时 `repoPath` 跑已安装包版 E2E；卸载并确认 `.dsh-cowork` 保留。
-5. **文档发布面**：README 0.2.0 定稿；`docs/routing.md`/`docs/context.md` 按 v2 重写或归档旧 thread 页；`docs/glossary.md` 补 v2 术语；`docs/KNOWN_ISSUES.md` 关闭/转归属 KI-22/29/31/32/33 并保持接受项；`docs/M12_RESULT.md`（A1–A10 证据、安装/迁移/回滚、偏差、未验证）；`docs/publish.json` 为两个新文件各加 internal 条目；`docs/README.md` 加 M12 行。
+5. **文档发布面**：README 0.2.0 定稿；`docs/routing.md`/`docs/context.md` 按 v2 重写或归档旧 thread 页；`docs/glossary.md` 补 v2 术语；`docs/KNOWN_ISSUES.md` 关闭/转归属 KI-22/29/31/32 并保持接受项；`docs/M12_RESULT.md`（A1–A10 证据、安装/迁移/回滚、偏差、未验证）；`docs/publish.json` 为两个新文件各加 internal 条目；`docs/README.md` 加 M12 行。同时把 `topic-session-model`/`topic-store-v2` 迁 implemented 并按骨架重写（二者 Delivery stages 均写 M12 文档收口）；若决定保持 proposed，必须在本阶段记录里写明理由。
 6. **收口**：四命令 + `npm run check:self-test`；AgentTeams R10（integration-ready → verification → review → 一次性修复 + 文档同步 → final integration → delivery PR）；`docs/M12_RESULT.md` 记录最终 HEAD、diff sha、status、tgz 清单、PR；**停等确认，不发布 GitHub Release、不部署生产。**
 
 ## 影响面（派单前先扫）
@@ -72,7 +72,7 @@
 - **第二个宿主的认证**。独立端口/profile 的认证用启动输出里的已认证 URL；不读取/不写入/不转述 cookie/token，不用 curl 绕过。拿不到认证就记录「未验证」，附证据。
 - **安装路径的缓存**。`npm pack` 前先 `npm run build`；验证时确认浏览器 boot 列表里是安装包的 `lib/client.js`（id/URL），别把旧 bundle 的通过当新证据（KI-11/KI-16）。
 - **旧文档双真相源**。`docs/routing.md`/`docs/context.md` 是 M4 时代 thread 叙述；要么按 v2 重写，要么归档到 `docs/archived/` 再写新页，不能在当前页混两代语义。
-- **KI-33 的旧指针**。`npm run check` 只校验 AGENTS.md/README.md/docs/README.md 的链接，不扫其它文档；M6 文档与 `topic-session-model` 里的旧 `proposed/` 路径要手工修。
+- **旧文档指针已修（M10 遗留收口）**：`docs/README` 已补 `M10_RESULT` 行，M6 文档与 `topic-session-model`/`topic-store-v2` 的旧 `proposed/` 链接、M10 执行提案已修；但 `npm run check` 仍只校验 AGENTS.md/README.md/docs/README.md 的链接，后续新增文档的链接仍要手工核对。
 - **版本与发布边界**。`package.json` 0.2.0 与 README/发布记录必须一致；`private: true`、无 lockfile 是现状，不擅自改为 npm 发布；GitHub Release 需用户确认。
 
 ## 验证与证据

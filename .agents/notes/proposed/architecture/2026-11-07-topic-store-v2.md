@@ -8,11 +8,11 @@ Class: architecture
 
 M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`checkoutPath`、review 字段直接挂在 thread 上。评审文件是 verdict-only，没有请求范围；没有活动流，也没有 master 收件箱。用户需要三态主题、评审请求、活动流与收件箱，但这些事实在现有数据模型里没有位置。
 
-迁移也不能简单改字段：v1 的 `awaiting_review` 有在途 reviewer，`done/archived` 是结果而不是进行中，`checkoutPath` 是旧 clone。直接覆盖会让旧数据不可读、评审会话悬挂、旧 clone 失联。本记录固定 v2 存储、文件布局与 v1 迁移策略；评审请求的业务规则由 [评审请求模型](../feature/2026-11-07-review-request-model.md) 拥有，状态规则由 [三态生命周期](../../implemented/feature/2026-11-07-three-state-lifecycle.md) 拥有。详细字段见 [PLAN-V0.2 §4.3/§5.2](../../../../docs/PLAN-V0.2.md)。
+迁移也不能简单改字段：v1 的 `awaiting_review` 有在途 reviewer，`done/archived` 是结果而不是进行中，`checkoutPath` 是旧 clone。直接覆盖会让旧数据不可读、评审会话悬挂、旧 clone 失联。本记录固定 v2 存储、文件布局与 v1 迁移策略；评审请求的业务规则由 [评审请求模型](../../implemented/feature/2026-11-07-review-request-model.md) 拥有，状态规则由 [三态生命周期](../../implemented/feature/2026-11-07-three-state-lifecycle.md) 拥有。详细字段见 [PLAN-V0.2 §4.3/§5.2](../../../../docs/PLAN-V0.2.md)。
 
 ## Proposal
 
-**索引 v2。** `index.json` 写 `version: 2`、`topics[]`、`workItems[]`。`TopicRecord` 字段：`topicId/title/status/awaitingReview/blocked/scope/ownedPaths/aliases/digest/cwd/legacyCheckoutPath/createdAt/updatedAt/lastActiveAt/lastDeliveryConfirmedAt/resolvedAt/resolvedBy/latestReviewRequestId/reviewStatus/reviewerSessionId`。`WorkItemRecord` 字段见 [并行隔离与合并](2026-11-07-parallel-isolation-and-merge.md)。写只写 v2；读兼容 v1，内存里归一化。
+**索引 v2。** `index.json` 写 `version: 2`、`topics[]`、`workItems[]`。`TopicRecord` 字段：`topicId/title/status/awaitingReview/blocked/scope/ownedPaths/aliases/digest/cwd/legacyCheckoutPath/createdAt/updatedAt/lastActiveAt/lastDeliveryConfirmedAt/resolvedAt/resolvedBy/latestReviewRequestId/reviewStatus/reviewerSessionId`。`WorkItemRecord` 字段见 [并行隔离与合并](../../implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)。写只写 v2；读兼容 v1，内存里归一化。
 
 **评审请求文件。** `reviews/<topicId>-<requestId>.json` 保存请求与 verdict 在同一文件：请求字段、`status`、`reviewerSessionId`、`requestedAt`、`reviewedAt`、`verdict`。一次请求一个文件，verdict 后不再新建文件；上一轮通过 `previousRequestId` 关联。旧的 `reviews/<threadId>-<stamp>.json` 保留只读，不重写。
 
