@@ -18,6 +18,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | M11 怎么启动、分阶段、证据与坑（历史启动交接） | [M11_HANDOFF.md](M11_HANDOFF.md) |
 | M11 交付了什么、拿什么证明、怎么回滚、M12 前置 | [M11_RESULT.md](M11_RESULT.md) |
 | M12 怎么启动、分阶段、证据与坑 | [M12_HANDOFF.md](M12_HANDOFF.md) |
+| M12 交付了什么、拿什么证明、怎么回滚、V0.3 前置 | [M12_RESULT.md](M12_RESULT.md) |
 | 文档怎么写、放哪里、预算、发布 | [documentation.md](documentation.md) |
 | 这个词在这个仓库里是什么意思 | [glossary.md](glossary.md) |
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |
@@ -50,6 +51,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/M11_HANDOFF.md` | handoff | M10 交付后的基线、M11 启动顺序、分阶段实施、证据、陷阱、完成定义、回滚与未验证清单（历史启动版） |
 | `docs/M11_RESULT.md` | result | M11 实际交付：基线、v2 wire/读写路由/client/fixture 交付面、A1-A10 证据、真实 Chrome 记录、偏差、回滚与未验证项 |
 | `docs/M12_HANDOFF.md` | handoff | M11 交付后的基线、M12 启动顺序、真实 E2E/迁移演练/安装路径/文档发布的分阶段实施、影响面、陷阱、完成定义、回滚与未验证清单 |
+| `docs/M12_RESULT.md` | result | M12 实际交付：0.2.0 artifact 与提交序列、真实全链路 E2E（17/17）、迁移/回滚演练、打包/安装/真实 Chrome 面板/卸载、真实数据迁移副作用与恢复、A1–A10 证据、偏差、回滚与未验证项 |
 | `docs/testing.md` | guide | 测试分层、证据、flake 政策 |
 | `docs/documentation.md` | guide | 文档种类、单一事实源、发布开关 |
 | `docs/routing.md` | guide | 路由判定、新建 thread、review 与合并的三张时序图 |
