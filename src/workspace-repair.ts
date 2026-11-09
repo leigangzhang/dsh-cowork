@@ -14,6 +14,8 @@
  * - a project root is whatever {@link WorkspaceRepairPorts.resolveProjectRoot}
  *   returns, and that lookup only matches a directory holding
  *   `.dsh-cowork/index.json`, so a non-Cowork directory never gets a workspace;
+ * - a root inside the plugin's own `.dsh-cowork` store (E2E/probe fixtures) is
+ *   skipped, so cleanup of test workspaces is not undone on the next start;
  * - the project files are not read or written, and no index is repaired;
  * - only sessions whose own cwd is the project root are attached, because the
  *   host validates attachment against the workspace's exact canonical path;
@@ -23,13 +25,23 @@
  * The function returns a result instead of throwing: startup must log a failed
  * repair, never fail to start because of it.
  */
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { describeError } from './checkout-teardown.js'
 
 /** Most session rows one repair may read. */
 export const REPAIR_MAX_SESSIONS = 500
 /** Most distinct Cowork project roots one repair may handle. */
 export const REPAIR_MAX_PROJECTS = 100
+
+/**
+ * A project root inside the plugin's own `.dsh-cowork` store is test/probe
+ * state, not a user project. Repair must never resurrect those workspaces after
+ * the user has cleaned them up.
+ */
+export function isCoworkStorePath(root: string): boolean {
+  const normalized = resolve(root)
+  return normalized.includes(`${sep}.dsh-cowork${sep}`) || normalized.endsWith(`${sep}.dsh-cowork`)
+}
 
 /** One session row the repair needs: the id and the cwd to resolve. */
 export interface RepairSessionRow {
@@ -113,6 +125,10 @@ export async function repairCoworkWorkspaces(
       }
       const root = await ports.resolveProjectRoot(cwd)
       if (root === null) {
+        result.skippedSessions += 1
+        continue
+      }
+      if (isCoworkStorePath(root)) {
         result.skippedSessions += 1
         continue
       }

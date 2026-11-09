@@ -211,6 +211,22 @@ test('invalid session rows are skipped without failing the pass', async () => {
   assert.deepEqual(created, [{ id: 'workspace-created-1', path: ROOT }])
 })
 
+test('E2E and probe roots inside .dsh-cowork are not repaired', async () => {
+  const fixture = '/projects/app/.dsh-cowork/e2e/m3-repo'
+  const { ports, created, attachCalls } = repairPorts({
+    sessions: [{ sessionId: 'session-fixture', cwd: fixture }],
+    projectRoots: { [fixture]: fixture },
+  })
+
+  const result = await repairCoworkWorkspaces(ports)
+
+  assert.deepEqual(created, [], 'cleaned-up test workspaces must stay gone')
+  assert.deepEqual(attachCalls, [])
+  assert.equal(result.skippedSessions, 1)
+  assert.equal(result.scannedProjects, 0)
+  assert.equal(result.failed, 0)
+})
+
 test('a failing session listing returns an error result instead of throwing', async () => {
   const { ports } = repairPorts({ sessions: [] })
   ports.listSessions = async () => {
