@@ -968,6 +968,7 @@ test('the client sources carry no v1 vocabulary and never archive a topic', asyn
   assert.match(panelSource, /masterTarget === null \? null/, 'the breadcrumb is absent when there is no valid target')
 
   const stylesSource = sources.get('styles.ts')
+  assert.match(stylesSource, /\.cw-footer-slot \{[\s\S]*?width: calc\(100% \+ 4px\)[\s\S]*?margin: 4px -2px/, 'the footer slot matches the sibling action bleed')
   assert.match(stylesSource, /\.cw-footer-button \{[\s\S]*?height: 42px/, 'the footer button matches the 42px sibling action')
   assert.match(stylesSource, /data-wide='false'[\s\S]*?width: 36px/, 'the collapsed footer button uses the 36px rail size')
 

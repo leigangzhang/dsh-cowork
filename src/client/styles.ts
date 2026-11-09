@@ -895,14 +895,19 @@ export const PANEL_CSS = `
 }
 
 .cw-footer-slot {
+  position: relative;
   display: flex;
+  flex: none;
   align-items: center;
-  width: 100%;
-  min-width: 0;
+  width: calc(100% + 4px);
+  height: 42px;
+  margin: 4px -2px;
 }
 
 .cw-footer-slot[data-wide='false'] {
-  width: auto;
+  width: 36px;
+  height: 36px;
+  margin: 0;
 }
 
 .cw-footer-button {
@@ -966,6 +971,7 @@ export const PANEL_CSS = `
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 20px;
 }
 
 .cw-tab-title {
