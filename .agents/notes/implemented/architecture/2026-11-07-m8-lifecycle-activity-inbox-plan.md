@@ -8,7 +8,7 @@ Class: architecture
 
 M7 把索引落到 v2（`topics[]`/`workItems[]`）、实现迁移事务与 activity/inbox 的文件 I/O，并让未改造的 v1 调用方继续通过兼容视图工作（[M7 迁移实施记录](./2026-11-07-store-v2-migration-plan.md)）。但 M7 只拥有存储与投影：没有任何代码维护主题的生命周期与活动语义——没有 `idle`/`resolved` 判定，没有 `turn/end` 的 `lastActiveAt` 更新，没有重开，没有业务活动事件；收件箱只有文件层，没有合并、投递与重放。索引里的主题因此永远停在 `active`，v2 的 `lastActiveAt`、`digest`、`lastDeliveryConfirmedAt` 没有写入者，M9 的路由与 M11 的面板都没有可用的状态。
 
-M8 的主需求规则由 [主题三态与已解决规则](../feature/2026-11-07-three-state-lifecycle.md) 拥有，数据模型由 [索引 v2 与迁移](../../proposed/architecture/2026-11-07-topic-store-v2.md) 拥有，状态机与验收见 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §2.3/§5.1/§5.6/§6 M8。本记录固定执行层：模块边界、store 扩展、评估时机、KI 处置与测试归属。
+M8 的主需求规则由 [主题三态与已解决规则](../feature/2026-11-07-three-state-lifecycle.md) 拥有，数据模型由 [索引 v2 与迁移](./2026-11-07-topic-store-v2.md) 拥有，状态机与验收见 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §2.3/§5.1/§5.6/§6 M8。本记录固定执行层：模块边界、store 扩展、评估时机、KI 处置与测试归属。
 
 写提案时核对过的 M7 执行缺口，M8 已全部补上：store 只有 v1 兼容视图而没有 canonical v2 文档读写；`ACTIVITY_TYPES` 没有 `topic-reopened`；`src/topic.ts`、`src/topic-events.ts`、`src/activity.ts`、`src/inbox.ts` 不存在；迁移 activity 先于 index 写（KI-20，已在 M8 修复并从 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md) 删除）。
 

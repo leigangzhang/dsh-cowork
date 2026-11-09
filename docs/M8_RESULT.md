@@ -51,7 +51,7 @@
   - `session.header.cwd` 的真实宿主稳定性（F2）。
   - `workItems` 的第三个已解决条件：M8 恒为 `[]`，该条件恒真；M10 必须传入真实 active 计数。
   - 读取点评估（`cowork_project_status`/`cowork_route`/面板 overview）未接入，属 M9/M11。
-- **记录链接**：`docs/PLAN-V0.2.md:545` 与 `topic-store-v2` 中指向两份已迁移记录的路徑已更新为 `implemented/`，跨生命周期链接不再断。
+- **记录链接**：`docs/PLAN-V0.2.md:545` 与 `topic-store-v2` 中指向两份已迁移记录的路徑已更新为 `implemented/`，跨生命周期链接不再断。M12 已把 `topic-session-model` 与 `topic-store-v2` 迁入 `implemented/architecture/` 并按 implemented 骨架重写，`docs/PLAN-V0.2.md` §8 与各文档指针同步更新。
 
 ## 回滚
 
