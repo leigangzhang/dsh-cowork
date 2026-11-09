@@ -47,7 +47,7 @@ flowchart TD
 
 ## 2. 记忆注入
 
-`cowork:memory` 是 agent 作用域的 system prompt 段落，`order=900`（[memory-prompt.ts](../src/memory-prompt.ts#L19)）。注册条件是 preset 为 `cowork-master`、`cowork-topic` 或 `cowork-thread`（弃用别名），且会话 cwd 向上能找到 `.dsh-cowork/index.json`；reviewer 不注入（[COWORK_MEMORY_PRESETS](../src/memory-prompt.ts#L28)、[注册点](../src/memory-prompt.ts#L93-L145)）。
+`cowork:memory` 是 agent 作用域的 system prompt 段落，`order=900`（[memory-prompt.ts](../src/memory-prompt.ts#L19)）。注册条件是 preset 为 `cowork-master` 或 `cowork-topic`，且会话 cwd 向上能找到 `.dsh-cowork/index.json`；reviewer 不注入（[COWORK_MEMORY_PRESETS](../src/memory-prompt.ts#L28)、[注册点](../src/memory-prompt.ts#L93-L145)）。
 
 - 记忆是**拉取式快照**：写入不推送；下一次 prompt assembly 才重新读取。按 agent 的 digest 缓存决定是否重渲染。
 - 渲染顺序、整条拼接与截断的实现在 [renderMemoryBlock](../src/memory.ts#L434)；预算与截断规则以 [PLAN.md](PLAN.md) §5.5 为准。

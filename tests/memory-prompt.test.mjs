@@ -114,7 +114,7 @@ function makeDeps(options = {}) {
 test('exports the documented constants', () => {
   assert.equal(COWORK_MEMORY_SECTION, 'cowork:memory')
   assert.equal(COWORK_MEMORY_ORDER, 900)
-  assert.deepEqual([...COWORK_MEMORY_PRESETS], ['cowork-master', 'cowork-topic', 'cowork-thread'])
+  assert.deepEqual([...COWORK_MEMORY_PRESETS], ['cowork-master', 'cowork-topic'])
 })
 
 test('registers an existing cowork-master agent with the exact section contract', () => {
@@ -135,16 +135,6 @@ test('registers an existing cowork-master agent with the exact section contract'
   assert.deepEqual(deps.renderCalls, [])
 })
 
-test('registers a cowork-thread agent too', () => {
-  const { agent, sections } = fakeAgent({ id: 'thread-1', preset: 'cowork-thread' })
-  const deps = makeDeps()
-  const registration = registerMemoryPrompt(fakeHost([agent]).host, deps)
-
-  assert.equal(sections.length, 1)
-  assert.equal(sections[0].input.name, 'cowork:memory')
-  assert.deepEqual(registration.registered(), ['thread-1'])
-})
-
 test('registers a cowork-topic agent with the same section contract', () => {
   const { agent, sections } = fakeAgent({ id: 'topic-1', preset: 'cowork-topic' })
   const deps = makeDeps()
@@ -156,11 +146,12 @@ test('registers a cowork-topic agent with the same section contract', () => {
   assert.deepEqual(deps.resolveCalls, ['/work/app'])
 })
 
-test('never injects memory into the reviewer or an unknown preset', () => {
+test('never injects memory into the reviewer, the removed thread preset, or an unknown preset', () => {
   const reviewer = fakeAgent({ id: 'reviewer', preset: 'cowork-reviewer' }).agent
+  const thread = fakeAgent({ id: 'thread', preset: 'cowork-thread' }).agent
   const unknown = fakeAgent({ id: 'unknown', preset: 'cowork-topic-legacy' }).agent
   const deps = makeDeps()
-  const registration = registerMemoryPrompt(fakeHost([reviewer, unknown]).host, deps)
+  const registration = registerMemoryPrompt(fakeHost([reviewer, thread, unknown]).host, deps)
 
   assert.deepEqual(registration.registered(), [])
   assert.deepEqual(deps.resolveCalls, [])

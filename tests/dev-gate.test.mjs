@@ -90,8 +90,8 @@ const BUSINESS_TOOL_ORDER = [
   'cowork_checkout_merge',
 ]
 
-/** The four runtime presets every mode registers (thread is the deprecated topic alias). */
-const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-thread', 'cowork-topic']
+/** The three runtime presets every mode registers. */
+const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-topic']
 
 /** Probe-only tools, presets, and routes; all gated by `enableDevRoutes`. */
 const DEV_TOOLS = ['cowork_identity_probe', 'cowork_probe']
@@ -174,7 +174,10 @@ function fakeHost() {
     sessionController: { list: async () => ({ items: [] }) },
     workspaceRegistry: {},
     agentPresets: {
-      list: async () => [],
+      list: async () => presets,
+      remoteExportList: async () => ({
+        presets: presets.map((preset) => ({ ...preset, isDefault: preset.id === 'cowork-master' })),
+      }),
       register: async (definition) => {
         presets.push(definition)
         return async () => {}
@@ -281,7 +284,7 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   assert.equal(sessionListeners(host).length, 1)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 
-  // Only the four business presets; no probe preset rows.
+  // Only the three business presets; no probe preset rows.
   assert.deepEqual(presetIds(host), sorted(BUSINESS_PRESETS))
 
   // No dev-owned effect was registered either, so nothing can survive dispose.
@@ -289,6 +292,28 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
     .map((entry) => entry.label)
     .filter((label) => /probe|e2e|session event feed/i.test(label))
   assert.deepEqual(devLabels, [])
+})
+
+test('the remote roster hides topic/reviewer while registration stays complete', async () => {
+  const host = fakeHost()
+  apply(host.ctx, config(false))
+  await settle()
+
+  assert.deepEqual(presetIds(host), sorted(BUSINESS_PRESETS))
+  assert.deepEqual(
+    sorted((await host.ctx.agentPresets.list()).map((preset) => preset.id)),
+    sorted(BUSINESS_PRESETS),
+  )
+  assert.deepEqual(
+    (await host.ctx.agentPresets.remoteExportList()).presets.map((preset) => preset.id),
+    ['cowork-master'],
+  )
+
+  await disposeAll(host)
+  assert.deepEqual(
+    sorted((await host.ctx.agentPresets.remoteExportList()).presets.map((preset) => preset.id)),
+    sorted(BUSINESS_PRESETS),
+  )
 })
 
 test('enableDevRoutes=true restores the M0/S0/M2/M3/M12 surface unchanged', async () => {

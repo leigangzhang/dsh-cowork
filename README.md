@@ -6,7 +6,7 @@ DSH 的项目式主从协作插件。0.2.0 采用**主题会话模型**：master
 
 ## 它提供什么
 
-- **四个 preset**：`cowork-master`、`cowork-topic`、`cowork-reviewer`，以及只用于旧会话的弃用别名 `cowork-thread`。定义与工具面见 [src/presets.ts](src/presets.ts)。
+- **三个 preset**：`cowork-master`（显示为 `Cowork模式`）、`cowork-topic`、`cowork-reviewer`。新建会话只显示 master；topic/reviewer 由插件内部创建，不出现在选择器。定义与工具面见 [src/presets.ts](src/presets.ts)。
 - **15 个业务工具**：初始化、路由、主题、handoff、工作项、评审、合并、记忆；名称与注册顺序见 [src/tools.ts](src/tools.ts)，参数以各工具模块为准。
 - **右侧栏 CoWork 面板**：主题列表/详情、工作项与评审请求、活动、已解决与重开、改投；六条 `/api/cowork.*` 路由见 [src/api-contract.ts](src/api-contract.ts)。
 - **项目记忆 / 活动流 / master 收件箱**：跨会话保留决定与事实，状态变化可审计，评审与 handoff 的投递有明确归属。
@@ -36,7 +36,7 @@ dsh --profile <profile> --dump-config    # 应出现 dsh-cowork 层，且只有�
 dsh --profile <profile> --port 3091 --no-open
 ```
 
-启动日志会打印带 token 的已认证 URL；用浏览器打开**这条 URL**（不带 token 时 `/api` 返回 401）。新建会话选 `cowork-master`，在目标仓库目录调用一次 `cowork_project_init` 完成初始化。
+启动日志会打印带 token 的已认证 URL；用浏览器打开**这条 URL**（不带 token 时 `/api` 返回 401）。新建会话选 `Cowork模式`（preset id 仍是 `cowork-master`），在目标仓库目录调用一次 `cowork_project_init` 完成初始化。
 
 安装注意：
 
@@ -99,7 +99,7 @@ dsh plugin --profile <profile> add ./dsh-external-dsh-cowork-0.2.0.tgz
 - `cowork_handoff` 只接受 `blocked` / `done`；`awaiting_review` 不再是合法状态。
 - `cowork_review_request` 只接受 topic 会话调用，master 调用被明确拒绝；每次请求绑定 `requestId` 并新建 reviewer。
 - `cowork_checkout_merge` 按 `workItemId` 合并，要求同一 head 的评审已通过；`allowUnreviewed` / `overrideReason` 已移除；`threadId` 仅作为旧 clone 的兼容参数。
-- `cowork-thread` preset 只保留为弃用别名；新会话使用 `cowork-topic`，旧会话可继续但没有 v1 的 handoff/评审语义。
+- `cowork-thread` preset 已删除；使用它的旧会话在升级后无法恢复。新会话和存量 topic 都使用 `cowork-topic`。
 - 写入路径只写 v2；v1 旧文件（旧 handoff/review 文件）只读。
 
 ## 卸载

@@ -99,18 +99,18 @@ test('resolveWorkspaceId does not cache: a second call asks the registry again',
 test('createThread creates the session with the resolved workspace and preset, then renames it', async () => {
   const { ports, calls } = fakePorts({
     resolvedWorkspace: { id: 'workspace-existing', path: '/repo' },
-    createResult: { sessionId: 'session-9', agentPreset: 'cowork-thread' },
+    createResult: { sessionId: 'session-9', agentPreset: 'cowork-topic' },
   })
   const slice = new SessionSlice(ports)
 
   const result = await slice.createThread({
     repoPath: '/repo',
     subject: 'Sub 2',
-    presetId: 'cowork-thread',
+    presetId: 'cowork-topic',
   })
 
   assert.deepEqual(result, { sessionId: 'session-9', workspaceId: 'workspace-existing', title: 'cowork: Sub 2' })
-  assert.deepEqual(calls.createSession, [{ workspaceId: 'workspace-existing', agentPreset: 'cowork-thread' }])
+  assert.deepEqual(calls.createSession, [{ workspaceId: 'workspace-existing', agentPreset: 'cowork-topic' }])
   assert.deepEqual(calls.rename, [{ sessionId: 'session-9', title: 'cowork: Sub 2' }])
   assert.equal(THREAD_TITLE_PREFIX, 'cowork: ')
   assert.equal(calls.list.length, 0, 'createThread must not write the index or list sessions')
@@ -119,12 +119,12 @@ test('createThread creates the session with the resolved workspace and preset, t
 test('createThread uses the title returned by the host, not the requested one', async () => {
   const { ports } = fakePorts({
     resolvedWorkspace: { id: 'ws', path: '/repo' },
-    createResult: { sessionId: 'session-9', agentPreset: 'cowork-thread' },
+    createResult: { sessionId: 'session-9', agentPreset: 'cowork-topic' },
     renameResult: { title: 'cowork: Sub 2 (2)', seq: 1 },
   })
   const slice = new SessionSlice(ports)
 
-  const result = await slice.createThread({ repoPath: '/repo', subject: 'Sub 2', presetId: 'cowork-thread' })
+  const result = await slice.createThread({ repoPath: '/repo', subject: 'Sub 2', presetId: 'cowork-topic' })
   assert.equal(result.title, 'cowork: Sub 2 (2)')
 })
 
@@ -137,7 +137,7 @@ test('createThread fails closed when the created session did not mount the prese
     const slice = new SessionSlice(ports)
 
     await assert.rejects(
-      slice.createThread({ repoPath: '/repo', subject: 'Sub', presetId: 'cowork-thread' }),
+      slice.createThread({ repoPath: '/repo', subject: 'Sub', presetId: 'cowork-topic' }),
       { message: /^session\/create-preset-mismatch:/ },
       `preset ${String(returned)} must not be accepted`,
     )
@@ -148,20 +148,20 @@ test('createThread fails closed when the created session did not mount the prese
 test('createThread creates the workspace when the path is unknown and then uses its id', async () => {
   const { ports, calls } = fakePorts({
     createdWorkspace: { id: 'workspace-created', path: '/repo' },
-    createResult: { sessionId: 'session-3', agentPreset: 'cowork-thread' },
+    createResult: { sessionId: 'session-3', agentPreset: 'cowork-topic' },
   })
   const slice = new SessionSlice(ports)
 
-  const result = await slice.createThread({ repoPath: '/repo', subject: 'S', presetId: 'cowork-thread' })
+  const result = await slice.createThread({ repoPath: '/repo', subject: 'S', presetId: 'cowork-topic' })
   assert.equal(result.workspaceId, 'workspace-created')
-  assert.deepEqual(calls.createSession, [{ workspaceId: 'workspace-created', agentPreset: 'cowork-thread' }])
+  assert.deepEqual(calls.createSession, [{ workspaceId: 'workspace-created', agentPreset: 'cowork-topic' }])
 })
 
 test('createCheckoutThread creates the workspace on the clone, then the explicit session, then renames', async () => {
   const checkoutPath = '/repo/.dsh-cowork/threads/session-x'
   const { ports, calls } = fakePorts({
     createdWorkspace: { id: 'workspace-clone', path: checkoutPath },
-    createResult: { sessionId: 'session-x', agentPreset: 'cowork-thread' },
+    createResult: { sessionId: 'session-x', agentPreset: 'cowork-topic' },
   })
   const slice = new SessionSlice(ports)
 
@@ -170,7 +170,7 @@ test('createCheckoutThread creates the workspace on the clone, then the explicit
     checkoutPath,
     threadId: 'session-x',
     subject: 'isolated work',
-    presetId: 'cowork-thread',
+    presetId: 'cowork-topic',
   })
 
   assert.deepEqual(result, {
@@ -184,7 +184,7 @@ test('createCheckoutThread creates the workspace on the clone, then the explicit
   assert.deepEqual(calls.createSession, [{
     sessionId: 'session-x',
     workspaceId: 'workspace-clone',
-    agentPreset: 'cowork-thread',
+    agentPreset: 'cowork-topic',
   }])
   assert.deepEqual(calls.rename, [{ sessionId: 'session-x', title: 'cowork: isolated work' }])
   assert.deepEqual(calls.resolveByPath, [], 'the checkout flow must not reuse the project workspace')
@@ -203,7 +203,7 @@ test('createCheckoutThread fails closed when the session did not mount the prese
       checkoutPath: '/repo/.dsh-cowork/threads/session-x',
       threadId: 'session-x',
       subject: 'isolated',
-      presetId: 'cowork-thread',
+      presetId: 'cowork-topic',
     }),
     { message: /^session\/create-preset-mismatch:/ },
   )
@@ -215,7 +215,7 @@ test('createCheckoutThread fails closed when the host returns a different sessio
   const { ports, calls } = fakePorts({
     createdWorkspace: { id: 'workspace-clone', path: checkoutPath },
     // The host minted its own id instead of honouring the requested one.
-    createResult: { sessionId: 'session-host-minted', agentPreset: 'cowork-thread' },
+    createResult: { sessionId: 'session-host-minted', agentPreset: 'cowork-topic' },
   })
   const slice = new SessionSlice(ports)
 
@@ -225,7 +225,7 @@ test('createCheckoutThread fails closed when the host returns a different sessio
       checkoutPath,
       threadId: 'session-x',
       subject: 'isolated',
-      presetId: 'cowork-thread',
+      presetId: 'cowork-topic',
     }),
     (error) => {
       assert.match(error.message, /^session\/create-id-mismatch:/)
@@ -241,7 +241,7 @@ test('createCheckoutThread fails closed when the host returns a different sessio
   assert.equal(calls.rename.length, 0, 'a foreign session must not be renamed')
   assert.deepEqual(
     calls.createSession,
-    [{ sessionId: 'session-x', workspaceId: 'workspace-clone', agentPreset: 'cowork-thread' }],
+    [{ sessionId: 'session-x', workspaceId: 'workspace-clone', agentPreset: 'cowork-topic' }],
     'the requested id is still what the host was asked for',
   )
 })
@@ -435,7 +435,7 @@ test('createReviewSession creates the project workspace when the registry has no
 test('createReviewSession fails closed on a preset mismatch before any rename', async () => {
   const { ports, calls } = fakePorts({
     resolvedWorkspace: { id: 'workspace-existing', path: '/repo' },
-    createResult: { sessionId: 'session-reviewer', agentPreset: 'cowork-thread' },
+    createResult: { sessionId: 'session-reviewer', agentPreset: 'cowork-topic' },
   })
 
   await assert.rejects(
@@ -444,7 +444,7 @@ test('createReviewSession fails closed on a preset mismatch before any rename', 
       subject: 'review',
       presetId: 'cowork-reviewer',
     }),
-    /session\/create-preset-mismatch:.*cowork-reviewer.*cowork-thread/,
+    /session\/create-preset-mismatch:.*cowork-reviewer.*cowork-topic/,
   )
   assert.deepEqual(calls.rename, [], 'a session without the reviewer preset must not be renamed')
 })

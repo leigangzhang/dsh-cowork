@@ -20,12 +20,11 @@ export const COWORK_MEMORY_ORDER = 900
 
 /**
  * Only cowork business agents get project memory; other presets must stay
- * untouched. `cowork-thread` is the deprecated alias of `cowork-topic`, kept
- * here for one version so existing sessions keep their memory block. The
+ * untouched. `cowork-master` and `cowork-topic` are the current presets. The
  * reviewer is deliberately absent: it judges evidence and must not inherit the
  * project's own memory framing.
  */
-export const COWORK_MEMORY_PRESETS: readonly string[] = ['cowork-master', 'cowork-topic', 'cowork-thread']
+export const COWORK_MEMORY_PRESETS: readonly string[] = ['cowork-master', 'cowork-topic']
 
 /** Structural mirror of the host's system-prompt section descriptor. */
 export interface MemoryPromptSectionInput {

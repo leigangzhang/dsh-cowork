@@ -1,31 +1,24 @@
 /**
- * The four runtime presets this plugin owns: `cowork-master`, `cowork-topic`,
- * `cowork-thread` (deprecated alias of topic), and `cowork-reviewer`.
+ * The three runtime presets this plugin owns: `cowork-master`, `cowork-topic`,
+ * and `cowork-reviewer`.
  *
  * Each preset is an explicit list of plugin rows, because S0 proved an empty
  * `plugins` list mounts no tools at all (docs/archived/M1_S0_RESULT.md §1): the
  * rows are the same ones the S0 thread-smoke preset used successfully, extended
  * with the job/ask-user/todo/present rows a topic needs. M9 removes the file,
  * shell, job, and present rows from the master (M6 probe 5 proved fs/bash are
- * not needed there) and introduces `cowork-topic`; `cowork-thread` stays one
- * version as a same-rows alias for existing sessions. The reviewer deliberately
- * gets a narrower surface: shell and search, never `tool-fs`, so it has no
- * read/write/edit tool and cannot change the code it votes on. Registration is
- * at runtime (no profile patch), so the rows live here as data and the host
- * registry is injected through {@link PresetRegistryPort}.
+ * not needed there) and introduces `cowork-topic`; the old `cowork-thread`
+ * alias is gone. The reviewer deliberately gets a narrower surface: shell and
+ * search, never `tool-fs`, so it has no read/write/edit tool and cannot change
+ * the code it votes on. Registration is at runtime (no profile patch), so the
+ * rows live here as data and the host registry is injected through
+ * {@link PresetRegistryPort}.
  */
 
 /** Preset id of the master session that routes and accepts work. */
 export const MASTER_PRESET_ID = 'cowork-master'
 /** Preset id of a topic session: one topic, one or more work items. */
 export const TOPIC_PRESET_ID = 'cowork-topic'
-/**
- * Deprecated alias of {@link TOPIC_PRESET_ID}. Kept for one version so sessions
- * created before M9 keep their memory section and tools; it registers the exact
- * same rows. New sessions are created with `cowork-topic` by src/topic-tools.ts
- * and src/route-tools.ts; this id only serves existing sessions.
- */
-export const THREAD_PRESET_ID = 'cowork-thread'
 /**
  * Preset id of the read-only reviewer session. M10.1 moved the definition here
  * from `src/review.ts` (deleted in M10.3); `src/review.ts` still re-exports a
@@ -63,12 +56,6 @@ export const TOPIC_PERSONA = [
   'When the work is finished or blocked you must call cowork_handoff with status blocked or done, a summary, and the verification you actually ran; a session that stops without a handoff has not finished.',
   'Answer in the language the user writes in.',
 ].join(' ')
-
-/**
- * Deprecated alias persona. `cowork-thread` rows are identical to
- * `cowork-topic` rows for one version, so both share this text.
- */
-export const THREAD_PERSONA = TOPIC_PERSONA
 
 /**
  * A reviewer reads evidence and votes; it never touches the implementation.
@@ -164,14 +151,14 @@ function reviewerRows(): PresetRow[] {
 }
 
 /**
- * All preset definitions in registration order: master, topic, the deprecated
- * thread alias, reviewer. Fresh row arrays on every call.
+ * All preset definitions in registration order: master, topic, reviewer.
+ * Fresh row arrays on every call.
  */
 export function presetDefinitions(): readonly PresetDefinition[] {
   return [
     {
       id: MASTER_PRESET_ID,
-      name: 'cowork master',
+      name: 'Cowork模式',
       description: 'Routes user intents to topics, records decisions, and accepts handoffs.',
       plugins: masterRows(),
     },
@@ -182,17 +169,10 @@ export function presetDefinitions(): readonly PresetDefinition[] {
       plugins: topicRows(),
     },
     {
-      id: THREAD_PRESET_ID,
-      name: 'cowork thread (deprecated alias)',
-      description:
-        'Deprecated alias of cowork-topic with identical rows, kept for one version for sessions created before M9.',
-      plugins: topicRows(),
-    },
-    {
       id: REVIEWER_PRESET_ID,
       name: 'cowork reviewer',
       description:
-        'Reviews one thread read-only (shell and search only, no file tools) and records a single verdict.',
+        'Reviews one topic read-only (shell and search only, no file tools) and records a single verdict.',
       plugins: reviewerRows(),
     },
   ]

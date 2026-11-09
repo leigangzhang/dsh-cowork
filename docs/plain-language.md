@@ -42,7 +42,7 @@ A small folder in the project that remembers decisions, constraints, and facts a
 
 A ready-made conversation mode that sets the assistant's role and rules.
 
-*Instead of* "用 cowork-thread preset" → *say* "新会话选择 cowork-topic 这个预设"（`cowork-thread` 只是旧会话的弃用别名）。
+*Instead of* "用 cowork-thread preset" → *say* "新会话选择 cowork-topic 这个预设"（`cowork-thread` 已删除，只用于描述 0.1.0 的旧模型）。
 
 ### surface
 

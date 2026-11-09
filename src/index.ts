@@ -37,6 +37,8 @@ import { M12E2ERunner, M12_E2E_RUN_PATH, M12_E2E_STATUS_PATH } from './m12-e2e.j
 import type { M12E2EHost, M12PanelProbe } from './m12-e2e.js'
 import { canonicalRepoPath, isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 import { registerPresets } from './presets.js'
+import { HIDDEN_PRESET_IDS, hidePresetsFromRoster } from './preset-visibility.js'
+import type { PresetRosterService } from './preset-visibility.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
 import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
@@ -372,7 +374,7 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
     return registration
   }, 'dsh-cowork: runtime agent preset')
 
-  // S0: explicit plugin rows prove whether a cowork-thread preset can carry tools.
+  // S0: explicit plugin rows prove whether a thread-smoke preset can carry tools.
   ctx.effect(() => host.agentPresets.register({
     id: THREAD_SMOKE_PRESET_ID,
     name: 'cowork thread s0',
@@ -880,6 +882,22 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => registerPresets(coworkDeps.agentPresets).then((disposers) => async () => {
     for (const dispose of disposers) await dispose()
   }), 'dsh-cowork: cowork presets')
+
+  // DSH 0.2.1-rc.2 has no `hidden` preset flag. Keep topic/reviewer registered
+  // for sessionController.create/resume, but remove them from the remote
+  // new-session roster; only the master is a manual entry point.
+  ctx.effect(() => {
+    try {
+      return hidePresetsFromRoster(
+        assembly.agentPresets as unknown as PresetRosterService,
+        HIDDEN_PRESET_IDS,
+      )
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      ctx.logger?.warn?.(`[${PLUGIN_NAME}] internal preset entries stay visible: ${detail}`)
+      return () => {}
+    }
+  }, 'dsh-cowork: hide internal presets')
 
   ctx.effect(() => {
     const disposers = registerCoworkTools(ctx, coworkDeps)

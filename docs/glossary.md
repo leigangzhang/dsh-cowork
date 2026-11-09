@@ -18,9 +18,9 @@ The project's main session. It routes user requirements, records decisions, deci
 
 One project subject with its own DSH session, created by `cowork_route` / `cowork_topic_create` with the `cowork-topic` preset. A topic owns its work items, requests its own reviews, and reports through `cowork_handoff`. The topic id is the session id. Write `topic` (主题会话 only as the reader-facing expansion), never `thread` for the current model. Source: [TopicRecordV2](../src/store-schema.ts#L118-L140).
 
-### thread (deprecated)
+### thread (removed)
 
-The 0.1.0 name for what 0.2.0 calls a [topic](#topic). In 0.2.0 `cowork-thread` remains only as a deprecated preset alias for sessions created before the rename; new sessions use `cowork-topic`. Do not use `thread` to describe current behaviour.
+The 0.1.0 name for what 0.2.0 calls a [topic](#topic). The `cowork-thread` preset was removed; a session that still names it cannot be resumed. Do not use `thread` to describe current behaviour.
 
 ### work item
 
@@ -44,7 +44,7 @@ The per-project store under `<repo>/.dsh-cowork/memory/` that keeps constraints,
 
 ### preset
 
-A DSH agent preset that sets persona, tools, and rules; it does not own session topology. The four ids are `cowork-master`, `cowork-topic`, `cowork-thread` (deprecated alias), and `cowork-reviewer`. Source: [presets.ts](../src/presets.ts#L121-L199).
+A DSH agent preset that sets persona, tools, and rules; it does not own session topology. The three ids are `cowork-master` (displayed as `Cowork模式`), `cowork-topic`, and `cowork-reviewer`. Topic and reviewer stay registered for plugin-created sessions but are filtered from the remote new-session roster; only master is a manual entry point. Source: [presets.ts](../src/presets.ts#L121-L199) and [preset-visibility.ts](../src/preset-visibility.ts#L1-L70).
 
 ### inbox
 

@@ -187,7 +187,7 @@ resolved → active（用户手动打开并输入）
 
 ### 4.1 单插件形态
 
-`dsh-cowork` 仍是一个 bundle patch 插件：host 半边注册 `CoworkService`、`cowork_*` 工具、system prompt 记忆段和 loopback HTTP 路由；client 半边注册右侧栏 CoWork tab；包内声明 `cowork-master`、`cowork-topic`、`cowork-thread`（别名）、`cowork-reviewer` 四个 preset。
+`dsh-cowork` 仍是一个 bundle patch 插件：host 半边注册 `CoworkService`、`cowork_*` 工具、system prompt 记忆段和 loopback HTTP 路由；client 半边注册右侧栏 CoWork tab；包内声明 `cowork-master`（显示为 `Cowork模式`）、`cowork-topic`、`cowork-reviewer` 三个 preset。topic/reviewer 由插件内部创建和恢复，但不出现在新建会话选择器。
 
 ### 4.2 模块图
 
@@ -208,7 +208,8 @@ src/
 ├── work-item.ts          # 隔离工作项（clone provider）
 ├── checkout.ts           # merge / 冲突 / 清理（复用）
 ├── session-visibility.ts # 隐藏/恢复主题与 reviewer
-├── presets.ts            # 四个 preset
+├── preset-visibility.ts  # 从远程 roster 隐藏 topic/reviewer
+├── presets.ts            # 三个 preset
 ├── memory.ts / memory-prompt.ts # 记忆（M5 前不改语义）
 ├── project-tools.ts      # init/status
 ├── topic-tools.ts        # topic create/list/resolve/handoff
@@ -362,11 +363,11 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 ### 5.8 预设与记忆
 
-- `cowork-master`：persona、agent-instructions、time-context、ask-user、todo；移除 fs/search/bash/jobs/present。persona 明确不做流程编排。
-- `cowork-topic`：替换 `cowork-thread`；行与当前 thread 相同；persona 改为「一个主题一个会话，可含多个执行单元，自己提交评审请求，写摘要与证据」。
-- `cowork-thread`：保留一个版本别名，行与 topic 相同。
+- `cowork-master`：显示名 `Cowork模式`；persona、agent-instructions、time-context、ask-user、todo；移除 fs/search/bash/jobs/present。persona 明确不做流程编排。
+- `cowork-topic`：替换旧 `cowork-thread`；行与当前 topic 相同；persona 改为「一个主题一个会话，可含多个执行单元，自己提交评审请求，写摘要与证据」。
 - `cowork-reviewer`：行不变；persona 增加「只看请求范围，不合并、不解决冲突」。
-- `cowork:memory` 段落识别 `cowork-master`、`cowork-topic`、`cowork-thread`；reviewer 不注入。记忆语义与预算不在本方案改动；M5 再做整理/检索。
+- `cowork-thread`：已删除；使用该 preset 的旧会话在升级后无法恢复。
+- `cowork:memory` 段落识别 `cowork-master`、`cowork-topic`；reviewer 不注入。记忆语义与预算不在本方案改动；M5 再做整理/检索。
 
 ### 5.9 HTTP API 与面板
 

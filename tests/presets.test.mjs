@@ -22,8 +22,6 @@ const {
   MASTER_PRESET_ID,
   REVIEWER_PERSONA,
   REVIEWER_PRESET_ID,
-  THREAD_PERSONA,
-  THREAD_PRESET_ID,
   TOPIC_PERSONA,
   TOPIC_PRESET_ID,
   presetDefinitions,
@@ -47,24 +45,22 @@ const presetById = (id) => {
 const rowNames = (preset) => preset.plugins.map((row) => row.name)
 const personaPrefixOf = (preset) => preset.plugins.find((row) => row.id === 'persona')?.config?.prefix
 
-test('presetDefinitions returns four presets: master, topic, thread alias, reviewer', () => {
+test('presetDefinitions returns three presets: master, topic, reviewer', () => {
   const definitions = presetDefinitions()
 
-  assert.equal(definitions.length, 4)
+  assert.equal(definitions.length, 3)
   assert.deepEqual(
     definitions.map((preset) => preset.id),
-    [MASTER_PRESET_ID, TOPIC_PRESET_ID, THREAD_PRESET_ID, REVIEWER_PRESET_ID],
+    [MASTER_PRESET_ID, TOPIC_PRESET_ID, REVIEWER_PRESET_ID],
   )
-  assert.equal(new Set(definitions.map((preset) => preset.id)).size, 4, 'preset ids must be unique')
+  assert.equal(new Set(definitions.map((preset) => preset.id)).size, 3, 'preset ids must be unique')
   assert.equal(definitions[0].id, MASTER_PRESET_ID, 'master must register first')
+  assert.equal(definitions[0].name, 'Cowork模式')
 })
 
-test('the topic and thread ids are distinct constants and thread is marked deprecated', () => {
+test('the removed cowork-thread preset is not registered', () => {
   assert.equal(TOPIC_PRESET_ID, 'cowork-topic')
-  assert.equal(THREAD_PRESET_ID, 'cowork-thread')
-  assert.notEqual(TOPIC_PRESET_ID, THREAD_PRESET_ID)
-  assert.match(presetById(THREAD_PRESET_ID).description, /deprecated/i)
-  assert.match(presetById(THREAD_PRESET_ID).name, /deprecated/i)
+  assert.equal(presetDefinitions().some((preset) => preset.id === 'cowork-thread'), false)
 })
 
 test('the master preset keeps only persona, instructions, time, ask-user, and todo', () => {
@@ -100,15 +96,6 @@ test('the topic preset keeps file, shell, search, job, ask-user, todo, and prese
     assert.equal(names.includes(required), true, `topic must mount ${required}`)
   }
   assert.equal(names.length, 10)
-})
-
-test('the thread alias registers exactly the topic rows and persona', () => {
-  const topic = presetById(TOPIC_PRESET_ID)
-  const thread = presetById(THREAD_PRESET_ID)
-
-  assert.deepEqual(thread.plugins, topic.plugins)
-  assert.equal(personaPrefixOf(thread), personaPrefixOf(topic))
-  assert.equal(THREAD_PERSONA, TOPIC_PERSONA)
 })
 
 test('the topic persona states one topic per session, self-requested review, and a blocked|done handoff', () => {

@@ -53,7 +53,7 @@ function fakeExec(sessionId, cwd, agentPreset = 'router-standard') {
 function fakeDeps() {
   return {
     sessionController: {
-      async create() { return { sessionId: 'session-created', agentPreset: 'cowork-thread' } },
+      async create() { return { sessionId: 'session-created', agentPreset: 'cowork-topic' } },
       async rename({ title }) { return { title, seq: 1 } },
       async prompt() { return { accepted: true } },
       async list() { return { items: [] } },
