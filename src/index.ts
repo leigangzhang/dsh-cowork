@@ -20,6 +20,9 @@ import z from '@deepseek-ai/schemastery'
 import type { CoworkApiHost, CoworkApiPorts, PanelFetchRoute } from './api.js'
 import { registerCoworkApi } from './api.js'
 import { OVERVIEW_PATH, REOPEN_PATH } from './api-contract.js'
+import { panelProbeRequest, panelRoutePathname } from './panel-probe.js'
+
+export { panelRoutePathname }
 import type { HealthView, ProbeConfig, ProbeHost } from './probe-engine.js'
 import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
 import { MEMORY_FILES, MEMORY_KINDS, memoryFilePath, parseMemoryFile, renderMemoryBlock } from './memory.js'
@@ -743,15 +746,6 @@ function createPanelPorts(ctx: Context, assembly: CoworkAssemblyHost, settings: 
 }
 
 /**
- * The lookup key of one probe path: the URL pathname. Route registration keys
- * the bare path, so a request that carries `?sessionId=…` must be normalized
- * before the map lookup while the `Request` keeps the original query string.
- */
-export function panelRoutePathname(path: string): string {
-  return new URL(path, 'http://127.0.0.1').pathname
-}
-
-/**
  * In-process probe for the M12 E2E driver. A plugin has no client for the host
  * `connection` channel, so the probe registers the production panel handlers on
  * a private connection and calls them with a real `Request`. The handlers,
@@ -778,7 +772,7 @@ function createM12PanelProbe(ports: CoworkApiPorts): M12PanelProbe {
   const call = async (path: string, init: RequestInit): Promise<{ status: number; body: unknown }> => {
     const route = routes.get(panelRoutePathname(path))
     if (route === undefined) throw new Error(`M12 panel probe: no route registered for ${path}`)
-    const response = await route.fetch(new Request(`http://127.0.0.1${path}`, init))
+    const response = await route.fetch(panelProbeRequest(path, init))
     let body: unknown = null
     try {
       body = await response.json()
