@@ -975,11 +975,6 @@ export const PANEL_CSS = `
   white-space: nowrap;
 }
 
-.cw-tab-title .cw-footer-glyph {
-  width: 14px;
-  height: 14px;
-}
-
 .cw-sr-only {
   position: absolute;
   width: 1px;
