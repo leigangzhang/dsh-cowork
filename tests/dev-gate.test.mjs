@@ -36,7 +36,17 @@ register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 const { apply, Config, normalizeConfig } = await import('../src/index.ts')
 const { DEFAULT_ISOLATION_PROVIDER } = await import('../src/tool-runtime.ts')
 const { CLONE_ISOLATION_PROVIDER } = await import('../src/checkout.ts')
-const { HANDOFF_PATH, OVERVIEW_PATH } = await import('../src/api-contract.ts')
+const {
+  ACTIVITY_PATH,
+  OVERVIEW_PATH,
+  REOPEN_PATH,
+  RESOLVE_PATH,
+  ROUTE_MOVE_PATH,
+  TOPIC_PATH,
+} = await import('../src/api-contract.ts')
+
+/** The six panel routes: three reads, then the three master-only writes. */
+const PANEL_PATHS = [OVERVIEW_PATH, ACTIVITY_PATH, TOPIC_PATH, RESOLVE_PATH, REOPEN_PATH, ROUTE_MOVE_PATH]
 
 /** The fifteen business tools — stable public names, pinned here on purpose. */
 const BUSINESS_TOOLS = [
@@ -256,9 +266,9 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   apply(host.ctx, config(false))
   await settle()
 
-  // No probe/E2E route at all; the panel API still registers its own two.
+  // No probe/E2E route at all; the panel API still registers its own six.
   assert.deepEqual(host.routes, [])
-  assert.deepEqual(fetchPaths(host), sorted([OVERVIEW_PATH, HANDOFF_PATH]))
+  assert.deepEqual(fetchPaths(host), sorted(PANEL_PATHS))
 
   // Exactly the fifteen business tools: the probe tools are absent.
   assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
@@ -289,7 +299,7 @@ test('enableDevRoutes=true restores the M0/S0/M2/M3 surface unchanged', async ()
   assert.equal(host.routes.every((route) => typeof route.handler === 'function'), true)
 
   // Panel API, business tools, and business presets are untouched by the gate.
-  assert.deepEqual(fetchPaths(host), sorted([OVERVIEW_PATH, HANDOFF_PATH]))
+  assert.deepEqual(fetchPaths(host), sorted(PANEL_PATHS))
   assert.deepEqual(toolNames(host), sorted([...BUSINESS_TOOLS, ...DEV_TOOLS]))
   assert.deepEqual(presetIds(host), sorted([...BUSINESS_PRESETS, ...DEV_PRESETS]))
 
