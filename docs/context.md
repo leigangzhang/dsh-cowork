@@ -1,117 +1,114 @@
-# 项目上下文：master、thread 与共享磁盘面
+# 项目上下文：master、主题会话与磁盘共享面
 
-本文说明 master 与 thread 如何管理、共享项目上下文。只讲当前行为与入口，不复制规则：记忆预算与截断规则见 [PLAN.md](PLAN.md) §5.5，路由判定见 [routing.md](routing.md)。
+本文说明 master、topic 与 reviewer 如何共享项目上下文。只写当前行为与入口，不复制规则：记忆预算与截断见 [PLAN.md](PLAN.md) §5.5，路由判定见 [routing.md](routing.md)。
 
-## 1. 上下文共享面
+## 1. 共享面
 
-项目上下文与状态类共享面只有仓库内 `.dsh-cowork/` 的磁盘产物。代码另有共享通道：非隔离 thread 直接写主仓库工作区，isolated thread 经 clone 与 `cowork/<threadId>` 分支在 review 后由 master 合并（[PLAN.md](PLAN.md) §5.6–§5.7、[routing.md](routing.md) §3）。对话历史各自独立，master、thread、reviewer 互相看不到对方的聊天。
+项目状态只通过仓库内 `.dsh-cowork/` 的磁盘产物共享；对话历史彼此独立，master、topic、reviewer 看不到对方的聊天。
 
-- `index.json`：项目索引，是 `masterSessionId`、thread 状态、`checkoutPath` 与 review 状态的唯一事实源；字段定义见 [src/store.ts](../src/store.ts#L58-L99)。
-- `memory/{constraints,decisions,facts}.md`：项目记忆。
-- `handoffs/<threadId>-<stamp>.json`：thread 的交接记录。
-- `reviews/<threadId>-<stamp>.json`：reviewer 的审查记录。
-- `.write.lock`：上述写入共用同一把项目锁；存储层说明见 [src/store.ts](../src/store.ts#L1-L17)，记忆写入复用该锁见 [src/tools.ts](../src/tools.ts#L143-L150)。
+| 文件 | 内容 | 权威定义 |
+|---|---|---|
+| `index.json` | v2 项目索引：master、主题、工作项、路由目标 | [ProjectIndexV2](../src/store-schema.ts#L155-L170) |
+| `activity.jsonl` | 状态、路由、评审、合并与错误的事件流（证据，不是状态源） | [ActivityEvent](../src/store-schema.ts#L172-L185) |
+| `inbox.json` | master 必须决定的事；投递后写 `deliveredAt` | [InboxItem](../src/store-schema.ts#L193-L205) |
+| `handoffs/` | topic 的 handoff 审计文件 | [handoff.ts](../src/handoff.ts#L214) |
+| `reviews/` | 每次评审请求的 pending/verdict 记录 | [ReviewRequestRecord](../src/review-request.ts#L121) |
+| `workitems/` | 隔离工作项 clone 与 `cowork/<workItemId>` 分支 | [checkout.ts](../src/checkout.ts#L45-L58) |
+| `memory/` | `constraints/decisions/facts` 三份项目记忆 | [memory.ts](../src/memory.ts) |
+| `.write.lock` | 上述写入共用的项目锁 | [store.ts](../src/store.ts#L338) |
 
 ```mermaid
 flowchart TD
-  M["master 会话（自己的对话历史）"]
-  T["thread 会话（自己的对话历史）"]
-  R["reviewer 会话（自己的对话历史）"]
-  I["index.json（唯一事实源）"]
-  MEM["memory/*.md"]
+  M["master（自己的对话历史）"]
+  T["topic（自己的对话历史）"]
+  R["reviewer（自己的对话历史）"]
+  I["index.json（v2 唯一状态源）"]
+  A["activity.jsonl"]
+  B["inbox.json"]
   H["handoffs/*.json"]
   V["reviews/*.json"]
-  L[".write.lock（串行写入）"]
+  W["workitems/<id>（clone）"]
+  MEM["memory/*.md"]
 
-  M -->|"读写索引"| I
-  T -->|"handoff 更新状态"| I
-  R -->|"verdict 更新 review 状态"| I
-  M -->|"记忆读写"| MEM
+  M -->|"路由 / 读取有界摘要 / 生命周期读取点"| I
+  T -->|"工作项 / 评审请求 / handoff"| I
+  R -->|"verdict"| I
+  M -->|"消费收件箱"| B
+  T -->|"blocked / 评审结果"| B
+  T -->|"写 handoff 审计"| H
+  T -->|"提交与修复"| W
+  R -->|"读请求范围、复跑验证"| W
   T -->|"记忆读写"| MEM
-  T -->|"写交接记录"| H
-  M -->|"读取摘要与待重放记录"| H
-  R -->|"写审查记录"| V
-  M -->|"读取审查结果"| V
-  I --- L
-  MEM --- L
-  H --- L
-  V --- L
+  M -->|"记忆读写"| MEM
+  I --- A
   M -.->|"不共享对话历史"| T
   T -.->|"不共享对话历史"| R
 ```
 
 ## 2. 记忆注入
 
-`cowork:memory` 是 agent 作用域的 system prompt 段落。`order=900` 是源码常量快照，见 [src/memory-prompt.ts](../src/memory-prompt.ts#L14-L22)；`interpolate:false` 在 section 注册调用里内联，见 [src/memory-prompt.ts](../src/memory-prompt.ts#L173-L178)。注册条件、`text` 为函数以及按 agent 的 digest 缓存见 [src/memory-prompt.ts](../src/memory-prompt.ts#L128-L178)。只有 preset 为 `cowork-master` / `cowork-thread` 且 cwd 向上能找到 `.dsh-cowork/index.json` 的 agent 会注册；reviewer 不注入。
+`cowork:memory` 是 agent 作用域的 system prompt 段落，`order=900`（[memory-prompt.ts](../src/memory-prompt.ts#L19)）。注册条件是 preset 为 `cowork-master`、`cowork-topic` 或 `cowork-thread`（弃用别名），且会话 cwd 向上能找到 `.dsh-cowork/index.json`；reviewer 不注入（[COWORK_MEMORY_PRESETS](../src/memory-prompt.ts#L28)、[注册点](../src/memory-prompt.ts#L93-L145)）。
 
-```mermaid
-sequenceDiagram
-  autonumber
-  participant G as registerMemoryPrompt
-  participant A as agent prompt assembly
-  participant F as memory/*.md
+- 记忆是**拉取式快照**：写入不推送；下一次 prompt assembly 才重新读取。按 agent 的 digest 缓存决定是否重渲染。
+- 渲染顺序、整条拼接与截断的实现在 [renderMemoryBlock](../src/memory.ts#L434)；预算与截断规则以 [PLAN.md](PLAN.md) §5.5 为准。
+- 注入块之外的旧条目不会被自动拼入，用 `cowork_memory_search` 检索（[searchMemory](../src/memory.ts#L477)）。
+- 记忆按仓库根渲染；隔离工作项里的 clone 不改变注入来源。
 
-  G->>G: agent 创建或枚举
-  Note over G: 只处理 cowork-master / cowork-thread；cwd 向上找到 index.json
-  G->>A: 注册 section cowork:memory（order=900, interpolate=false, text=函数）
-  A->>F: 每次 assembly 调用 text()，读取三个记忆文件
-  F-->>A: 当前条目
-  alt digest 未变
-    A-->>A: 复用上次文本
-  else digest 变化
-    A->>A: 按 PLAN §5.5 渲染
-    A-->>A: 使用新文本（可能带截断标记）
-  end
-  Note over G: cowork-reviewer 不注册；预算、整条拼接与截断见 PLAN §5.5
-```
+## 3. 上下文的上行与下行
 
-渲染顺序与整条截断的当前实现见 [src/memory.ts](../src/memory.ts#L434-L466)。写入后不会推送；下一次 assembly 重新求值时才会读到新记忆。
+**下行（master / 插件 → topic）**
 
-## 3. handoff 的上下行
+- 新建主题：`cowork_route` 用 `brief` 作为第一条消息，未给时用 [buildThreadBrief](../src/tool-model.ts#L220) 生成（携带主题 id、标题、意图、工作区与 handoff 义务，不粘贴完整仓库）；`cowork_topic_create` 只投递显式给出的 brief。
+- 复用主题：把用户原话（与可选 brief）直接投给主题会话。
+- 评审退回：`needs_revision` / `reject` 时把 findings 投回主题（[buildRevisionMessage](../src/review-request.ts#L1211)、[buildRejectMessage](../src/review-request.ts#L1220)），不唤醒 master。
 
-下行有三个触发：新建 thread 时，[buildThreadBrief](../src/tool-model.ts#L178-L203) 携带 threadId、subject、intent、工作区、scope 与 handoff 义务；复用 thread 时投递用户原话；`needs_revision` 时把 findings 投回原 thread。新建与复用的判定及 review 闭环见 [routing.md](routing.md) §2–§3。
+**下行（topic → reviewer）**
 
-上行只有 `cowork_handoff`：结构化记录（summary、verification、changedPaths、openIssues）写入 handoff 文件，再经 [formatMasterMessage](../src/handoff.ts#L240-L265) 投递给 master；写入与投递顺序见 [src/handoff.ts](../src/handoff.ts#L344-L360)。主题路由的打分输入是 topic 的 scope/ownedPaths/aliases/title/digest（handoff 摘要不再是路由打分输入），见 [src/routing.ts](../src/routing.ts) 与 [src/route-tools.ts](../src/route-tools.ts)。
+- `cowork_review_request` 新建 reviewer 并投递 [buildReviewBrief](../src/review-request.ts#L1114) 生成的评审说明：`requestId`、范围、路径、分支、改动文件、验证要求、上一轮请求与 findings。reviewer 自己读代码、复跑验证，不依赖主题的自述。
+
+**上行（topic / reviewer → master）**
+
+- `cowork_handoff(done)`：写审计文件，更新主题 `digest`（摘要，≤200 字）与 `lastDeliveryConfirmedAt`，**不 prompt master**。
+- `cowork_handoff(blocked)`：置 `blocked` 标记，写一条 `blocked` 收件箱并投递（≤200 字摘要）。
+- 评审 `pass`（有工作项）：写 `merge-needed` 收件箱，master 被唤醒后决定是否合并；`reject`：主题置 blocked，写 `review-reject` 收件箱。
+- 收件箱是 master 唯一被推送的状态：多条待办合并成一批（≤5 条），投递成功写 `deliveredAt`，失败保留并由 `cowork_project_status` 重放（[deliverInbox](../src/tool-runtime.ts#L178)、[inbox.ts](../src/inbox.ts#L17-L30)）。
+- master 不接收完整 handoff、评审请求或 findings 文本；它读 `cowork_project_status` / `cowork_topic_list` 的有界摘要、收件箱与活动尾部，或从面板看主题详情。
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant U as 用户
   participant M as master
-  participant T as thread
-  participant D as handoff 存储
+  participant T as topic
+  participant D as handoffs/ + index.json
   participant R as reviewer
+  participant B as inbox.json
 
-  U->>M: intent
-  alt 新建 thread
-    M->>T: buildThreadBrief(threadId / subject / intent / 工作区 / scope / handoff 义务)
-  else 复用 thread
-    M->>T: 用户原话
-  end
+  U->>M: 需求
+  M->>T: route 投递 brief 或用户原话
   Note over M,T: 只传任务文本，不共享对话历史
-  T->>D: cowork_handoff(summary / verification / changedPaths / openIssues)
-  D->>M: formatMasterMessage(摘要 + handoff 文件路径)
-  Note over M: lastHandoffSummary 同时作为 router 打分输入
-  M->>R: cowork_review_request(threadId)
-  R->>D: 写 review 文件并更新 review 状态
-  alt needs_revision
-    R-->>T: findings 投回原 thread
-  end
+  T->>R: review_request → 评审说明（范围/路径/证据）
+  R-->>T: needs_revision → findings
+  R-->>M: pass（有工作项）/ reject → 收件箱（不直接投 verdict 文本）
+  T->>D: handoff(done)：digest + lastDeliveryConfirmedAt
+  T->>B: handoff(blocked) 或评审 reject → 收件箱
+  B-->>M: 有界摘要（≤5 条/批），deliveredAt
+  Note over M: 通过 project_status / 面板读取活动与主题摘要
 ```
 
-## 4. 四类会话隔离矩阵
+## 4. 隔离矩阵
 
-隔离方式、clone 内容与 reviewer 工具面的来源：[PLAN.md](PLAN.md) §5.6–§5.7、[M2_PROBE_RESULT.md](archived/M2_PROBE_RESULT.md) §5、[src/presets.ts](../src/presets.ts#L109-L122)。
+隔离方式与工具面的来源：[presets.ts](../src/presets.ts#L121-L166) 与 [PLAN-V0.2 §4.5/§5.5](PLAN-V0.2.md#45-会话与隔离)。
 
 | 会话 | 工作目录与可见代码 | 写权限 | `cowork:memory` | 与其他会话共享 |
 |---|---|---|---|---|
-| master | 主仓库全部工作区 | 按 master 角色操作；实现由 thread 拥有，见 [persona](../src/presets.ts#L28-L39) | 是 | 索引、记忆、handoff 与 review 文件 |
-| 非隔离 thread | 主仓库工作区 | 共享写主仓库 | 是 | 全部磁盘产物 |
-| isolated thread | `<repo>/.dsh-cowork/threads/<threadId>` 的本地 clone；仅已提交文件，无 `node_modules`、`.dsh-cowork` | 只写自己的 clone，并提交到 `cowork/<threadId>` | 是；宿主按仓库根注入，不受 clone 内容影响 | 已提交代码 + 记忆 + 索引（隔离边界） |
-| reviewer | 主仓库；由 review request 创建 | 无 `tool-fs`（没有 read/write/edit）；`bash` 与文件搜索可用，实际只读边界见 [KI-15](KNOWN_ISSUES.md) | 否 | 可读主仓库、索引、handoff 与 review；对话历史独立 |
+| master | 主仓库 | 无 `fs`/`bash`/搜索；通过 cowork 工具、ask-user/todo 与面板行动 | 是 | 索引、收件箱、活动尾部、有界主题摘要 |
+| topic | 主仓库（默认） | `fs`/`bash`/搜索；创建并提交工作项 | 是 | 索引、记忆、handoff/review 文件；自己的对话 |
+| 工作项 | `<repo>/.dsh-cowork/workitems/<id>` 的 clone，分支 `cowork/<id>` | 只写自己的 clone 并提交 | 由所属 topic 的注入覆盖（clone 不是独立会话） | 已提交代码 + 索引 + 记忆；看不到主仓未提交改动与 `.dsh-cowork` |
+| reviewer | 主仓库；按请求读取工作项 clone | 无 `fs`；`bash` 与文件搜索可用，实际只读边界见 [KI-15](KNOWN_ISSUES.md) | 否 | 请求范围、索引、仓库；对话历史独立；verdict 后归档 |
 
 ## 5. 三个边界
 
-- **记忆是拉取式快照**：写入不会通知或推送到已存在的会话；下一次 prompt assembly 才重新读取。实现入口见 [src/memory-prompt.ts](../src/memory-prompt.ts#L153-L169)。
-- **超预算条目只能检索回来**：注入块之外的记忆不会再被自动拼入，需用 `cowork_memory_search` 找回；预算规则见 [PLAN.md](PLAN.md) §5.5，检索实现见 [src/memory.ts](../src/memory.ts#L477-L490)。
-- **isolated thread 的共享退化**：它只能看到已提交代码，加上记忆与索引；clone 位于仓库内，所以 cwd 向上仍能命中索引，记忆由宿主侧按仓库根渲染。见 [M2_PROBE_RESULT.md](archived/M2_PROBE_RESULT.md) §5 与 [src/store.ts](../src/store.ts#L1030-L1058)。
+- **记忆是快照，不是消息**：写入不会通知已存在的会话；下一次 prompt assembly 才生效。
+- **工作项 clone 只含已提交内容**：需要主仓未提交改动或本地依赖时，必须在 clone 内自行处理；隔离成本与读边界见 [KI-1](KNOWN_ISSUES.md)。
+- **reviewer 的只读不是沙箱**：工具面无 `fs`，但 `bash` 仍可写；只读性靠 preset 与 protocol，重要评审仍应由人复核（[KI-15](KNOWN_ISSUES.md)）。
