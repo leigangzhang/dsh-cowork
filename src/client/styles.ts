@@ -895,19 +895,22 @@ export const PANEL_CSS = `
 }
 
 .cw-footer-button {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
+  height: 42px;
+  padding: 0 10px 0 8px;
   border: 0;
-  border-radius: var(--dsw-radius-sm, 8px);
+  border-radius: 12px;
   background: transparent;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-primary);
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .cw-footer-button:hover {
@@ -922,11 +925,37 @@ export const PANEL_CSS = `
 
 .cw-footer-glyph {
   flex: none;
-  font-size: 14px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 16px;
 }
 
-.cw-footer-label { min-width: 0; white-space: nowrap; }
+.cw-footer-button[data-wide='false'] {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+  gap: 0;
+}
+
+.cw-footer-button[data-wide='false'] .cw-footer-glyph {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  line-height: 18px;
+}
+
+.cw-footer-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .cw-tab-title {
   white-space: nowrap;

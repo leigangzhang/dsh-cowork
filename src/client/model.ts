@@ -362,6 +362,26 @@ export function masterBreadcrumbLabel(): string {
   return '返回 master'
 }
 
+/** Inputs that decide whether this session can navigate back to a master. */
+export interface MasterBreadcrumbInput {
+  readonly currentSessionId: string
+  readonly masterSessionId: string
+  readonly topics: readonly Pick<PanelTopic, 'topicId'>[]
+}
+
+/**
+ * The master session a topic should return to, or null when the breadcrumb is
+ * meaningless. Only a topic session gets the control: a master (or any session
+ * that is not in the topic index) is already where it belongs, and a stale
+ * `masterSessionId` must not send the user to an unrelated old session.
+ */
+export function masterBreadcrumbTarget(input: MasterBreadcrumbInput): string | null {
+  const currentIsTopic = input.topics.some(topic => topic.topicId === input.currentSessionId)
+  if (!currentIsTopic) return null
+  const target = input.masterSessionId.trim()
+  return target.length > 0 && target !== input.currentSessionId ? target : null
+}
+
 /** What the panel renders for an error or an empty project. */
 export interface NoticePresentation {
   readonly kind: 'empty' | 'error'
@@ -400,17 +420,15 @@ export function inboxNotice(inbox: readonly PanelInboxItem[]): InboxNotice | nul
 }
 
 /** Copy for a project without topics yet (as opposed to not initialized). */
-export function emptyNotice(reason: 'no-topics'): NoticePresentation {
+export function emptyNotice(): NoticePresentation {
   return {
     kind: 'empty',
     title: '这个项目还没有主题',
-    detail: reason === 'no-topics'
-      ? '让 master 会话用 cowork_topic_create 建一个主题，面板会在这里列出它。'
-      : '',
+    detail: '',
     code: null,
     path: null,
-    retry: true,
-    hint: 'cowork_topic_create',
+    retry: false,
+    hint: null,
   }
 }
 

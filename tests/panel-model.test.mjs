@@ -33,6 +33,7 @@ import {
   isLongList,
   isLongSubject,
   masterBreadcrumbLabel,
+  masterBreadcrumbTarget,
   middleEllipsis,
   moveIntentPrefill,
   moveSuccessMessage,
@@ -383,9 +384,31 @@ test('moveIntentPrefill uses the digest, falling back to the title', () => {
   assert.equal(moveIntentPrefill(topic({ digest: '', title: '只有标题' })), '只有标题')
 })
 
-test('opening a topic has fixed steps and a master breadcrumb', () => {
+test('opening a topic has fixed steps and a master breadcrumb only for topics', () => {
   assert.deepEqual([...openTopicSteps()], ['unarchive', 'open'])
   assert.equal(masterBreadcrumbLabel(), '返回 master')
+
+  const topicId = 'session-topic'
+  const masterId = 'session-master'
+  const topics = [topic({ topicId })]
+  assert.equal(
+    masterBreadcrumbTarget({ currentSessionId: topicId, masterSessionId: masterId, topics }),
+    masterId,
+  )
+  assert.equal(
+    masterBreadcrumbTarget({ currentSessionId: masterId, masterSessionId: masterId, topics }),
+    null,
+    'a master session has nowhere to go back to',
+  )
+  assert.equal(
+    masterBreadcrumbTarget({ currentSessionId: 'session-other', masterSessionId: masterId, topics }),
+    null,
+    'an unrelated session must not be sent to a stale master id',
+  )
+  assert.equal(
+    masterBreadcrumbTarget({ currentSessionId: topicId, masterSessionId: '   ', topics }),
+    null,
+  )
 })
 
 test('inboxNotice counts waiting items and shows at most five summaries', () => {
@@ -468,14 +491,14 @@ test('errorPresentation covers the five named codes and a retryable generic one'
   assert.equal(missing.retry, true)
 })
 
-test('an empty project points at cowork_topic_create', () => {
-  const notice = emptyNotice('no-topics')
+test('an empty project shows only its title', () => {
+  const notice = emptyNotice()
   assert.equal(notice.kind, 'empty')
   assert.equal(notice.code, null)
-  assert.equal(notice.retry, true)
-  assert.equal(notice.hint, 'cowork_topic_create')
-  assert.match(notice.title, /主题/)
-  assert.match(notice.detail, /cowork_topic_create/)
+  assert.equal(notice.retry, false)
+  assert.equal(notice.hint, null)
+  assert.equal(notice.detail, '')
+  assert.equal(notice.title, '这个项目还没有主题')
 })
 
 test('action receipts are visible, specific and never silent', () => {
@@ -940,7 +963,8 @@ test('the client sources carry no v1 vocabulary and never archive a topic', asyn
   const panelSource = sources.get('panel.tsx')
   const footerOpens = panelSource.match(/openTab\(COWORK_TAB_KIND\)/g) ?? []
   assert.equal(footerOpens.length, 1, 'the panel only opens itself from the footer entry, never on mount')
-  assert.match(panelSource, /masterSessionId/, 'the breadcrumb returns to the master session')
+  assert.match(panelSource, /masterBreadcrumbTarget/, 'the breadcrumb resolves a live topic’s master')
+  assert.match(panelSource, /masterTarget === null \? null/, 'the breadcrumb is absent when there is no valid target')
 
   const listSource = sources.get('list.tsx')
   assert.match(listSource, /cw-resolved-by/, 'resolved rows show their resolution source')

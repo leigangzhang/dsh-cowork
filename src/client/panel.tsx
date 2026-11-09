@@ -34,6 +34,7 @@ import {
   FEEDBACK_TTL_MS,
   inboxNotice,
   masterBreadcrumbLabel,
+  masterBreadcrumbTarget,
   middleEllipsis,
   moveSuccessMessage,
   moveTargets as computeMoveTargets,
@@ -77,7 +78,7 @@ function EmptyNotice({ notice, onRefresh }: { readonly notice: NoticePresentatio
   return (
     <div className="cw-notice" data-notice={notice.code ?? 'no-topics'}>
       <h2 className="cw-notice-title">{notice.title}</h2>
-      <p className="cw-notice-detail">{notice.detail}</p>
+      {notice.detail.trim() === '' ? null : <p className="cw-notice-detail">{notice.detail}</p>}
       {notice.hint === null ? null : <code className="cw-notice-hint">{notice.hint}</code>}
       {notice.retry ? (
         <button type="button" className="cw-button" onClick={onRefresh}>刷新</button>
@@ -302,20 +303,28 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     }
   }, [services.uiWorkspace, showFeedback])
 
+  const masterTarget = overview === null
+    ? null
+    : masterBreadcrumbTarget({
+        currentSessionId: sessionId,
+        masterSessionId: overview.project.masterSessionId,
+        topics: overview.topics,
+      })
+
   const backToMaster = useCallback(() => {
-    const masterSessionId = overview?.project.masterSessionId ?? ''
     const workspace = services.uiWorkspace
-    if (masterSessionId.length === 0 || workspace === undefined || typeof workspace.openSession !== 'function') {
+    if (masterTarget === null) return
+    if (workspace === undefined || typeof workspace.openSession !== 'function') {
       showFeedback({ kind: 'failed', text: openSessionUnavailableMessage() })
       return
     }
     try {
-      workspace.openSession(masterSessionId)
+      workspace.openSession(masterTarget)
       showFeedback({ kind: 'ok', text: '已返回 master 会话' })
     } catch (reason) {
       showFeedback({ kind: 'failed', text: openSessionFailureMessage(errorMessage(reason)) })
     }
-  }, [services.uiWorkspace, overview?.project.masterSessionId, showFeedback])
+  }, [masterTarget, services.uiWorkspace, showFeedback])
 
   const resolveSelected = useCallback(async () => {
     if (selectedTopic === null) return
@@ -375,7 +384,7 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     error,
     topicCount: overview?.topics.length ?? 0,
   })
-  const emptyPresentation = error === null ? emptyNotice('no-topics') : errorPresentation(error)
+  const emptyPresentation = error === null ? emptyNotice() : errorPresentation(error)
   const inboxHint = overview === null ? null : inboxNotice(overview.inbox)
   const movedTargets = overview === null || selectedTopic === null
     ? []
@@ -425,15 +434,17 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
             <span className="cw-chip-label">{inboxHint.label}</span>
           </span>
         )}
-        <button
-          type="button"
-          className="cw-breadcrumb"
-          onClick={backToMaster}
-          disabled={!canOpenSession}
-          title="返回 master 会话"
-        >
-          ← {masterBreadcrumbLabel()}
-        </button>
+        {masterTarget === null ? null : (
+          <button
+            type="button"
+            className="cw-breadcrumb"
+            onClick={backToMaster}
+            disabled={!canOpenSession}
+            title="返回 master 会话"
+          >
+            ← {masterBreadcrumbLabel()}
+          </button>
+        )}
         <button
           type="button"
           className="cw-icon-button"
