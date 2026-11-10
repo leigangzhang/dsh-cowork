@@ -374,19 +374,21 @@ master → 插件：cowork_checkout_merge(workItemId)
 - `GET /api/cowork.overview`：v2 主题列表与计数；最多 500。
 - `GET /api/cowork.activity?limit=50`：活动尾部。
 - `GET /api/cowork.topic?id=`：主题详情（工作项、评审请求、活动）。
-- `POST /api/cowork.topic.resolve`、`POST /api/cowork.topic.reopen`、`POST /api/cowork.route.move`：面板写操作；请求体含当前 `sessionId`；只允许该项目 master；沿用 loopback，增加 `Origin`/`Host` 同源与 JSON content-type 检查。
-- 面板：主题列表（状态/标记/摘要/最近活动）、详情（摘要、工作项、评审请求、活动、操作）、操作「打开/标记已解决/重新打开/移动到其他主题」；reviewer 不列出；评审卡挂详情。
-- 打开主题：`uiWorkspace.openSession(topicId)`；主区切换，不新增/移除左侧栏条目（主题本来可见）；master 保留；面包屑返回。会话已被用户归档时先 unarchive 再打开（容错，非常规路径）。
+- `POST /api/cowork.authorization.resolve`：决定一个待授权（`allow|deny`）；master 或该 topic 自己的会话可调用，`requestId` 幂等。
+- `POST /api/cowork.topic.resolve`：归档主题（清 block/authorization、写只给主会话的 `topic-archived`、归档宿主主题会话）；`POST /api/cowork.topic.reopen`：恢复（清 resolved、unarchive）；两者 master-only、幂等。`POST /api/cowork.route.move` 保留。请求体含当前 `sessionId`；沿用 loopback，增加 `Origin`/`Host` 同源与 JSON content-type 检查。
+- 主题页（2026-11-10 v2）：单列四组列表（阻塞 / 运行中 / 空闲 / 已解决）、两行卡片、需要你处理只统计待授权、⋯ 菜单只有归档/恢复；不展示详情、工作项、评审请求和审查状态。reviewer 不列出。设计见 [topic-page.md](design/cowork-sidebar/topic-page.md)。
+- 打开主题：`uiWorkspace.openSession(topicId)`；主区切换，不新增/移除左侧栏条目；master 保留；面包屑返回。会话已被用户归档时先 unarchive 再打开（容错，非常规路径）。
 - 右侧栏默认 tab 仍是普通会话；CoWork 不自动打开；footer 入口保留。
-- 左侧栏策略：主题会话保留左侧栏（2026-11-07 决策 (b)：archive 后无法继续对话，且无会话过滤接口）；插件不用 `archiveSession` 隐藏主题；打开主题不需要 unarchive。
+- 左侧栏与归档：v2 的 menu 归档会 `archiveSession` 主题会话（定稿「归档后主题移入已解决」）；恢复走 unarchive。打开主题仍不需要 unarchive，除已归档会话的容错。
 - reviewer 隐藏：verdict 后归档（M6 探针 4：创建后立即归档会让 turn `blocked`）；失败记录，不假装成功。
+- 历史：M11 交付的「列表 + 详情 + 评审卡」已被 2026-11-10 主题页 v2 取代；M11 当时验收仍见 [M11_RESULT](archived/M11_RESULT.md)。
 
 ### 5.10 配置默认值
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
-| `idleAfterMs` | 2h | 空闲展示阈值 |
-| `resolveAfterMs` | 3d | 已解决自动阈值（用户确认） |
+| `idleAfterMs` | 24h | 最后一次活动后空闲展示阈值（2026-11-10 起） |
+| `resolveAfterMs` | 3d | 弃用并忽略；不再自动 resolved，归档只走菜单/工具 |
 | `routing.enabled` | true | 第三层模型开关 |
 | `routing.provider/model/effort` | 未设 | 未设时用 master 会话路由或跳过第三层 |
 | `routing.timeoutMs` | 2000 | 模型兜底超时 |
@@ -394,7 +396,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 | `isolation.provider` | clone | clone v1；worktree 后置 |
 | `reviewer.reclaim` | after-verdict | M6 探针 4：立即归档会让 turn 变成 blocked |
 
-主题会话可见性不再有配置项：M6 决策 (b) 固定为保留左侧栏、只隐藏 reviewer。
+主题会话可见性不再有配置项：M6 决策 (b) 曾固定为保留左侧栏、只隐藏 reviewer；2026-11-10 主题页 v2 改为菜单归档时同时归档宿主主题会话，恢复时 unarchive（见 §5.9 与 [主题页设计](design/cowork-sidebar/topic-page.md)）。
 
 ---
 

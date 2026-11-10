@@ -1,10 +1,10 @@
 {
-  "version": 21,
+  "version": 22,
   "features": [
     {
       "id": "cowork-sidebar-topic-page",
       "title": "Cowork 右侧栏主题页",
-      "status": "design-approved",
+      "status": "implemented",
       "approvedAt": "2026-11-09T23:17:43Z",
       "source": {
         "thread": "object:topic",
@@ -43,9 +43,23 @@
         "主题卡两行可读，不出现运行中/阻塞/已解决状态和工作项数；标记在主题名右侧，时间在摘要右侧",
         "主题卡边框颜色与分组一致：阻塞红、运行中绿、空闲黑、已解决灰"
       ],
-      "next": "两行卡片和边框颜色已同步完整交互稿；进入实现排期：先做事件写入和列表状态，再做主题卡菜单",
+      "next": "A2 宿主发布后补 1:1 会话提醒卡并做 GUI 探针；工作项/评审查看入口由后续工作项页承载。",
       "revisedAt": "2026-11-10T12:38:00Z",
-      "designVersion": "v2"
+      "designVersion": "v2",
+      "implementedAt": "2026-11-10T15:35:00Z",
+      "implementation": {
+        "head": "b6b4a06ac9e910b9a89a493f1996e61c7de6ed83",
+        "branch": "agent/topic-page-implementation",
+        "evidence": [
+          ".agents/notes/implemented/feature/2026-11-10-topic-page-backend.md",
+          ".agents/notes/implemented/feature/2026-11-10-topic-page-frontend.md",
+          "tests/panel-model.test.mjs",
+          "tests/notices.test.mjs"
+        ]
+      },
+      "deviations": [
+        "A2 会话提醒卡按 B 延期：运行宿主没有 notice 通道；主题页、状态、菜单、通知账本与 cowork_notices 已交付（KI-40）。"
+      ]
     },
     {
       "id": "cowork-work-item-artifact-viewer",

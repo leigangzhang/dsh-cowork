@@ -1,7 +1,7 @@
 # 主题页前后端实现交接
 
 - 日期：2026-11-10
-- 状态：设计已确认，实现未开始
+- 状态：已实现（2026-11-10，B 模式；主题页/后端/通知账本完成，A2 会话提醒卡延期）
 - 设计分支：`agent/topic-page-flow-design`；设计提交到 `b7e29f7`（已推送），本交接文档另有一个提交
 - 写这份交接时最新 main 是 `616c9e3`（工作项前端计划已合并）。设计分支基于更早的 `105c0bd`；开始实现前先 `git fetch` 确认 main，再合到最新 main，检查 README、design 索引和 feature-todos 的冲突
 - 工作区：`/Users/ray/Workspace/dsh-cowork`；目前只改过文档，`src/` 未动
@@ -123,3 +123,12 @@
   - notice：`{ noticeId, pluginId, topicId, kind, title, summary, status, actions, createdAt, updatedAt }`；kind 为 `assignment | report | proposal | authorization | archive`；status 为 `pending | allowed | denied | void`；actions 为 `allow | deny | open-topic | open-work-item`。账本 `.dsh-cowork/notices.json` v1：`{ noticeId, topicId, target: 'master' | 'topic', status: 'pending' | 'delivered' | 'failed' | 'void', attempts, lastError, updatedAt }`，`noticeId = activity.eventId`，上限 200。B 阶段端口无宿主实现时账本保持 `pending`，不假装送达。
   - 生命周期：idle 阈值 24 小时，移除自动 resolved；阻塞/待授权跳过 idle，解除后按 `blockedFromStatus` 恢复；每事件只投递一次、不合并、不批量。
 - **实现任务**：后端（状态/生命周期 → 事件/账本/投递 → 工具/路由 → API 契约）与前端（视图模型/两行卡片/四组/菜单/空态错误态）在冻结后并行，队长串行合并；B 阶段的会话提醒卡只做模型/渲染器和 feature-detect，不注册。
+
+## 实现结果（2026-11-10）
+
+- **代码**：实现分支 `agent/topic-page-implementation`，最终集成 HEAD `b6b4a06`（base `e215286`；diff sha256 `b8ce98b3…`）。后端提交 `2b5e3ff` + 修复 `87cb66d`/`7a39d8e`；前端提交 `5ee6633`；另合并了最新 main 的工作项后端设计文档。提交范围见 `.agents/notes/implemented/feature/2026-11-10-topic-page-backend.md` 与 `...-frontend.md`。
+- **门禁**：`npm run check` ok；`npm run typecheck` exit 0；`npm run build` exit 0；`npm test` 843/843 exit 0（集成 HEAD）。
+- **GUI**：专用 profile `topicpage` + 隔离 fixture repo；真实 `cowork_project_init`/`cowork_topic_create` 创建测试会话；四组、两行卡片、待授权标记、单动作菜单、needsYou、已解决折叠、381.5px 省略与真实归档/恢复验证；fixture apply 4ms / restore 2ms，restore 后 index sha 回到原值。证据 `/tmp/topic-page-verify/GUI_EVIDENCE.json` 与 4 张截图（不进入仓库）。测试 topic/master 会话已归档，fixture workspace 记录已移除。
+- **A2/B**：按 B 交付。`TopicNoticePort` 是 Noop，`notices.json` 保持 pending，主/主题会话无提醒卡；`cowork_notices` 是 master 读取入口。宿主 A2 发布后补端口适配与客户端 seat 注册（[KI-40](KNOWN_ISSUES.md)）。
+- **遗留与偏差**：主题页移除工作项/评审入口（[KI-41](KNOWN_ISSUES.md)）；header 收件箱 chip「待处理 1」与 381px 下「刷新」换行是视觉偏差；needsYou 的真实 blocked topic 打开未在真实数据上验证（fixture blocked id 是合成的，openSession 已用真实 topic 卡验证）。这些记录在证据 JSON 的 deviations，后续前端修复批次处理。
+- **回滚**：回退实现分支到 `e215286`，重新 `npm run check/typecheck/build/test`，按 README 的 tarball 安装/卸载流程重装旧包；`.dsh-cowork` 数据不做迁移，`notices.json` 是新增文件，旧版本忽略。
