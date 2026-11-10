@@ -1,0 +1,2075 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cowork 侧边栏内容保留决策表</title>
+<style>
+  :root {
+    --ink: #101828;
+    --muted: #667085;
+    --line: #e4e7ec;
+    --surface: #ffffff;
+    --canvas: #f8fafc;
+    --todo: #b42318;
+    --todo-bg: #fef3f2;
+    --primary: #067647;
+    --primary-bg: #ecfdf3;
+    --summary: #b54708;
+    --summary-bg: #fffaeb;
+    --ignore: #667085;
+    --ignore-bg: #f2f4f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px;
+    background: var(--canvas);
+    color: var(--ink);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  .page-head {
+    max-width: 1480px;
+    margin: 0 auto 18px;
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    line-height: 1.3;
+  }
+  .page-head p {
+    margin: 0;
+    color: var(--muted);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .legend-item, .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .rec-todo .tag, .legend-todo { color: var(--todo); background: var(--todo-bg); }
+  .rec-primary .tag, .legend-primary { color: var(--primary); background: var(--primary-bg); }
+  .rec-summary .tag, .legend-summary { color: var(--summary); background: var(--summary-bg); }
+  .rec-ignore .tag, .legend-ignore { color: var(--ignore); background: var(--ignore-bg); }
+  .toolbar {
+    max-width: 1480px;
+    margin: 0 auto 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  button {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--ink);
+    padding: 7px 12px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover { background: #f2f4f7; }
+  button.primary {
+    border-color: #175cd3;
+    background: #175cd3;
+    color: #fff;
+  }
+  button.primary:hover { background: #1849a9; }
+  #count {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .table-wrap {
+    max-width: 1480px;
+    margin: 0 auto;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  table {
+    width: 100%;
+    min-width: 1120px;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+  }
+  col.row-head { width: 11%; }
+  col.column { width: 29.66%; }
+  th, td {
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th:last-child, td:last-child { border-right: 0; }
+  tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #f9fafb;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  thead th small {
+    display: block;
+    margin-top: 3px;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .row-head {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: #f9fafb;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  thead .row-head { z-index: 3; }
+  .col-interact { color: var(--todo); }
+  .col-aware { color: var(--primary); }
+  .col-ignore { color: var(--ignore); }
+  .items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    gap: 7px;
+    align-items: start;
+    padding: 7px 8px 7px 9px;
+    border: 1px solid var(--line);
+    border-left: 4px solid;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    user-select: none;
+  }
+  .item:hover { background: #fcfcfd; }
+  .item input {
+    width: 15px;
+    height: 15px;
+    margin: 2px 0 0;
+    accent-color: #175cd3;
+    flex: none;
+  }
+  .item-text {
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .item .tag {
+    padding: 2px 7px;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .rec-todo { border-left-color: var(--todo); background: var(--todo-bg); }
+  .rec-primary { border-left-color: var(--primary); background: var(--primary-bg); }
+  .rec-summary { border-left-color: var(--summary); background: var(--summary-bg); }
+  .rec-ignore { border-left-color: var(--ignore); background: var(--ignore-bg); }
+  .rec-ignore .item-text { color: #475467; }
+
+  .note-button {
+    justify-self: end;
+    border: 0;
+    background: transparent;
+    color: #98a2b3;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.4;
+    padding: 0 1px;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    white-space: nowrap;
+  }
+  .note-button:hover { color: #175cd3; }
+  .row-note-button {
+    margin-left: 6px;
+    border: 0;
+    background: transparent;
+    color: #98a2b3;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.4;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .row-note-button:hover { color: #175cd3; }
+  .row-note-button.commented { color: #175cd3; font-weight: 600; }
+  .note-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    background: rgba(16, 24, 40, .32);
+  }
+  .note-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: min(400px, 92vw);
+    height: 100vh;
+    padding: 20px;
+    background: var(--surface);
+    border-left: 1px solid var(--line);
+    box-shadow: -12px 0 32px rgba(16, 24, 40, .16);
+    transform: translateX(102%);
+    transition: transform .18s ease;
+    overflow-y: auto;
+  }
+  .note-drawer.open { transform: translateX(0); }
+  .note-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .note-head h2 {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.4;
+  }
+  .note-close {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 22px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+  }
+  .note-close:hover { color: var(--ink); }
+  .note-meta {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .note-body {
+    margin: 0;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+  .comment-label {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .note-comment {
+    width: 100%;
+    min-height: 150px;
+    flex: 1;
+    resize: vertical;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink);
+    background: #fff;
+  }
+  .note-comment:focus {
+    outline: 2px solid #175cd3;
+    outline-offset: 1px;
+  }
+  .comment-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #note-comment, #note-save, #note-save-status, #agent-reply, .comment-label, #export-discussion { display: none !important; }
+  .live-warning {
+    max-width: 1480px;
+    margin: 0 auto 12px;
+    padding: 10px 14px;
+    border: 1px solid #fedf89;
+    border-radius: 8px;
+    background: #fffaeb;
+    color: #93370d;
+    font-size: 13px;
+  }
+  .live-warning a { color: #175cd3; font-weight: 600; }
+  .live-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+  .live-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .live-sync {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 400;
+  }
+  .live-thread {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 34vh;
+    overflow: auto;
+    padding-right: 2px;
+  }
+  .live-empty {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .message {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: #fff;
+  }
+  .message.user { background: #f9fafb; }
+  .message.agent { background: #eff8ff; border-color: #d1e9ff; }
+  .message-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 3px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .message-author { font-weight: 600; }
+  .message.agent .message-author { color: #175cd3; }
+  .message-text {
+    margin: 0;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .live-label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .live-comment {
+    width: 100%;
+    min-height: 80px;
+    resize: vertical;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink);
+    background: #fff;
+  }
+  .live-comment:focus {
+    outline: 2px solid #175cd3;
+    outline-offset: 1px;
+  }
+  .live-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .live-status {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .live-files { display: none; }
+  .live-attachments {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .live-attachments[hidden] { display: none; }
+  .attachment-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+  }
+  .attachment-chip img {
+    width: 38px;
+    height: 38px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    flex: none;
+  }
+  .attachment-chip .file-badge {
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #f9fafb;
+    color: var(--muted);
+    font-size: 10px;
+    flex: none;
+  }
+  .attachment-meta {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .attachment-name {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .attachment-size { color: var(--muted); font-size: 11px; }
+  .attachment-remove {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .attachment-remove:hover { color: var(--todo); }
+  .live-attach-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .live-attach-label {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    padding: 5px 9px;
+    color: var(--ink);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .live-attach-label:hover { background: #f2f4f7; }
+  .live-hint { color: var(--muted); font-size: 11px; }
+  .live-section.dragover {
+    outline: 2px dashed #175cd3;
+    outline-offset: 2px;
+  }
+  .message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .message-image {
+    display: block;
+    max-width: 100%;
+    max-height: 240px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .attachment-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: #175cd3;
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .attachment-link:hover { background: #eff8ff; }
+
+  .agent-reply {
+    border: 1px solid #d1e9ff;
+    border-radius: 8px;
+    background: #eff8ff;
+    padding: 10px;
+  }
+  .agent-reply-label {
+    margin-bottom: 4px;
+    color: #175cd3;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .agent-reply-body {
+    margin: 0;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .note-save-status {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .note-button.commented {
+    color: #175cd3;
+    font-weight: 600;
+  }
+  .selected-comment {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  body.note-open { overflow: hidden; }
+  .none { margin: 0; color: var(--muted); font-size: 13px; }
+  .selected {
+    max-width: 1480px;
+    margin: 18px auto 0;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .selected h2 {
+    margin: 0 0 10px;
+    font-size: 16px;
+  }
+  .selected-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+  }
+  .selected-row {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .selected-row h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+  }
+  .selected-row ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13px;
+  }
+  .selected-row li { margin: 2px 0; }
+  .empty {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--muted);
+  }
+  .hint {
+    margin: 10px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .toast {
+    min-height: 20px;
+    color: var(--primary);
+    font-size: 12px;
+  }
+  @media (max-width: 760px) {
+    body { padding: 14px; }
+    .toolbar { align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<header class="page-head">
+  <h1>Cowork 侧边栏内容保留决策表</h1>
+  <p>横轴是用户需要被介入的程度，纵轴是 Cowork 记录的对象。颜色是建议，勾选框是你的最终决定。</p>
+</header>
+
+<section class="toolbar">
+  <div class="legend" aria-label="颜色图例">
+    <span class="legend-item legend-todo"><span class="dot"></span>待办 · 置顶保留</span>
+    <span class="legend-item legend-primary"><span class="dot"></span>常驻 · 默认展示</span>
+    <span class="legend-item legend-summary"><span class="dot"></span>摘要 · 聚合/折叠</span>
+    <span class="legend-item legend-ignore"><span class="dot"></span>仅详情 · 默认不展示</span>
+  </div>
+  <div class="actions">
+    <button id="suggest" class="primary" type="button">按建议勾选</button>
+    <button id="clear" type="button">清空</button>
+    <button id="copy" type="button">复制所选</button>
+    <button id="export" type="button">导出选择</button>
+    <button id="export-discussion" type="button">导出讨论</button>
+    <span id="count">已选 0 项</span>
+  </div>
+</section>
+
+<div class="table-wrap">
+<table>
+  <colgroup>
+    <col class="row-head">
+    <col class="column">
+    <col class="column">
+    <col class="column">
+  </colgroup>
+  <thead>
+    <tr>
+      <th class="row-head" scope="col">记录对象</th>
+      <th class="col-interact" scope="col">需要用户交互<small>阻断，必须处理</small></th>
+      <th class="col-aware" scope="col">需要用户明确知晓<small>知道即可，不阻断</small></th>
+      <th class="col-ignore" scope="col">用户可忽略<small>默认折叠，按需查看</small></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th class="row-head" scope="row">主题 <button type="button" class="row-note-button" data-object="topic" aria-label="查看主题记录对象备注">备注</button></th>
+      <td>
+        <div class="items">
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="topic-blocked" data-row="主题" data-rec="todo">
+            <span class="item-text">主题 <code>blocked</code>，等待用户决定</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="topic-question" data-row="主题" data-rec="todo">
+            <span class="item-text">Agent 提出的问题 / 授权请求</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="topic-error" data-row="主题" data-rec="todo">
+            <span class="item-text">主题停在失败 / 错误状态</span>
+            <span class="tag">待办</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-primary">
+            <input type="checkbox" data-id="topic-created" data-row="主题" data-rec="primary">
+            <span class="item-text">新主题创建（标题）</span>
+            <span class="tag">常驻</span>
+          </label>
+          <label class="item rec-primary">
+            <input type="checkbox" data-id="topic-status" data-row="主题" data-rec="primary">
+            <span class="item-text">active / idle / resolved 状态变化</span>
+            <span class="tag">常驻</span>
+          </label>
+          <label class="item rec-primary">
+            <input type="checkbox" data-id="topic-review" data-row="主题" data-rec="primary">
+            <span class="item-text">审查状态 pass / needs_revision</span>
+            <span class="tag">常驻</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="topic-auto" data-row="主题" data-rec="summary">
+            <span class="item-text">自动解决（轻提示）</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="topic-digest" data-row="主题" data-rec="summary">
+            <span class="item-text">主题摘要 / digest</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="topic-counts" data-row="主题" data-rec="summary">
+            <span class="item-text">顶部状态计数</span>
+            <span class="tag">摘要</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="topic-ids" data-row="主题" data-rec="ignore">
+            <span class="item-text">topic / session id</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="topic-meta" data-row="主题" data-rec="ignore">
+            <span class="item-text">cwd、scope、ownedPaths、aliases</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="topic-times" data-row="主题" data-rec="ignore">
+            <span class="item-text">createdAt / updatedAt / lastActiveAt</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="topic-history" data-row="主题" data-rec="ignore">
+            <span class="item-text">已解决历史</span>
+            <span class="tag">仅详情</span>
+          </label>
+        </div>
+      </td>
+    </tr>
+
+    <tr>
+      <th class="row-head" scope="row">工作项 <button type="button" class="row-note-button" data-object="work-item" aria-label="查看工作项记录对象备注">备注</button></th>
+      <td>
+        <div class="items">
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="wi-failed" data-row="工作项" data-rec="todo">
+            <span class="item-text">工作项失败 / 冲突</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="wi-clone" data-row="工作项" data-rec="todo">
+            <span class="item-text">clone 缺失或不可写</span>
+            <span class="tag">待办</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="wi-created" data-row="工作项" data-rec="summary">
+            <span class="item-text">工作项创建 / 开始</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-primary">
+            <input type="checkbox" data-id="wi-review" data-row="工作项" data-rec="primary">
+            <span class="item-text">进入 review / merged</span>
+            <span class="tag">常驻</span>
+          </label>
+          <label class="item rec-primary">
+            <input type="checkbox" data-id="wi-merge" data-row="工作项" data-rec="primary">
+            <span class="item-text">合并完成 / 放弃</span>
+            <span class="tag">常驻</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="wi-id" data-row="工作项" data-rec="ignore">
+            <span class="item-text">workItemId</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="wi-path" data-row="工作项" data-rec="ignore">
+            <span class="item-text">clone 路径 / branch</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="wi-commits" data-row="工作项" data-rec="ignore">
+            <span class="item-text">base / head commit</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="wi-diff" data-row="工作项" data-rec="ignore">
+            <span class="item-text">diff 统计</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="wi-history" data-row="工作项" data-rec="ignore">
+            <span class="item-text">历史状态变化</span>
+            <span class="tag">仅详情</span>
+          </label>
+        </div>
+      </td>
+    </tr>
+
+    <tr>
+      <th class="row-head" scope="row">评审请求 <button type="button" class="row-note-button" data-object="review" aria-label="查看评审请求记录对象备注">备注</button></th>
+      <td>
+        <div class="items">
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="rr-reject" data-row="评审请求" data-rec="todo">
+            <span class="item-text">reject / 达到轮数上限</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="rr-lifecycle" data-row="评审请求" data-rec="todo">
+            <span class="item-text">reviewer 创建 / 回收失败</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="rr-validation" data-row="评审请求" data-rec="todo">
+            <span class="item-text">评审请求校验失败</span>
+            <span class="tag">待办</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="rr-created" data-row="评审请求" data-rec="summary">
+            <span class="item-text">请求已创建（短 requestId）</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-primary">
+            <input type="checkbox" data-id="rr-verdict" data-row="评审请求" data-rec="primary">
+            <span class="item-text">verdict pass / needs_revision</span>
+            <span class="tag">常驻</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="rr-scope" data-row="评审请求" data-rec="summary">
+            <span class="item-text">changed paths 摘要</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="rr-reviewer" data-row="评审请求" data-rec="summary">
+            <span class="item-text">reviewer 会话 / 耗时</span>
+            <span class="tag">摘要</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="rr-range" data-row="评审请求" data-rec="ignore">
+            <span class="item-text">base..head 完整 range</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="rr-findings" data-row="评审请求" data-rec="ignore">
+            <span class="item-text">findings 全文（pass 后）</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="rr-verification" data-row="评审请求" data-rec="ignore">
+            <span class="item-text">verification 命令与 exit code 明细</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="rr-paths" data-row="评审请求" data-rec="ignore">
+            <span class="item-text">changed paths 全量</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="rr-file" data-row="评审请求" data-rec="ignore">
+            <span class="item-text">requestId 全文 / 文件路径</span>
+            <span class="tag">仅详情</span>
+          </label>
+        </div>
+      </td>
+    </tr>
+
+    <tr>
+      <th class="row-head" scope="row">活动流 <button type="button" class="row-note-button" data-object="activity" aria-label="查看活动流记录对象备注">备注</button></th>
+      <td>
+        <div class="items">
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="act-store" data-row="活动流" data-rec="todo">
+            <span class="item-text">活动写入失败 / 存储错误</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="act-blocked" data-row="活动流" data-rec="todo">
+            <span class="item-text">出现 blocked / reject 但未进收件箱</span>
+            <span class="tag">待办</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="act-topic" data-row="活动流" data-rec="summary">
+            <span class="item-text">主题创建 / 路由事件</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="act-review" data-row="活动流" data-rec="summary">
+            <span class="item-text">review requested / verdict</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="act-handoff" data-row="活动流" data-rec="summary">
+            <span class="item-text">handoff / 状态变更</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="act-inbox" data-row="活动流" data-rec="summary">
+            <span class="item-text">inbox 投递 / 重放</span>
+            <span class="tag">摘要</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="act-raw" data-row="活动流" data-rec="ignore">
+            <span class="item-text">eventId / time / type / details JSON</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="act-router" data-row="活动流" data-rec="ignore">
+            <span class="item-text">路由 layer / reason / candidates</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="act-history" data-row="活动流" data-rec="ignore">
+            <span class="item-text">历史分页 / 完整流</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="act-payload" data-row="活动流" data-rec="ignore">
+            <span class="item-text">每条事件原始 payload</span>
+            <span class="tag">仅详情</span>
+          </label>
+        </div>
+      </td>
+    </tr>
+
+    <tr>
+      <th class="row-head" scope="row">收件箱 <button type="button" class="row-note-button" data-object="inbox" aria-label="查看收件箱记录对象备注">备注</button></th>
+      <td>
+        <div class="items">
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="inbox-merge" data-row="收件箱" data-rec="todo">
+            <span class="item-text">merge-needed</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="inbox-reject" data-row="收件箱" data-rec="todo">
+            <span class="item-text">review-reject</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="inbox-conflict" data-row="收件箱" data-rec="todo">
+            <span class="item-text">cross-topic-conflict</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="inbox-blocked" data-row="收件箱" data-rec="todo">
+            <span class="item-text">blocked 待处理</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="inbox-delivery" data-row="收件箱" data-rec="todo">
+            <span class="item-text">投递失败</span>
+            <span class="tag">待办</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-primary">
+            <input type="checkbox" data-id="inbox-count" data-row="收件箱" data-rec="primary">
+            <span class="item-text">待处理数量 / 摘要</span>
+            <span class="tag">常驻</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="inbox-delivered" data-row="收件箱" data-rec="summary">
+            <span class="item-text">已投递 / 已重放</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="inbox-master" data-row="收件箱" data-rec="summary">
+            <span class="item-text">master 正在处理</span>
+            <span class="tag">摘要</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="inbox-id" data-row="收件箱" data-rec="ignore">
+            <span class="item-text">item id</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="inbox-meta" data-row="收件箱" data-rec="ignore">
+            <span class="item-text">deliveredAt / attempts</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="inbox-history" data-row="收件箱" data-rec="ignore">
+            <span class="item-text">历史已投递</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="inbox-body" data-row="收件箱" data-rec="ignore">
+            <span class="item-text">完整正文 / 摘要全文</span>
+            <span class="tag">仅详情</span>
+          </label>
+        </div>
+      </td>
+    </tr>
+
+    <tr>
+      <th class="row-head" scope="row">Handoff <button type="button" class="row-note-button" data-object="handoff" aria-label="查看Handoff记录对象备注">备注</button></th>
+      <td>
+        <div class="items">
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="handoff-blocked" data-row="Handoff" data-rec="todo">
+            <span class="item-text">blocked handoff 等待决策</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="handoff-error" data-row="Handoff" data-rec="todo">
+            <span class="item-text">写入 / 投递失败</span>
+            <span class="tag">待办</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-primary">
+            <input type="checkbox" data-id="handoff-done" data-row="Handoff" data-rec="primary">
+            <span class="item-text">done 摘要 / digest</span>
+            <span class="tag">常驻</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="handoff-confirm" data-row="Handoff" data-rec="summary">
+            <span class="item-text">交付确认</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="handoff-reason" data-row="Handoff" data-rec="summary">
+            <span class="item-text">阻塞原因摘要</span>
+            <span class="tag">摘要</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="handoff-file" data-row="Handoff" data-rec="ignore">
+            <span class="item-text">完整 handoff JSON / 文件</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="handoff-evidence" data-row="Handoff" data-rec="ignore">
+            <span class="item-text">证据 / 命令输出全文</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="handoff-history" data-row="Handoff" data-rec="ignore">
+            <span class="item-text">历史 handoff 列表</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="handoff-meta" data-row="Handoff" data-rec="ignore">
+            <span class="item-text">时间戳 / 路径</span>
+            <span class="tag">仅详情</span>
+          </label>
+        </div>
+      </td>
+    </tr>
+
+    <tr>
+      <th class="row-head" scope="row">项目记忆 <button type="button" class="row-note-button" data-object="memory" aria-label="查看项目记忆记录对象备注">备注</button></th>
+      <td>
+        <div class="items">
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="memory-conflict" data-row="项目记忆" data-rec="todo">
+            <span class="item-text">记忆与用户决定冲突，需要确认</span>
+            <span class="tag">待办</span>
+          </label>
+          <label class="item rec-todo">
+            <input type="checkbox" data-id="memory-write" data-row="项目记忆" data-rec="todo">
+            <span class="item-text">记忆写入失败</span>
+            <span class="tag">待办</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-primary">
+            <input type="checkbox" data-id="memory-change" data-row="项目记忆" data-rec="primary">
+            <span class="item-text">新增 / 更新 constraint、decision、fact 摘要</span>
+            <span class="tag">常驻</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="memory-inject" data-row="项目记忆" data-rec="summary">
+            <span class="item-text">注入失败 / 预算截断</span>
+            <span class="tag">摘要</span>
+          </label>
+          <label class="item rec-summary">
+            <input type="checkbox" data-id="memory-source" data-row="项目记忆" data-rec="summary">
+            <span class="item-text">记忆来源变更</span>
+            <span class="tag">摘要</span>
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="items">
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="memory-file" data-row="项目记忆" data-rec="ignore">
+            <span class="item-text">memory 文件全文 / 历史</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="memory-meta" data-row="项目记忆" data-rec="ignore">
+            <span class="item-text">每条记忆 source / 时间</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="memory-digest" data-row="项目记忆" data-rec="ignore">
+            <span class="item-text">注入块 digest / 预算统计</span>
+            <span class="tag">仅详情</span>
+          </label>
+          <label class="item rec-ignore">
+            <input type="checkbox" data-id="memory-rendered" data-row="项目记忆" data-rec="ignore">
+            <span class="item-text">完整渲染文本</span>
+            <span class="tag">仅详情</span>
+          </label>
+        </div>
+      </td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note-scrim" id="note-scrim" hidden></div>
+<aside class="note-drawer" id="note-drawer" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="note-title">
+  <div class="note-head">
+    <h2 id="note-title">备注</h2>
+    <button type="button" class="note-close" id="note-close" aria-label="关闭备注">×</button>
+  </div>
+  <p class="note-meta" id="note-meta"></p>
+  <p class="note-body" id="note-body"></p>
+  <div class="live-section">
+    <div class="live-head"><span>讨论</span><span class="live-sync" id="live-sync">连接中…</span></div>
+    <div class="live-thread" id="live-thread" aria-live="polite"></div>
+    <label class="live-label" for="live-comment">追加评论</label>
+    <textarea class="live-comment" id="live-comment" rows="4" placeholder="写下你的判断、保留理由或修改意见… 也可添加图片或 txt/md 文件"></textarea>
+    <div class="live-attachments" id="live-attachments" hidden></div>
+    <div class="live-attach-row">
+      <label class="live-attach-label" for="live-files">添加图片 / 文件</label>
+      <input class="live-files" id="live-files" type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.markdown,.json,.csv,.log,text/plain,text/markdown">
+      <span class="live-hint">图片、txt/md；也可拖拽或粘贴图片，单个 ≤ 5 MB</span>
+    </div>
+    <div class="live-actions">
+      <button type="button" class="primary" id="live-send">发送评论</button>
+      <button type="button" id="live-export">导出实时讨论</button>
+      <span class="live-status" id="live-status" role="status" aria-live="polite"></span>
+    </div>
+  </div>
+  <label class="comment-label" for="note-comment">我的评论</label>
+  <textarea class="note-comment" id="note-comment" rows="5" placeholder="写下你的判断、保留理由或修改意见…"></textarea>
+  <div class="comment-actions">
+    <button type="button" class="primary" id="note-save">保存评论</button>
+    <span class="note-save-status" id="note-save-status" role="status" aria-live="polite"></span>
+  </div>
+  <div class="agent-reply" id="agent-reply" hidden>
+    <div class="agent-reply-label">Agent 回复</div>
+    <p class="agent-reply-body" id="agent-reply-body"></p>
+  </div>
+</aside>
+
+<section class="selected" aria-labelledby="selected-title">
+  <h2 id="selected-title">当前选择</h2>
+  <div id="selected-list" class="selected-list">
+    <p class="empty">还没有勾选。可以点“按建议勾选”，再逐项调整。</p>
+  </div>
+  <p class="hint">建议保留：红色“待办” + 绿色“常驻” + 黄色“摘要”；灰色“仅详情”默认不保留。</p>
+  <p id="toast" class="toast" role="status" aria-live="polite"></p>
+</section>
+
+<script>
+(() => {
+  const STORAGE_KEY = 'cowork-sidebar-retention-v1'
+  const boxes = Array.from(document.querySelectorAll('input[type="checkbox"][data-id]'))
+  const count = document.getElementById('count')
+  const selectedList = document.getElementById('selected-list')
+  const toast = document.getElementById('toast')
+
+  const recLabel = {
+    todo: '待办',
+    primary: '常驻',
+    summary: '摘要',
+    ignore: '仅详情',
+  }
+
+  const NOTES = {
+  "topic-blocked": "主题被标记为阻塞，Agent 无法自行继续；需要人决定解除、改范围或放弃。",
+  "topic-question": "Agent 在等用户回答或授权，不处理会停在当前步骤。",
+  "topic-error": "执行失败或环境错误停在异常状态，需要人判断重试或修复。",
+  "topic-created": "新主题是用户进入该项目工作的入口；保留标题和状态即可。",
+  "topic-status": "active / idle / resolved 是项目进展的主信号；变化应可见。",
+  "topic-review": "审查状态决定工作能否进入合并；pass / needs_revision 需要一眼看到。",
+  "topic-auto": "自动解决只是生命周期变化，不需要打断；用轻提示足够。",
+  "topic-digest": "摘要帮助用户理解主题在做什么，适合放在详情 / 折叠区。",
+  "topic-counts": "顶部计数提供全局规模感；保留聚合值，不展示每条明细。",
+  "topic-ids": "topic / session id 只在排查、深链或跨系统对账时需要。",
+  "topic-meta": "cwd、scope、ownedPaths、aliases 是执行元数据，正常浏览不需要。",
+  "topic-times": "时间戳用于审计和排序，默认不占主视图。",
+  "topic-history": "已解决历史是归档信息，按需在历史里查。",
+  "wi-failed": "失败 / 冲突会阻断合并或交付，必须让人决定如何继续。",
+  "wi-clone": "clone 缺失或不可写是环境故障，Agent 无法在隔离目录继续。",
+  "wi-created": "创建 / 开始只表示执行开始，通常不需要用户动作。",
+  "wi-review": "进入 review / merged 是阶段性进展，值得保留状态。",
+  "wi-merge": "合并完成 / 放弃改变项目状态，用户需要知道结果。",
+  "wi-id": "workItemId 是内部标识，只在排查 / API 调用时需要。",
+  "wi-path": "clone 路径和分支属于执行细节，默认折叠。",
+  "wi-commits": "base / head commit 用于复核范围和审计，不进入主视图。",
+  "wi-diff": "diff 统计是证据，适合在评审详情里查看。",
+  "wi-history": "历史状态变化用于回溯，不需要常驻。",
+  "rr-reject": "reject 或达到轮数上限意味着自动流程无法收敛，需要人裁决。",
+  "rr-lifecycle": "reviewer 创建 / 回收失败会破坏评审链，需要处理。",
+  "rr-validation": "请求校验失败说明评审范围或证据不合法，需要人修正。",
+  "rr-created": "请求创建是过程事件，短 id 足够定位；不需要完整对象。",
+  "rr-verdict": "pass / needs_revision 是评审结果，决定下一步动作。",
+  "rr-scope": "changed paths 摘要帮助用户判断评审范围，保留摘要即可。",
+  "rr-reviewer": "reviewer 会话 / 耗时用于知道谁在审、是否卡住；摘要足够。",
+  "rr-range": "完整 commit range 只在复核 / 审计时需要。",
+  "rr-findings": "pass 后 findings 是证据归档，默认折叠。",
+  "rr-verification": "验证命令和 exit code 是证据，不在主视图展开。",
+  "rr-paths": "全量 changed paths 可能很长，按需展开。",
+  "rr-file": "requestId 全文和文件路径是内部寻址信息。",
+  "act-store": "活动写入失败会丢失审计链，需要处理存储问题。",
+  "act-blocked": "blocked / reject 如果没有进入收件箱，说明升级链断了，需要人工补。",
+  "act-topic": "主题创建 / 路由事件是活动流的主体，保留摘要即可。",
+  "act-review": "评审请求和 verdict 是项目关键事件，值得摘要。",
+  "act-handoff": "handoff / 状态变更是协作节点，保留摘要。",
+  "act-inbox": "inbox 投递 / 重放是可靠性信息，摘要足够。",
+  "act-raw": "eventId / time / type / details 是原始审计字段，默认折叠。",
+  "act-router": "路由 layer / reason / candidates 是模型决策细节，排查时看。",
+  "act-history": "历史分页和完整流会很长，按需加载。",
+  "act-payload": "每条事件原始 payload 是调试数据，不进入主视图。",
+  "inbox-merge": "merge-needed 是等待 master 合并的待办；若 master 不能处理就升级给人。",
+  "inbox-reject": "review-reject 需要重新规划或裁决策略。",
+  "inbox-conflict": "跨主题冲突需要人决定边界和优先级。",
+  "inbox-blocked": "阻塞项未处理会一直停在收件箱。",
+  "inbox-delivery": "投递失败可能导致 master 收不到关键信息，需要修复。",
+  "inbox-count": "待处理数量是收件箱的总览信号，保留聚合值。",
+  "inbox-delivered": "已投递 / 重放是可靠性状态，摘要即可。",
+  "inbox-master": "master 正在处理表示无需用户重复操作，保留状态即可。",
+  "inbox-id": "item id 是内部标识，排查时使用。",
+  "inbox-meta": "deliveredAt / attempts 是投递元数据，默认折叠。",
+  "inbox-history": "历史已投递条目是归档，按需查看。",
+  "inbox-body": "完整正文 / 摘要全文可能很长，抽屉里按需展开。",
+  "handoff-blocked": "blocked handoff 表示主题停在等人决定，必须处理。",
+  "handoff-error": "写入 / 投递失败会让 master 收不到交接，需要修复。",
+  "handoff-done": "done 摘要 / digest 是主题交付结论，保留。",
+  "handoff-confirm": "交付确认是完成凭据，摘要即可。",
+  "handoff-reason": "阻塞原因摘要帮助人快速判断，保留摘要。",
+  "handoff-file": "完整 handoff JSON 是归档证据，默认折叠。",
+  "handoff-evidence": "证据 / 命令输出全文适合审计，不进入主视图。",
+  "handoff-history": "历史 handoff 列表用于回溯，不需要常驻。",
+  "handoff-meta": "时间戳 / 路径是内部归档元数据。",
+  "memory-conflict": "记忆和用户决定冲突会导致后续行为偏差，需要确认。",
+  "memory-write": "记忆写入失败会丢失约束 / 决定，需要处理。",
+  "memory-change": "新增 / 更新 constraint、decision、fact 摘要会影响后续决策，值得知晓。",
+  "memory-inject": "注入失败或预算截断会影响 Agent 上下文，保留警告摘要。",
+  "memory-source": "来源变更影响记忆可信度，摘要提示即可。",
+  "memory-file": "memory 文件全文 / 历史是底层存储，默认折叠。",
+  "memory-meta": "每条记忆 source / 时间用于审计，不进入主视图。",
+  "memory-digest": "注入块 digest / 预算统计是内部健康指标。",
+  "memory-rendered": "完整渲染文本可能很长，排查时再看。"
+}
+
+  // Filled by the agent after reading an exported discussion JSON.
+  const AGENT_REPLIES = {}
+
+  const noteDrawer = document.getElementById('note-drawer')
+  const noteScrim = document.getElementById('note-scrim')
+  const noteTitle = document.getElementById('note-title')
+  const noteMeta = document.getElementById('note-meta')
+  const noteBody = document.getElementById('note-body')
+  const noteClose = document.getElementById('note-close')
+  const agentReply = document.getElementById('agent-reply')
+  const agentReplyBody = document.getElementById('agent-reply-body')
+  let noteTrigger = null
+  const noteComment = document.getElementById('note-comment')
+  const noteSave = document.getElementById('note-save')
+  const noteSaveStatus = document.getElementById('note-save-status')
+  const COMMENT_KEY = 'cowork-sidebar-retention-comments-v1'
+  let noteBox = null
+
+  const readComments = () => {
+    try {
+      const raw = localStorage.getItem(COMMENT_KEY)
+      return raw === null ? {} : JSON.parse(raw)
+    } catch {
+      return {}
+    }
+  }
+
+  const writeComments = () => {
+    try {
+      localStorage.setItem(COMMENT_KEY, JSON.stringify(comments))
+    } catch {
+      /* file:// or privacy mode may reject storage; comments remain in-page */
+    }
+  }
+
+  let comments = readComments()
+
+  const updateNoteButton = (button, value) => {
+    if (button === null) return
+    const hasComment = value.trim() !== ''
+    button.textContent = hasComment ? '备注*' : '备注'
+    button.classList.toggle('commented', hasComment)
+    const label = button.closest('.item')
+    const title = label === null ? '' : label.querySelector('.item-text').textContent.trim()
+    button.setAttribute('aria-label', `${hasComment ? '查看备注和评论' : '查看备注'}：${title}`)
+  }
+
+  const saveComment = (announce) => {
+    if (noteBox === null) return
+    const value = noteComment.value.trim()
+    const id = noteBox.dataset.id
+    if (value === '') delete comments[id]
+    else comments[id] = value
+    writeComments()
+    updateNoteButton(noteTrigger, value)
+    if (noteBox.checked) render()
+    if (announce) {
+      noteSaveStatus.textContent = value === '' ? '评论已清除' : '评论已保存'
+    } else {
+      noteSaveStatus.textContent = value === '' ? '' : '已自动保存'
+    }
+  }
+
+  const openNote = (box, trigger) => {
+    const label = box.closest('.item')
+    noteTitle.textContent = itemText(box)
+    noteMeta.textContent = `${box.dataset.row} · ${recLabel[box.dataset.rec] ?? box.dataset.rec}`
+    noteBody.textContent = NOTES[box.dataset.id] ?? '暂无备注。'
+    const reply = AGENT_REPLIES[box.dataset.id] ?? ''
+    agentReply.hidden = reply === ''
+    agentReplyBody.textContent = reply
+    noteBox = box
+    noteComment.value = comments[box.dataset.id] ?? ''
+    noteSaveStatus.textContent = noteComment.value.trim() === '' ? '' : '已保存'
+    updateNoteButton(trigger, noteComment.value)
+    noteDrawer.classList.add('open')
+    noteDrawer.setAttribute('aria-hidden', 'false')
+    noteScrim.hidden = false
+    document.body.classList.add('note-open')
+    noteTrigger = trigger
+    noteClose.focus()
+  }
+
+  const closeNote = () => {
+    saveComment(false)
+    noteDrawer.classList.remove('open')
+    noteDrawer.setAttribute('aria-hidden', 'true')
+    noteScrim.hidden = true
+    document.body.classList.remove('note-open')
+    if (noteTrigger !== null) noteTrigger.focus()
+  }
+
+  noteClose.addEventListener('click', closeNote)
+  noteScrim.addEventListener('click', closeNote)
+  noteComment.addEventListener('input', () => saveComment(false))
+  noteSave.addEventListener('click', () => {
+    saveComment(true)
+    noteComment.focus()
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && noteDrawer.classList.contains('open')) closeNote()
+  })
+
+  const readSaved = () => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      return raw === null ? {} : JSON.parse(raw)
+    } catch {
+      return {}
+    }
+  }
+
+  const writeSaved = () => {
+    try {
+      const state = {}
+      for (const box of boxes) state[box.dataset.id] = box.checked
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    } catch {
+      /* file:// or privacy mode may reject storage; selections still work in-page */
+    }
+  }
+
+  const selected = () => boxes.filter((box) => box.checked)
+
+  const itemText = (box) => {
+    const label = box.closest('.item')
+    return label === null ? box.dataset.id : label.querySelector('.item-text').textContent.trim()
+  }
+
+  const render = () => {
+    writeSaved()
+    const picked = selected()
+    count.textContent = `已选 ${picked.length} 项`
+
+    const groups = new Map()
+    for (const box of picked) {
+      const row = box.dataset.row
+      if (!groups.has(row)) groups.set(row, [])
+      groups.get(row).push({
+        text: itemText(box),
+        rec: box.dataset.rec,
+        id: box.dataset.id,
+      })
+    }
+
+    selectedList.replaceChildren()
+    if (groups.size === 0) {
+      const empty = document.createElement('p')
+      empty.className = 'empty'
+      empty.textContent = '还没有勾选。可以点“按建议勾选”，再逐项调整。'
+      selectedList.append(empty)
+      return
+    }
+
+    for (const [row, items] of groups) {
+      const section = document.createElement('div')
+      section.className = 'selected-row'
+      const title = document.createElement('h3')
+      title.textContent = row
+      const list = document.createElement('ul')
+      for (const item of items) {
+        const li = document.createElement('li')
+        const tag = document.createElement('span')
+        tag.className = `tag rec-${item.rec}`
+        tag.textContent = recLabel[item.rec] ?? item.rec
+        li.append(tag, document.createTextNode(` ${item.text}`))
+        const comment = comments[item.id] ?? ''
+        if (comment.trim() !== '') {
+          const note = document.createElement('div')
+          note.className = 'selected-comment'
+          note.textContent = `评论：${comment}`
+          li.append(note)
+        }
+        list.append(li)
+      }
+      section.append(title, list)
+      selectedList.append(section)
+    }
+  }
+
+  const notify = (text) => {
+    toast.textContent = text
+    window.setTimeout(() => {
+      if (toast.textContent === text) toast.textContent = ''
+    }, 2200)
+  }
+
+  const selectedText = () => {
+    const lines = []
+    for (const [row, items] of (() => {
+      const groups = new Map()
+      for (const box of selected()) {
+        if (!groups.has(box.dataset.row)) groups.set(box.dataset.row, [])
+        groups.get(box.dataset.row).push(box)
+      }
+      return groups
+    })()) {
+      lines.push(`【${row}】`)
+      for (const box of items) {
+        lines.push(`- [${recLabel[box.dataset.rec] ?? box.dataset.rec}] ${itemText(box)}`)
+        const comment = comments[box.dataset.id] ?? ''
+        if (comment.trim() !== '') lines.push(`  评论：${comment}`)
+      }
+    }
+    return lines.join('\n')
+  }
+
+  const copyText = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      const area = document.createElement('textarea')
+      area.value = text
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.append(area)
+      area.select()
+      const ok = document.execCommand('copy')
+      area.remove()
+      return ok
+    }
+  }
+
+  const saved = readSaved()
+  for (const box of boxes) {
+    box.checked = saved[box.dataset.id] === true
+    box.addEventListener('change', render)
+
+    const label = box.closest('.item')
+    const noteButton = document.createElement('button')
+    noteButton.type = 'button'
+    noteButton.className = 'note-button'
+    noteButton.textContent = '备注'
+    noteButton.setAttribute('aria-label', `查看备注：${itemText(box)}`)
+    noteButton.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      openNote(box, noteButton)
+    })
+    label.append(noteButton)
+    updateNoteButton(noteButton, comments[box.dataset.id] ?? '')
+  }
+
+  document.getElementById('suggest').addEventListener('click', () => {
+    for (const box of boxes) box.checked = box.dataset.rec !== 'ignore'
+    render()
+    notify('已按建议勾选；灰色“仅详情”保持未选。')
+  })
+
+  document.getElementById('clear').addEventListener('click', () => {
+    for (const box of boxes) box.checked = false
+    render()
+    notify('已清空选择。')
+  })
+
+  document.getElementById('copy').addEventListener('click', async () => {
+    const text = selectedText()
+    if (text === '') {
+      notify('还没有勾选内容。')
+      return
+    }
+    const ok = await copyText(text)
+    notify(ok ? '已复制所选清单。' : '复制失败，请手动选择文本。')
+  })
+
+  document.getElementById('export').addEventListener('click', () => {
+    const rows = selected().map((box) => ({
+      row: box.dataset.row,
+      id: box.dataset.id,
+      recommendation: box.dataset.rec,
+      text: itemText(box),
+      comment: comments[box.dataset.id] ?? '',
+    }))
+    const payload = {
+      title: 'Cowork 侧边栏内容保留决定',
+      generatedAt: new Date().toISOString(),
+      selectedCount: rows.length,
+      items: rows,
+    }
+    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = 'cowork-sidebar-retention.json'
+    document.body.append(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(link.href)
+    notify(`已导出 ${rows.length} 项。`)
+  })
+
+  document.getElementById('export-discussion').addEventListener('click', () => {
+    const rows = boxes.map((box) => ({
+      row: box.dataset.row,
+      id: box.dataset.id,
+      recommendation: box.dataset.rec,
+      text: itemText(box),
+      note: NOTES[box.dataset.id] ?? '',
+      selected: box.checked,
+      comment: comments[box.dataset.id] ?? '',
+      agentReply: AGENT_REPLIES[box.dataset.id] ?? '',
+    }))
+    const payload = {
+      title: 'Cowork 侧边栏保留讨论',
+      generatedAt: new Date().toISOString(),
+      totalItems: rows.length,
+      commentedCount: rows.filter((row) => row.comment.trim() !== '').length,
+      items: rows,
+    }
+    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = 'cowork-sidebar-discussion.json'
+    document.body.append(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(link.href)
+    notify(`已导出讨论：${payload.commentedCount} 条评论。把 JSON 文件发给 agent 即可继续。`)
+  })
+
+  render()
+})()
+</script>
+
+<script>
+(() => {
+  const API = {
+    state: '/api/discussion',
+    comment: '/api/comment',
+  }
+  const isFilePage = window.location.protocol === 'file:'
+  if (isFilePage) {
+    const warning = document.createElement('div')
+    warning.className = 'live-warning'
+    const link = document.createElement('a')
+    link.href = 'http://127.0.0.1:8765/cowork-sidebar-retention.html'
+    link.textContent = 'http://127.0.0.1:8765/cowork-sidebar-retention.html'
+    warning.append('实时讨论未连接。请用 ', link, ' 打开，而不是直接打开本地 HTML 文件。')
+    document.querySelector('.page-head')?.after(warning)
+  }
+  const boxes = Array.from(document.querySelectorAll('input[type="checkbox"][data-id]'))
+  const liveSync = document.getElementById('live-sync')
+  const liveThread = document.getElementById('live-thread')
+  const liveComment = document.getElementById('live-comment')
+  const liveSend = document.getElementById('live-send')
+  const liveExport = document.getElementById('live-export')
+  const liveStatus = document.getElementById('live-status')
+  const liveSection = document.querySelector('.live-section')
+  const liveAttachments = document.getElementById('live-attachments')
+  const liveFiles = document.getElementById('live-files')
+  const MAX_FILES = 5
+  const MAX_FILE_BYTES = 5 * 1024 * 1024
+  let pendingFiles = []
+  let previewUrls = []
+  const noteDrawer = document.getElementById('note-drawer')
+  const noteScrim = document.getElementById('note-scrim')
+  const noteTitle = document.getElementById('note-title')
+  const noteMeta = document.getElementById('note-meta')
+  const noteBody = document.getElementById('note-body')
+  const noteClose = document.getElementById('note-close')
+  const OBJECT_NOTES = {
+    topic: '主题是用户可打开的工作单元：记录标题、状态、摘要、审查状态，以及其下的工作项和评审请求。它回答“这件事现在做到哪了”。',
+    'work-item': '工作项是主题下一次具体执行的分支 / 隔离 clone：记录路径、分支、base/head、合并状态。它回答“这次改动在哪里、是否已合入”。',
+    review: '评审请求是针对某个工作项范围的独立复核：记录 requestId、范围、changed paths、验证证据、findings 和 verdict。它回答“这次改动是否被独立审过”。',
+    activity: '活动流是按时间追加的事件账本：记录主题创建、路由、评审、handoff、inbox 投递等状态变化。它回答“发生过什么、何时发生”。',
+    inbox: '收件箱是 master 的待办队列：记录 merge-needed、review-reject、跨主题冲突、blocked 和投递状态。它回答“现在有什么在等人处理”。',
+    handoff: 'Handoff 是主题结束或阻塞时交给下一个执行者的摘要包：记录 done / blocked、digest、证据和交付确认。它回答“这件事如何交接”。',
+    memory: '项目记忆是跨主题复用的约束、决策和事实：记录摘要、来源和注入状态。它回答“这个项目长期要遵守什么”。',
+  }
+  const OBJECT_LABELS = {
+    topic: '主题',
+    'work-item': '工作项',
+    review: '评审请求',
+    activity: '活动流',
+    inbox: '收件箱',
+    handoff: 'Handoff',
+    memory: '项目记忆',
+  }
+  const objectButtons = Array.from(document.querySelectorAll('.row-note-button'))
+  let threads = {}
+  let version = -1
+  let currentId = null
+  let sending = false
+
+  const formatBytes = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return ''
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  const isSupportedFile = (file) => {
+    const name = file.name.toLowerCase()
+    const allowed = ['.txt', '.md', '.markdown', '.json', '.csv', '.log']
+    return file.type.startsWith('image/') || allowed.some((ext) => name.endsWith(ext))
+  }
+
+  const readAsDataURL = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error ?? new Error('read failed'))
+    reader.readAsDataURL(file)
+  })
+
+  const clearPendingFiles = () => {
+    pendingFiles = []
+    renderPendingFiles()
+  }
+
+  const renderPendingFiles = () => {
+    for (const url of previewUrls) URL.revokeObjectURL(url)
+    previewUrls = []
+    liveAttachments.replaceChildren()
+    liveAttachments.hidden = pendingFiles.length === 0
+    for (const [index, file] of pendingFiles.entries()) {
+      const chip = document.createElement('div')
+      chip.className = 'attachment-chip'
+      if (file.type.startsWith('image/')) {
+        const preview = URL.createObjectURL(file)
+        previewUrls.push(preview)
+        const image = document.createElement('img')
+        image.src = preview
+        image.alt = file.name
+        chip.append(image)
+      } else {
+        const badge = document.createElement('span')
+        badge.className = 'file-badge'
+        badge.textContent = 'TXT'
+        chip.append(badge)
+      }
+      const meta = document.createElement('span')
+      meta.className = 'attachment-meta'
+      const name = document.createElement('span')
+      name.className = 'attachment-name'
+      name.textContent = file.name
+      const size = document.createElement('span')
+      size.className = 'attachment-size'
+      size.textContent = formatBytes(file.size)
+      meta.append(name, size)
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.className = 'attachment-remove'
+      remove.textContent = '×'
+      remove.setAttribute('aria-label', `移除附件 ${file.name}`)
+      remove.addEventListener('click', () => {
+        pendingFiles.splice(index, 1)
+        renderPendingFiles()
+        liveStatus.textContent = ''
+      })
+      chip.append(meta, remove)
+      liveAttachments.append(chip)
+    }
+  }
+
+  const addFiles = (fileList) => {
+    for (const file of Array.from(fileList)) {
+      if (pendingFiles.length >= MAX_FILES) {
+        liveStatus.textContent = `最多添加 ${MAX_FILES} 个附件`
+        break
+      }
+      if (!isSupportedFile(file)) {
+        liveStatus.textContent = `不支持的文件类型：${file.name}`
+        continue
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        liveStatus.textContent = `${file.name} 超过 5 MB`
+        continue
+      }
+      pendingFiles.push(file)
+    }
+    renderPendingFiles()
+    if (pendingFiles.length > 0) liveStatus.textContent = `已选择 ${pendingFiles.length} 个附件`
+  }
+
+  const uploadFile = async (file) => {
+    const dataUrl = await readAsDataURL(file)
+    const encoded = dataUrl.split(',', 2)[1] ?? ''
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: file.name, mime: file.type, data: encoded }),
+    })
+    if (!response.ok) {
+      let detail = ''
+      try {
+        const payload = await response.json()
+        detail = typeof payload.error === 'string' ? payload.error : ''
+      } catch {
+        detail = ''
+      }
+      throw new Error(detail || `upload ${response.status}`)
+    }
+    const payload = await response.json()
+    return payload.attachment
+  }
+
+  const fetchState = async () => {
+    const response = await fetch(API.state, { cache: 'no-store' })
+    if (!response.ok) throw new Error(`discussion state ${response.status}`)
+    return response.json()
+  }
+
+  const noteButtonFor = (id) => {
+    const box = boxes.find((candidate) => candidate.dataset.id === id)
+    return box === undefined ? null : box.closest('.item')?.querySelector('.note-button') ?? null
+  }
+
+  const updateNoteButton = (id) => {
+    const button = noteButtonFor(id)
+    if (button === null) return
+    const hasUserMessage = (threads[id] ?? []).some((message) => message.author === 'user')
+    button.textContent = hasUserMessage ? '备注*' : '备注'
+    button.classList.toggle('commented', hasUserMessage)
+  }
+
+  const updateObjectButtons = () => {
+    for (const button of objectButtons) {
+      const id = `object:${button.dataset.object}`
+      const hasUserMessage = (threads[id] ?? []).some((message) => message.author === 'user')
+      button.textContent = hasUserMessage ? '备注*' : '备注'
+      button.classList.toggle('commented', hasUserMessage)
+    }
+  }
+
+  const updateAllNoteButtons = () => {
+    for (const box of boxes) updateNoteButton(box.dataset.id)
+    updateObjectButtons()
+  }
+
+  const openObjectNote = (key, button) => {
+    currentId = `object:${key}`
+    noteTitle.textContent = OBJECT_LABELS[key] ?? key
+    noteMeta.textContent = '记录对象 · 说明'
+    noteBody.textContent = OBJECT_NOTES[key] ?? '暂无说明。'
+    liveComment.value = ''
+    liveStatus.textContent = ''
+    renderThread()
+    noteDrawer.classList.add('open')
+    noteDrawer.setAttribute('aria-hidden', 'false')
+    noteScrim.hidden = false
+    document.body.classList.add('note-open')
+    button.blur()
+    noteClose.focus()
+  }
+
+  const renderThread = () => {
+    liveThread.replaceChildren()
+    const messages = currentId === null ? [] : (threads[currentId] ?? [])
+    if (messages.length === 0) {
+      const empty = document.createElement('p')
+      empty.className = 'live-empty'
+      empty.textContent = '还没有讨论。写下你的判断，Agent 会在 5–10 秒内回复。'
+      liveThread.append(empty)
+      return
+    }
+    for (const message of messages) {
+      const article = document.createElement('div')
+      article.className = `message ${message.author === 'agent' ? 'agent' : 'user'}`
+      const head = document.createElement('div')
+      head.className = 'message-head'
+      const author = document.createElement('span')
+      author.className = 'message-author'
+      author.textContent = message.author === 'agent' ? 'Agent' : '你'
+      const time = document.createElement('span')
+      const stamp = new Date(message.at)
+      time.textContent = Number.isNaN(stamp.getTime())
+        ? ''
+        : stamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      head.append(author, time)
+      article.append(head)
+      if (message.text) {
+        const text = document.createElement('p')
+        text.className = 'message-text'
+        text.textContent = message.text
+        article.append(text)
+      }
+      const attachments = Array.isArray(message.attachments) ? message.attachments : []
+      if (attachments.length > 0) {
+        const wrap = document.createElement('div')
+        wrap.className = 'message-attachments'
+        for (const attachment of attachments) {
+          if (typeof attachment.url !== 'string') continue
+          if (typeof attachment.mime === 'string' && attachment.mime.startsWith('image/')) {
+            const link = document.createElement('a')
+            link.href = attachment.url
+            link.target = '_blank'
+            link.rel = 'noopener'
+            const image = document.createElement('img')
+            image.className = 'message-image'
+            image.src = attachment.url
+            image.alt = attachment.name ?? '图片'
+            image.loading = 'lazy'
+            link.append(image)
+            wrap.append(link)
+          } else {
+            const link = document.createElement('a')
+            link.className = 'attachment-link'
+            link.href = attachment.url
+            link.target = '_blank'
+            link.rel = 'noopener'
+            link.textContent = `📄 ${attachment.name ?? '文件'} (${formatBytes(attachment.size)})`
+            wrap.append(link)
+          }
+        }
+        if (wrap.childElementCount > 0) article.append(wrap)
+      }
+      liveThread.append(article)
+    }
+    liveThread.scrollTop = liveThread.scrollHeight
+  }
+
+  const applyState = (state) => {
+    version = state.version
+    threads = state.threads ?? {}
+    updateAllNoteButtons()
+    if (currentId !== null) renderThread()
+    liveSync.textContent = '实时 · 5s 同步'
+  }
+
+  const sync = async (force = false) => {
+    try {
+      const state = await fetchState()
+      if (!force && state.version === version) return
+      applyState(state)
+    } catch {
+      liveSync.textContent = isFilePage ? '请用 HTTP 地址打开' : '同步失败，稍后重试'
+    }
+  }
+
+  const sendComment = async () => {
+    if (isFilePage) {
+      liveStatus.textContent = '请用 HTTP 地址打开实时页面'
+      return
+    }
+    const text = liveComment.value.trim()
+    if (currentId === null) {
+      liveStatus.textContent = '先打开一个备注再评论'
+      return
+    }
+    if (text === '' && pendingFiles.length === 0) {
+      liveStatus.textContent = '先写内容或添加附件'
+      return
+    }
+    if (sending) return
+    sending = true
+    liveSend.disabled = true
+    liveStatus.textContent = '发送中…'
+    try {
+      const attachments = []
+      for (const [index, file] of pendingFiles.entries()) {
+        liveStatus.textContent = `上传附件 ${index + 1}/${pendingFiles.length}…`
+        attachments.push(await uploadFile(file))
+      }
+      const response = await fetch(API.comment, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: currentId, text, attachments }),
+      })
+      if (!response.ok) {
+        let detail = ''
+        try {
+          const payload = await response.json()
+          detail = typeof payload.error === 'string' ? payload.error : ''
+        } catch {
+          detail = ''
+        }
+        throw new Error(detail || `comment ${response.status}`)
+      }
+      const state = await response.json()
+      applyState(state)
+      liveComment.value = ''
+      clearPendingFiles()
+      liveStatus.textContent = '已发送，等待 Agent 回复'
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      liveStatus.textContent = message === 'Failed to fetch'
+        ? '无法连接本地服务：请用 http://127.0.0.1:8765/... 打开，并确认服务在运行'
+        : (message === '' ? '发送失败，请重试' : `发送失败：${message}`)
+    } finally {
+      sending = false
+      liveSend.disabled = false
+    }
+  }
+
+  for (const button of objectButtons) {
+    button.addEventListener('click', () => openObjectNote(button.dataset.object, button))
+  }
+
+  for (const button of document.querySelectorAll('.note-button')) {
+    button.addEventListener('click', () => {
+      const box = button.closest('.item')?.querySelector('input[type="checkbox"][data-id]')
+      if (box === null) return
+      currentId = box.dataset.id
+      liveComment.value = ''
+      liveStatus.textContent = ''
+      renderThread()
+      window.setTimeout(() => liveComment.focus(), 0)
+    })
+  }
+
+  if (isFilePage) {
+    liveSend.disabled = true
+    liveFiles.disabled = true
+    liveSync.textContent = '请用 HTTP 地址打开'
+  }
+
+  liveSend.addEventListener('click', () => { void sendComment() })
+  liveComment.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      void sendComment()
+    }
+  })
+
+  liveFiles.addEventListener('change', () => {
+    addFiles(liveFiles.files)
+    liveFiles.value = ''
+  })
+
+  liveSection.addEventListener('dragover', (event) => {
+    event.preventDefault()
+    liveSection.classList.add('dragover')
+  })
+  liveSection.addEventListener('dragleave', () => liveSection.classList.remove('dragover'))
+  liveSection.addEventListener('drop', (event) => {
+    event.preventDefault()
+    liveSection.classList.remove('dragover')
+    if (event.dataTransfer?.files) addFiles(event.dataTransfer.files)
+  })
+
+  liveComment.addEventListener('paste', (event) => {
+    const files = Array.from(event.clipboardData?.files ?? [])
+    if (files.length > 0) {
+      event.preventDefault()
+      addFiles(files)
+    }
+  })
+
+  liveExport.addEventListener('click', async () => {
+    try {
+      const state = await fetchState()
+      const rows = boxes.map((box) => {
+        const item = box.closest('.item')
+        return {
+          row: box.dataset.row,
+          id: box.dataset.id,
+          recommendation: box.dataset.rec,
+          text: item?.querySelector('.item-text')?.textContent.trim() ?? '',
+          selected: box.checked,
+          thread: state.threads?.[box.dataset.id] ?? [],
+        }
+      })
+      const payload = {
+        title: 'Cowork 侧边栏实时讨论',
+        generatedAt: new Date().toISOString(),
+        version: state.version,
+        items: rows,
+      }
+      const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' })
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = 'cowork-sidebar-live-discussion.json'
+      document.body.append(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(link.href)
+      liveStatus.textContent = '已导出实时讨论'
+    } catch {
+      liveStatus.textContent = '导出失败'
+    }
+  })
+
+  void sync(true)
+  window.setInterval(() => { void sync() }, 5000)
+})()
+</script>
+
+
+</body>
+</html>
