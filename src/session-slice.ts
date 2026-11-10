@@ -83,6 +83,12 @@ export interface SessionSlicePorts {
      * running reviewer can be archived instead of being refused.
      */
     archiveSession(sessionId: string, options?: { stopActivity?: boolean }): Promise<void>
+    /**
+     * Restore an archived session. Optional: not every host exposes it, and a
+     * missing port is reported as a failure only to the caller that needs it
+     * (reopening a topic logs it), never as a failed project init.
+     */
+    unarchiveSession?(sessionId: string): Promise<void>
   }
 }
 
@@ -271,6 +277,18 @@ export class SessionSlice {
    */
   async archiveSession(sessionId: string, options?: { stopActivity?: boolean }): Promise<void> {
     await this.#ports.workspaces.archiveSession(sessionId, options)
+  }
+
+  /**
+   * Restore an archived session; a port that does not expose it raises, so the
+   * caller can log one honest reason instead of assuming the sidebar is back.
+   */
+  async unarchiveSession(sessionId: string): Promise<void> {
+    const restore = this.#ports.workspaces.unarchiveSession
+    if (restore === undefined) {
+      throw new Error('the host workspace port exposes no unarchiveSession')
+    }
+    await restore.call(this.#ports.workspaces, sessionId)
   }
 
   /**

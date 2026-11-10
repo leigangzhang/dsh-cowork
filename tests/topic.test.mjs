@@ -2,18 +2,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 /**
- * Contract tests for the pure three-state topic lifecycle (PLAN-V0.2 §2.3/§5.1,
- * M8.1). Every case injects the clock: `src/topic.ts` never reads one.
- *
- * `src/topic.ts` imports only types, so no resolve hook is needed here.
+ * Contract tests for the pure three-state topic lifecycle, revised for the
+ * topic page (2026-11-10): a 24 h idle window, no automatic resolution, and a
+ * block that records and restores the status it interrupted.
+ * `src/topic.ts` imports only types, so no resolve hook is needed.
  */
 const topicModule = await import('../src/topic.ts')
 const {
   DEFAULT_IDLE_AFTER_MS,
   DEFAULT_RESOLVE_AFTER_MS,
+  archiveTopicRecord,
+  blockTopic,
   evaluateTopicLifecycle,
   noteTopicActivity,
   reopenResolvedTopic,
+  unblockTopic,
 } = topicModule
 
 const NOW_ISO = '2026-11-07T12:00:00.000Z'
@@ -21,7 +24,8 @@ const NOW_MS = Date.parse(NOW_ISO)
 const MINUTE = 60 * 1000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
-const IDLE_AFTER_MS = 2 * HOUR
+const IDLE_AFTER_MS = 24 * HOUR
+/** Kept only to prove the deprecated threshold no longer drives a transition. */
 const RESOLVE_AFTER_MS = 3 * DAY
 const CREATED_ISO = '2026-11-01T00:00:00.000Z'
 
@@ -35,6 +39,10 @@ const topicV2 = (overrides = {}) => ({
   status: 'active',
   awaitingReview: false,
   blocked: false,
+  blockedReason: null,
+  blockedFromStatus: null,
+  blockedAt: null,
+  authorization: null,
   scope: 'store',
   ownedPaths: ['src/store.ts'],
   aliases: [],
@@ -42,9 +50,9 @@ const topicV2 = (overrides = {}) => ({
   cwd: '/repo',
   legacyCheckoutPath: null,
   createdAt: CREATED_ISO,
-  updatedAt: ago(RESOLVE_AFTER_MS),
-  lastActiveAt: ago(RESOLVE_AFTER_MS),
-  lastDeliveryConfirmedAt: ago(RESOLVE_AFTER_MS),
+  updatedAt: ago(IDLE_AFTER_MS + 1),
+  lastActiveAt: ago(IDLE_AFTER_MS + 1),
+  lastDeliveryConfirmedAt: ago(IDLE_AFTER_MS + 1),
   resolvedAt: null,
   resolvedBy: null,
   latestReviewRequestId: null,
@@ -53,12 +61,17 @@ const topicV2 = (overrides = {}) => ({
   ...overrides,
 })
 
+/** A pending authorization, as `cowork_authorization_request` writes it. */
+const authorization = () => ({
+  requestId: 'request-1',
+  summary: 'may the topic merge?',
+  requestedAt: ago(MINUTE),
+})
+
 /** The evaluation input with the documented defaults. */
 const context = (overrides = {}) => ({
   nowMs: NOW_MS,
   idleAfterMs: IDLE_AFTER_MS,
-  resolveAfterMs: RESOLVE_AFTER_MS,
-  activeWorkItems: 0,
   ...overrides,
 })
 
@@ -71,16 +84,18 @@ function deepFreeze(value) {
   return value
 }
 
-test('the documented thresholds are two hours and three days', () => {
-  assert.equal(DEFAULT_IDLE_AFTER_MS, 2 * 60 * 60 * 1000)
-  assert.equal(DEFAULT_RESOLVE_AFTER_MS, 3 * 24 * 60 * 60 * 1000)
+test('the idle threshold is one day; the old resolve threshold is only kept for compatibility', () => {
+  assert.equal(DEFAULT_IDLE_AFTER_MS, 24 * 60 * 60 * 1000)
+  assert.equal(DEFAULT_RESOLVE_AFTER_MS, 3 * 24 * 60 * 60 * 1000, 'the constant still exists')
 })
 
-test('an active topic turns idle only after the two-hour window', () => {
+test('an active topic turns idle only after the 24-hour window', () => {
   const stale = (elapsed) => topicV2({ lastActiveAt: ago(elapsed) })
 
   assert.equal(evaluateTopicLifecycle(stale(IDLE_AFTER_MS - 1), context()).kind, 'none')
   assert.equal(evaluateTopicLifecycle(stale(IDLE_AFTER_MS), context()).kind, 'none')
+  assert.equal(evaluateTopicLifecycle(stale(IDLE_AFTER_MS + 1), context()).kind, 'idle')
+  assert.equal(evaluateTopicLifecycle(stale(3 * HOUR), context()).kind, 'none', '3 h is not idle any more')
 
   const changed = evaluateTopicLifecycle(stale(IDLE_AFTER_MS + 1), context())
   assert.equal(changed.kind, 'idle')
@@ -89,22 +104,44 @@ test('an active topic turns idle only after the two-hour window', () => {
   assert.equal(changed.topic.lastActiveAt, ago(IDLE_AFTER_MS + 1), 'last activity is not rewritten')
 })
 
-test('awaitingReview and blocked suppress idle and pull an idle topic back to active', () => {
-  const stale = (overrides) =>
-    topicV2({ lastActiveAt: ago(IDLE_AFTER_MS + 1), ...overrides })
+test('the lifecycle never resolves a topic on its own, however stale it is', () => {
+  for (const elapsed of [RESOLVE_AFTER_MS, 30 * DAY, 365 * DAY]) {
+    const transition = evaluateTopicLifecycle(topicV2({ lastActiveAt: ago(elapsed) }), context())
+    assert.equal(transition.kind, 'idle', `an active topic goes idle after ${elapsed} ms`)
+  }
+  const idle = evaluateTopicLifecycle(
+    topicV2({ status: 'idle', lastActiveAt: ago(RESOLVE_AFTER_MS) }),
+    context(),
+  )
+  assert.deepEqual(idle, { kind: 'none' }, 'a stale idle topic stays idle')
+  // Even a context that still carries the deprecated threshold cannot resolve.
+  assert.equal(
+    evaluateTopicLifecycle(topicV2({ lastActiveAt: ago(RESOLVE_AFTER_MS) }), context({ resolveAfterMs: RESOLVE_AFTER_MS })).kind,
+    'idle',
+  )
+})
+
+test('awaitingReview, a block, and a pending authorization suppress idle', () => {
+  const stale = (overrides) => topicV2({ lastActiveAt: ago(IDLE_AFTER_MS + 1), ...overrides })
 
   assert.equal(evaluateTopicLifecycle(stale({ awaitingReview: true }), context()).kind, 'none')
-  assert.equal(evaluateTopicLifecycle(stale({ blocked: true }), context()).kind, 'none')
+  assert.equal(
+    evaluateTopicLifecycle(stale({ blocked: true, blockedReason: 'handoff' }), context()).kind,
+    'none',
+  )
+  assert.equal(
+    evaluateTopicLifecycle(stale({ blocked: true, blockedReason: 'authorization', authorization: authorization() }), context()).kind,
+    'none',
+  )
+  // A pending authorization alone (even before the flag is derived) counts.
+  assert.equal(evaluateTopicLifecycle(stale({ authorization: authorization() }), context()).kind, 'none')
 
-  const reviewIdle = evaluateTopicLifecycle(stale({ status: 'idle', awaitingReview: true }), context())
-  assert.equal(reviewIdle.kind, 'active')
-  assert.equal(reviewIdle.topic.status, 'active')
-  assert.equal(reviewIdle.topic.awaitingReview, true, 'the flag survives the move')
-  assert.equal(reviewIdle.topic.updatedAt, NOW_ISO)
-
-  const blockedIdle = evaluateTopicLifecycle(stale({ status: 'idle', blocked: true }), context())
-  assert.equal(blockedIdle.kind, 'active')
-  assert.equal(blockedIdle.topic.blocked, true)
+  const idleBlocked = evaluateTopicLifecycle(
+    stale({ status: 'idle', blocked: true, blockedReason: 'handoff' }),
+    context(),
+  )
+  assert.equal(idleBlocked.kind, 'active')
+  assert.equal(idleBlocked.topic.blocked, true, 'the flag survives the move')
 })
 
 test('new activity moves an idle topic back to active', () => {
@@ -115,106 +152,79 @@ test('new activity moves an idle topic back to active', () => {
   assert.equal(changed.topic.updatedAt, NOW_ISO)
 })
 
-test('a topic is resolved only when all six conditions hold', () => {
-  const old = ago(RESOLVE_AFTER_MS)
+test('blockTopic records the reason, the status to restore, and the first block time', () => {
+  const idle = topicV2({ status: 'idle', lastActiveAt: ago(HOUR), updatedAt: ago(HOUR) })
+  const blocked = blockTopic(idle, 'authorization', NOW_MS)
+  assert.equal(blocked.status, 'active', 'a blocked topic is active in the lifecycle')
+  assert.equal(blocked.blocked, true)
+  assert.equal(blocked.blockedReason, 'authorization')
+  assert.equal(blocked.blockedFromStatus, 'idle', 'the block restores idle')
+  assert.equal(blocked.blockedAt, NOW_ISO)
+  assert.equal(blocked.lastActiveAt, NOW_ISO)
+  assert.equal(blocked.updatedAt, NOW_ISO)
 
-  // 1) an in-flight review: an active topic three days stale stays put, no idle.
-  assert.equal(
-    evaluateTopicLifecycle(topicV2({ awaitingReview: true, lastActiveAt: old }), context()).kind,
-    'none',
-  )
-  // 2) the blocked flag: same suppression.
-  assert.equal(evaluateTopicLifecycle(topicV2({ blocked: true, lastActiveAt: old }), context()).kind, 'none')
-  // 3) an active work item: an idle topic so the idle rule cannot mask the answer.
-  assert.equal(
-    evaluateTopicLifecycle(topicV2({ status: 'idle', lastActiveAt: old }), context({ activeWorkItems: 1 }))
-      .kind,
-    'none',
-  )
-  // 4) no confirmed delivery.
-  assert.equal(
-    evaluateTopicLifecycle(
-      topicV2({ status: 'idle', lastActiveAt: old, lastDeliveryConfirmedAt: null }),
-      context(),
-    ).kind,
-    'none',
-  )
-  // 5) an empty or whitespace-only digest.
-  assert.equal(
-    evaluateTopicLifecycle(topicV2({ status: 'idle', lastActiveAt: old, digest: '' }), context()).kind,
-    'none',
-  )
-  assert.equal(
-    evaluateTopicLifecycle(topicV2({ status: 'idle', lastActiveAt: old, digest: '  \n\t ' }), context())
-      .kind,
-    'none',
-  )
-  // 6) one millisecond short of three days.
-  assert.equal(
-    evaluateTopicLifecycle(topicV2({ status: 'idle', lastActiveAt: ago(RESOLVE_AFTER_MS - 1) }), context())
-      .kind,
-    'none',
-  )
+  // A second block keeps the original restore point and block time.
+  const later = NOW_MS + 5 * MINUTE
+  const again = blockTopic(blocked, 'handoff', later)
+  assert.equal(again.blockedReason, 'handoff', 'the reason moves to the newest one')
+  assert.equal(again.blockedFromStatus, 'idle')
+  assert.equal(again.blockedAt, NOW_ISO, 'the first block time is kept')
+  assert.equal(reopenResolvedTopic(blocked, later), null, 'a blocked live topic is not resolvable by reopen')
 
-  const resolved = evaluateTopicLifecycle(topicV2({ lastActiveAt: old }), context())
-  assert.equal(resolved.kind, 'resolved')
-  assert.equal(resolved.topic.status, 'resolved')
-  assert.equal(resolved.topic.resolvedBy, 'master')
-  assert.equal(resolved.topic.resolvedAt, NOW_ISO)
-  assert.equal(resolved.topic.updatedAt, NOW_ISO)
-  assert.equal(resolved.topic.lastActiveAt, old, 'resolution does not rewrite last activity')
+  const resolved = topicV2({ status: 'resolved' })
+  assert.equal(blockTopic(resolved, 'conflict', NOW_MS), resolved, 'an archived topic is not blockable')
 })
 
-test('a topic whose latest review needs revision is never auto-resolved (R1)', () => {
-  const old = ago(RESOLVE_AFTER_MS)
+test('unblockTopic restores the recorded status and clears the authorization', () => {
+  const blocked = topicV2({
+    status: 'active',
+    blocked: true,
+    blockedReason: 'authorization',
+    blockedFromStatus: 'idle',
+    blockedAt: ago(HOUR),
+    authorization: authorization(),
+    updatedAt: ago(HOUR),
+  })
+  const released = unblockTopic(blocked, NOW_MS)
+  assert.equal(released.status, 'idle', 'the pre-block status comes back')
+  assert.equal(released.blocked, false)
+  assert.equal(released.blockedReason, null)
+  assert.equal(released.blockedFromStatus, null)
+  assert.equal(released.blockedAt, null)
+  assert.equal(released.authorization, null)
+  assert.equal(released.updatedAt, NOW_ISO)
+  assert.equal(released.lastActiveAt, blocked.lastActiveAt, 'releasing a block is not activity')
 
-  // Every other resolution condition holds (no flags, delivery confirmed,
-  // digest present, no active work items); only the review outcome blocks the
-  // resolution. The idle rule is untouched: a stale active topic still goes
-  // idle (it does not resolve), and an idle one stays where it is.
-  assert.equal(
-    evaluateTopicLifecycle(topicV2({ lastActiveAt: old, reviewStatus: 'needs_revision' }), context()).kind,
-    'idle',
-    'a stale active topic goes idle, never resolved',
-  )
-  assert.deepEqual(
-    evaluateTopicLifecycle(topicV2({ status: 'idle', lastActiveAt: old, reviewStatus: 'needs_revision' }), context()),
-    { kind: 'none' },
-    'a stale idle topic stays idle, never resolved',
-  )
-
-  // The guard is specific to needs_revision: the same input with a pass, a
-  // rejection (already blocked), or no review at all still resolves.
-  for (const reviewStatus of ['pass', 'reject', null]) {
-    const resolved = evaluateTopicLifecycle(topicV2({ lastActiveAt: old, reviewStatus }), context())
-    assert.equal(resolved.kind, 'resolved', String(reviewStatus))
-  }
-
-  // The idle↔active rule is untouched: needs_revision is not an idle flag, so
-  // a quiet active topic still goes idle, and an idle topic with fresh activity
-  // still returns to active.
-  const quiet = topicV2({ lastActiveAt: ago(IDLE_AFTER_MS + 1), reviewStatus: 'needs_revision' })
-  assert.equal(evaluateTopicLifecycle(quiet, context()).kind, 'idle')
-  const fresh = topicV2({ status: 'idle', lastActiveAt: ago(MINUTE), reviewStatus: 'needs_revision' })
-  assert.equal(evaluateTopicLifecycle(fresh, context()).kind, 'active')
+  const live = topicV2()
+  assert.equal(unblockTopic(live, NOW_MS), live, 'a topic that is not blocked is untouched')
 })
 
-test('the three-day threshold is inclusive and wins over idle', () => {
-  const at = (elapsed) => topicV2({ lastActiveAt: ago(elapsed) })
+test('archiveTopicRecord clears the block and the pending authorization, and is idempotent', () => {
+  const blocked = topicV2({
+    status: 'active',
+    blocked: true,
+    blockedReason: 'authorization',
+    blockedFromStatus: 'idle',
+    blockedAt: ago(HOUR),
+    authorization: authorization(),
+  })
+  const archived = archiveTopicRecord(blocked, NOW_MS)
+  assert.equal(archived.status, 'resolved')
+  assert.equal(archived.resolvedAt, NOW_ISO)
+  assert.equal(archived.resolvedBy, 'user')
+  assert.equal(archived.blocked, false)
+  assert.equal(archived.blockedReason, null)
+  assert.equal(archived.blockedFromStatus, null)
+  assert.equal(archived.blockedAt, null)
+  assert.equal(archived.authorization, null, 'archiving voids the pending authorization')
+  assert.equal(archived.updatedAt, NOW_ISO)
 
-  assert.equal(evaluateTopicLifecycle(at(RESOLVE_AFTER_MS - 1), context()).kind, 'idle')
-  assert.equal(evaluateTopicLifecycle(at(RESOLVE_AFTER_MS), context()).kind, 'resolved')
-  assert.equal(evaluateTopicLifecycle(at(RESOLVE_AFTER_MS + 1), context()).kind, 'resolved')
+  const again = archiveTopicRecord(archived, NOW_MS + 1000)
+  assert.equal(again, archived, 'an archived topic is not rewritten')
 })
 
 test('a resolved topic never changes through evaluation or new activity', () => {
-  const resolved = topicV2({
-    status: 'resolved',
-    resolvedAt: CREATED_ISO,
-    resolvedBy: 'user',
-    lastActiveAt: ago(RESOLVE_AFTER_MS),
-  })
-
+  const resolved = topicV2({ status: 'resolved', resolvedAt: CREATED_ISO, resolvedBy: 'user' })
   assert.deepEqual(evaluateTopicLifecycle(resolved, context()), { kind: 'none' })
   assert.deepEqual(noteTopicActivity(resolved, NOW_MS), resolved)
 })
@@ -228,13 +238,14 @@ test('noteTopicActivity stamps the activity time and returns to active', () => {
   assert.notEqual(next, idle)
 })
 
-test('reopening clears the resolution fields and returns to active', () => {
+test('reopening clears the resolution fields, the block, and returns to active', () => {
   const resolved = topicV2({
     status: 'resolved',
     resolvedAt: CREATED_ISO,
     resolvedBy: 'master',
     digest: 'delivered',
     lastDeliveryConfirmedAt: CREATED_ISO,
+    authorization: null,
   })
   const reopened = reopenResolvedTopic(resolved, NOW_MS)
   assert.equal(reopened.status, 'active')
@@ -250,22 +261,34 @@ test('reopening clears the resolution fields and returns to active', () => {
 })
 
 test('the lifecycle functions never mutate their input', () => {
-  const input = deepFreeze(topicV2({ lastActiveAt: ago(RESOLVE_AFTER_MS) }))
+  const input = deepFreeze(topicV2({
+    status: 'idle',
+    blocked: true,
+    blockedReason: 'authorization',
+    blockedFromStatus: 'idle',
+    authorization: authorization(),
+  }))
   const snapshot = structuredClone(input)
 
   evaluateTopicLifecycle(input, context())
   noteTopicActivity(input, NOW_MS)
+  blockTopic(input, 'handoff', NOW_MS)
+  unblockTopic(input, NOW_MS)
+  archiveTopicRecord(input, NOW_MS)
   reopenResolvedTopic(input, NOW_MS)
 
   assert.deepEqual(input, snapshot)
 })
 
-test('the module exposes no undo path', () => {
+test('the module exposes no hidden state machine', () => {
   assert.deepEqual(Object.keys(topicModule).sort(), [
     'DEFAULT_IDLE_AFTER_MS',
     'DEFAULT_RESOLVE_AFTER_MS',
+    'archiveTopicRecord',
+    'blockTopic',
     'evaluateTopicLifecycle',
     'noteTopicActivity',
     'reopenResolvedTopic',
+    'unblockTopic',
   ])
 })

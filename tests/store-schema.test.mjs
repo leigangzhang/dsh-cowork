@@ -63,6 +63,10 @@ const topicV2 = (overrides = {}) => ({
   status: 'active',
   awaitingReview: false,
   blocked: false,
+  blockedReason: null,
+  blockedFromStatus: null,
+  blockedAt: null,
+  authorization: null,
   scope: '',
   ownedPaths: [],
   aliases: [],
@@ -123,6 +127,15 @@ test('the exported enumerations match PLAN-V0.2 §4.3', () => {
   assert.ok(ACTIVITY_TYPES.includes('review-verdict'))
   assert.ok(ACTIVITY_TYPES.includes('status-changed'))
   assert.ok(ACTIVITY_TYPES.includes('topic-reopened'), 'M8 reopening is its own event, not an undo')
+  for (const type of [
+    'topic-reported',
+    'decision-proposed',
+    'authorization-requested',
+    'authorization-resolved',
+    'topic-archived',
+  ]) {
+    assert.ok(ACTIVITY_TYPES.includes(type), `the topic page emits ${type}`)
+  }
   assert.ok(ACTIVITY_TYPES.includes('error'))
 })
 
@@ -385,6 +398,94 @@ test('v2 validation names broken document fields and work items', () => {
   assert.deepEqual(projectIndexV2Problems(null), ['index must be a JSON object'])
 })
 
+test('v2 normalization defaults the block and authorization fields an older document predates', () => {
+  const legacy = topicV2()
+  for (const field of ['blockedReason', 'blockedFromStatus', 'blockedAt', 'authorization']) delete legacy[field]
+  const normalized = normalizeProjectIndexV2(indexV2([legacy]))
+  assert.equal(normalized.topics[0].blockedReason, null)
+  assert.equal(normalized.topics[0].blockedFromStatus, null)
+  assert.equal(normalized.topics[0].blockedAt, null)
+  assert.equal(normalized.topics[0].authorization, null)
+  assert.equal(normalized.topics[0].blocked, false)
+})
+
+test('v2 normalization marks a legacy blocked topic as a handoff block', () => {
+  const legacy = topicV2({ blocked: true, status: 'active' })
+  delete legacy.blockedReason
+  delete legacy.blockedFromStatus
+  const normalized = normalizeProjectIndexV2(indexV2([legacy]))
+  assert.equal(normalized.topics[0].blocked, true, 'the derived flag is kept')
+  assert.equal(normalized.topics[0].blockedReason, 'handoff')
+  assert.equal(normalized.topics[0].blockedFromStatus, 'active')
+
+  const idle = topicV2({ blocked: true, status: 'idle' })
+  delete idle.blockedReason
+  delete idle.blockedFromStatus
+  assert.equal(normalizeProjectIndexV2(indexV2([idle])).topics[0].blockedFromStatus, 'idle')
+})
+
+test('v2 normalization derives a pending authorization into the authorization reason', () => {
+  const topic = topicV2({
+    blocked: true,
+    authorization: { requestId: 'request-1', summary: 'go?', requestedAt: UPDATED_AT },
+  })
+  delete topic.blockedReason
+  const normalized = normalizeProjectIndexV2(indexV2([topic]))
+  assert.equal(normalized.topics[0].blockedReason, 'authorization')
+})
+
+test('v2 validation accepts a coherent block and a pending authorization', () => {
+  const blocked = topicV2({
+    blocked: true,
+    blockedReason: 'authorization',
+    blockedFromStatus: 'idle',
+    blockedAt: UPDATED_AT,
+    authorization: { requestId: 'request-1', summary: 'go?', requestedAt: UPDATED_AT },
+  })
+  assert.deepEqual(projectIndexV2Problems(indexV2([blocked])), [])
+  assert.deepEqual(
+    projectIndexV2Problems(indexV2([topicV2({ blocked: true, blockedReason: 'handoff', blockedFromStatus: 'active' })])),
+    [],
+  )
+})
+
+test('v2 validation rejects a broken or incoherent block', () => {
+  const problems = projectIndexV2Problems(indexV2([
+    topicV2({
+      blocked: true,
+      blockedReason: 'not-a-reason',
+      blockedFromStatus: 'resolved',
+      blockedAt: 'yesterday',
+      authorization: { requestId: '', summary: '', requestedAt: 'soon' },
+    }),
+  ]))
+  assert.ok(problems.includes('index.topics[0].blockedReason must be one of authorization|handoff|conflict or null'))
+  assert.ok(problems.includes('index.topics[0].blockedFromStatus must be one of active|idle or null'))
+  assert.ok(problems.includes('index.topics[0].blockedAt must be an ISO 8601 timestamp or null'))
+  assert.ok(problems.includes('index.topics[0].authorization.requestId must be a non-empty string'))
+  assert.ok(problems.includes('index.topics[0].authorization.summary must be a non-empty string'))
+  assert.ok(problems.includes('index.topics[0].authorization.requestedAt must be an ISO 8601 timestamp'))
+
+  // `blocked` is derived from the reason: a disagreement is invalid either way.
+  assert.deepEqual(
+    projectIndexV2Problems(indexV2([topicV2({ blocked: true, blockedReason: null })])),
+    ['index.topics[0].blocked must be false when blockedReason is null'],
+  )
+  assert.deepEqual(
+    projectIndexV2Problems(indexV2([topicV2({ blocked: false, blockedReason: 'handoff' })])),
+    ['index.topics[0].blocked must be true when blockedReason is set'],
+  )
+  // An authorization reason needs the request, and the request needs the reason.
+  assert.deepEqual(
+    projectIndexV2Problems(indexV2([topicV2({ blocked: true, blockedReason: 'authorization' })])),
+    ['index.topics[0].authorization must be an object when blockedReason is authorization'],
+  )
+  assert.deepEqual(
+    projectIndexV2Problems(indexV2([topicV2({ blocked: true, blockedReason: 'handoff', authorization: { requestId: 'r', summary: 's', requestedAt: UPDATED_AT } })])),
+    ['index.topics[0].blockedReason must be authorization when a request is pending'],
+  )
+})
+
 test('an activity event is valid when every field matches the activity stream schema', () => {
   const event = {
     eventId: 'event-1',
@@ -411,7 +512,7 @@ test('an activity event reports each invalid field by name', () => {
     [
       'activity.eventId must be a non-empty string',
       'activity.time must be an ISO 8601 timestamp',
-      'activity.type must be one of topic-created|route-reused|route-created|route-corrected|status-changed|topic-reopened|review-requested|review-verdict|work-item-created|work-item-merged|error',
+      'activity.type must be one of topic-created|route-reused|route-created|route-corrected|status-changed|topic-reopened|review-requested|review-verdict|work-item-created|work-item-merged|topic-reported|decision-proposed|authorization-requested|authorization-resolved|topic-archived|error',
       'activity.topicId must be a non-empty string or null',
       'activity.summary must be a non-empty string',
       'activity.details must be a JSON object',

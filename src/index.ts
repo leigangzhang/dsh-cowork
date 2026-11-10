@@ -1,7 +1,7 @@
 /**
  * @dsh-external/dsh-cowork host plugin.
  *
- * The business surface — the panel API, the eleven cowork tools, the three
+ * The business surface — the panel API, the nineteen cowork tools, the three
  * presets, and the project-memory prompt section — is always registered. The
  * M0/S0/M2/M3 probe and E2E surfaces (two probe tools, two probe presets, the
  * loopback-only start/status routes, and four session event feeds) only exist
@@ -19,7 +19,7 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import z from '@deepseek-ai/schemastery'
 import type { CoworkApiHost, CoworkApiPorts, PanelFetchRoute } from './api.js'
 import { registerCoworkApi } from './api.js'
-import { OVERVIEW_PATH, REOPEN_PATH } from './api-contract.js'
+import { AUTHORIZATION_RESOLVE_PATH, OVERVIEW_PATH, REOPEN_PATH, RESOLVE_PATH } from './api-contract.js'
 import { panelProbeRequest, panelRoutePathname } from './panel-probe.js'
 
 export { panelRoutePathname }
@@ -42,9 +42,11 @@ import type { PresetRosterService } from './preset-visibility.js'
 import type { S0Host, S0Identity } from './s0-probe.js'
 import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
 import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
+import { SessionSlice } from './session-slice.js'
 import { createLlmRoutingPort } from './llm-port.js'
 import type { HostLlmLike } from './llm-port.js'
 import { DEFAULT_ISOLATION_PROVIDER, DEFAULT_REVIEWER_RECLAIM } from './tool-runtime.js'
+import { NoopTopicNoticePort, TopicNoticeDispatcher } from './notices.js'
 import type { CoworkToolDeps, CurrentModelRoute } from './tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
 import { TopicEvents } from './topic-events.js'
@@ -129,7 +131,10 @@ export interface Config {
   enableDevRoutes: boolean
   /** Silence after which a topic displays as idle (PLAN §5.10: 2h). */
   idleAfterMs: number
-  /** Silence after which a resolvable topic is resolved (PLAN §5.10: 3d). */
+  /**
+   * Deprecated and ignored: the lifecycle never resolves a topic on its own any
+   * more (archiving is a user action). Kept so an existing profile still loads.
+   */
   resolveAfterMs: number
   /** Third-layer model fallback (PLAN §5.10). */
   routing: RoutingConfig
@@ -760,8 +765,13 @@ function hostCurrentModelRoute(ctx: Context): () => CurrentModelRoute | null {
   }
 }
 
-/** The six panel routes' shared ports; production and the M12 probe use the same ones. */
-function createPanelPorts(ctx: Context, assembly: CoworkAssemblyHost, settings: Config): CoworkApiPorts {
+/** The seven panel routes' shared ports; production and the M12 probe use the same ones. */
+function createPanelPorts(
+  ctx: Context,
+  assembly: CoworkAssemblyHost,
+  settings: Config,
+  notices: { port: NoopTopicNoticePort; kick(repoPath: string): void },
+): CoworkApiPorts {
   return {
     // Metadata only: `inspect` also reads the session event log and hung the
     // panel requests on running or large sessions.
@@ -776,12 +786,25 @@ function createPanelPorts(ctx: Context, assembly: CoworkAssemblyHost, settings: 
       clock: () => new Date(),
       archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
     }),
-    // M11: the panel's lifecycle read point uses the same clock and thresholds
+    // M11: the panel's lifecycle read point uses the same clock and threshold
     // as the tool layer, and logs a failed activity row instead of failing the
-    // request.
+    // request. `resolveAfterMs` is no longer read: nothing auto-resolves.
     now: () => new Date(),
     idleAfterMs: settings.idleAfterMs,
-    resolveAfterMs: settings.resolveAfterMs,
+    // The topic page's archive/reopen/authorization semantics need the host
+    // session and notice ports; a failure is logged there, not returned.
+    archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
+    unarchiveSession: (sessionId) => {
+      const port = assembly.workspaceRegistry.unarchiveSession
+      if (port === undefined) throw new Error('the host workspace registry exposes no unarchiveSession')
+      return port.call(assembly.workspaceRegistry, sessionId)
+    },
+    promptSession: (sessionId, text) => new SessionSlice({
+      sessions: assembly.sessionController,
+      workspaces: assembly.workspaceRegistry,
+    }).promptSession(sessionId, text),
+    noticePort: notices.port,
+    kickNotices: (repoPath) => notices.kick(repoPath),
     log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
   }
 }
@@ -832,6 +855,16 @@ function createM12PanelProbe(ports: CoworkApiPorts): M12PanelProbe {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId: input.sessionId, topicId: input.topicId }),
     }),
+    resolve: (input) => call(RESOLVE_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: input.sessionId, topicId: input.topicId }),
+    }),
+    authorizationResolve: (input) => call(AUTHORIZATION_RESOLVE_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
   }
 }
 
@@ -847,13 +880,33 @@ export function apply(ctx: Context, config: Config): void {
       `${PLUGIN_NAME}: reviewer.reclaim must be '${DEFAULT_REVIEWER_RECLAIM}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
     )
   }
-  // M1 assembly services: one dependency bag for the presets and the fifteen tools.
+  // M1 assembly services: one dependency bag for the presets and the nineteen tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: identical in both dev modes and unchanged from M0-M3.
   // Only the dev probe canonicalizes it, because only the probe compares paths
   // against a host session cwd.
   const repoPath = settings.repoPath === '' ? defaultRepoPath() : resolve(settings.repoPath)
   const workspacePorts = workspacePortsOf(assembly.workspaceRegistry)
+  // Topic notices (B mode): the host has no notice channel, so the port reports
+  // `supported: false` and the ledger stays pending. The dispatcher is wired and
+  // disposed with the fiber so an A2 adapter can replace only the port later.
+  const noticePort = new NoopTopicNoticePort()
+  const noticeDispatcher = new TopicNoticeDispatcher({
+    storeFor: (repoPath) => new ProjectStore({
+      repoPath,
+      clock: () => new Date(),
+      archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
+    }),
+    port: noticePort,
+    clock: () => new Date(),
+    log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
+  })
+  ctx.effect(() => () => noticeDispatcher.dispose(), 'dsh-cowork: notice dispatcher')
+  const noticeRuntime = {
+    port: noticePort,
+    kick: (repoPath: string) => noticeDispatcher.kick(repoPath),
+  }
+
   const coworkDeps: CoworkToolDeps = {
     sessionController: assembly.sessionController,
     workspaceRegistry: workspacePorts,
@@ -874,12 +927,13 @@ export function apply(ctx: Context, config: Config): void {
     // layer on its structured fallback; they never fail a route.
     llmRoutingPort: createLlmRoutingPort(hostService<HostLlmLike>(ctx, 'llm')),
     currentModelRoute: hostCurrentModelRoute(ctx),
+    notices: noticeRuntime,
   }
 
-  // M11 panel: three read routes and three master-only write routes over the
-  // host connection service. The project root is derived from the session's own
-  // cwd, never from the request.
-  const panelPorts = createPanelPorts(ctx, assembly, settings)
+  // M11 panel: three read routes and four write routes over the host connection
+  // service. The project root is derived from the session's own cwd, never from
+  // the request.
+  const panelPorts = createPanelPorts(ctx, assembly, settings, noticeRuntime)
   registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
 
   // M8.2: the session event stream keeps topic activity fresh and reopens a
