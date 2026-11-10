@@ -565,3 +565,46 @@
 body.shot .canvas { width: 1240px; min-height: 0; padding: 16px; }
 body.shot .demo-bar { display: none; }
 body.shot .app { width: 1208px; }
+
+/* topic card menu: secondary actions stay compressed behind ⋯ */
+.more-button {
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: #98a2b3;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.more-button:hover { color: var(--ink); }
+.card-menu {
+  position: absolute;
+  right: 8px;
+  bottom: 36px;
+  z-index: 8;
+  min-width: 132px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(16, 24, 40, .16);
+}
+.card-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.card-menu button:hover { background: var(--gray-soft); }
+.card-menu .menu-archive { color: var(--red); }
+.card-menu .menu-restore { color: var(--green); }

@@ -104,7 +104,7 @@
   const toast = document.getElementById('toast')
   const params = new URLSearchParams(location.search)
 
-  const state = { step: 1, view: 'main', permission: 'pending' }
+  const state = { step: 1, view: 'main', permission: 'pending', archived: false, archiveRecorded: false, menu: false }
 
   const notes = {
     0: '总览：事件、记录和状态的对应关系。主题列表只做导航，不展示决策记录。',
@@ -112,7 +112,7 @@
     2: '上报：2 个事件打印 2 条消息、2 张提醒卡。实时写入，不等待、不阻塞主题。',
     3: '决策提案：只生成并上报；主题页不展示记录，去工作项查看和提意见。',
     4: '待授权：主题移入阻塞并带标记。切到主题会话点允许或拒绝，列表会回到运行中。',
-    5: '归档：主会话只留一条“已归档”消息；列表移入已解决，不再提供其他交互。'
+    5: '归档：主题卡的 ⋯ 菜单已展开，点“归档主题”。主会话只留一条消息，列表移入已解决；已解决卡片的菜单里可以恢复。'
   }
 
   const STATIC = {
@@ -181,13 +181,13 @@
 
   function demoTopic() {
     if (state.step === 0) return null
-    if (state.step === 5) {
+    if (state.archived) {
       return {
         title: '五子棋小游戏', cls: 'resolved', chips: [['green', '已解决']],
         digest: '已归档 · 主会话已记录。', time: '刚刚', work: 3
       }
     }
-    if (state.step === 4 && state.permission === 'pending') {
+    if (state.step >= 4 && state.permission === 'pending') {
       return {
         title: '五子棋小游戏', cls: 'blocked', chips: [['red', '阻塞'], ['amber', '待授权']],
         digest: '等待授权：是否允许读取浏览器登录态。', time: '6 分钟前', work: 3
@@ -197,39 +197,55 @@
       1: '主会话已分配需求，主题会话开始执行。',
       2: '已上报 2 条：初版棋盘完成 / 等待确认尺寸。',
       3: '已生成决策提案并上报，等待在工作项查看。',
-      4: state.permission === 'allowed' ? '授权已通过，主题继续执行。' : '授权被拒绝，主题改用你提供的内容继续。'
+      4: state.permission === 'allowed'
+        ? '授权已通过，主题继续执行。'
+        : state.permission === 'denied'
+          ? '授权被拒绝，主题改用你提供的内容继续。'
+          : '归档时的待授权已失效，主题继续执行。'
     }
-    const times = { 1: '刚刚', 2: '3 分钟前', 3: '5 分钟前', 4: '6 分钟前' }
+    const times = { 1: '刚刚', 2: '3 分钟前', 3: '5 分钟前', 4: '6 分钟前', 5: '6 分钟前' }
     return {
       title: '五子棋小游戏', cls: 'running', chips: [['blue', '运行中']],
       digest: digests[Math.min(state.step, 4)], time: times[state.step] || '刚刚', work: 3
     }
   }
 
-  function cardHtml(card) {
+  function cardHtml(card, isDemo = false) {
     const chips = card.chips.map(([kind, text]) => `<span class="chip ${kind}">${esc(text)}</span>`).join('')
+    const more = isDemo
+      ? '<button class="more more-button" data-card-menu="1" aria-label="主题菜单">⋯</button>'
+      : '<span class="more">⋯</span>'
+    const menu = isDemo && state.menu
+      ? `<div class="card-menu" role="menu">
+          <button data-menu="open">打开主题会话</button>
+          ${state.archived
+            ? '<button data-menu="restore" class="menu-restore">从归档中恢复</button>'
+            : '<button data-menu="archive" class="menu-archive">归档主题</button>'}
+        </div>`
+      : ''
     return `<article class="topic-card ${card.cls}">
       <h3 class="topic-title">${esc(card.title)}</h3>
       <div class="chips">${chips}</div>
       <p class="digest">${esc(card.digest)}</p>
       <div class="topic-meta">
         <span class="topic-meta-left">${esc(card.time)}<span class="meta-dot"></span><span class="work-count">${card.work} 个工作项</span></span>
-        <span class="more">⋯</span>
+        ${more}
       </div>
+      ${menu}
     </article>`
   }
 
   function renderSidebar() {
     const demo = demoTopic()
-    const pending = state.step === 4 && state.permission === 'pending'
+    const pending = state.step >= 4 && state.permission === 'pending' && !state.archived
     const blockedCards = [cardHtml(STATIC.blocked)]
     const runningCards = [cardHtml(STATIC.running)]
-    if (demo !== null && demo.cls === 'blocked') blockedCards.unshift(cardHtml(demo))
-    if (demo !== null && demo.cls === 'running') runningCards.unshift(cardHtml(demo))
+    if (demo !== null && demo.cls === 'blocked') blockedCards.unshift(cardHtml(demo, true))
+    if (demo !== null && demo.cls === 'running') runningCards.unshift(cardHtml(demo, true))
 
     const restResolved = 3
     const resolvedTotal = restResolved + (demo !== null && demo.cls === 'resolved' ? 1 : 0)
-    const resolvedCards = demo !== null && demo.cls === 'resolved' ? [cardHtml(demo)] : []
+    const resolvedCards = demo !== null && demo.cls === 'resolved' ? [cardHtml(demo, true)] : []
     const resolvedExtra = `<div class="resolved-row"><span class="resolved-icon">✓</span><span>已解决 ${restResolved} 个主题</span><span class="resolved-chevron">›</span></div>`
 
     const actionBar = pending
@@ -262,19 +278,17 @@
   }
 
   function permissionAction(event) {
-    const archived = state.step === 5
+    if (state.permission === 'void') return '<span class="event-status off">已随归档失效</span>'
     if (state.view === 'main') {
-      if (archived) return '<span class="event-status off">主题已归档，此提醒已失效</span>'
       if (state.permission === 'pending') return '<span class="event-action" data-goto-topic="1">去主题会话处理</span>'
       return `<span class="event-status">${state.permission === 'allowed' ? '已允许' : '已拒绝'} · 刚刚</span>`
     }
-    if (archived) return '<span class="event-status off">主题已归档，此提醒已失效</span>'
     if (state.permission !== 'pending') return `<span class="event-status">${state.permission === 'allowed' ? '已允许' : '已拒绝'} · 刚刚</span>`
     return ''
   }
 
   function permissionButtons() {
-    if (state.view !== 'topic' || state.step !== 4 || state.permission !== 'pending') return ''
+    if (state.view !== 'topic' || state.step < 4 || state.archived || state.permission !== 'pending') return ''
     return `<div class="perm-actions">
       <button class="mini-primary" data-perm="allowed">允许</button>
       <button class="mini-ghost" data-perm="denied">拒绝</button>
@@ -337,7 +351,7 @@
         <thead><tr><th>现在</th><th>事件</th><th>之后</th></tr></thead>
         <tbody>
           <tr><td>—</td><td>主会话分配</td><td>运行中</td></tr>
-          <tr><td>运行中</td><td>一段时间没有活动</td><td>空闲</td></tr>
+          <tr><td>运行中</td><td>1 天没有活动</td><td>空闲</td></tr>
           <tr><td>空闲</td><td>新活动</td><td>运行中</td></tr>
           <tr><td>运行中 / 空闲</td><td>待授权、跨主题冲突、交接阻塞</td><td>阻塞</td></tr>
           <tr><td>阻塞</td><td>问题处理完</td><td>回到阻塞前的状态</td></tr>
@@ -349,13 +363,14 @@
       <p class="ov-note"><b>决策记录：</b>只在主题会话生成并上报；主题页不展示记录，也不展示审查状态。查看和提意见在工作项，资料进 Artifact 工作室，这两处不在本设计内。</p>
       <p class="ov-note"><b>需要你处理：</b>只统计待授权，是入口不是队列。分配、上报、提案的提醒在会话记录里，不在主题页复制。</p>
       <p class="ov-note"><b>待授权：</b>是标记不是分组。标记出现时主题在阻塞组；处理完回到阻塞前的状态。</p>
+      <p class="ov-note"><b>归档入口：</b>在主题卡的 ⋯ 菜单里，菜单里另有“从归档中恢复”。归档后主会话只留一条消息。</p>
     </div>`
   }
 
   function renderMain() {
-    const visible = EVENTS.filter((event) => event.at <= state.step)
+    const visible = EVENTS.filter((event) => event.at <= state.step && (event.type !== 'archive' || state.archiveRecorded))
     const inTopic = state.view === 'topic'
-    const archived = state.step === 5
+    const archived = state.archived
 
     document.getElementById('mainTitle').textContent = state.step === 0 ? '总览' : inTopic ? '主题会话' : '主会话'
     document.getElementById('mainSub').textContent = state.step === 0 ? '主题状态与记录规则' : inTopic ? '五子棋小游戏' : '给我写一个五子棋的小游戏'
@@ -418,10 +433,36 @@
   }
 
   function setStep(step) {
-    if (step === 4 && state.step !== 4) state.permission = 'pending'
     state.step = step
+    state.archived = false
+    state.archiveRecorded = false
+    state.menu = step === 5
+    if (step < 4 || state.permission === 'void') state.permission = 'pending'
     if (step === 0) state.view = 'main'
     render()
+  }
+
+  function showToast(text) {
+    toast.textContent = text
+    toast.classList.add('on')
+    clearTimeout(toast.timer)
+    toast.timer = setTimeout(() => toast.classList.remove('on'), 2200)
+  }
+
+  function archiveTopic() {
+    state.archived = true
+    state.archiveRecorded = true
+    state.menu = true
+    if (state.permission === 'pending') state.permission = 'void'
+    render()
+    showToast('已归档：主会话只留一条消息，列表移入已解决')
+  }
+
+  function restoreTopic() {
+    state.archived = false
+    state.menu = false
+    render()
+    showToast('已从归档恢复：列表回到运行中，归档记录留在主会话')
   }
 
   function setView(view) {
@@ -437,47 +478,55 @@
     button.addEventListener('click', () => setView(button.dataset.view))
   })
 
+  function focusPermission() {
+    state.view = 'topic'
+    render()
+    const card = document.querySelector('#event-permission')
+    if (card) {
+      card.scrollIntoView({ block: 'center' })
+      card.classList.add('flash')
+    }
+  }
+
   document.addEventListener('click', (event) => {
     const toastTarget = event.target.closest('[data-toast]')
     if (toastTarget) {
-      toast.textContent = toastTarget.dataset.toast
-      toast.classList.add('on')
-      clearTimeout(toast.timer)
-      toast.timer = setTimeout(() => toast.classList.remove('on'), 2000)
+      showToast(toastTarget.dataset.toast)
+      return
+    }
+    if (event.target.closest('[data-card-menu]')) {
+      state.menu = !state.menu
+      render()
+      return
+    }
+    const menuItem = event.target.closest('[data-menu]')
+    if (menuItem) {
+      const action = menuItem.dataset.menu
+      if (action === 'open') {
+        state.view = 'topic'
+        state.menu = false
+        render()
+      } else if (action === 'archive') {
+        archiveTopic()
+      } else if (action === 'restore') {
+        restoreTopic()
+      }
       return
     }
     if (event.target.closest('#actionBar')) {
-      state.view = 'topic'
-      render()
-      const card = document.querySelector('#event-permission')
-      if (card) {
-        card.scrollIntoView({ block: 'center' })
-        card.classList.add('flash')
-      }
+      focusPermission()
       return
     }
     const perm = event.target.closest('[data-perm]')
     if (perm) {
       state.permission = perm.dataset.perm
       render()
-      const message = state.permission === 'allowed'
+      showToast(state.permission === 'allowed'
         ? '已允许：列表回到运行中，主会话记录不新增消息'
-        : '已拒绝：主题改用你提供的内容，列表回到运行中'
-      toast.textContent = message
-      toast.classList.add('on')
-      clearTimeout(toast.timer)
-      toast.timer = setTimeout(() => toast.classList.remove('on'), 2400)
+        : '已拒绝：主题改用你提供的内容，列表回到运行中')
       return
     }
-    if (event.target.closest('[data-goto-topic]')) {
-      state.view = 'topic'
-      render()
-      const card = document.querySelector('#event-permission')
-      if (card) {
-        card.scrollIntoView({ block: 'center' })
-        card.classList.add('flash')
-      }
-    }
+    if (event.target.closest('[data-goto-topic]')) focusPermission()
   })
 
   if (params.get('shot') === '1') document.body.classList.add('shot')
@@ -488,7 +537,23 @@
   if (params.get('permission') === 'allowed' || params.get('permission') === 'denied') {
     state.permission = params.get('permission')
   }
+  const archiveParam = params.get('archived') === '1'
+  if (archiveParam) {
+    state.archived = true
+    state.archiveRecorded = true
+    state.menu = true
+    if (state.permission === 'pending') state.permission = 'void'
+  } else {
+    state.menu = state.step === 5
+  }
   render()
+  // Demo controls for deterministic screenshots: ?action=archive / ?action=restore.
+  const action = params.get('action')
+  if (action === 'archive') archiveTopic()
+  else if (action === 'restore') {
+    archiveTopic()
+    restoreTopic()
+  }
 })()
 </script>
 </body>
