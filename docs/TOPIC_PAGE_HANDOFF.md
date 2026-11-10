@@ -111,3 +111,15 @@
 - [ ] A2 GUI 探针或 B 偏离记录。
 - [ ] 全量检查；提案移到 implemented；更新 feature-todos、README、截图。
 - [ ] 汇报：改了什么（路径）、验证命令和结果、回滚方式、遗留风险与未核实项。
+
+## 实现启动确认（2026-11-10）
+
+- **最新 main**：`cd15dc42`（`Merge pull request #24 from leigangzhang/agent/topic-page-flow-design`），设计分支、交接文档和两份提案都已合入；实现分支 `agent/topic-page-implementation` 从该提交建立，基线 `npm run check` ok、`npm test` 790/790 通过、`npm run typecheck` 通过。
+- **A2 / B 选择：B。** 运行中的宿主是 DSH 0.2.1-rc.2。复核结论：`dsh-session` 没有 `sessionNotices` 服务，也没有 `notice/message` 事件；`Session.append` 接受自定义事件名，但持久化读取要求未知事件带 `ignorable: true`，而唯一设置该标记的 `appendPluginRecord` 在宿主 README 里明确禁止仓库外插件调用；客户端聊天节点是通用 Definition/seat，但 Definition 只能匹配已经持久化的会话事件，没有可匹配的 notice 事件。因此 A2 需要宿主先发版，本阶段按 B 落地：账本、端口、活动和 `cowork_notices` 照常实现，主会话/主题会话卡片不显示；A2 宿主版落地后补 `TopicNoticePort` 适配器和客户端 notice 渲染器注册。偏离记录与 KNOWN_ISSUES 归属见收口交付。
+- **契约冻结（前后端共同，冻结后不改）：**
+  - `TopicRecordV2` 增加 `authorization: { requestId; summary; requestedAt } | null`、`blockedReason: 'authorization' | 'handoff' | 'conflict' | null`、`blockedFromStatus: 'active' | 'idle' | null`、`blockedAt: string | null`；`blocked` 保留为 `blockedReason !== null` 的派生布尔。旧索引读时补 `null`，已有 `blocked=true` 标成 `handoff`。
+  - `PanelTopic` 增加 `awaitingAuthorization: boolean` 和 `blockedReason: 'authorization' | 'handoff' | 'conflict' | null`；`PanelCounts` 增加 `awaitingAuthorization`；排序改为 `blocked`/`awaitingAuthorization` 优先，再按 status，`awaitingReview` 不再置前。主题页不读 `awaitingReview`/`reviewStatus`。
+  - 路由：`POST /api/cowork.topic.resolve` 归档（master-only、幂等、归档宿主会话、只给主会话 `topic-archived` 通知）；`POST /api/cowork.topic.reopen` 恢复（master-only、unarchive、不产生通知）；新增 `POST /api/cowork.authorization.resolve`（master 或该主题自己的会话，`requestId` 幂等，冲突决定报错）。错误码：`authorization/not-found`、`authorization/mismatch`、`authorization/not-allowed`。
+  - notice：`{ noticeId, pluginId, topicId, kind, title, summary, status, actions, createdAt, updatedAt }`；kind 为 `assignment | report | proposal | authorization | archive`；status 为 `pending | allowed | denied | void`；actions 为 `allow | deny | open-topic | open-work-item`。账本 `.dsh-cowork/notices.json` v1：`{ noticeId, topicId, target: 'master' | 'topic', status: 'pending' | 'delivered' | 'failed' | 'void', attempts, lastError, updatedAt }`，`noticeId = activity.eventId`，上限 200。B 阶段端口无宿主实现时账本保持 `pending`，不假装送达。
+  - 生命周期：idle 阈值 24 小时，移除自动 resolved；阻塞/待授权跳过 idle，解除后按 `blockedFromStatus` 恢复；每事件只投递一次、不合并、不批量。
+- **实现任务**：后端（状态/生命周期 → 事件/账本/投递 → 工具/路由 → API 契约）与前端（视图模型/两行卡片/四组/菜单/空态错误态）在冻结后并行，队长串行合并；B 阶段的会话提醒卡只做模型/渲染器和 feature-detect，不注册。
