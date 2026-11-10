@@ -92,6 +92,10 @@
     {
       "pattern": "docs/context.md",
       "reason": "Project-context illustration for contributors: the shared .dsh-cowork disk surface, memory injection timing, handoff up/down paths, and the four session isolation modes; the authoritative rules stay in src/ and docs/PLAN.md, so this route map is internal review material rather than a published guide"
+    },
+    {
+      "pattern": "docs/design/*",
+      "reason": "Cowork sidebar design index: internal routing page for design drafts and decision records; not user-facing until implementation lands"
     }
   ]
 }
