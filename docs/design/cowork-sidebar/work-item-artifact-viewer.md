@@ -92,6 +92,6 @@ Status: draft（design approved 2026-11-10；implementation not started）
 
 ## 未决问题
 
-- HTML/Canvas 的嵌入隔离方案。
+- HTML/Canvas 的嵌入隔离方案（见[多类型文件嵌入研究](work-item-artifact-embedding-research.md)）。
 - 附件类型、大小和数量的最终限制。
 - “待确认/需反馈”与主题审查状态的边界需要在实现时再校验。
