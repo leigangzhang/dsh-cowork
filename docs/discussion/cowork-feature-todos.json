@@ -1,5 +1,5 @@
 {
-  "version": 18,
+  "version": 20,
   "features": [
     {
       "id": "cowork-sidebar-topic-page",
@@ -38,7 +38,7 @@
     {
       "id": "cowork-work-item-artifact-viewer",
       "title": "Cowork 工作项页：多模态交付物查看器",
-      "status": "design-draft",
+      "status": "design-approved",
       "approvedAt": "2026-11-10T04:37:20Z",
       "source": {
         "thread": "object:work-item",
@@ -73,8 +73,8 @@
         "右栏 378px 时列表单列，只显示类型、状态、评论数、附件数和更新时间",
         "状态可从待确认流转到已确认；评论、附件、版本在查看器内可见"
       ],
-      "next": "V1–V16 已核实；先定 Excalidraw 中文字体策略和下载/磁盘体积口径，再进入实现",
-      "updatedAt": "2026-11-10T12:45:00Z",
+      "next": "设计已确认；前端提案与设计方案已完成，等待确认后按阶段实现：基础与只读 → 文本编辑与实时 → 图表/表格 → Doc/PDF/画布 → 收口",
+      "updatedAt": "2026-11-10T13:30:00Z",
       "designVersion": "v3",
       "verification": {
         "report": "docs/design/cowork-sidebar/work-item-artifact-verification.md",
@@ -104,6 +104,16 @@
         "negative": [
           "V13"
         ]
+      },
+      "frontendPlan": {
+        "proposal": ".agents/notes/proposed/feature/2026-11-10-work-item-page-frontend.md",
+        "design": "docs/design/cowork-sidebar/work-item-frontend.md",
+        "demo": [
+          "work-item-demo-v3.png",
+          "work-item-demo-v3-canvas.png",
+          "work-item-demo-v3-details.png"
+        ],
+        "status": "proposed"
       }
     },
     {
@@ -358,7 +368,7 @@
       "text": "Excalidraw 以懒加载块接入单文件客户端：CSS、字体资源、EXCALIDRAW_ASSET_PATH、React 18、构建产物大小",
       "verifyBy": "search + 构建原型",
       "status": "partial",
-      "result": "Excalidraw 0.18.1 可挂载、可出图；JS 8.19 MB min/2.55 MB gzip，CSS 141 KB，Xiaolai 字体 13 MB；带全字体包体约 15 MB，去掉 Xiaolai 约 2.9 MB。EXCALIDRAW_ASSET_PATH 必须绝对 URL。"
+      "result": "Excalidraw 0.18.1 可挂载、可出图；JS 8.19 MB min/2.55 MB gzip，CSS 141 KB，Xiaolai 字体 13 MB。已确认不带 Xiaolai、中文回退；剩余 CJS/chunk 和资源路由原型。"
     },
     {
       "id": "V2",
@@ -432,10 +442,10 @@
     },
     {
       "id": "V12",
-      "text": "全部组件接入后的客户端和包体大小（5–10 MB）",
+      "text": "全部组件接入后的客户端和包体大小（客户端≤100 MB，包体 10 MB）",
       "verifyBy": "构建",
       "status": "partial",
-      "result": "核心约 2.4 MB min/0.78 MB gzip；Excalidraw 另加约 11 MB min；含 Xiaolai 包体约 17 MB，去掉约 4 MB。"
+      "result": "核心约 2.4 MB min/0.78 MB gzip；Excalidraw 另加约 11 MB min。客户端已确认允许到 100 MB，包体按 10 MB 控制；去掉 Xiaolai 后包体约 4 MB。"
     },
     {
       "id": "V13",

@@ -1,6 +1,6 @@
 # Cowork 工作项：多模态交付物查看器设计
 
-Status: draft（design draft v3，2026-11-10；待确认）
+Status: approved（2026-11-10 用户确认；前端实现方案见[work-item-frontend.md](work-item-frontend.md)）
 
 ## 背景
 
@@ -181,8 +181,15 @@ queued（排队）→ sent（已送达）→ thinking（思考中）→ working�
 - PDF 正文编辑。
 - 复杂 Word 版式、Excel 公式和样式保真。
 
+## 已确认
+
+- Excalidraw 不带 Xiaolai 中文字体，中文走系统字体回退；需要手写中文字体时再做可选字体包。
+- 客户端不设 5 MB 硬门槛，允许到 100 MB 以内；包体按 10 MB 控制。
+- Doc 用 TipTap 所见即所得；表格扩展单独安装，所有 @tiptap 包锁同一版本。
+- 技术核实和剩余实现期验证见[V1–V16 核实报告](work-item-artifact-verification.md)。
+
 ## 未决问题
 
-- 技术核实结果见[V1–V16 核实报告](work-item-artifact-verification.md)；开发前置门禁是 Excalidraw 中文字体策略和“下载体积/磁盘体积”的验收口径。
 - 附件类型、大小和数量的最终限制需要在实现时定。
 - “待确认/需反馈”与主题审查状态的边界在实现时再校验。
+- PDF 页内区域批注后置；第一版只做整体/按页评论。
