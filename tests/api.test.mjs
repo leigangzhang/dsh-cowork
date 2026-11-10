@@ -162,6 +162,9 @@ function fakePorts(options = {}) {
     },
     async mutateIndexDocument(mutator) {
       state.storeCalls.push('mutateIndexDocument')
+      // Optional concurrent writer: runs after the route's pre-check and before
+      // the lock-scoped mutator reads the document.
+      if (options.raceBeforeMutate !== undefined) options.raceBeforeMutate(state)
       const next = mutator(state.document)
       if (next === null) return state.document
       state.writes += 1
@@ -1962,6 +1965,98 @@ test('authorization.resolve is idempotent for the same decision and conflicts on
   )
   assert.equal(conflict.status, 409)
   assert.equal(conflict.body.error.code, 'authorization/mismatch')
+})
+
+test('a decision that loses the lock race answers from the recorded decision', async () => {
+  const { requested, topic } = pendingAuthorizationFixture()
+  const resolvedEvent = makeEvent({
+    eventId: 'event-auth-1-resolved',
+    type: 'authorization-resolved',
+    topicId: 'topic-1',
+    summary: 'authorization allowed',
+    details: { topicId: 'topic-1', requestId: 'req-1', noticeId: 'event-auth-1', decision: 'allow' },
+  })
+  // Another writer clears the pending request between the route's pre-check and
+  // its lock-scoped mutator, so the mutator returns null without writing.
+  const loseRace = (state) => {
+    state.document = {
+      ...state.document,
+      topics: state.document.topics.map((entry) => ({ ...entry, authorization: null, blocked: false, blockedReason: null })),
+    }
+  }
+
+  const same = fakePorts({
+    document: makeDocument({ topics: [topic] }),
+    now: () => NOW,
+    activity: [requested, resolvedEvent],
+    raceBeforeMutate: loseRace,
+  })
+  const sameRoutes = await registerRoutes(same)
+  const replay = await readResponse(
+    await sameRoutes.routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'allow',
+      }),
+    ),
+  )
+  assert.equal(replay.status, 200)
+  assert.equal(replay.body.ok, true)
+  assert.equal(replay.body.changed, false, 'the winner already recorded the same decision')
+  assert.equal(replay.body.prompted, false)
+  assert.equal(replay.body.noticeId, 'event-auth-1', 'the recorded decision carries the original notice id')
+  assert.equal(same.state.writes, 0, 'a lost race writes nothing')
+  assert.equal(same.state.appended.length, 0)
+  assert.deepEqual(same.state.prompts, [])
+
+  const conflict = fakePorts({
+    document: makeDocument({ topics: [topic] }),
+    now: () => NOW,
+    activity: [requested, resolvedEvent],
+    raceBeforeMutate: loseRace,
+  })
+  const conflictRoutes = await registerRoutes(conflict)
+  const refused = await readResponse(
+    await conflictRoutes.routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'deny',
+      }),
+    ),
+  )
+  assert.equal(refused.status, 409)
+  assert.equal(refused.body.error.code, 'authorization/mismatch')
+
+  // Concurrent archive: the pending request is gone and no decision was
+  // recorded, so the request no longer exists.
+  const archived = fakePorts({
+    document: makeDocument({ topics: [topic] }),
+    now: () => NOW,
+    activity: [requested],
+    raceBeforeMutate: (state) => {
+      state.document = {
+        ...state.document,
+        topics: state.document.topics.map((entry) => ({
+          ...entry,
+          status: 'resolved',
+          authorization: null,
+          blocked: false,
+          blockedReason: null,
+          resolvedAt: '2026-01-02T00:00:00.000Z',
+          resolvedBy: 'user',
+        })),
+      }
+    },
+  })
+  const archivedRoutes = await registerRoutes(archived)
+  const missing = await readResponse(
+    await archivedRoutes.routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'allow',
+      }),
+    ),
+  )
+  assert.equal(missing.status, 404)
+  assert.equal(missing.body.error.code, 'authorization/not-found')
+  assert.equal(archived.state.writes, 0)
 })
 
 test('authorization.resolve validates the decision and required fields', async () => {
