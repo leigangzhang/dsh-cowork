@@ -16,7 +16,7 @@ Class: feature
 
 **组件。** [src/client/list.tsx](../../../../src/client/list.tsx) 重写为 `TopicList` / `TopicGroup` / `TopicCard` / `TopicStates`。卡片是 `<article>`，标题+摘要是一个打开会话的 `<button class="cw-card-open">`，⋯ 是它的兄弟按钮，不嵌套；第一行主题名 + 标记，第二行摘要 + 时间；⋯ 菜单固定定位、单动作（归档或恢复）、`role=menu`/`menuitem`、`aria-haspopup`/`aria-expanded`、Escape 关闭并回焦、点外部关闭、窗口 resize/滚动重新定位、列表底部向上翻转。`TopicStates` 覆盖 loading / empty / error。空分组不渲染组头，但模型始终输出四组。
 
-[src/client/panel.tsx](../../../../src/client/panel.tsx) 保留外壳、加载、刷新、收件箱提示和「需要你处理」入口；删除 `TopicDetail`、布局测量和 split/drill 分支。点卡片和 needsYou 都调用 `uiWorkspace.openSession(topicId)`（先容错 unarchive；打开失败显示回执）。归档/恢复点击即执行，不弹确认：先乐观改本地分组、请求 master-only 路由、失败回滚单张卡并显示回执；同一 topic 请求进行中禁用菜单项。`request/not-master` 映射为「只有主会话可以操作」。
+[src/client/panel.tsx](../../../../src/client/panel.tsx) 保留外壳、加载、刷新和「需要你处理」入口；删除 `TopicDetail`、布局测量、split/drill 分支和 v1 收件箱 chip。header 只保留项目路径、面包屑和刷新；`刷新` 按钮用 `flex:none` + `white-space:nowrap`，381px 下保持单行（收口修复 `bbb85b3`）。点卡片和 needsYou 都调用 `uiWorkspace.openSession(topicId)`（先容错 unarchive；打开失败显示回执）。归档/恢复点击即执行，不弹确认：先乐观改本地分组、请求 master-only 路由、失败回滚单张卡并显示回执；同一 topic 请求进行中禁用菜单项。`request/not-master` 映射为「只有主会话可以操作」。
 
 [src/client/api.ts](../../../../src/client/api.ts) 只保留 `loadOverview`、`resolveTopic`、`reopenTopic`；`loadTopic`/`moveTopic` 不再从主题页调用。`WireTopic` 在 `PanelTopic` 基础上保留可选的 `awaitingAuthorization`/`blockedReason`，`parseTopicRow` 总是归一化这两个字段；主题页不读 review 字段。
 
@@ -52,13 +52,13 @@ Class: feature
 
 - 主题页现在是单列四组列表，打开卡片只切换主区；不再有详情、输入框、工作项/评审请求、审查状态或改投入口。
 - 已解决组默认折叠，归档后展开并把卡移入已解决；恢复后回到运行中。菜单只有一个动作，归档/恢复不弹确认，失败可回滚。
-- 381px 面板下标题和摘要单行省略；卡片不因长标题撑开侧栏。窄宽度下 `刷新` 按钮会换行，收件箱 chip 仍保留（见下方偏差）。
-- `needsYou` 是唯一顶部入口，只统计待授权；收件箱 chip 作为 v1 外壳保留，可能与「需要你处理」并列显示，这是本阶段未收口的视觉偏差。
+- 381px 面板下标题和摘要单行省略；卡片不因长标题撑开侧栏。`刷新` 按钮不收缩、不换行，header 用 `flex-wrap:nowrap` 固定单行；v1 收件箱 chip 已移除（收口修复 `bbb85b3`）。
+- `needsYou` 是页面顶部唯一入口，只统计待授权；v1 收件箱 chip 已移除，头部不再出现「待处理 N」（收口修复 `bbb85b3`）。
 - B 模式没有主会话/主题会话提醒卡；用户只能通过主题页状态与 master 的 `cowork_notices` 感知上报/提案/待授权。A2 发布后需要补注册和真实 GUI 探针。
 - 主题页移除工作项/评审入口后，用户暂时没有页面查看这些内容；工作项页实现是后续阶段的前置。
 - `openTopic` 对每个卡先尝试 unarchive（live topic 会拒绝，错误被忽略）再 openSession；这是对已归档会话的容错，不是常规路径。
 - 本次实测 381.5px 面板宽、卡片 369.5px；标题/摘要的 `scrollWidth > clientWidth` 与 ellipsis 计算样式通过 DOM 断言，真实 Chrome 截图见证据目录。
-- 已知视觉偏差：header 收件箱 chip「待处理 1」不在定稿结构里；381px 下「刷新」换行。两者进入 KNOWN_ISSUES 或后续前端修复批次。
+- 已修复的视觉偏差：header 收件箱 chip 与 381px「刷新」换行已在收口提交 `bbb85b3` 移除/固定，不再进入 KNOWN_ISSUES。
 - A2 会话卡延期、工作项页未实现两条进入 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md)。
 
 ## Testing
@@ -69,7 +69,7 @@ Class: feature
 - [F4] 点卡片和 needsYou 都调用 openSession；主题页不渲染详情、输入框、决策记录和会话提醒 — `source` / `tests`：`tests/panel-model.test.mjs`（`opening a topic has fixed steps and a master breadcrumb only for topic sessions`、`the topic page API module keeps only overview, archive and restore`）；真实 Chrome 点击真实 topic 卡后主区标题变为 `cowork: GUI 验证主题`
 - [F5] 视图模型测试覆盖四组归类、计数、标记、needsYou、已解决折叠、空态和错误态、相对时间 — `tests`：`tests/panel-model.test.mjs`（`grouping: resolved wins, authorization blocks, idle only when unblocked, active runs`、`markers: authorization first, waiting-master only with a blocked reason, never from review`、`cards sort newest first inside a group and fall back to a stable id order`、`an empty overview still yields the four groups and no needs-you entry`、`surfaceState separates loading, empty, error and the list`、`relative time covers minutes, hours, days and the absolute fallback`）
 - [F6] 没有 awaitingAuthorization 字段时，页面不显示待授权标记和 needsYou，也不从 awaitingReview 推断 — `tests`：`tests/panel-model.test.mjs`（`no awaitingAuthorization field means no marker and no needs-you entry`、`parseTopicRow keeps the optional authorization fields and degrades invented values`）
-- [F7] `npm run typecheck`、`npm run build`、`npm test` 全部通过，客户端包能注册并渲染主题标签 — `tests`：集成 HEAD `b6b4a06`，`npm test` 843/843、`npm run typecheck`/`npm run build`/`npm run check` exit 0；真实 profile 加载 `lib/client.js`（sha256 `b7b54228…`）并渲染 Cowork 标签
+- [F7] `npm run typecheck`、`npm run build`、`npm test` 全部通过，客户端包能注册并渲染主题标签 — `tests`：集成 HEAD `442312a`，`npm test` 845/845、`npm run typecheck`/`npm run build`/`npm run check` exit 0；真实 profile 加载 `lib/client.js` 并渲染 Cowork 标签
 - [F8] 设计文档、demo 截图和实现后的卡片/菜单一致；README 索引仍指向最新 demo — `plan-docs`：[topic-page.md](../../../../docs/design/cowork-sidebar/topic-page.md)、[README.md](../../../../README.md)、[docs/discussion/topic-demo-v2.html](../../../../docs/discussion/topic-demo-v2.html)；真实 Chrome 截图见证据目录，已知偏差记录在 KNOWN_ISSUES
 - [F9] A2 notice 渲染器按 kind 渲染 1 张卡：分配/上报只读，提案带 open-work-item，授权带 allow/deny 或 open-topic，归档只主会话；status 更新原卡不新增；不触发 prompt — `source`：`src/client/notice-model.ts`、`src/client/notice.tsx` 与 `tests/notice-model.test.mjs`。**B 下不注册**，真实会话卡未出现；F9 的会话呈现部分延期到宿主 A2 阶段
 - [F10] notice 模型测试覆盖 kind/status/actions、主会话/主题会话差异、update 幂等和无目标动作隐藏 — `tests`：`tests/notice-model.test.mjs`（`kind, status and action labels cover the frozen contract`、`authorization differs per audience: master opens the topic, the topic allows or denies`、`one notice renders one card; duplicate ids keep the last state in the first position`、`an update replaces the original card in place and is idempotent`、`an open action without a target is hidden`、`the notice renderer never prompts the model or appends records`）

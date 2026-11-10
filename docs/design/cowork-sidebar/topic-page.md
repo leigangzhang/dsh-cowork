@@ -7,7 +7,7 @@ Status: implemented v2（2026-11-10 确认并实现；A2 会话提醒卡按 B �
 - 前端：四组列表、两行卡片、单动作 ⋯ 菜单、needsYou、已解决折叠、381px 省略已落地；列表/详情分栏、工作项/评审请求渲染和改投表单已移除。实现证据见前端决策记录与 `/tmp/topic-page-verify/GUI_EVIDENCE.json`。
 - 后端：`TopicRecordV2` 增加 authorization/blockedReason/blockedFromStatus/blockedAt；idle 24h、无自动 resolved；`.dsh-cowork/notices.json` 1:1 投递账本；`cowork_topic_report`/`cowork_decision_propose`/`cowork_authorization_request`/`cowork_notices`；`authorization.resolve` 路由；resolve=归档（同时归档宿主会话）、reopen=恢复（unarchive）。实现证据见后端决策记录。
 - A2/B：本阶段 B。主题页不渲染会话提醒卡；`TopicNoticePort` 用 Noop，账本保持 pending，`cowork_notices` 是 master 的唯一读取入口。宿主 A2 发布后补端口适配器、客户端 notice seat 注册和真实 GUI 探针。
-- 已知偏差：header 保留 v1 收件箱 chip「待处理 1」（设计结构只列「需要你处理」）；381px 下「刷新」按钮换行；主题页移除工作项/评审入口后，工作项页实现前用户暂无查看入口。前两条进入后续前端修复，第三条进入 KNOWN_ISSUES。
+- 已收口：header 不再有 v1 收件箱 chip，`刷新` 按钮固定单行（`flex:none`/`white-space:nowrap`，收口提交 `bbb85b3`）。主题页移除工作项/评审入口后，工作项页实现前用户暂无查看入口（[KI-41](../../KNOWN_ISSUES.md)）。
 
 ## 背景
 

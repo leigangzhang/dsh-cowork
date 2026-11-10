@@ -44,11 +44,11 @@
         "主题卡边框颜色与分组一致：阻塞红、运行中绿、空闲黑、已解决灰"
       ],
       "next": "A2 宿主发布后补 1:1 会话提醒卡并做 GUI 探针；工作项/评审查看入口由后续工作项页承载。",
-      "revisedAt": "2026-11-10T12:38:00Z",
+      "revisedAt": "2026-11-10T16:10:00Z",
       "designVersion": "v2",
       "implementedAt": "2026-11-10T15:35:00Z",
       "implementation": {
-        "head": "b6b4a06ac9e910b9a89a493f1996e61c7de6ed83",
+        "head": "442312adabd65595bf7e6eee17bd39ca4dabb9b2",
         "branch": "agent/topic-page-implementation",
         "evidence": [
           ".agents/notes/implemented/feature/2026-11-10-topic-page-backend.md",

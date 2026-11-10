@@ -126,9 +126,9 @@
 
 ## 实现结果（2026-11-10）
 
-- **代码**：实现分支 `agent/topic-page-implementation`，最终集成 HEAD `b6b4a06`（base `e215286`；diff sha256 `b8ce98b3…`）。后端提交 `2b5e3ff` + 修复 `87cb66d`/`7a39d8e`；前端提交 `5ee6633`；另合并了最新 main 的工作项后端设计文档。提交范围见 `.agents/notes/implemented/feature/2026-11-10-topic-page-backend.md` 与 `...-frontend.md`。
-- **门禁**：`npm run check` ok；`npm run typecheck` exit 0；`npm run build` exit 0；`npm test` 843/843 exit 0（集成 HEAD）。
+- **代码**：实现分支 `agent/topic-page-implementation`，代码门禁 HEAD `442312a`（base `e215286`）。后端提交 `2b5e3ff` + 修复 `87cb66d`/`7a39d8e`/`5c47b6f`/`846dd09`；前端提交 `5ee6633` + 收口修复 `bbb85b3`；另合并了最新 main 的工作项后端设计文档与 `docs/topic-page-closeout` 收口文档分支。提交范围见 `.agents/notes/implemented/feature/2026-11-10-topic-page-backend.md` 与 `...-frontend.md`。
+- **门禁**：`npm run check` ok；`npm run typecheck` exit 0；`npm run build` exit 0；`npm test` 845/845 exit 0（代码门禁 HEAD `442312a`；收口文档提交不改变代码与测试）。
 - **GUI**：专用 profile `topicpage` + 隔离 fixture repo；真实 `cowork_project_init`/`cowork_topic_create` 创建测试会话；四组、两行卡片、待授权标记、单动作菜单、needsYou、已解决折叠、381.5px 省略与真实归档/恢复验证；fixture apply 4ms / restore 2ms，restore 后 index sha 回到原值。证据 `/tmp/topic-page-verify/GUI_EVIDENCE.json` 与 4 张截图（不进入仓库）。测试 topic/master 会话已归档，fixture workspace 记录已移除。
 - **A2/B**：按 B 交付。`TopicNoticePort` 是 Noop，`notices.json` 保持 pending，主/主题会话无提醒卡；`cowork_notices` 是 master 读取入口。宿主 A2 发布后补端口适配与客户端 seat 注册（[KI-40](KNOWN_ISSUES.md)）。
-- **遗留与偏差**：主题页移除工作项/评审入口（[KI-41](KNOWN_ISSUES.md)）；header 收件箱 chip「待处理 1」与 381px 下「刷新」换行是视觉偏差；needsYou 的真实 blocked topic 打开未在真实数据上验证（fixture blocked id 是合成的，openSession 已用真实 topic 卡验证）。这些记录在证据 JSON 的 deviations，后续前端修复批次处理。
+- **遗留与偏差**：主题页移除工作项/评审入口（[KI-41](KNOWN_ISSUES.md)）；header 收件箱 chip 与 381px「刷新」换行已在 `bbb85b3` 修复；needsYou 的真实 blocked topic 打开未在真实数据上验证（fixture blocked id 是合成的，openSession 已用真实 topic 卡验证）。A2 会话卡延期见 [KI-40](KNOWN_ISSUES.md)。
 - **回滚**：回退实现分支到 `e215286`，重新 `npm run check/typecheck/build/test`，按 README 的 tarball 安装/卸载流程重装旧包；`.dsh-cowork` 数据不做迁移，`notices.json` 是新增文件，旧版本忽略。
