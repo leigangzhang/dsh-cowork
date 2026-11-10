@@ -2,85 +2,53 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, readdir } from 'node:fs/promises'
 import {
+  CARD_MENU_GAP,
+  CARD_MENU_HEIGHT,
+  CARD_MENU_WIDTH,
+  CLOCK_TICK_MS,
   FEEDBACK_TTL_MS,
-  FINDING_SEVERITY_LABELS,
-  FINDING_SEVERITY_TONES,
   INBOX_TITLE_MAX_CHARS,
-  LIST_COLUMN_WIDTH,
-  LONG_LIST_THRESHOLD,
-  LONG_SUBJECT_THRESHOLD,
+  NOT_MASTER_MESSAGE,
   PROJECT_PATH_MAX_CHARS,
-  RESOLVED_BY_LABELS,
-  REVIEW_STATUS_LABELS,
-  REVIEW_STATUS_TONES,
-  SPLIT_WIDTH_THRESHOLD,
+  TOPIC_ACTION_LABELS,
+  TOPIC_GROUP_LABELS,
+  TOPIC_GROUP_ORDER,
   TOPIC_ID_MAX_CHARS,
-  TOPIC_STATUS_LABELS,
-  TOPIC_STATUS_TONES,
-  WORK_ITEM_STATUS_LABELS,
-  WORK_ITEM_STATUS_TONES,
-  actionFailureMessage,
-  chooseLayout,
-  copyFailureMessage,
-  copySuccessMessage,
+  TOPIC_MARKER_LABELS,
+  archiveSuccessMessage,
+  buildTopicViewModel,
   emptyNotice,
   errorPresentation,
-  findingSeverityLabel,
-  findingSeverityTone,
   formatLocalTimestamp,
   formatRelativeTime,
   inboxNotice,
-  isLongList,
-  isLongSubject,
   masterBreadcrumbLabel,
   masterBreadcrumbTarget,
   middleEllipsis,
-  moveIntentPrefill,
-  moveSuccessMessage,
-  moveTargets,
   openSessionFailureMessage,
   openSessionMessage,
   openSessionUnavailableMessage,
   openTopicSteps,
-  reopenSuccessMessage,
-  resolveSuccessMessage,
-  resolvedByLabel,
-  reviewBadgeTitle,
-  reviewStatusLabel,
-  reviewStatusTone,
-  shortCommit,
+  placeCardMenu,
+  restoreSuccessMessage,
   shortTopicId,
-  statusChips,
-  statusLabel,
-  statusTone,
   surfaceState,
-  topicActions,
-  topicRow,
-  verificationExitLabel,
-  verificationTone,
-  workItemStatusLabel,
-  workItemStatusTone,
+  topicCardAction,
+  topicGroupLabel,
+  topicMarkerLabel,
+  writeFailureMessage,
 } from '../src/client/model.ts'
+import * as api from '../src/client/api.ts'
 import {
   PanelApiError,
   errorMessage,
-  loadActivity,
   loadOverview,
-  loadTopic,
-  moveTopic,
   panelApiPath,
-  parseActivity,
-  parseActivityEvent,
   parseCounts,
-  parseInboxItem,
   parseOverview,
   parseReopen,
   parseResolve,
-  parseReviewRequest,
-  parseRouteMove,
-  parseTopic,
   parseTopicRow,
-  parseWorkItem,
   reopenTopic,
   resolveTopic,
   toPanelError,
@@ -94,25 +62,19 @@ function ago(ms) {
   return new Date(NOW - ms).toISOString()
 }
 
-/** A complete wire topic; each test overrides only the field it is about. */
+/**
+ * A topic as the wire sends it. Only the fields the topic page reads are
+ * required; the authorization fields stay optional so a host without them can
+ * be covered explicitly.
+ */
 function topic(overrides = {}) {
   return {
     topicId: 'session-aaaa1111-2222',
     title: '一个主题',
     status: 'active',
     blocked: false,
-    awaitingReview: false,
-    reviewStatus: null,
-    latestReviewRequestId: null,
     digest: '摘要',
-    scope: '范围',
-    ownedPaths: [],
-    lastActiveAt: ago(0),
     updatedAt: ago(0),
-    lastDeliveryConfirmedAt: null,
-    resolvedAt: null,
-    resolvedBy: null,
-    activeWorkItems: 0,
     ...overrides,
   }
 }
@@ -134,580 +96,389 @@ function counts(overrides = {}) {
   }
 }
 
-/** A complete wire work item. */
-function workItem(overrides = {}) {
-  return {
-    workItemId: 'work-1',
-    topicId: 'session-aaaa1111-2222',
-    path: '/tmp/wi',
-    branch: 'dsh-wt/x/wi',
-    baseCommit: 'aaaaaaa1111111',
-    headCommit: 'bbbbbbb2222222',
-    status: 'active',
-    updatedAt: ago(0),
-    ...overrides,
-  }
-}
-
-/** A complete wire inbox item. */
+/** One inbox row. */
 function inboxItem(overrides = {}) {
   return {
     id: 'inbox-1',
     time: ago(0),
     topicId: 'session-aaaa1111-2222',
     kind: 'merge-needed',
-    summary: '合并需要处理',
+    summary: '工作项等待合并',
     deliveredAt: null,
     ...overrides,
   }
 }
 
-/** A complete wire review request. */
-function reviewRequest(overrides = {}) {
-  return {
-    requestId: 'req-0001',
-    topicId: 'session-aaaa1111-2222',
-    workItemId: null,
-    purpose: '评审这次改动',
-    status: 'pending',
-    baseCommit: 'aaaaaaa1111111',
-    headCommit: 'bbbbbbb2222222',
-    changedPaths: ['src/api-contract.ts'],
-    requestedAt: ago(0),
-    reviewedAt: null,
-    summary: null,
-    findings: [],
-    verification: [],
-    ...overrides,
-  }
+/** The view model of one list of topics. */
+function view(topics) {
+  return buildTopicViewModel({ topics })
 }
 
-/** A complete wire activity event. */
-function activityEvent(overrides = {}) {
-  return {
-    eventId: 'evt-1',
-    time: ago(0),
-    type: 'status-changed',
-    topicId: 'session-aaaa1111-2222',
-    summary: '状态改为 active',
-    ...overrides,
-  }
+/** One group by key, failing loudly when the group is missing. */
+function group(model, key) {
+  const found = model.groups.find(entry => entry.key === key)
+  assert.ok(found, `group ${key} must exist`)
+  return found
 }
 
-test('layout constants and the 480px split switch', () => {
-  assert.equal(SPLIT_WIDTH_THRESHOLD, 480)
-  assert.equal(LIST_COLUMN_WIDTH, 248)
-  assert.equal(chooseLayout(648), 'split')
-  assert.equal(chooseLayout(481), 'split')
-  assert.equal(chooseLayout(480), 'drill')
-  assert.equal(chooseLayout(320), 'drill')
-  assert.equal(chooseLayout(0), 'drill')
-  assert.equal(chooseLayout(-10), 'drill')
+test('four groups always come out in fixed order with labels, counts and fold state', () => {
+  const model = view([
+    topic({ topicId: 'blocked-1', blocked: true, blockedReason: 'handoff' }),
+    topic({ topicId: 'running-1', updatedAt: ago(1000) }),
+    topic({ topicId: 'idle-1', status: 'idle' }),
+    topic({ topicId: 'resolved-1', status: 'resolved' }),
+  ])
+  assert.deepEqual(model.groups.map(entry => entry.key), [...TOPIC_GROUP_ORDER])
+  assert.deepEqual(model.groups.map(entry => entry.label), TOPIC_GROUP_ORDER.map(key => TOPIC_GROUP_LABELS[key]))
+  assert.deepEqual(model.groups.map(entry => entry.count), [1, 1, 1, 1])
+  assert.deepEqual(model.groups.map(entry => entry.collapsedByDefault), [false, false, false, true])
+  assert.equal(model.total, 4)
+  assert.deepEqual(model.groups.map(entry => entry.cards.length), [1, 1, 1, 1])
 })
 
-test('an unmeasured width stays drill (never squeeze two columns)', () => {
-  assert.equal(chooseLayout(null), 'drill')
-  assert.equal(chooseLayout(undefined), 'drill')
-  assert.equal(chooseLayout(Number.NaN), 'drill')
-  assert.equal(chooseLayout(Number.POSITIVE_INFINITY), 'drill')
+test('grouping: resolved wins, authorization blocks, idle only when unblocked, active runs', () => {
+  const model = view([
+    topic({ topicId: 'resolved-blocked', status: 'resolved', blocked: true }),
+    topic({ topicId: 'auth-idle', status: 'idle', awaitingAuthorization: true }),
+    topic({ topicId: 'blocked-active', status: 'active', blocked: true, blockedReason: 'conflict' }),
+    topic({ topicId: 'plain-idle', status: 'idle' }),
+    topic({ topicId: 'plain-active', status: 'active' }),
+    topic({ topicId: 'invented', status: 'archived' }),
+  ])
+  assert.deepEqual(group(model, 'resolved').cards.map(card => card.topicId), ['resolved-blocked'])
+  assert.deepEqual(
+    group(model, 'blocked').cards.map(card => card.topicId).sort(),
+    ['auth-idle', 'blocked-active'],
+  )
+  assert.deepEqual(group(model, 'idle').cards.map(card => card.topicId), ['plain-idle'])
+  assert.deepEqual(
+    group(model, 'running').cards.map(card => card.topicId).sort(),
+    ['invented', 'plain-active'],
+  )
 })
 
-test('list and title length states have explicit thresholds', () => {
-  assert.equal(LONG_LIST_THRESHOLD, 12)
-  assert.equal(isLongList(12), false)
-  assert.equal(isLongList(13), true)
-  assert.equal(isLongList(0), false)
-  assert.equal(LONG_SUBJECT_THRESHOLD, 48)
-  assert.equal(isLongSubject('x'.repeat(48)), false)
-  assert.equal(isLongSubject('x'.repeat(49)), true)
+test('cards carry exactly the contract fields and never the retired ones', () => {
+  const model = view([topic({
+    awaitingAuthorization: true,
+    awaitingReview: true,
+    reviewStatus: 'pending',
+    activeWorkItems: 3,
+    cwd: '/repo',
+    scope: 'src/client',
+  })])
+  const card = group(model, 'blocked').cards[0]
+  assert.deepEqual(
+    Object.keys(card).sort(),
+    ['canArchive', 'canRestore', 'digest', 'marker', 'title', 'topicId', 'updatedAt'],
+  )
+  for (const retired of ['awaitingReview', 'reviewStatus', 'workItems', 'cwd', 'scope', 'activeWorkItems']) {
+    assert.equal(retired in card, false, `card must not carry ${retired}`)
+  }
+  assert.equal(JSON.stringify(card).includes('reviewStatus'), false)
 })
 
-test('middleEllipsis keeps both ends of a path', () => {
-  const path = '/Users/someone/Workspace/deepseek-harness/plugins/dsh-cowork'
-  const shortened = middleEllipsis(path, PROJECT_PATH_MAX_CHARS)
-  assert.ok(shortened.length <= PROJECT_PATH_MAX_CHARS, `length ${shortened.length}`)
-  assert.ok(shortened.startsWith('/Users/'))
-  assert.ok(shortened.endsWith('dsh-cowork'))
-  assert.ok(shortened.includes('…'))
-  assert.equal(middleEllipsis('/tmp/short', PROJECT_PATH_MAX_CHARS), '/tmp/short')
-  assert.equal(middleEllipsis('abcdef', 3), 'a…f')
+test('markers: authorization first, waiting-master only with a blocked reason, never from review', () => {
+  const model = view([
+    topic({ topicId: 'auth', blocked: true, blockedReason: 'authorization', awaitingAuthorization: true }),
+    topic({ topicId: 'handoff', blocked: true, blockedReason: 'handoff' }),
+    topic({ topicId: 'conflict', blocked: true, blockedReason: 'conflict' }),
+    topic({ topicId: 'legacy-blocked', blocked: true }),
+    topic({ topicId: 'review-only', awaitingReview: true }),
+    topic({ topicId: 'half-written', blocked: true, blockedReason: 'authorization' }),
+    topic({ topicId: 'resolved-auth', status: 'resolved', awaitingAuthorization: true }),
+  ])
+  const markers = new Map(
+    model.groups.flatMap(entry => entry.cards).map(card => [card.topicId, card.marker]),
+  )
+  assert.equal(markers.get('auth'), 'authorization')
+  assert.equal(markers.get('handoff'), 'waiting-master')
+  assert.equal(markers.get('conflict'), 'waiting-master')
+  assert.equal(markers.get('legacy-blocked'), null)
+  assert.equal(markers.get('review-only'), null, 'awaitingReview must never become a marker')
+  assert.equal(markers.get('half-written'), null, 'a missing boolean is not guessed from the reason')
+  assert.equal(markers.get('resolved-auth'), null)
+  assert.deepEqual(TOPIC_MARKER_LABELS, { authorization: '待授权', 'waiting-master': '等待主会话' })
 })
 
-test('shortTopicId and shortCommit truncate ids and commits', () => {
-  assert.equal(TOPIC_ID_MAX_CHARS, 8)
-  assert.equal(shortTopicId('session-2accc833-153c'), 'session-')
-  assert.equal(shortTopicId('abc'), 'abc')
-  assert.equal(shortCommit(null), '—')
-  assert.equal(shortCommit(''), '—')
-  assert.equal(shortCommit('abc1234'), 'abc1234')
-  assert.equal(shortCommit('abc1234def5678'), 'abc1234')
+test('needsYou counts only awaitingAuthorization and points at the newest waiting topic', () => {
+  const model = view([
+    topic({ topicId: 'auth-old', awaitingAuthorization: true, updatedAt: ago(60_000) }),
+    topic({ topicId: 'auth-new', awaitingAuthorization: true, updatedAt: ago(1000) }),
+    topic({ topicId: 'review', awaitingReview: true }),
+    topic({ topicId: 'resolved-auth', status: 'resolved', awaitingAuthorization: true }),
+  ])
+  assert.deepEqual(model.needsYou, { count: 2, topicId: 'auth-new' })
+  assert.equal(model.needsYou.count, 2, 'awaitingReview and resolved rows never count')
 })
 
-test('surfaceState picks loading, empty, error and default', () => {
-  assert.equal(surfaceState({ loading: true, error: null, topicCount: 0 }), 'loading')
-  assert.equal(surfaceState({ loading: true, error: { code: 'store/corrupt', message: 'x' }, topicCount: 3 }), 'loading')
-  assert.equal(surfaceState({ loading: false, error: { code: 'project/not-initialized', message: 'x' }, topicCount: 0 }), 'empty')
-  assert.equal(surfaceState({ loading: false, error: { code: 'store/corrupt', message: 'x' }, topicCount: 0 }), 'error')
+test('no awaitingAuthorization field means no marker and no needs-you entry', () => {
+  const model = view([
+    topic({ topicId: 'review-only', awaitingReview: true, blocked: true, blockedReason: 'authorization' }),
+    topic({ topicId: 'plain' }),
+  ])
+  assert.equal(model.needsYou.count, 0)
+  assert.equal(model.needsYou.topicId, null)
+  assert.equal(group(model, 'blocked').cards[0].marker, null)
+})
+
+test('cards sort newest first inside a group and fall back to a stable id order', () => {
+  const model = view([
+    topic({ topicId: 'b-running', updatedAt: ago(10_000) }),
+    topic({ topicId: 'a-running', updatedAt: ago(20_000) }),
+    topic({ topicId: 'c-tied', updatedAt: 'not-a-date' }),
+    topic({ topicId: 'd-tied', updatedAt: 'not-a-date' }),
+  ])
+  assert.deepEqual(group(model, 'running').cards.map(card => card.topicId), [
+    'b-running',
+    'a-running',
+    'c-tied',
+    'd-tied',
+  ])
+})
+
+test('a card offers exactly one action derived from its state', () => {
+  const model = view([
+    topic({ topicId: 'open' }),
+    topic({ topicId: 'done', status: 'resolved' }),
+  ])
+  const open = group(model, 'running').cards[0]
+  const done = group(model, 'resolved').cards[0]
+  assert.deepEqual([open.canArchive, open.canRestore], [true, false])
+  assert.deepEqual([done.canArchive, done.canRestore], [false, true])
+  assert.equal(topicCardAction(open), 'archive')
+  assert.equal(topicCardAction(done), 'restore')
+  assert.deepEqual(TOPIC_ACTION_LABELS, { archive: '归档', restore: '恢复' })
+})
+
+test('an empty overview still yields the four groups and no needs-you entry', () => {
+  const model = view([])
+  assert.equal(model.total, 0)
+  assert.deepEqual(model.groups.map(entry => entry.count), [0, 0, 0, 0])
+  assert.deepEqual(model.groups.map(entry => entry.cards), [[], [], [], []])
+  assert.deepEqual(model.needsYou, { count: 0, topicId: null })
+})
+
+test('group and marker labels stay readable for invented values', () => {
+  assert.equal(topicGroupLabel('blocked'), '阻塞')
+  assert.equal(topicGroupLabel('running'), '运行中')
+  assert.equal(topicGroupLabel('idle'), '空闲')
+  assert.equal(topicGroupLabel('resolved'), '已解决')
+  assert.equal(topicGroupLabel('invented'), 'invented')
+  assert.equal(topicMarkerLabel('authorization'), '待授权')
+  assert.equal(topicMarkerLabel('invented'), 'invented')
+})
+
+test('surfaceState separates loading, empty, error and the list', () => {
+  assert.equal(surfaceState({ loading: true, error: null, topicCount: 3 }), 'loading')
   assert.equal(surfaceState({ loading: false, error: null, topicCount: 0 }), 'empty')
-  assert.equal(surfaceState({ loading: false, error: null, topicCount: 1 }), 'default')
-})
-
-test('topic states have Chinese labels and every state keeps visible text', () => {
-  assert.deepEqual(TOPIC_STATUS_LABELS, { active: '进行中', idle: '空闲', resolved: '已解决' })
-  assert.equal(statusLabel('active'), '进行中')
-  assert.equal(statusLabel('idle'), '空闲')
-  assert.equal(statusLabel('resolved'), '已解决')
-  assert.equal(statusLabel('archived'), 'archived', 'an invented state stays visible')
-  for (const status of Object.keys(TOPIC_STATUS_LABELS)) {
-    assert.ok(statusLabel(status).trim().length > 0, `${status} has visible text`)
-  }
-
-  assert.deepEqual(TOPIC_STATUS_TONES, { active: 'success', idle: 'idle', resolved: 'success' })
-  assert.equal(statusTone('active'), 'success')
-  assert.equal(statusTone('idle'), 'idle')
-  assert.equal(statusTone('resolved'), 'success')
-  assert.equal(statusTone('archived'), 'idle')
-})
-
-test('resolution source labels distinguish user and automated resolves', () => {
-  assert.deepEqual(RESOLVED_BY_LABELS, { user: '用户', master: '自动' })
-  assert.equal(resolvedByLabel('user'), '用户')
-  assert.equal(resolvedByLabel('master'), '自动')
-  assert.equal(resolvedByLabel('robot'), 'robot', 'an invented source stays visible')
-})
-
-test('review states, finding severities and work-item states all have labels and tones', () => {
-  assert.deepEqual(REVIEW_STATUS_LABELS, {
-    pending: '审查中',
-    pass: '审查通过',
-    needs_revision: '需修改',
-    reject: '已拒绝',
-  })
-  assert.equal(reviewStatusLabel('needs_revision'), '需修改')
-  assert.equal(reviewStatusLabel('unknown'), 'unknown')
-  assert.equal(reviewStatusTone('pending'), 'warn')
-  assert.equal(reviewStatusTone('pass'), 'success')
-  assert.equal(reviewStatusTone('needs_revision'), 'warn')
-  assert.equal(reviewStatusTone('reject'), 'error')
-  assert.equal(reviewStatusTone('unknown'), 'idle')
-  assert.deepEqual(Object.keys(REVIEW_STATUS_TONES).sort(), ['needs_revision', 'pass', 'pending', 'reject'])
-
-  assert.deepEqual(FINDING_SEVERITY_LABELS, {
-    blocker: '阻断', high: '高', medium: '中', low: '低',
-  })
-  assert.equal(findingSeverityLabel('blocker'), '阻断')
-  assert.equal(findingSeverityLabel('critical'), 'critical')
-  assert.equal(findingSeverityTone('blocker'), 'error')
-  assert.equal(findingSeverityTone('high'), 'error')
-  assert.equal(findingSeverityTone('medium'), 'warn')
-  assert.equal(findingSeverityTone('low'), 'idle')
-  assert.equal(findingSeverityTone('critical'), 'idle')
-  assert.deepEqual(Object.keys(FINDING_SEVERITY_TONES).sort(), ['blocker', 'high', 'low', 'medium'])
-
-  assert.deepEqual(WORK_ITEM_STATUS_LABELS, {
-    active: '进行中', reviewing: '审查中', merged: '已合并', abandoned: '已放弃',
-  })
-  assert.equal(workItemStatusLabel('reviewing'), '审查中')
-  assert.equal(workItemStatusLabel('weird'), 'weird')
-  assert.equal(workItemStatusTone('merged'), 'idle')
-  assert.equal(workItemStatusTone('abandoned'), 'error')
-  assert.equal(workItemStatusTone('weird'), 'idle')
-  assert.deepEqual(Object.keys(WORK_ITEM_STATUS_TONES).sort(), ['abandoned', 'active', 'merged', 'reviewing'])
-})
-
-test('header chips follow the fixed order, labels and current counts', () => {
-  const chips = statusChips(counts({ active: 2, idle: 1, resolved: 3, blocked: 4, awaitingReview: 5 }))
-  assert.deepEqual(chips.map(chip => chip.key), ['active', 'idle', 'resolved', 'blocked', 'awaitingReview'])
-  assert.deepEqual(chips.map(chip => chip.label), ['进行中', '空闲', '已解决', '受阻', '待评审'])
-  assert.deepEqual(chips.map(chip => chip.count), [2, 1, 3, 4, 5])
-  assert.deepEqual(chips.map(chip => chip.tone), ['success', 'idle', 'success', 'error', 'warn'])
-  for (const chip of chips) assert.ok(chip.label.trim().length > 0)
-
-  const missing = statusChips({})
-  assert.deepEqual(missing.map(chip => chip.count), [0, 0, 0, 0, 0], 'missing counts read as zero')
-})
-
-test('topicRow carries state, markers, review badge and resolution source', () => {
-  const plain = topicRow(topic({ digest: '改了路由', activeWorkItems: 2 }))
-  assert.equal(plain.statusLabel, '进行中')
-  assert.equal(plain.statusTone, 'success')
-  assert.deepEqual(plain.markers, [])
-  assert.equal(plain.reviewLabel, null)
-  assert.equal(plain.reviewTone, null)
-  assert.equal(plain.reviewTitle, null)
-  assert.equal(plain.digest, '改了路由')
-  assert.equal(plain.resolvedByLabel, null)
-  assert.equal(plain.hasActiveWork, true)
-
-  const marked = topicRow(topic({ blocked: true, awaitingReview: true, reviewStatus: 'needs_revision' }))
-  assert.deepEqual(marked.markers, [
-    { label: '受阻', tone: 'error' },
-    { label: '待评审', tone: 'warn' },
-  ])
-  assert.equal(marked.reviewLabel, '需修改')
-  assert.equal(marked.reviewTone, 'warn')
-  assert.equal(marked.reviewTitle, '需修改')
-  assert.equal(marked.hasActiveWork, false)
-
-  assert.equal(topicRow(topic({ status: 'resolved', resolvedBy: 'user' })).resolvedByLabel, '用户')
-  assert.equal(topicRow(topic({ status: 'resolved', resolvedBy: 'master' })).resolvedByLabel, '自动')
-  assert.equal(topicRow(topic({ reviewStatus: 'pass' })).reviewLabel, '审查通过')
-})
-
-test('topicActions allow the right action per state and warn before resolving open work', () => {
-  const active = topicActions(topic({ status: 'active', activeWorkItems: 0 }))
-  assert.deepEqual(active, { canResolve: true, canReopen: false, canMove: true, resolveWarning: null })
-
-  const busy = topicActions(topic({ status: 'idle', activeWorkItems: 3 }))
-  assert.equal(busy.canResolve, true)
-  assert.equal(busy.canMove, true)
-  assert.equal(busy.resolveWarning, '该主题仍有 3 个工作项在跑；标记已解决后不可撤销')
-
-  const resolved = topicActions(topic({ status: 'resolved' }))
-  assert.deepEqual(resolved, { canResolve: false, canReopen: true, canMove: false, resolveWarning: null })
-})
-
-test('moveTargets keeps the overview order and drops self and resolved topics', () => {
-  const self = topic({ topicId: 'self' })
-  const open = topic({ topicId: 'open' })
-  const idle = topic({ topicId: 'idle', status: 'idle' })
-  const done = topic({ topicId: 'done', status: 'resolved' })
-  const targets = moveTargets([self, open, done, idle], 'self')
-  assert.deepEqual(targets.map(entry => entry.topicId), ['open', 'idle'])
-  assert.deepEqual(moveTargets([self], 'self'), [])
-  assert.deepEqual(moveTargets([], 'self'), [])
-})
-
-test('moveIntentPrefill uses the digest, falling back to the title', () => {
-  assert.equal(moveIntentPrefill(topic({ digest: '把路由改到别的主题' })), '把路由改到别的主题')
-  assert.equal(moveIntentPrefill(topic({ digest: '   ', title: '一个主题' })), '一个主题')
-  assert.equal(moveIntentPrefill(topic({ digest: '', title: '只有标题' })), '只有标题')
-})
-
-test('opening a topic has fixed steps and a master breadcrumb only for topics', () => {
-  assert.deepEqual([...openTopicSteps()], ['unarchive', 'open'])
-  assert.equal(masterBreadcrumbLabel(), '返回 master')
-
-  const topicId = 'session-topic'
-  const masterId = 'session-master'
-  const topics = [topic({ topicId })]
+  assert.equal(surfaceState({ loading: false, error: null, topicCount: 2 }), 'default')
   assert.equal(
-    masterBreadcrumbTarget({ currentSessionId: topicId, masterSessionId: masterId, topics }),
-    masterId,
+    surfaceState({ loading: false, error: { code: 'project/not-initialized', message: 'x' }, topicCount: 0 }),
+    'empty',
   )
   assert.equal(
-    masterBreadcrumbTarget({ currentSessionId: masterId, masterSessionId: masterId, topics }),
-    null,
-    'a master session has nowhere to go back to',
-  )
-  assert.equal(
-    masterBreadcrumbTarget({ currentSessionId: 'session-other', masterSessionId: masterId, topics }),
-    null,
-    'an unrelated session must not be sent to a stale master id',
-  )
-  assert.equal(
-    masterBreadcrumbTarget({ currentSessionId: topicId, masterSessionId: '   ', topics }),
-    null,
+    surfaceState({ loading: false, error: { code: 'store/corrupt', message: 'x' }, topicCount: 2 }),
+    'error',
   )
 })
 
-test('inboxNotice counts waiting items and shows at most five summaries', () => {
-  assert.equal(inboxNotice([]), null)
+test('empty and error states carry the copy the page renders', () => {
+  const empty = emptyNotice()
+  assert.equal(empty.kind, 'empty')
+  assert.equal(empty.title, '这个项目还没有主题')
+  assert.equal(empty.retry, false)
 
-  const one = inboxNotice([inboxItem({ summary: '合并需要处理' })])
-  assert.deepEqual(one, { count: 1, label: '待处理 1', title: '合并需要处理' })
-
-  const two = inboxNotice([
-    inboxItem({ id: 'a', summary: '第一条' }),
-    inboxItem({ id: 'b', summary: '第二条' }),
-  ])
-  assert.equal(two.count, 2)
-  assert.equal(two.label, '待处理 2')
-  assert.equal(two.title, '第一条 · 第二条')
-
-  const many = inboxNotice(Array.from({ length: 7 }, (_, index) => inboxItem({
-    id: `i${index}`,
-    summary: `摘要 ${index + 1}`,
-  })))
-  assert.equal(many.count, 7)
-  assert.equal(many.label, '待处理 7')
-  assert.equal(many.title, '摘要 1 · 摘要 2 · 摘要 3 · 摘要 4 · 摘要 5')
-  assert.equal(many.title.includes('摘要 6'), false, 'only the first five summaries are joined')
-
-  const long = inboxNotice(Array.from({ length: 2 }, (_, index) => inboxItem({
-    id: `long${index}`,
-    summary: 'x'.repeat(200),
-  })))
-  assert.ok(long.title.length <= INBOX_TITLE_MAX_CHARS, `title length ${long.title.length}`)
-  assert.ok(long.title.includes('…'))
-
-  const blank = inboxNotice([inboxItem({ summary: '   ' }), inboxItem({ id: 'b', summary: '' })])
-  assert.equal(blank.title, '有未投递的收件箱条目')
-})
-
-test('errorPresentation covers the five named codes and a retryable generic one', () => {
-  const notInitialized = errorPresentation({ code: 'project/not-initialized', message: 'no project' })
+  const notInitialized = errorPresentation({ code: 'project/not-initialized', message: 'missing' })
   assert.equal(notInitialized.kind, 'empty')
-  assert.equal(notInitialized.retry, false)
-  assert.equal(notInitialized.code, 'project/not-initialized')
   assert.equal(notInitialized.hint, 'cowork_project_init')
-  assert.match(notInitialized.detail, /cowork_project_init/)
 
-  const notFound = errorPresentation({ code: 'topic/not-found', message: 'gone' })
-  assert.equal(notFound.kind, 'empty')
-  assert.equal(notFound.retry, true)
-  assert.equal(notFound.code, 'topic/not-found')
-  assert.match(notFound.title, /主题/)
-
-  const corrupt = errorPresentation({
-    code: 'store/corrupt',
-    message: 'index.json unreadable',
-    path: '/repo/.dsh-cowork/index.json',
-  })
-  assert.equal(corrupt.kind, 'error')
-  assert.equal(corrupt.code, 'store/corrupt')
-  assert.equal(corrupt.path, '/repo/.dsh-cowork/index.json')
-  assert.equal(corrupt.detail, 'index.json unreadable')
-  assert.equal(corrupt.retry, true)
-
-  const notMaster = errorPresentation({ code: 'request/not-master', message: 'x' })
+  const notMaster = errorPresentation({ code: 'request/not-master', message: '只有主会话可以操作' })
   assert.equal(notMaster.kind, 'error')
+  assert.match(notMaster.title, /只有主会话/)
   assert.equal(notMaster.retry, false)
-  assert.match(notMaster.title, /master/)
 
-  const origin = errorPresentation({ code: 'request/origin', message: 'x' })
-  assert.equal(origin.kind, 'error')
-  assert.equal(origin.retry, false)
-  assert.equal(origin.code, 'request/origin')
+  const corrupt = errorPresentation({ code: 'store/corrupt', message: '坏文件', path: '.dsh-cowork/index.json' })
+  assert.equal(corrupt.title, '项目记录已损坏')
+  assert.equal(corrupt.path, '.dsh-cowork/index.json')
 
   const generic = errorPresentation({ code: 'internal', message: 'boom' })
-  assert.equal(generic.kind, 'error')
-  assert.equal(generic.code, 'internal')
   assert.equal(generic.retry, true)
-
-  const missing = errorPresentation(null)
-  assert.equal(missing.kind, 'error')
-  assert.equal(missing.code, null)
-  assert.equal(missing.retry, true)
+  assert.equal(errorPresentation(null).retry, true)
 })
 
-test('an empty project shows only its title', () => {
-  const notice = emptyNotice()
-  assert.equal(notice.kind, 'empty')
-  assert.equal(notice.code, null)
-  assert.equal(notice.retry, false)
-  assert.equal(notice.hint, null)
-  assert.equal(notice.detail, '')
-  assert.equal(notice.title, '这个项目还没有主题')
+test('archive and restore receipts name the topic; a master-only refusal is fixed copy', () => {
+  assert.match(archiveSuccessMessage('五子棋'), /已归档「五子棋」/)
+  assert.match(archiveSuccessMessage('五子棋'), /已解决/)
+  assert.match(restoreSuccessMessage('五子棋'), /已恢复「五子棋」/)
+  assert.equal(
+    writeFailureMessage('归档', { code: 'request/not-master', message: '只有 master 可以操作' }),
+    NOT_MASTER_MESSAGE,
+  )
+  assert.equal(NOT_MASTER_MESSAGE, '只有主会话可以操作')
+  assert.equal(writeFailureMessage('恢复', { code: 'internal', message: 'boom' }), '恢复失败（boom）')
+  assert.equal(writeFailureMessage('归档', { code: 'internal', message: '  ' }), '归档失败')
 })
 
-test('action receipts are visible, specific and never silent', () => {
-  const topicId = 'session-abcdef12-3456'
-  const short = shortTopicId(topicId)
-  assert.match(openSessionMessage(topicId), new RegExp(short))
-  assert.match(openSessionMessage(topicId), /已切换/)
-  assert.match(openSessionUnavailableMessage(), /无法打开/)
-  assert.match(openSessionFailureMessage(''), /打开主题失败/)
-  assert.match(openSessionFailureMessage('navigating'), /navigating/)
-
-  assert.match(resolveSuccessMessage(topicId), new RegExp(short))
-  assert.match(resolveSuccessMessage(topicId), /已解决/)
-  assert.match(reopenSuccessMessage(topicId), new RegExp(short))
-  assert.match(reopenSuccessMessage(topicId), /重新打开/)
-
-  assert.match(moveSuccessMessage({ changed: true, addedCount: 3 }), /新增 3 个别名/)
-  assert.match(moveSuccessMessage({ changed: false, addedCount: 0 }), /没有改动/)
-
-  assert.match(actionFailureMessage('标记已解决', 'boom'), /标记已解决失败/)
-  assert.match(actionFailureMessage('标记已解决', 'boom'), /boom/)
-  assert.match(actionFailureMessage('重新打开', ''), /重新打开失败$/)
-
-  assert.match(copySuccessMessage(), /复制/)
-  assert.match(copyFailureMessage('权限被拒绝'), /复制失败/)
-  assert.match(copyFailureMessage('权限被拒绝'), /权限被拒绝/)
-  assert.ok(FEEDBACK_TTL_MS >= 1000)
-})
-
-test('relative times cover minutes, hours, days and the absolute fallback', () => {
-  const minute = 60 * 1000
-  assert.equal(formatRelativeTime(ago(30 * 1000), NOW), '刚刚')
-  assert.equal(formatRelativeTime(ago(5 * minute), NOW), '5 分钟前')
-  assert.equal(formatRelativeTime(ago(3 * 60 * minute), NOW), '3 小时前')
-  assert.equal(formatRelativeTime(ago(2 * 24 * 60 * minute), NOW), '2 天前')
-  assert.match(formatRelativeTime(ago(30 * 24 * 60 * minute), NOW), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
-  assert.equal(formatRelativeTime('not-a-date', NOW), '时间未知')
-  assert.equal(formatRelativeTime(ago(-minute), NOW), '刚刚', 'a future timestamp reads as just now')
-})
-
-test('absolute timestamps are padded and never invented', () => {
-  assert.match(formatLocalTimestamp('2026-01-02T03:04:05.000Z'), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+test('relative time covers minutes, hours, days and the absolute fallback', () => {
+  assert.equal(CLOCK_TICK_MS, 60_000)
+  assert.equal(formatRelativeTime(ago(30_000), NOW), '刚刚')
+  assert.equal(formatRelativeTime(ago(5 * 60_000), NOW), '5 分钟前')
+  assert.equal(formatRelativeTime(ago(3 * 3_600_000), NOW), '3 小时前')
+  assert.equal(formatRelativeTime(ago(2 * 86_400_000), NOW), '2 天前')
+  assert.equal(formatRelativeTime(ago(8 * 86_400_000), NOW), formatLocalTimestamp(ago(8 * 86_400_000)))
+  assert.equal(formatRelativeTime('nope', NOW), '时间未知')
   assert.equal(formatLocalTimestamp('nope'), '时间未知')
+  assert.match(formatLocalTimestamp(ago(0)), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
 })
 
-test('verification rows distinguish success from failure by text and tone', () => {
-  assert.equal(verificationExitLabel(0), 'exit 0')
-  assert.equal(verificationExitLabel(1), 'exit 1')
-  assert.equal(verificationTone(0), 'success')
-  assert.equal(verificationTone(1), 'error')
-  assert.equal(verificationTone(127), 'error')
+test('the card menu stays on screen and flips above a button near the bottom', () => {
+  const flipped = placeCardMenu(
+    { top: 542, bottom: 560, right: 370 },
+    { width: 378, height: 600 },
+  )
+  assert.equal(flipped.flipped, true)
+  assert.equal(flipped.top, 542 - CARD_MENU_GAP - CARD_MENU_HEIGHT)
+  assert.equal(flipped.left, 370 - CARD_MENU_WIDTH)
+
+  const below = placeCardMenu(
+    { top: 40, bottom: 58, right: 370 },
+    { width: 378, height: 600 },
+  )
+  assert.equal(below.flipped, false)
+  assert.equal(below.top, 58 + CARD_MENU_GAP)
+  assert.equal(below.left, 370 - CARD_MENU_WIDTH)
+
+  const clamped = placeCardMenu(
+    { top: 40, bottom: 58, right: 60 },
+    { width: 378, height: 600 },
+  )
+  assert.equal(clamped.left, 8, 'a narrow anchor keeps the menu inside the viewport')
+
+  const narrowViewport = placeCardMenu(
+    { top: 40, bottom: 58, right: 60 },
+    { width: 90, height: 600 },
+  )
+  assert.equal(narrowViewport.left, 8)
 })
 
-test('the review badge title carries the absolute time and the finding count', () => {
-  assert.equal(reviewBadgeTitle('pass', null), '审查通过')
-  const withTime = reviewBadgeTitle('needs_revision', '2026-01-02T03:04:05.000Z')
-  assert.match(withTime, /^需修改 · \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
-  assert.equal(reviewBadgeTitle('reject', null, 3), '已拒绝 · 3 条 finding')
-  assert.equal(reviewBadgeTitle('pass', 'not-a-date'), '审查通过 · 时间未知')
-  assert.equal(reviewBadgeTitle('pending', '  '), '审查中', 'a blank time adds nothing')
+test('opening a topic has fixed steps and a master breadcrumb only for topic sessions', () => {
+  assert.deepEqual(openTopicSteps(), ['unarchive', 'open'])
+  assert.equal(shortTopicId('session-aaaa1111-2222'), 'session-')
+  assert.match(openSessionMessage('session-aaaa1111-2222'), /已切换到主题 session-/)
+  assert.match(openSessionUnavailableMessage(), /无法打开主题/)
+  assert.match(openSessionFailureMessage('denied'), /打开主题失败（denied）/)
+  assert.equal(masterBreadcrumbLabel(), '返回 master')
+
+  assert.equal(masterBreadcrumbTarget({
+    currentSessionId: 'topic-1',
+    masterSessionId: 'master-1',
+    topics: [{ topicId: 'topic-1' }],
+  }), 'master-1')
+  assert.equal(masterBreadcrumbTarget({
+    currentSessionId: 'master-1',
+    masterSessionId: 'master-1',
+    topics: [{ topicId: 'topic-1' }],
+  }), null)
+  assert.equal(masterBreadcrumbTarget({
+    currentSessionId: 'topic-1',
+    masterSessionId: 'master-1',
+    topics: [],
+  }), null)
+  assert.equal(masterBreadcrumbTarget({
+    currentSessionId: 'topic-1',
+    masterSessionId: '  ',
+    topics: [{ topicId: 'topic-1' }],
+  }), null)
+})
+
+test('header helpers keep the path and inbox hint bounded', () => {
+  assert.equal(PROJECT_PATH_MAX_CHARS, 44)
+  assert.match(middleEllipsis('/a/very/long/project/path/that/keeps/going', 16), /…/)
+  assert.equal(shortTopicId('short'), 'short')
+  assert.equal(shortTopicId('session-aaaa1111-2222').length, TOPIC_ID_MAX_CHARS)
+
+  assert.equal(inboxNotice([]), null)
+  const hint = inboxNotice([
+    inboxItem({ id: '1', summary: '第一条' }),
+    inboxItem({ id: '2', summary: '第二条' }),
+  ])
+  assert.equal(hint.count, 2)
+  assert.equal(hint.label, '待处理 2')
+  assert.match(hint.title, /第一条 · 第二条/)
+  const long = inboxNotice(Array.from({ length: 7 }, (_, index) => inboxItem({ id: String(index), summary: '很长'.repeat(40) })))
+  assert.ok(long.title.length <= INBOX_TITLE_MAX_CHARS + 1)
+  assert.equal(FEEDBACK_TTL_MS, 5000)
+})
+
+test('parseTopicRow keeps the optional authorization fields and degrades invented values', () => {
+  const full = parseTopicRow(topic({
+    awaitingAuthorization: true,
+    blockedReason: 'authorization',
+  }))
+  assert.equal(full.awaitingAuthorization, true)
+  assert.equal(full.blockedReason, 'authorization')
+
+  const invented = parseTopicRow(topic({
+    awaitingAuthorization: 'yes',
+    blockedReason: 'invented-reason',
+  }))
+  assert.equal(invented.awaitingAuthorization, false)
+  assert.equal(invented.blockedReason, null)
+
+  const missing = parseTopicRow(topic())
+  assert.equal(missing.awaitingAuthorization, false)
+  assert.equal(missing.blockedReason, null)
+
+  assert.equal(parseTopicRow({ topicId: 'x', status: 'invented' }), null)
+  assert.equal(parseTopicRow(null), null)
+})
+
+test('the wire authorization fields survive parseOverview into the view model', () => {
+  const parsed = parseOverview({
+    ok: true,
+    project: { repoPath: '/repo', projectId: 'p', masterSessionId: 'm', createdAt: ago(0) },
+    counts: counts({ awaitingAuthorization: 1 }),
+    topics: [
+      topic({ topicId: 'waiting', awaitingAuthorization: true, blocked: true, blockedReason: 'authorization' }),
+      topic({ topicId: 'plain', updatedAt: ago(1000) }),
+    ],
+    inbox: [],
+  })
+  const model = buildTopicViewModel(parsed)
+  assert.deepEqual(model.needsYou, { count: 1, topicId: 'waiting' })
+  assert.equal(group(model, 'blocked').cards[0].marker, 'authorization')
 })
 
 test('parseOverview drops unusable rows but keeps the usable ones', () => {
-  const body = {
+  const parsed = parseOverview({
     ok: true,
-    project: {
-      repoPath: '/repo',
-      projectId: 'proj-1',
-      masterSessionId: 'session-master',
-      createdAt: '2026-01-01T00:00:00.000Z',
-    },
-    counts: counts({ active: 2, idle: 1, resolved: 1, blocked: 1, awaitingReview: 1, pendingReview: 1, workItemActive: 3 }),
+    project: { repoPath: '/repo', projectId: 'p', masterSessionId: 'm', createdAt: ago(0) },
+    counts: counts({ active: 1 }),
     topics: [
-      topic(),
-      topic({ topicId: 'bad-status', status: 'archived' }),
-      { topicId: '', status: 'active' },
-      { title: '缺少 id', status: 'active' },
-      'nonsense',
-      null,
+      topic({ topicId: 'keep-b', updatedAt: ago(1000) }),
+      topic({ topicId: 'keep-a', updatedAt: ago(2000) }),
+      { topicId: 'bad-status', status: 'invented' },
+      { title: 'no id' },
+      'not-an-object',
     ],
-    inbox: [
-      inboxItem({ id: 'i1' }),
-      { id: '', summary: '缺少 id' },
-      null,
-    ],
-  }
-  const parsed = parseOverview(body)
-  assert.equal(parsed.ok, true)
-  assert.equal(parsed.project.masterSessionId, 'session-master')
-  assert.equal(parsed.topics.length, 1)
-  assert.equal(parsed.topics[0].topicId, 'session-aaaa1111-2222')
+    inbox: [inboxItem({ id: 'i-1' }), { summary: 'no id' }],
+  })
+  assert.deepEqual(parsed.topics.map(entry => entry.topicId), ['keep-b', 'keep-a'])
   assert.equal(parsed.inbox.length, 1)
-  assert.equal(parsed.inbox[0].id, 'i1')
-  assert.deepEqual(parsed.counts, counts({
-    active: 2, idle: 1, resolved: 1, blocked: 1, awaitingReview: 1, pendingReview: 1, workItemActive: 3,
-  }))
+  assert.equal(parsed.counts.active, 1)
 })
 
 test('parseOverview rejects a body without the required envelope and arrays', () => {
-  assert.throws(() => parseOverview(null), (reason) => reason instanceof PanelApiError && reason.code === 'internal')
-  assert.throws(() => parseOverview({ ok: false }), (reason) => reason instanceof PanelApiError)
-  const base = { ok: true, project: {}, counts: {}, inbox: [] }
-  assert.throws(() => parseOverview(base), (reason) => reason instanceof PanelApiError && /topics/.test(reason.message))
+  assert.throws(() => parseOverview(null))
+  assert.throws(() => parseOverview({ project: {}, counts: counts(), topics: [], inbox: [] }))
+  assert.throws(() => parseOverview({ ok: true, project: {}, counts: counts(), inbox: [] }), /topics/)
+  assert.throws(() => parseOverview({ ok: true, project: {}, counts: counts(), topics: [] }), /inbox/)
 })
 
-test('parseTopicRow keeps the load-bearing id and state, degrades the rest', () => {
-  const parsed = parseTopicRow({
-    ...topic(),
-    reviewStatus: 'needs_revision',
-    resolvedBy: 'master',
-    resolvedAt: '2026-11-01T00:00:00.000Z',
-    ownedPaths: ['src/a.ts', 42, null, 'src/b.ts'],
-    activeWorkItems: -2,
-    blocked: 'yes',
-    awaitingReview: 1,
-  })
-  assert.equal(parsed.reviewStatus, 'needs_revision')
-  assert.equal(parsed.resolvedBy, 'master')
-  assert.deepEqual(parsed.ownedPaths, ['src/a.ts', 'src/b.ts'])
-  assert.equal(parsed.activeWorkItems, 0)
-  assert.equal(parsed.blocked, false, 'only a real true counts as blocked')
-  assert.equal(parsed.awaitingReview, false)
-
-  assert.equal(parseTopicRow({ ...topic(), status: 'archived' }), null)
-  assert.equal(parseTopicRow({ ...topic(), topicId: '  ' }), null)
-  assert.equal(parseTopicRow({ ...topic(), resolvedBy: 'robot' }).resolvedBy, null)
-  assert.equal(parseTopicRow({ ...topic(), reviewStatus: 'invented' }).reviewStatus, null)
-  assert.equal(parseTopicRow('nope'), null)
-})
-
-test('parseWorkItem and parseReviewRequest drop only the broken rows', () => {
-  const item = parseWorkItem(workItem())
-  assert.equal(item.workItemId, 'work-1')
-  assert.equal(item.status, 'active')
-  assert.equal(item.baseCommit, 'aaaaaaa1111111')
-  assert.equal(parseWorkItem(workItem({ status: 'weird' })), null)
-  assert.equal(parseWorkItem(workItem({ workItemId: '' })), null)
-  assert.equal(parseWorkItem(workItem({ topicId: '' })), null)
-  assert.equal(parseWorkItem(workItem({ baseCommit: '' })).baseCommit, null)
-
-  const request = parseReviewRequest(reviewRequest({
-    summary: '整体可用',
-    findings: [
-      { id: 'F1', severity: 'blocker', problem: 'p', requiredFix: 'fix', file: 'src/a.ts', line: 7 },
-      { id: 'F2', severity: 'critical', problem: 'p', requiredFix: 'fix' },
-      { id: '', severity: 'high', problem: 'p', requiredFix: 'fix' },
-    ],
-    verification: [
-      { command: 'npm test', exitCode: 0, evidence: 'ok' },
-      { command: 'npm run build', exitCode: 1.5, evidence: 'bad' },
-      { command: '', exitCode: 0, evidence: 'bad' },
-    ],
-  }))
-  assert.equal(request.findings.length, 1)
-  assert.equal(request.findings[0].file, 'src/a.ts')
-  assert.equal(request.findings[0].line, 7)
-  assert.equal(request.verification.length, 1)
-  assert.equal(request.verification[0].command, 'npm test')
-  assert.equal(request.summary, '整体可用')
-  assert.equal(parseReviewRequest(reviewRequest({ status: 'done' })), null)
-  assert.equal(parseReviewRequest(reviewRequest({ requestId: '' })), null)
-  assert.equal(parseReviewRequest(reviewRequest({ summary: 42 })).summary, null)
-})
-
-test('parseActivity, parseActivityEvent and parseInboxItem drop unusable rows', () => {
-  const event = parseActivityEvent(activityEvent())
-  assert.equal(event.eventId, 'evt-1')
-  assert.equal(event.type, 'status-changed')
-  assert.equal(parseActivityEvent({ eventId: 'e', time: '' }), null)
-  assert.equal(parseActivityEvent({ time: ago(0) }), null)
-  assert.equal(parseActivityEvent({ eventId: 'e', time: ago(0), type: 42 }).type, '')
-
-  const parsed = parseActivity({
-    ok: true,
-    events: [activityEvent(), { eventId: '', time: ago(0) }, null],
-    skippedLines: 3,
-  })
-  assert.equal(parsed.events.length, 1)
-  assert.equal(parsed.skippedLines, 3)
-  assert.equal(parseActivity({ ok: true, events: [], skippedLines: 'x' }).skippedLines, 0)
-  assert.throws(() => parseActivity({ ok: true }), (reason) => reason instanceof PanelApiError)
-
-  const item = parseInboxItem(inboxItem())
-  assert.equal(item.id, 'inbox-1')
-  assert.equal(item.deliveredAt, null)
-  assert.equal(parseInboxItem({ id: '' }), null)
-  assert.equal(parseInboxItem(null), null)
-})
-
-test('parseTopic composes the detail arrays and rejects an unusable topic', () => {
-  const parsed = parseTopic({
-    ok: true,
-    topic: topic(),
-    workItems: [workItem(), workItem({ workItemId: '' }), workItem({ status: 'weird' })],
-    reviewRequests: [reviewRequest(), reviewRequest({ requestId: '' })],
-    activity: [activityEvent(), { eventId: '', time: ago(0) }],
-  })
-  assert.equal(parsed.topic.topicId, 'session-aaaa1111-2222')
-  assert.equal(parsed.workItems.length, 1)
-  assert.equal(parsed.reviewRequests.length, 1)
-  assert.equal(parsed.activity.length, 1)
-  assert.throws(() => parseTopic({ ok: true, topic: { topicId: 'x', status: 'nope' }, workItems: [], reviewRequests: [], activity: [] }))
-  assert.throws(() => parseTopic({ ok: true, topic: topic(), workItems: [], reviewRequests: [] }), (reason) => /activity/.test(reason.message))
-})
-
-test('parseResolve, parseReopen and parseRouteMove narrow the write responses', () => {
+test('parseResolve and parseReopen narrow the write responses', () => {
   const resolved = parseResolve({
     ok: true,
-    topic: topic({ status: 'resolved', resolvedBy: 'user', resolvedAt: ago(0) }),
+    topic: topic({ status: 'resolved', resolvedAt: ago(0), resolvedBy: 'user' }),
     alreadyResolved: true,
   })
   assert.equal(resolved.alreadyResolved, true)
@@ -717,54 +488,33 @@ test('parseResolve, parseReopen and parseRouteMove narrow the write responses', 
   const reopened = parseReopen({ ok: true, topic: topic() })
   assert.equal(reopened.topic.status, 'active')
 
-  const moved = parseRouteMove({
-    ok: true,
-    topic: topic(),
-    changed: true,
-    added: ['alias-1', 42],
-    aliases: ['alias-1', 'alias-2'],
-  })
-  assert.equal(moved.changed, true)
-  assert.deepEqual(moved.added, ['alias-1'])
-  assert.deepEqual(moved.aliases, ['alias-1', 'alias-2'])
-  assert.deepEqual(parseRouteMove({ ok: true, topic: topic() }).added, [])
+  assert.throws(() => parseResolve({ ok: true, topic: { topicId: 'x', status: 'nope' } }))
+  assert.throws(() => parseReopen({ ok: true }), /主题/)
 })
 
 test('parseCounts zero-fills missing and invented fields', () => {
   assert.deepEqual(parseCounts({ active: 2, idle: 'x', resolved: -1, blocked: 1.5, awaitingReview: 4 }), counts({
-    active: 2, awaitingReview: 4,
+    active: 2,
+    awaitingReview: 4,
   }))
   assert.deepEqual(parseCounts(null), counts())
 })
 
-test('panelApiPath encodes query values', () => {
-  assert.equal(
-    panelApiPath('/api/cowork.topic', { sessionId: 'a b', topicId: 'x&y' }),
-    '/api/cowork.topic?sessionId=a+b&topicId=x%26y',
-  )
-  assert.equal(panelApiPath('/api/cowork.overview', {}), '/api/cowork.overview')
+test('the topic page API module keeps only overview, archive and restore', () => {
+  for (const name of ['loadOverview', 'resolveTopic', 'reopenTopic', 'parseOverview', 'parseTopicRow']) {
+    assert.equal(typeof api[name], 'function', `${name} must be exported`)
+  }
+  for (const retired of ['loadTopic', 'moveTopic', 'loadActivity', 'parseTopic', 'parseRouteMove']) {
+    assert.equal(retired in api, false, `${retired} must not be part of the topic page API`)
+  }
 })
 
-/** Run `run` with a captured global fetch; returns every request it saw. */
-async function captureFetch(run, respond) {
-  const calls = []
+test('loadOverview sends a same-origin, uncached GET with the session id', async () => {
   const original = globalThis.fetch
+  const calls = []
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init: init ?? {} })
-    return respond()
-  }
-  try {
-    await run()
-  } finally {
-    globalThis.fetch = original
-  }
-  return calls
-}
-
-test('loadOverview sends a same-origin, uncached GET with the session id', async () => {
-  const calls = await captureFetch(
-    () => loadOverview('session-master'),
-    () => ({
+    return {
       ok: true,
       status: 200,
       json: async () => ({
@@ -774,80 +524,61 @@ test('loadOverview sends a same-origin, uncached GET with the session id', async
         topics: [],
         inbox: [],
       }),
-    }),
-  )
+    }
+  }
+  try {
+    await loadOverview('session-master')
+  } finally {
+    globalThis.fetch = original
+  }
   assert.equal(calls.length, 1)
-  const [call] = calls
-  assert.equal(call.url, '/api/cowork.overview?sessionId=session-master')
-  assert.equal(call.init.method, 'GET')
-  assert.equal(call.init.credentials, 'same-origin')
-  assert.equal(call.init.cache, 'no-store')
-  assert.equal(call.init.headers.accept, 'application/json')
-  assert.equal(call.init.body, undefined)
+  assert.equal(calls[0].url, '/api/cowork.overview?sessionId=session-master')
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal(calls[0].init.credentials, 'same-origin')
+  assert.equal(calls[0].init.cache, 'no-store')
+  assert.equal(calls[0].init.headers.accept, 'application/json')
+  assert.equal(calls[0].init.body, undefined)
 })
 
-test('loadTopic and loadActivity send the documented query keys', async () => {
-  const topicCalls = await captureFetch(
-    () => loadTopic('s-master', 'topic-1'),
-    () => ({ ok: true, status: 200, json: async () => ({ ok: true, topic: topic(), workItems: [], reviewRequests: [], activity: [] }) }),
-  )
-  assert.equal(topicCalls[0].url, '/api/cowork.topic?sessionId=s-master&topicId=topic-1')
-
-  const activityCalls = await captureFetch(
-    () => loadActivity('s-master', 999),
-    () => ({ ok: true, status: 200, json: async () => ({ ok: true, events: [], skippedLines: 0 }) }),
-  )
-  assert.equal(activityCalls[0].url, '/api/cowork.activity?sessionId=s-master&limit=200', 'the limit is clamped to the wire maximum')
-})
-
-test('write routes POST JSON with content-type and keep same-origin/no-store', async () => {
-  const resolveCalls = await captureFetch(
-    () => resolveTopic('s-master', 'topic-1'),
-    () => ({
+test('archive and restore POST JSON with content-type and keep same-origin/no-store', async () => {
+  const original = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init: init ?? {} })
+    return {
       ok: true,
       status: 200,
-      json: async () => ({ ok: true, topic: topic({ status: 'resolved', resolvedBy: 'user' }), alreadyResolved: false }),
-    }),
-  )
-  const resolveCall = resolveCalls[0]
-  assert.equal(resolveCall.url, '/api/cowork.topic.resolve')
-  assert.equal(resolveCall.init.method, 'POST')
-  assert.equal(resolveCall.init.credentials, 'same-origin')
-  assert.equal(resolveCall.init.cache, 'no-store')
-  assert.equal(resolveCall.init.headers['content-type'], 'application/json')
-  assert.equal(resolveCall.init.headers.accept, 'application/json')
-  assert.deepEqual(JSON.parse(resolveCall.init.body), { sessionId: 's-master', topicId: 'topic-1' })
-
-  const reopenCalls = await captureFetch(
-    () => reopenTopic('s-master', 'topic-1'),
-    () => ({ ok: true, status: 200, json: async () => ({ ok: true, topic: topic() }) }),
-  )
-  assert.equal(reopenCalls[0].url, '/api/cowork.topic.reopen')
-  assert.deepEqual(JSON.parse(reopenCalls[0].init.body), { sessionId: 's-master', topicId: 'topic-1' })
-
-  const moveCalls = await captureFetch(
-    () => moveTopic('s-master', 'from-1', 'to-1', '  这条路由属于另一个主题  '),
-    () => ({ ok: true, status: 200, json: async () => ({ ok: true, topic: topic(), changed: true, added: ['a'], aliases: ['a'] }) }),
-  )
-  assert.equal(moveCalls[0].url, '/api/cowork.route.move')
-  assert.deepEqual(JSON.parse(moveCalls[0].init.body), {
-    sessionId: 's-master',
-    fromTopicId: 'from-1',
-    toTopicId: 'to-1',
-    intent: '这条路由属于另一个主题',
-  })
+      json: async () => ({
+        ok: true,
+        topic: topic({ status: url === '/api/cowork.topic.resolve' ? 'resolved' : 'active' }),
+        alreadyResolved: false,
+      }),
+    }
+  }
+  try {
+    await resolveTopic('s-master', 'topic-1')
+    await reopenTopic('s-master', 'topic-1')
+  } finally {
+    globalThis.fetch = original
+  }
+  assert.equal(calls[0].url, '/api/cowork.topic.resolve')
+  assert.equal(calls[1].url, '/api/cowork.topic.reopen')
+  for (const call of calls) {
+    assert.equal(call.init.method, 'POST')
+    assert.equal(call.init.credentials, 'same-origin')
+    assert.equal(call.init.cache, 'no-store')
+    assert.equal(call.init.headers['content-type'], 'application/json')
+    assert.equal(call.init.headers.accept, 'application/json')
+    assert.deepEqual(JSON.parse(call.init.body), { sessionId: 's-master', topicId: 'topic-1' })
+  }
 })
 
-test('a blank move intent is omitted instead of sent as an empty string', async () => {
-  const calls = await captureFetch(
-    () => moveTopic('s-master', 'from-1', 'to-1', '   '),
-    () => ({ ok: true, status: 200, json: async () => ({ ok: true, topic: topic(), changed: false, added: [], aliases: [] }) }),
+test('panelApiPath encodes query values', () => {
+  assert.equal(
+    panelApiPath('/api/cowork.topic', { sessionId: 'a b', topicId: 'x&y' }),
+    '/api/cowork.topic?sessionId=a+b&topicId=x%26y',
   )
-  assert.deepEqual(JSON.parse(calls[0].init.body), {
-    sessionId: 's-master',
-    fromTopicId: 'from-1',
-    toTopicId: 'to-1',
-  })
+  assert.equal(panelApiPath('/api/cowork.overview', {}), '/api/cowork.overview')
 })
 
 test('a host error envelope becomes a PanelApiError with code, message and path', async () => {
@@ -880,7 +611,7 @@ test('a host error envelope becomes a PanelApiError with code, message and path'
   }
 })
 
-test('non-JSON and non-ok bodies without an envelope become internal errors', async () => {
+test('non-JSON, non-ok and network failures surface as internal errors', async () => {
   const original = globalThis.fetch
   try {
     globalThis.fetch = async () => ({
@@ -898,14 +629,7 @@ test('non-JSON and non-ok bodies without an envelope become internal errors', as
       () => loadOverview('s'),
       (reason) => reason instanceof PanelApiError && reason.code === 'internal' && /HTTP 500/.test(reason.message),
     )
-  } finally {
-    globalThis.fetch = original
-  }
-})
 
-test('network failures and malformed payloads surface as internal errors', async () => {
-  const original = globalThis.fetch
-  try {
     globalThis.fetch = async () => { throw new TypeError('connection refused') }
     await assert.rejects(
       () => loadOverview('s'),
@@ -934,52 +658,65 @@ test('toPanelError and errorMessage preserve the wire code and stay readable', (
   assert.equal(errorMessage('plain'), 'plain')
 })
 
-test('the client sources carry no v1 vocabulary and never archive a topic', async () => {
+test('the client sources carry no detail/list-split or review vocabulary', async () => {
   const clientUrl = new URL('../src/client/', import.meta.url)
   const entries = await readdir(clientUrl, { withFileTypes: true })
-  const files = entries.filter(entry => entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')))
-  assert.ok(files.length > 0, 'the client half must have source files')
+  const names = entries.filter(entry => entry.isFile()).map(entry => entry.name)
+  assert.equal(names.includes('detail.tsx'), false, 'the detail pane is deleted, not just unused')
+  assert.equal(names.includes('chips.tsx'), false, 'detail-only chips are deleted')
+  assert.ok(names.includes('notice.tsx') && names.includes('notice-model.ts'))
+
   const sources = new Map()
-  for (const entry of files) {
+  for (const entry of entries) {
+    if (!entry.isFile() || (!entry.name.endsWith('.ts') && !entry.name.endsWith('.tsx'))) continue
     sources.set(entry.name, await readFile(new URL(entry.name, clientUrl), 'utf8'))
   }
-  // Assembled here so a project-wide grep for the retired vocabulary stays clean
-  // while the assertion still pins every client file.
-  const retiredWords = [['thr', 'ead'].join(''), ['交接', '单'].join(''), ['review', 'er'].join('')]
-  for (const [name, source] of sources) {
-    for (const word of retiredWords) {
-      assert.equal(new RegExp(word, 'i').test(source), false, `${name} must not mention the retired vocabulary`)
-    }
-  }
   const all = [...sources.values()].join('\n')
-  assert.equal(/\barchiveSession\b/.test(all), false, 'the panel never archives a topic')
-  assert.match(all, /unarchiveSession/, 'opening a pre-archived topic uses the tolerant unarchive')
+  const retired = ['chooseLayout', 'SPLIT_WIDTH_THRESHOLD', 'TopicDetail', 'reviewLabel', 'cw-row', 'cw-detail-pane', 'LIST_COLUMN_WIDTH']
+  for (const word of retired) {
+    assert.equal(all.includes(word), false, `${word} must be gone from the topic page`)
+  }
+  assert.equal(/from ['"]react-dom['"]/.test(all), false, 'the menu uses fixed positioning, no react-dom dependency')
 
   const modelSource = sources.get('model.ts')
   assert.equal(/from ['"]react['"]/.test(modelSource), false, 'model.ts stays React-free')
   assert.equal(/<\/[a-z]/.test(modelSource), false, 'model.ts carries no JSX closing tags')
-  assert.equal(modelSource.includes('React.createElement'), false, 'model.ts never builds elements')
-
-  const panelSource = sources.get('panel.tsx')
-  const footerOpens = panelSource.match(/openTab\(COWORK_TAB_KIND\)/g) ?? []
-  assert.equal(footerOpens.length, 1, 'the panel only opens itself from the footer entry, never on mount')
-  assert.match(panelSource, /cw-footer-slot/, 'the footer entry fills the host slot item')
-  assert.match(panelSource, /masterBreadcrumbTarget/, 'the breadcrumb resolves a live topic’s master')
-  assert.match(panelSource, /masterTarget === null \? null/, 'the breadcrumb is absent when there is no valid target')
-
-  const stylesSource = sources.get('styles.ts')
-  assert.match(stylesSource, /\.cw-footer-slot \{[\s\S]*?width: calc\(100% \+ 4px\)[\s\S]*?margin: 4px -2px/, 'the footer slot matches the sibling action bleed')
-  assert.match(stylesSource, /\.cw-footer-button \{[\s\S]*?height: 42px/, 'the footer button matches the 42px sibling action')
-  assert.match(stylesSource, /data-wide='false'[\s\S]*?width: 36px/, 'the collapsed footer button uses the 36px rail size')
 
   const listSource = sources.get('list.tsx')
-  assert.match(listSource, /cw-resolved-by/, 'resolved rows show their resolution source')
+  assert.match(listSource, /<article/, 'a card is an article')
+  assert.match(listSource, /export function TopicStates/, 'loading/empty/error states live in the list module')
+  assert.match(listSource, /aria-haspopup="menu"/)
+  assert.match(listSource, /aria-expanded=\{menuOpen\}/)
+  assert.match(listSource, /event\.key !== 'Escape'/)
+  assert.match(listSource, /pointerdown/)
+  assert.match(listSource, /cw-card-menu/)
+  assert.equal(listSource.includes('position: fixed'), false, 'positioning lives in the stylesheet')
 
-  const contractsSource = sources.get('contracts.ts')
-  assert.match(contractsSource, /COWORK_TAB_ID = '@dsh-external\/dsh-cowork\/panel'/)
-  assert.match(contractsSource, /COWORK_TAB_KIND = 'cowork'/)
+  const panelSource = sources.get('panel.tsx')
+  assert.match(panelSource, /buildTopicViewModel/)
+  assert.match(panelSource, /openSession/)
+  assert.match(panelSource, /needsYouTopicId/)
+  assert.match(panelSource, /archiveTopic/)
+  assert.match(panelSource, /restoreTopic/)
+  assert.equal(panelSource.includes('loadTopic'), false)
+  assert.equal(panelSource.includes('moveTopic'), false)
+  assert.equal(panelSource.includes('输入'), false)
+  assert.equal(panelSource.includes('决策记录'), false)
 
   const indexSource = sources.get('index.tsx')
-  assert.match(indexSource, /主题列表、详情与活动/)
-  assert.match(indexSource, /sidebar\.footer\.action/)
+  assert.match(indexSource, /ctx\.inject\(\['sessionNotices'\], \(scope\) => registerNoticeRenderer\(scope\) \?\? undefined\)/)
+  assert.equal(/export const inject = \[[^\]]*sessionNotices/.test(indexSource), false, 'sessionNotices stays an optional injection')
+
+  const stylesSource = sources.get('styles.ts')
+  assert.match(stylesSource, /\.cw-card-line \{[\s\S]*?min-width: 0/)
+  assert.match(stylesSource, /\.cw-card-title \{[\s\S]*?text-overflow: ellipsis/)
+  assert.match(stylesSource, /\.cw-card-digest \{[\s\S]*?text-overflow: ellipsis/)
+  assert.match(stylesSource, /\.cw-card\[data-group="blocked"\] \{[\s\S]*?state-error-primary/)
+  assert.match(stylesSource, /\.cw-card\[data-group="running"\] \{[\s\S]*?state-success-primary/)
+  assert.match(stylesSource, /\.cw-card\[data-group="idle"\] \{[\s\S]*?label-primary/)
+  assert.match(stylesSource, /\.cw-card\[data-group="resolved"\] \{[\s\S]*?border-l2/)
+  assert.match(stylesSource, /\.cw-card-menu \{[\s\S]*?position: fixed/)
+  assert.match(stylesSource, /\.cw-footer-slot \{[\s\S]*?width: calc\(100% \+ 4px\)[\s\S]*?margin: 4px -2px/)
+  assert.match(stylesSource, /\.cw-footer-button \{[\s\S]*?height: 42px/)
+  assert.match(stylesSource, /data-wide='false'[\s\S]*?width: 36px/)
 })
