@@ -30,7 +30,6 @@ import {
   buildTopicViewModel,
   emptyNotice,
   errorPresentation,
-  inboxNotice,
   masterBreadcrumbLabel,
   masterBreadcrumbTarget,
   middleEllipsis,
@@ -294,7 +293,6 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     topicCount: overview?.topics.length ?? 0,
   })
   const stateNotice = error === null ? emptyNotice() : errorPresentation(error)
-  const inboxHint = overview === null ? null : inboxNotice(overview.inbox)
   const needsYou = view?.needsYou ?? null
   const needsYouCount = needsYou === null ? 0 : needsYou.count
   const needsYouTopicId = needsYouCount > 0 ? needsYou?.topicId ?? null : null
@@ -308,11 +306,6 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
         >
           {overview === null ? COWORK_TAB_TITLE : middleEllipsis(overview.project.repoPath, PROJECT_PATH_MAX_CHARS)}
         </span>
-        {inboxHint === null ? null : (
-          <span className="cw-chip cw-inbox-chip" title={inboxHint.title}>
-            <span className="cw-chip-label">{inboxHint.label}</span>
-          </span>
-        )}
         {masterTarget === null ? null : (
           <button
             type="button"
