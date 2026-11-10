@@ -95,8 +95,8 @@ session / topic / handoff 由后台管理，不作为用户可见记忆分类。
 
 ## Demo
 
-- [项目记忆详情 v3 demo](../../discussion/memory-demo-v3.png)
-- [HTML 源文件](../../discussion/memory-demo-v3.html)
+- [项目记忆详情 v3 demo](demos/memory-demo-v3.png)
+- [HTML 源文件](demos/memory-demo-v3.html)
 
 ## 范围外
 

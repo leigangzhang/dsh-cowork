@@ -8,8 +8,8 @@
       "approvedAt": "2026-11-09T23:17:43Z",
       "source": {
         "thread": "object:topic",
-        "demo": "topic-demo-v0.1.png",
-        "demoHtml": "topic-demo.html"
+        "demo": "demos/topic-demo.png",
+        "demoHtml": "demos/topic-demo.html"
       },
       "scope": [
         "整体为左侧主会话 + 右侧栏两栏布局",
@@ -42,8 +42,8 @@
       "approvedAt": "2026-11-10T04:37:20Z",
       "source": {
         "thread": "object:work-item",
-        "demo": "work-item-demo-v2.png",
-        "demoHtml": "work-item-demo-v2.html"
+        "demo": "demos/work-item-demo-v2.png",
+        "demoHtml": "demos/work-item-demo-v2.html"
       },
       "scope": [
         "工作项是用户需要查看、确认、反馈的多模态交付物，不是代码分支/提交/合并的容器",
@@ -76,8 +76,8 @@
       "approvedAt": "2026-11-10T05:15:31Z",
       "source": {
         "thread": "object:activity",
-        "demo": "activity-demo-v3.png",
-        "demoHtml": "activity-demo-v3.html"
+        "demo": "demos/activity-demo-v3.png",
+        "demoHtml": "demos/activity-demo-v3.html"
       },
       "scope": [
         "左侧为 Artifact 工作室 / 资料库，右侧为活动流",
@@ -109,8 +109,8 @@
       "approvedAt": "2026-11-10T05:56:41Z",
       "source": {
         "thread": "object:memory",
-        "demo": "memory-demo-v3.png",
-        "demoHtml": "memory-demo-v3.html"
+        "demo": "demos/memory-demo-v3.png",
+        "demoHtml": "demos/memory-demo-v3.html"
       },
       "scope": [
         "项目级，不做跨项目存储",

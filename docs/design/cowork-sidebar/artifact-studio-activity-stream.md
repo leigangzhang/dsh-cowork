@@ -81,8 +81,8 @@ Status: draft（design approved 2026-11-10；implementation not started）
 
 ## Demo
 
-- [活动流与资料库 v3 demo](../../discussion/activity-demo-v3.png)
-- [HTML 源文件](../../discussion/activity-demo-v3.html)
+- [活动流与资料库 v3 demo](demos/activity-demo-v3.png)
+- [HTML 源文件](demos/activity-demo-v3.html)
 
 ## 范围外
 

@@ -80,8 +80,8 @@ Status: draft（design approved 2026-11-10；implementation not started）
 
 ## Demo
 
-- [工作项 v2 demo](../../discussion/work-item-demo-v2.png)
-- [HTML 源文件](../../discussion/work-item-demo-v2.html)
+- [工作项 v2 demo](demos/work-item-demo-v2.png)
+- [HTML 源文件](demos/work-item-demo-v2.html)
 
 ## 范围外
 

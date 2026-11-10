@@ -88,8 +88,8 @@ Cowork 的整体布局是左侧主会话、右侧侧边栏。右侧栏有四个�
 
 ## Demo
 
-- [主题页 demo](../../discussion/topic-demo.png)
-- [HTML 源文件](../../discussion/topic-demo.html)
+- [主题页 demo](demos/topic-demo.png)
+- [HTML 源文件](demos/topic-demo.html)
 
 ## 范围外
 
