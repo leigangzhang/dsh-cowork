@@ -2,7 +2,7 @@
 
 - 状态：**M12 启动文档（2026-11-08）**。M11 已交付（[M11 交付结果](M11_RESULT.md)）；本文件写给下一个会话，用于启动 V0.2 M12（文档、真实 E2E、0.2.0）。不重新论证 M11 的决定，也不重抄 M12 需求全文；交付证据的 home 是 [M12_RESULT](M12_RESULT.md)，本文件保留启动时的计划与陷阱。
 - 适用：接手 M12 的 agent 或人。范围：M11 交付后的代码基线、M12 的启动方式、分阶段实施与证据、影响面、陷阱、完成定义、回滚与未验证清单。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §6 M12 与 §7 拥有需求、范围与验收编号 A1–A10；[M12 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m12-docs-e2e-release-plan.md) 拥有执行层决定与备选（已随交付迁入 implemented）；[M11 交付结果](M11_RESULT.md) 拥有 M11 的交付面与证据；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；[AGENTTEAM](AGENTTEAM.md) 与 [testing](testing.md) 拥有流程与证据规则；交付事实、A1–A10 证据与回滚记录由 [M12_RESULT](M12_RESULT.md) 拥有；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN-V0.2](../PLAN-V0.2.md) §6 M12 与 §7 拥有需求、范围与验收编号 A1–A10；[M12 执行记录](../../.agents/notes/implemented/architecture/2026-11-08-m12-docs-e2e-release-plan.md) 拥有执行层决定与备选（已随交付迁入 implemented）；[M11 交付结果](M11_RESULT.md) 拥有 M11 的交付面与证据；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有遗留归属；[AGENTTEAM](../AGENTTEAM.md) 与 [testing](../testing.md) 拥有流程与证据规则；交付事实、A1–A10 证据与回滚记录由 [M12_RESULT](M12_RESULT.md) 拥有；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## M11 交付后的状态（2026-11-08）
 
@@ -25,13 +25,13 @@
 
 ## 先读什么
 
-1. [AGENTS.md](../AGENTS.md) 与 [docs/AGENTTEAM.md](AGENTTEAM.md)：纪律、R8 浏览器验证、R9 fixture、DAG/artifact/交付规则。
-2. [PLAN-V0.2](PLAN-V0.2.md) §6 M12（范围/完成标准/证据/不做）、§7（测试与验收总则与 A1–A10）、§2.1–§2.4（角色、流程、状态机、可见性）、§5.1–§5.6（生命周期、store、路由、评审、工作项、活动/收件箱）。
-3. [M12 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m12-docs-e2e-release-plan.md)：E2E 驱动、迁移演练、安装路径、文档发布面的执行决定与备选（已迁 implemented）。
+1. [AGENTS.md](../../AGENTS.md) 与 [docs/AGENTTEAM.md](../AGENTTEAM.md)：纪律、R8 浏览器验证、R9 fixture、DAG/artifact/交付规则。
+2. [PLAN-V0.2](../PLAN-V0.2.md) §6 M12（范围/完成标准/证据/不做）、§7（测试与验收总则与 A1–A10）、§2.1–§2.4（角色、流程、状态机、可见性）、§5.1–§5.6（生命周期、store、路由、评审、工作项、活动/收件箱）。
+3. [M12 执行记录](../../.agents/notes/implemented/architecture/2026-11-08-m12-docs-e2e-release-plan.md)：E2E 驱动、迁移演练、安装路径、文档发布面的执行决定与备选（已迁 implemented）。
 4. [M11 交付结果](M11_RESULT.md)：交付面、A1–A10 证据、偏差 D1–D8、回滚与未验证项；不要复制它的证据。
-5. [KNOWN_ISSUES](KNOWN_ISSUES.md)：KI-22/29/31/32 与保持项（含 KI-30）的重估条件。
-6. [docs/testing.md](testing.md)（tiers、commands、fixture 规则）、[M6 探针结果](M6_PROBE_RESULT.md) §3/§4/§6（archive 后行为、reviewer 回收、同源 POST 限制）、[M4 交付结果](archived/M4_RESULT.md)（安装/卸载路径与 15/15 真实 flow 的做法）。
-7. [M11 交接文档](M11_HANDOFF.md)（历史启动版，只读）与 [M11 决策记录](../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md)。
+5. [KNOWN_ISSUES](../KNOWN_ISSUES.md)：KI-22/29/31/32 与保持项（含 KI-30）的重估条件。
+6. [docs/testing.md](../testing.md)（tiers、commands、fixture 规则）、[M6 探针结果](M6_PROBE_RESULT.md) §3/§4/§6（archive 后行为、reviewer 回收、同源 POST 限制）、[M4 交付结果](M4_RESULT.md)（安装/卸载路径与 15/15 真实 flow 的做法）。
+7. [M11 交接文档](M11_HANDOFF.md)（历史启动版，只读）与 [M11 决策记录](../../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md)。
 
 ## 第一步：M12 启动顺序
 
@@ -39,7 +39,7 @@
 2. 定基线：M11 PR #16 已合并，基线是 `origin/main` 的 merge sha `1b0801d`；从它新建 M12 分支，不 rebase、不 force。
 3. 新建 `feat/m12-docs-e2e-0.2.0`（不在 M11 分支上继续开发）。
 4. 先跑基线四命令：`npm test`（实际基线 **732/732**）、`npm run typecheck`、`npm run build`、`npm run check`，全部 exit 0 才改代码；任何红先停下报告。M12 最终为 **773/773**（新增迁移演练 7 + m12-e2e 32 + dev-gate 1 + api 1）。
-5. 建团队前读 [docs/AGENTTEAM.md](AGENTTEAM.md)，用已配置 profile；先派 **impact-scan** 任务：
+5. 建团队前读 [docs/AGENTTEAM.md](../AGENTTEAM.md)，用已配置 profile；先派 **impact-scan** 任务：
    `grep -rn "m2-e2e\|m3-e2e\|M12\|archived\|thread\|handoff" src tests tools docs/README.md README.md | head -80`、`wc -c src/*.ts`、核对 `tests/workflow.test.mjs`/`tests/source-budget.test.mjs` 对文件与预算的既有断言、核对 `package.json` 版本与 `docs/publish.json` 分类。
 6. 并行的写任务用 `worktree_create` 隔离并把 `worktreePath` 写进任务；合并由队长独占；verifier/reviewer 用 `verify-only` 只读策略且不得由实现者自审（M11 的做法）。
 7. **真实宿主前置不放到最后**：M12 的验证对象是「已安装包」而不是 dev 注入。先准备 `m12verify` profile + 独立端口宿主 + 认证明方式，再写面板/安装无关的代码。
@@ -105,9 +105,9 @@
 
 ## 指针
 
-- M12 执行记录：[2026-11-08-m12-docs-e2e-release-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m12-docs-e2e-release-plan.md)。
+- M12 执行记录：[2026-11-08-m12-docs-e2e-release-plan.md](../../.agents/notes/implemented/architecture/2026-11-08-m12-docs-e2e-release-plan.md)。
 - M11 交付结果与证据：[M11_RESULT.md](M11_RESULT.md)、[M11_HANDOFF.md](M11_HANDOFF.md)。
-- 需求与验收：[PLAN-V0.2](PLAN-V0.2.md) §6 M12、§7 A1–A10。
-- 流程与证据：[AGENTTEAM](AGENTTEAM.md)、[testing](testing.md)。
-- 遗留与归属：[KNOWN_ISSUES](KNOWN_ISSUES.md)。
-- 历史参考：[M4 交付结果](archived/M4_RESULT.md)（安装/卸载与真实 flow 的做法）、[M6 探针结果](M6_PROBE_RESULT.md)（可见性与同源限制）、[M10 交付结果](M10_RESULT.md)（评审/工作项/合并的边界）。
+- 需求与验收：[PLAN-V0.2](../PLAN-V0.2.md) §6 M12、§7 A1–A10。
+- 流程与证据：[AGENTTEAM](../AGENTTEAM.md)、[testing](../testing.md)。
+- 遗留与归属：[KNOWN_ISSUES](../KNOWN_ISSUES.md)。
+- 历史参考：[M4 交付结果](M4_RESULT.md)（安装/卸载与真实 flow 的做法）、[M6 探针结果](M6_PROBE_RESULT.md)（可见性与同源限制）、[M10 交付结果](M10_RESULT.md)（评审/工作项/合并的边界）。

@@ -1,8 +1,8 @@
 # M8 交付结果
 
-- 状态：**M8 已交付（2026-11-08）**。主题生命周期、活动与收件箱在 `feat/m8-topic-lifecycle` 上落地并终审通过；本文件记录交付基线、清单、证据、偏差与回滚，供下一个阶段（M9）接手。M8 启动时的交接见 [M8_HANDOFF.md](M8_HANDOFF.md)（已回滚为启动文档，不再承载交付记录）。执行决定见 [M8 执行记录](../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)，需求规则见 [主题三态与已解决规则](../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)。
+- 状态：**M8 已交付（2026-11-08）**。主题生命周期、活动与收件箱在 `feat/m8-topic-lifecycle` 上落地并终审通过；本文件记录交付基线、清单、证据、偏差与回滚，供下一个阶段（M9）接手。M8 启动时的交接见 [M8_HANDOFF.md](M8_HANDOFF.md)（已回滚为启动文档，不再承载交付记录）。执行决定见 [M8 执行记录](../../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)，需求规则见 [主题三态与已解决规则](../../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)。
 - 适用：接手 V0.2 M9（路由、工具、预设）的 agent 或人。范围：M8 的实际交付、验证证据、已知偏差与未验证项。不重新论证 M8 的决定。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.3/§4.2/§4.3/§5.1/§5.6/§6 M8 拥有状态机、模块图、数据模型与验收；[M8 执行记录](../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md) 拥有执行层的决定与备选；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留问题归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
+- 事实源：[PLAN-V0.2](../PLAN-V0.2.md) §2.3/§4.2/§4.3/§5.1/§5.6/§6 M8 拥有状态机、模块图、数据模型与验收；[M8 执行记录](../../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md) 拥有执行层的决定与备选；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有遗留问题归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
 
 ## 交付基线
 
@@ -63,7 +63,7 @@
 ## 指针
 
 - M8 启动交接（历史）：[M8_HANDOFF.md](M8_HANDOFF.md)。
-- 需求规则与三态决定：[主题三态与已解决规则](../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)。
-- 执行层决定与备选：[M8 执行记录](../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)。
-- M7 迁移事实与限制：[M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)。
-- 遗留问题与归属：[KNOWN_ISSUES](KNOWN_ISSUES.md)（KI-19、KI-21、KI-22 保持；KI-20 已在 M8 修复并删除）。
+- 需求规则与三态决定：[主题三态与已解决规则](../../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)。
+- 执行层决定与备选：[M8 执行记录](../../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)。
+- M7 迁移事实与限制：[M7 迁移实施记录](../../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)。
+- 遗留问题与归属：[KNOWN_ISSUES](../KNOWN_ISSUES.md)（KI-19、KI-21、KI-22 保持；KI-20 已在 M8 修复并删除）。

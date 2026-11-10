@@ -2,7 +2,7 @@
 
 - 状态：**M12 收口（2026-11-09；最终推送事实由 delivery 回填）**。V0.2 的最后一阶段：真实全链路 E2E、v1→v2 迁移/回滚演练、0.2.0 打包与正式安装/卸载、真实 Chrome 面板与文档发布面均已完成；集成 artifact 为 `495a872`（integration-ready revision 3），独立验证（t26）五命令全绿，独立审查（t7/t8）verdict=pass。delivery 的 push/PR 与最终事实由 delivery 任务回填在本文件末尾，不在本批编造。
 - 适用：接手 V0.3（0.3.0）的 agent 或人。范围：M12 的实际交付、证据指针、偏差与未验证项；不重新论证 M7–M11 的决定。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §6 M12 与 §7（A1–A10 验收编号）拥有需求与验收；[M12_HANDOFF](M12_HANDOFF.md) 是启动交接（历史）；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；[AGENTTEAM](AGENTTEAM.md) R10 拥有收口顺序。交付证据文件在 `.dsh-cowork/e2e/m12/`（gitignored，不进仓库），本文件只做指针。
+- 事实源：[PLAN-V0.2](../PLAN-V0.2.md) §6 M12 与 §7（A1–A10 验收编号）拥有需求与验收；[M12_HANDOFF](M12_HANDOFF.md) 是启动交接（历史）；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有遗留归属；[AGENTTEAM](../AGENTTEAM.md) R10 拥有收口顺序。交付证据文件在 `.dsh-cowork/e2e/m12/`（gitignored，不进仓库），本文件只做指针。
 - **数字口径**：integration-ready revision 3 = `495a872`；`git diff 1b0801d..HEAD | shasum -a 256` = `9fc6556f…`；`npm test` **773/773**（0 fail/skip/todo）；`lib/client.js` 89,235 B、sha256 `3b1b3588…`；安装包 `dsh-external-dsh-cowork-0.2.0.tgz` 426,110 B、sha256 `b190af8e…`。
 
 ## 交付基线
@@ -50,7 +50,7 @@
 - [A6] 面板契约、排序/标签/操作、写路由 + 真实 Chrome — `tests`：`tests/api.test.mjs`、`tests/api-contract.test.mjs`、`tests/panel-model.test.mjs`；真实 Chrome（已安装 0.2.0、m12verify 宿主 3091）：overview/activity/topic 200，resolve/reopen/route.move 200，负向对照 403（未绑定 master）与 404（无 `.dsh-cowork`）；fixture apply/restore 各 5 ms（≤5 s 预算），restore 后 index 逐字节回到 `f7fec0db…`；4 张截图。证据：`.dsh-cowork/e2e/m12/PANEL_EVIDENCE.json`（sha256 `0b8505c9…`）与 `panel-0[1-4]*.jpg`。
 - [A7] 隔离、串行合并、冲突、清理 — `tests`：`tests/work-item.test.mjs`、`tests/checkout.test.mjs`；E2E `merge` 步在真实宿主断言 main ref 不动、合并提交双亲、clone 拆除；`cleanup` 步断言 3 个创建的会话 archived=true/error=null、workspace 删除、fixture 删除。
 - [A8] 真实 E2E — `tests`：`tests/m12-e2e.test.mjs`；真实宿主一次通过（17/17 步，62 s），runId `m12-3ccfe5e4-32f0-4286-80c7-c8402d0df6fa`，artifact identity 与 `495a872`/`9fc6556f…`/status 空一致。证据：`.dsh-cowork/e2e/m12/M12_E2E.json`（106,340 B、sha256 `b44919b7…`）。
-- [A9] 文档分类/检查/构建 — `plan-docs`：本文件、[M12_HANDOFF](M12_HANDOFF.md)、[KNOWN_ISSUES](KNOWN_ISSUES.md)、`docs/publish.json`、`docs/README.md`；`npm run check`/`check:self-test`/`typecheck`/`build`/`npm test` 全 exit 0（见验证基线）。
+- [A9] 文档分类/检查/构建 — `plan-docs`：本文件、[M12_HANDOFF](M12_HANDOFF.md)、[KNOWN_ISSUES](../KNOWN_ISSUES.md)、`docs/publish.json`、`docs/README.md`；`npm run check`/`check:self-test`/`typecheck`/`build`/`npm test` 全 exit 0（见验证基线）。
 - [A10] 回滚（备份恢复 + 0.1.0 重装） — 备份恢复已两次验证：演练（tree hash 回到迁移前）与真实数据事故（`f7fec0db…` 逐字节恢复，见下节）。`0.1.0` tgz 保留在证据目录（385,662 B、sha256 `b30a9768…`），重装步骤见「回滚」；**0.1.0 重装未在 M12 内执行 → 未验证**。
 
 ## 真实全链路 E2E（A8）
@@ -129,8 +129,8 @@
 ## 指针
 
 - 启动交接（历史）：[M12_HANDOFF.md](M12_HANDOFF.md)。
-- 需求与验收：[PLAN-V0.2](PLAN-V0.2.md) §6 M12、§7 A1–A10。
-- 遗留与归属：[KNOWN_ISSUES](KNOWN_ISSUES.md)。
-- 流程/证据规则：[AGENTTEAM](AGENTTEAM.md)（R10 收口顺序）、[testing](testing.md)。
+- 需求与验收：[PLAN-V0.2](../PLAN-V0.2.md) §6 M12、§7 A1–A10。
+- 遗留与归属：[KNOWN_ISSUES](../KNOWN_ISSUES.md)。
+- 流程/证据规则：[AGENTTEAM](../AGENTTEAM.md)（R10 收口顺序）、[testing](../testing.md)。
 - 证据目录（gitignored）：`.dsh-cowork/e2e/m12/` —— `INTEGRATION_READY.json`、`INSTALL_EVIDENCE.json`、`PANEL_EVIDENCE.json`、`UNINSTALL_EVIDENCE.json`、`M12_E2E.json`、`M12_MIGRATION.json`、`REAL_DATA_MIGRATION_INCIDENT.json`、`KI29_M3_DRIVER_NOT_ACCEPTANCE.json`、4 张 panel jpg、0.1.0/0.2.0 tgz。
 - M11 交付结果：[M11_RESULT.md](M11_RESULT.md)。
