@@ -1,5 +1,5 @@
 {
-  "version": 20,
+  "version": 21,
   "features": [
     {
       "id": "cowork-sidebar-topic-page",
@@ -73,8 +73,8 @@
         "右栏 378px 时列表单列，只显示类型、状态、评论数、附件数和更新时间",
         "状态可从待确认流转到已确认；评论、附件、版本在查看器内可见"
       ],
-      "next": "设计已确认；前端提案与设计方案已完成，等待确认后按阶段实现：基础与只读 → 文本编辑与实时 → 图表/表格 → Doc/PDF/画布 → 收口",
-      "updatedAt": "2026-11-10T13:30:00Z",
+      "next": "前端与后端设计已完成；等待确认后按阶段实现：只读闭环 → 编辑与投递 → 图表/表格 → Doc/PDF/画布 → 收口",
+      "updatedAt": "2026-11-10T14:30:00Z",
       "designVersion": "v3",
       "verification": {
         "report": "docs/design/cowork-sidebar/work-item-artifact-verification.md",
@@ -114,6 +114,18 @@
           "work-item-demo-v3-details.png"
         ],
         "status": "proposed"
+      },
+      "backendPlan": {
+        "proposal": ".agents/notes/proposed/feature/2026-11-10-work-item-page-backend.md",
+        "design": "docs/design/cowork-sidebar/work-item-backend.md",
+        "status": "proposed",
+        "stages": [
+          "只读闭环",
+          "编辑与投递",
+          "图表与表格",
+          "Doc/PDF/画布",
+          "收口"
+        ]
       }
     },
     {
