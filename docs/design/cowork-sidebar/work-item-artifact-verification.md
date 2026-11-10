@@ -16,7 +16,7 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 
 | id | 结论 | 关键结果 |
 |---|---|---|
-| V1 | 部分确认 | Excalidraw 能挂载、能出图；JS 8.3 MB min（gzip 2.55 MB），CSS 141 KB，字体 13 MB（Xiaolai 中文字体）。Excalidraw 资源带全部字体时约 15 MB，超过 10 MB 上限；去掉 Xiaolai 后约 2.9 MB。`EXCALIDRAW_ASSET_PATH` 必须是绝对 URL |
+| V1 | 部分确认 | Excalidraw 能挂载、能出图；JS 8.19 MB min（gzip 2.55 MB），CSS 141 KB，Xiaolai 字体 13 MB。已确认不带 Xiaolai，中文回退系统字体；剩余 CJS/chunk 和资源路由要原型。`EXCALIDRAW_ASSET_PATH` 必须是绝对 URL |
 | V2 | 确认 | `convertToExcalidrawElements`、`getSceneElements`、`updateScene`、`serializeAsJSON` 都在公开类型/导出里；画布元素级工具可行 |
 | V3 | 部分确认 | 挂载和 `onChange` 回调已确认；自动保存、版本校验、整文件锁属于插件逻辑，尚未原型 |
 | V4 | 确认，有缺口 | `write`、`edit`、`str_replace_editor` 都能被 `tools.guard` 拦截，拒绝以 `Error: 原因` 返回；`bash` 仍可绕过 |
@@ -27,7 +27,7 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 | V9 | 确认 | CodeMirror 行号+Markdown 子集 520 KB min（gzip 179 KB）；最小行号编辑器 277 KB（gzip 90 KB） |
 | V10 | 部分确认 | 连接层支持逐块写出响应；浏览器认证是 HttpOnly + SameSite=Strict 的同源 cookie；EventSource 真实宿主 E2E 未跑 |
 | V11 | 部分确认 | 同一会话用 `followup` 排队，会话互不共享队列；待处理输入有持久化 inbox；跨会话并行和重启恢复需要真机 E2E |
-| V12 | 部分确认 | 核心依赖合计约 2.4 MB min；Excalidraw 另加约 10.7 MB min（JS+CSS+非中文字体）；包体是否超限取决于字体策略 |
+| V12 | 部分确认 | 核心依赖约 2.4 MB min；Excalidraw 另加约 10.7 MB min（JS+CSS+非中文字体）；已确认客户端允许到 100 MB、包体按 10 MB 控制 |
 | V13 | 确认（否定） | 没找到 ProcessOn 私有嵌入方式；网页嵌入依赖公开分享；只做手动导入导出 |
 | V14 | 部分确认、后置 | 宿主 PDF 预览已用 pdfjs 的 TextLayerBuilder 和页面 viewport，页内区域批注可行；本版本不做 |
 | V15 | 部分确认 | 图片消息和附件存储 API 确认；模型是否调用回复工具必须在实现期跑真实模型 E2E |
@@ -124,7 +124,7 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 - 只保留行号 + 历史 + 键位：277,478 B min（gzip 90,239）。
 - 没有做浏览器交互测试；构建产物正常，无 Node 内置依赖。
 
-结论：在 5 MB 客户端预算内，可按需选子集。
+结论：在客户端上限内，可按需选子集。
 
 ### V10 SSE/EventSource
 
@@ -164,11 +164,10 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 | **含 Excalidraw、去掉中文字体** | **约 11 MB** | **约 3.9 MB** |
 | **含 Excalidraw 和中文字体** | **约 24 MB** | **约 17 MB** |
 
-- 若“客户端 5 MB”指下载体积（gzip）：核心约 0.8 MB，Excalidraw 懒加载后另约 2.6 MB，总量约 3.4 MB，可接受。
-- 若指磁盘上的 min 产物：核心 2.4 MB，Excalidraw 后约 11 MB，超过 5 MB。
-- 包体按压缩 tar 估算：去掉 Xiaolai 的 Excalidraw 资源约 2.9 MB，核心约 1 MB 级，总计约 4 MB；带 Xiaolai 约 17 MB，超过 10 MB。
+- 客户端：5 MB 不再是硬门槛，已确认允许到 100 MB 以内；核心与 Excalidraw 的磁盘体积都落在这个上限内。
+- 包体：按压缩 tar 估算，去掉 Xiaolai 的 Excalidraw 资源约 2.9 MB，核心约 1 MB 级，总计约 4 MB，低于 10 MB；带 Xiaolai 约 17 MB，不采用。
 
-结论：核心方案在预算内；Excalidraw 的包体取决于中文字体策略。推荐“Excalidraw 懒加载 + 不带 Xiaolai 字体”，把首屏客户端控制在 5 MB 以内，包体控制在 10 MB 以内。
+结论：已确认“Excalidraw 懒加载 + 不带 Xiaolai 字体”；客户端上限放宽到 100 MB，包体保持 10 MB。剩余是 CJS/chunk 接入与资源授权路由的原型。
 
 ### V13 ProcessOn
 
@@ -201,18 +200,23 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 
 1. **Excalidraw 字体策略必须先定。** 推荐懒加载、不带 Xiaolai、中文走系统回退；如果要手写中文字体，做可选字体包，或者把画布拆成独立可选包。
 2. **TipTap 依赖要整体锁版本。** 表格扩展不在 StarterKit 里；`extension-table-row` 当前解析到 3.32.3，必须把所有 @tiptap 包锁到同一版本，不能靠 `--legacy-peer-deps`。
-3. **包体解释要对齐。** 按下载体积（gzip）核心约 0.8 MB、含画布约 3.4 MB；按磁盘 min 产物体积含画布约 11 MB。建议按“首屏下载 ≤5 MB、包体 ≤10 MB”验收，并把这一点写进验收标准。
+3. **包体解释要对齐。** 按下载体积（gzip）核心约 0.8 MB、含画布约 3.4 MB；按磁盘 min 产物体积含画布约 11 MB。客户端验收上限已放宽到 100 MB（5 MB 不设硬门槛），包体按 10 MB 控制；下载体积和磁盘体积都记录。
 4. **工具守卫只覆盖结构化写文件工具。** bash 绕过是残余风险；实现期要么收紧主题会话的 bash，要么在写入后做二次范围校验。
 5. **SSE、并发和模型回复必须真机 E2E。** 源码和 API 都支持，但本次没有在运行宿主上验证认证、心跳、双主题并行、重启恢复和模型工具调用。
 6. **ProcessOn 只做导入导出；PDF 页内批注后置。**
 
 ## 开发前置门禁
 
-- 确认 Excalidraw 中文字体策略：不带 Xiaolai（推荐）或可选字体包/独立画布包。
-- 确认“客户端 5 MB”是下载体积还是磁盘 min 产物；建议按下载体积验收，同时在文档里写明两者。
+- Excalidraw 中文字体策略已确认：不带 Xiaolai，中文回退系统字体；剩余是 CJS/chunk 接入与资源路由原型。
+- 客户端上限已确认：5 MB 不设硬门槛，允许到 100 MB 以内；包体保持 10 MB。
 - 确认依赖锁定和许可证检查方式：本仓库目前没有运行时依赖，新增依赖要提交锁文件，并核对 MIT/Apache-2.0 许可。
 - 在实现前补三个最小原型：Excalidraw 的 CJS/chunk + 资源路由；SSE 路由在真实 GUI 的认证与续传；`tools.guard` 的同行锁拒绝与模型重试。
 - 给 TipTap、Excalidraw、Pele、Excel 各写一个小样本测试，作为后续升级的回归基线。
+
+## 后续决定（2026-11-10）
+
+- Excalidraw 不带 Xiaolai 中文字体，中文走系统字体回退。
+- 客户端 5 MB 不再是硬门槛，允许到 100 MB 以内；包体继续按 10 MB 控制。
 
 ## 复现要点
 
