@@ -22,7 +22,7 @@ Class: feature
 
 **样式。** [src/client/styles.ts](../../../../src/client/styles.ts) 定义两行卡片、四组边框（阻塞红、运行中绿、空闲黑、已解决灰）、固定定位菜单、381px 下的标题/摘要单行省略（`overflow:hidden; white-space:nowrap; text-overflow:ellipsis; min-width:0`）；颜色优先公开主题 token，demo hex 作 fallback。标题和摘要都单行省略，卡片不显示生命周期、工作项数、审查状态、决策记录、id、cwd、scope。
 
-**移除的 v1 面。** 删除 [src/client/detail.tsx](../../../../src/client/detail.tsx) 与 [src/client/chips.tsx](../../../../src/client/chips.tsx)；主题标签不再有列表/详情分栏、工作项/评审请求渲染、改投表单和审查状态标记。工作项页是否复用其中组件在后续页面阶段决定，本记录不保留入口。
+**移除的 v1 面。** 删除 `src/client/detail.tsx` 与 `src/client/chips.tsx`；主题标签不再有列表/详情分栏、工作项/评审请求渲染、改投表单和审查状态标记。工作项页是否复用其中组件在后续页面阶段决定，本记录不保留入口。
 
 **会话提醒卡（A2，B 降级）。** 新增 [src/client/notice-model.ts](../../../../src/client/notice-model.ts) 与 [src/client/notice.tsx](../../../../src/client/notice.tsx)：kind 为 assignment/report/proposal/authorization/archive，status 为 pending/allowed/denied/void，actions 为 allow/deny/open-topic/open-work-item；一个 notice 只渲染一张卡，`noticeId` 相同的 update 原位替换、幂等、不新增；分配/上报只读，提案带 open-work-item（目标页未实现时隐藏），待授权在主会话提供去主题入口、在主题会话提供允许/拒绝，归档只在主会话且无动作；渲染器不 prompt、不 append 记录。运行宿主没有 `ctx.sessionNotices`，`ctx.inject(['sessionNotices'], ...)` 的 feature-detect 永不触发，因此 B 下**不注册**任何聊天节点，主题页也不渲染提醒卡。
 

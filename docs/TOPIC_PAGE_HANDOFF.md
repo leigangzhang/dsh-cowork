@@ -10,8 +10,8 @@
 ## 先读
 
 1. [主题页设计](design/cowork-sidebar/topic-page.md)
-2. [前端开发提案](../.agents/notes/proposed/feature/2026-11-10-topic-page-frontend.md)
-3. [后端设计提案](../.agents/notes/proposed/feature/2026-11-10-topic-page-backend.md)
+2. [前端实现决策](../.agents/notes/implemented/feature/2026-11-10-topic-page-frontend.md)
+3. [后端实现决策](../.agents/notes/implemented/feature/2026-11-10-topic-page-backend.md)
 4. [交互稿](discussion/topic-demo-v2.html)、[交互稿样式](discussion/topic-demo-v2.css)、[列表截图](discussion/topic-demo-v2.png)
 5. [卡片样式](discussion/topic-card-style.png)、[总览截图](discussion/topic-demo-v2-overview.png)、[归档菜单截图](discussion/topic-demo-v2-archive.png)
 6. 本文件
@@ -30,7 +30,7 @@
 - 决策记录只在主题会话生成并上报；查看和提意见在工作项 / Artifact 工作室，不在主题页实现。工作项页是后续页面。
 - 宿主 notice 选定 **A2**：新增 `notice/message` 事件、`ctx.sessionNotices.append/update`、客户端 `notice` kind 和 seat。A1（复用 plugin record）不采用；B（不改宿主）是宿主拒绝 A2 时的备选。
 
-## 当前实现状态
+## 实现前状态（历史，2026-11-10）
 
 前端仍是 v1：
 
