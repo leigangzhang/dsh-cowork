@@ -6,9 +6,10 @@
  *   node tools/panel-fixture.mjs apply [--repo=<path>] [--master=<sessionId>]
  *                                      [--live-topic=<sessionId>]
  *       Back up the project's data directory, then write one v2 fixture that
- *       covers every state the panel has to render: active, idle,
- *       resolved-by-user, resolved-by-master, blocked + awaiting review with a
- *       pending request, needs_revision with findings, and pass with findings.
+ *       covers every state the panel has to render: active, idle (25 h silent,
+ *       beyond the 24 h idle threshold), resolved-by-user, resolved-by-master,
+ *       blocked + awaiting authorization with a pending request, needs_revision
+ *       with findings, and pass with findings.
  *       `--live-topic` replaces the active topic's id with a real session id so
  *       the "open topic" path can be verified against a session the host knows.
  *   node tools/panel-fixture.mjs restore [--repo=<path>]
@@ -166,7 +167,9 @@ function buildTopics({ repo, liveTopicId, now }) {
   const passed = 'topic-fixture-pass'
   const recent = minutesAgo(now, 5)
   const older = minutesAgo(now, 40)
-  const idleSince = minutesAgo(now, 3 * 60)
+  // Beyond the 24 h lifecycle threshold: the overview read point must leave this
+  // topic in the idle group (3 h would be pulled back to active).
+  const idleSince = minutesAgo(now, 25 * 60 + 5)
   const resolvedAt = minutesAgo(now, 90)
   const base = {
     title: '',
@@ -322,19 +325,23 @@ function buildWorkItems({ repo, ids, now }) {
   ]
 }
 
-/** Ten valid activity rows, newest last (the stream is oldest-first on disk). */
+/**
+ * Ten valid activity rows, oldest first — the same order `activity.jsonl` keeps
+ * on disk (append at the end). The idle transition is stamped at the topic's
+ * `lastActiveAt` (25 h ago), so the stream and the index agree.
+ */
 function buildActivity({ ids, now }) {
   const rows = [
-    ['topic-created', ids.active, 'created topic M11 面板读取点', 12],
-    ['route-reused', ids.active, 'routed an intent to the read point', 40],
-    ['work-item-created', ids.active, 'created work item wi-fixture-active', 60],
-    ['review-requested', ids.blocked, 'requested review req-fixture-pending', 120],
-    ['review-verdict', ids.needsRevision, 'recorded needs_revision for req-fixture-needs', 150],
-    ['review-verdict', ids.passed, 'recorded pass for req-fixture-pass', 180],
-    ['status-changed', ids.idle, 'changed topic status from active to idle', 200],
-    ['work-item-merged', ids.resolvedUser, 'merged work item wi-fixture-merged', 240],
-    ['status-changed', ids.resolvedUser, 'changed topic status from active to resolved', 250],
+    ['status-changed', ids.idle, 'changed topic status from active to idle', 25 * 60 + 5],
     ['status-changed', ids.resolvedMaster, 'changed topic status from active to resolved', 260],
+    ['status-changed', ids.resolvedUser, 'changed topic status from active to resolved', 250],
+    ['work-item-merged', ids.resolvedUser, 'merged work item wi-fixture-merged', 240],
+    ['review-verdict', ids.passed, 'recorded pass for req-fixture-pass', 180],
+    ['review-verdict', ids.needsRevision, 'recorded needs_revision for req-fixture-needs', 150],
+    ['review-requested', ids.blocked, 'requested review req-fixture-pending', 120],
+    ['work-item-created', ids.active, 'created work item wi-fixture-active', 60],
+    ['route-reused', ids.active, 'routed an intent to the read point', 40],
+    ['topic-created', ids.active, 'created topic M11 面板读取点', 12],
   ]
   return rows.map(([type, topicId, summary, minutes], index) => ({
     eventId: `event-fixture-${String(index + 1).padStart(2, '0')}`,
