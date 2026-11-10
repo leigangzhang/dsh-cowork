@@ -1,6 +1,6 @@
 # Cowork 工作项前端设计与开发方案
 
-Status: draft（frontend design，2026-11-10；待实现）
+Status: draft（frontend design，2026-11-10；待实现；后端设计见 [work-item-backend.md](work-item-backend.md)）
 
 本方案把[工作项多模态交付物查看器设计](work-item-artifact-viewer.md)和[V1–V16 核实报告](work-item-artifact-verification.md)落成前端实现计划。页面结构、类型和交互以查看器设计为准；依赖体积、编辑器和限制以核实报告为准。决策和取舍见[前端开发提案](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-frontend.md)。
 
