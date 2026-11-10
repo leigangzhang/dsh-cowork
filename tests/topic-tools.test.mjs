@@ -322,6 +322,27 @@ test('cowork_topic_resolve archives once, clears the block, and records one topi
 
 const HANDOFF_VERIFICATION = [{ command: 'npm test', exitCode: 0, evidence: 'ok' }]
 
+test('cowork_topic_resolve describes the host-session archive it actually performs', () => {
+  const resolve = tools(fakeDeps()).get('cowork_topic_resolve')
+  assert.match(resolve.description, /host session is archived/)
+  assert.equal(/not archived by this tool/.test(resolve.description), false)
+})
+
+test('cowork_topic_report names its own invalid-kind error code', async () => {
+  assert.equal(TOPIC_PAGE_ERROR_CODES.invalidKind, 'topic/invalid-kind')
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const report = tools(fakeDeps()).get('cowork_topic_report')
+    await assert.rejects(
+      report.execute({ summary: 'hello', kind: 'shrug' }, fakeExec('session-thread', repoPath)),
+      /must be one of \["progress","blocked"\]/,
+    )
+    const source = await readFile(new URL('../src/topic-tools.ts', import.meta.url), 'utf8')
+    assert.match(source, /TOPIC_PAGE_ERROR_CODES\.invalidKind, "kind must be/)
+    assert.equal(/topicTitleRequired, "kind must be/.test(source), false)
+  })
+})
+
 test('cowork_handoff exposes only blocked|done and no longer mentions awaiting_review', () => {
   const handoff = tools(fakeDeps()).get('cowork_handoff')
   assert.deepEqual([...handoff.parameters.properties.status.enum], ['blocked', 'done'])
