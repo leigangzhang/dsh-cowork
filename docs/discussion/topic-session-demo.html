@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>主题页：会话与决策记录 · 设计稿</title>
+<link rel="stylesheet" href="topic-session-demo.css">
+</head>
+<body>
+<div class="canvas">
+  <header class="demo-bar">
+    <div class="demo-heading">
+      <div class="demo-title">主题页：会话与决策记录</div>
+      <div class="demo-sub" id="stepNote">点开一个主题后，左栏是主题会话，右栏是决策记录。</div>
+    </div>
+    <nav class="steps" id="stepNav" aria-label="设计步骤">
+      <button data-step="0">总览</button>
+      <button data-step="1" aria-selected="true">默认</button>
+      <button data-step="2">分配与上报</button>
+      <button data-step="3">决策提案</button>
+      <button data-step="4">会话交接</button>
+      <button data-step="5">归档</button>
+    </nav>
+    <div class="mode-switch" role="group" aria-label="面板宽度">
+      <button id="modeWide" class="on">宽屏分栏</button>
+      <button id="modeNarrow">侧栏窄屏</button>
+    </div>
+  </header>
+
+  <div class="stage">
+    <div class="app" id="app" data-step="1" data-mode="wide" data-pane="conv">
+      <div class="page">
+        <header class="page-head">
+          <div class="crumb">
+            <button class="crumb-back" aria-label="回到主会话">‹</button>
+            <span class="crumb-link">主会话</span>
+            <span class="crumb-sep">/</span>
+            <span class="crumb-current">主题</span>
+          </div>
+          <div class="title-row">
+            <h1>五子棋小游戏</h1>
+            <span class="chip chip-run" id="lifeChip">运行中</span>
+            <span class="chip chip-review" id="reviewChip">待审核 1</span>
+            <span class="chip chip-quiet">3 个工作项</span>
+            <span class="spacer"></span>
+            <button class="need-btn" id="needBtn"><span class="need-mark">!</span>需要你处理<b id="needCount">1</b></button>
+            <button class="icon-btn" id="expandBtn" title="展开到全屏" aria-label="展开到全屏">⤢</button>
+            <button class="icon-btn" title="更多" aria-label="更多">⋯</button>
+          </div>
+          <div class="meta-row">
+            <span>主会话分配 · 3 个会话</span>
+            <span class="dot-sep">·</span>
+            <span>最近上报 3 分钟前</span>
+            <span class="dot-sep">·</span>
+            <span>交接 1</span>
+          </div>
+          <div class="mobile-tabs" role="tablist">
+            <button data-pane="conv" class="on" role="tab" aria-selected="true">主题会话</button>
+            <button data-pane="rec" role="tab" aria-selected="false">决策记录 <b id="recTabBadge">1</b></button>
+          </div>
+        </header>
+
+        <div class="page-body">
+          <section class="overview" aria-label="流程总览">
+            <div class="ov-intro">
+              <div>
+                <h2>六条流动，落在同一个页面里</h2>
+                <p>左栏是主题会话，右栏是决策记录。主会话只在三处出现：分配进来、接收上报、以及交接被阻塞时的一行提醒。所有内容都不复制全文。</p>
+              </div>
+              <div class="ov-legend">
+                <span><i class="sw blue"></i>主会话 ↔ 主题</span>
+                <span><i class="sw amber"></i>主题 → 决策记录</span>
+              </div>
+            </div>
+
+            <div class="flowmap" aria-hidden="true">
+              <svg viewBox="0 0 1112 280" role="img" aria-label="主会话、主题、决策记录之间的六条流动">
+                <defs>
+                  <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+                    <path d="M0 0 L8 4 L0 8 z" fill="#98a2b3"></path>
+                  </marker>
+                  <marker id="arA" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+                    <path d="M0 0 L8 4 L0 8 z" fill="#c08a4e"></path>
+                  </marker>
+                  <marker id="arB" viewBox="0 0 8 8" refX="1" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+                    <path d="M8 0 L0 4 L8 8 z" fill="#98a2b3"></path>
+                  </marker>
+                </defs>
+                <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+                  <text x="104" y="18" font-size="12" font-weight="600" fill="#344054">主会话</text>
+                  <text x="104" y="34" font-size="10.5" fill="#98a2b3">路由与提醒，只看摘要</text>
+                  <text x="556" y="18" font-size="12" font-weight="600" fill="#101828" text-anchor="middle">主题</text>
+                  <text x="556" y="34" font-size="10.5" fill="#98a2b3" text-anchor="middle">会话、提案与交接</text>
+                  <text x="1008" y="18" font-size="12" font-weight="600" fill="#344054" text-anchor="end">决策记录</text>
+                  <text x="1008" y="34" font-size="10.5" fill="#98a2b3" text-anchor="end">审核、存档，全文进资料库</text>
+
+                  <line x1="104" y1="48" x2="104" y2="270" stroke="#e4e7ec" stroke-width="1"></line>
+                  <line x1="556" y1="48" x2="556" y2="270" stroke="#d0d5dd" stroke-width="1.2"></line>
+                  <line x1="1008" y1="48" x2="1008" y2="270" stroke="#e4e7ec" stroke-width="1"></line>
+
+                  <path d="M124 84 H532" stroke="#98a2b3" stroke-width="1.4" fill="none" marker-end="url(#ar)"></path>
+                  <text x="328" y="80" font-size="12" fill="#344054" text-anchor="middle">会话分配</text>
+
+                  <path d="M536 160 H128" stroke="#98a2b3" stroke-width="1.4" fill="none" marker-end="url(#arB)"></path>
+                  <text x="332" y="156" font-size="12" fill="#344054" text-anchor="middle">事件上报</text>
+
+                  <path d="M536 236 H128" stroke="#98a2b3" stroke-width="1.4" fill="none" marker-end="url(#arB)"></path>
+                  <text x="332" y="232" font-size="12" fill="#344054" text-anchor="middle">会话交接</text>
+
+                  <path d="M580 84 H996" stroke="#c08a4e" stroke-width="1.4" fill="none" marker-end="url(#arA)"></path>
+                  <text x="788" y="80" font-size="12" fill="#344054" text-anchor="middle">记录提案</text>
+
+                  <path d="M580 160 H996" stroke="#c08a4e" stroke-width="1.4" fill="none" marker-end="url(#arA)"></path>
+                  <text x="788" y="156" font-size="12" fill="#344054" text-anchor="middle">启动提案</text>
+
+                  <path d="M580 236 H996" stroke="#c08a4e" stroke-width="1.4" fill="none" marker-end="url(#arA)"></path>
+                  <text x="788" y="232" font-size="12" fill="#344054" text-anchor="middle">归档提案</text>
+                </g>
+              </svg>
+            </div>
+
+            <table class="flow-table">
+              <thead>
+                <tr><th>#</th><th>流动</th><th>页面位置</th><th>你要做什么</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>1</td><td>会话分配</td><td>左栏第一行</td><td>一般不用管；方向不对就退回主会话。</td></tr>
+                <tr><td>2</td><td>事件上报</td><td>左栏一行摘要</td><td>需要时展开看最近上报了什么。</td></tr>
+                <tr><td>3</td><td>会话交接</td><td>左栏交接区</td><td>只有阻塞或失败时处理，正常交接看不到。</td></tr>
+                <tr><td>4</td><td>记录提案</td><td>右栏待审核卡</td><td>通过，或写清原因退回主题会话。</td></tr>
+                <tr><td>5</td><td>启动提案</td><td>右栏提案列表</td><td>通过后启动对应工作项。</td></tr>
+                <tr><td>6</td><td>归档提案</td><td>右栏归档卡</td><td>检查未完成项，确认后归档主题。</td></tr>
+              </tbody>
+            </table>
+
+          </section>
+
+          <div class="split">
+            <section class="pane conv" id="convPane" aria-label="主题会话">
+              <div class="pane-head">
+                <div class="pane-title"><span class="live-dot"></span>主题会话<span class="sub">五子棋小游戏</span></div>
+                <div class="pane-actions">
+                  <button class="mini-btn" data-toast="打开交接面板（演示）">交接</button>
+                  <button class="icon-btn" style="width:24px;height:24px" title="更多" aria-label="更多">⋯</button>
+                </div>
+              </div>
+              <div class="pane-scroll" id="convScroll">
+                <div class="solved-banner"><b>主题已解决。</b>页面转为只读；右侧决策记录已归档，需要时可以重新打开主题。</div>
+
+                <div class="tl">
+                  <div class="tl-item">
+                    <div class="tl-rail"><span class="tl-icon blue">↓</span></div>
+                    <div class="tl-body">
+                      <div class="ev" id="assignCard">
+                        <div class="ev-title"><b>主会话</b> 把「做一个五子棋小游戏」分配到这里</div>
+                        <div class="ev-meta">会话分配 <span class="dot-sep">·</span> 12 分钟前 <span class="dot-sep">·</span> <span class="link" data-toast="打开主会话（演示）">打开主会话</span></div>
+                        <div class="ev-extra" data-when="2">
+                          <div class="line">目标：先出可玩的单文件版本，不改动仓库其他文件。</div>
+                          <div class="line">分配后主会话不再重复这条需求；方向不对就在这里退回。</div>
+                          <div class="acts"><button class="mini-btn">接受</button><button class="mini-btn ghost" data-toast="退回后主会话重新分配">退回主会话</button></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="tl-item">
+                    <div class="tl-rail"><span class="tl-icon">我</span></div>
+                    <div class="tl-body">
+                      <div class="msg user"><div class="bubble">做一个五子棋小游戏，先出能玩的版本。<span class="meta">12 分钟前</span></div></div>
+                    </div>
+                  </div>
+
+                  <div class="tl-item">
+                    <div class="tl-rail"><span class="tl-icon" style="background:#0f1115;color:#fff">A</span></div>
+                    <div class="tl-body">
+                      <div class="msg"><div class="bubble">棋盘和规则先定：15×15，五子连珠胜。然后拆成棋盘、落子、胜负判断三块。<span class="meta">9 分钟前</span></div></div>
+                      <div class="step-line" style="margin-top:6px"><span class="mono">index.html · board.js · style.css</span><span>已写入 3 个文件</span></div>
+                    </div>
+                  </div>
+
+                  <div class="tl-item" data-when="3">
+                    <div class="tl-rail"><span class="tl-icon amber">!</span></div>
+                    <div class="tl-body">
+                      <div class="ev flat">
+                        <div class="ev-title">主题会话建议把一条决定记下来：<b>评审请求挂到工作项详情</b></div>
+                        <div class="ev-meta">已提交到右栏等待审核 <span class="dot-sep">·</span> <span class="link" data-toast="已定位到右栏的待审核卡">定位到待审核</span></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="tl-item">
+                    <div class="tl-rail"><span class="tl-icon green">↑</span></div>
+                    <div class="tl-body">
+                      <div class="ev" id="reportCard">
+                        <div class="ev-title">已向<b>主会话</b>上报 2 条事件</div>
+                        <div class="ev-meta">最近：初版棋盘完成 <span class="dot-sep">·</span> 3 分钟前 <span class="dot-sep">·</span> 主会话只保留一行摘要</div>
+                        <div class="ev-extra" data-when="2">
+                          <div class="line">12:04 初版棋盘完成，可以落子</div>
+                          <div class="line">12:09 等待确认棋盘尺寸</div>
+                          <div class="line" style="color:#98a2b3">主会话侧只看到：「主题『五子棋小游戏』等待确认棋盘尺寸」。</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="tl-item handoff">
+                    <div class="tl-rail"><span class="tl-icon">⇄</span></div>
+                    <div class="tl-body">
+                      <div class="ev" id="handoffCard">
+                        <div class="ev-title">会话交接<span class="fold-state">1 次已完成</span></div>
+                        <div class="ev-meta">正常交接不展开 <span class="dot-sep">·</span> <span class="link" data-toast="展开交接记录（演示）">查看</span></div>
+                        <div class="handoff-detail">
+                          <div class="handoff-row"><span class="dot"></span><span>「棋盘尺寸讨论」交给主题「五子棋 · 规则」</span><span class="state">已隐式完成</span></div>
+                          <div class="handoff-row"><span class="dot red"></span><span>「主页文案」交给主题「个人主页」</span><span class="state red">被阻塞</span></div>
+                          <div class="handoff-row" style="border-bottom:0"><span class="link" data-toast="打开主会话里的冲突处理">在主会话解决</span><span class="state">目标主题有同范围未完成改动</span></div>
+                          <div class="handoff-note">正常交接只往后台文档或记忆里写，不进入会话；只有阻塞或失败时才展开，同时给主会话留一行提醒。</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="tl-item archive-note-row">
+                    <div class="tl-rail"><span class="tl-icon amber">6</span></div>
+                    <div class="tl-body">
+                      <div class="ev flat">
+                        <div class="ev-title">主题会话提议<b>归档这个主题</b></div>
+                        <div class="ev-meta">3 个工作项已合并 <span class="dot-sep">·</span> 待审核决策记录 1 条 <span class="dot-sep">·</span> 已提交到右栏</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="tl-item">
+                    <div class="tl-rail"><span class="tl-icon red">!</span></div>
+                    <div class="tl-body">
+                      <div class="action-card" id="actionCard">
+                        <div class="action-head"><span class="badge">需要你处理</span><span class="time">2 分钟前</span></div>
+                        <div class="action-text">是否允许读取浏览器登录态，用来生成个人主页文案？</div>
+                        <div class="action-sub">确认后主题会话继续；拒绝就改用你提供的内容。</div>
+                        <div class="action-btns" id="actionBtns">
+                          <button class="btn-primary" id="allowBtn">允许</button>
+                          <button class="btn-ghost" id="denyBtn">拒绝</button>
+                        </div>
+                        <div class="action-done" id="actionDone" hidden></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="pane-foot">
+                <span class="composer-hint">这个页面看进展和做决定，继续对话在完整会话里。</span>
+                <span class="grow"></span>
+                <span class="link" data-toast="在主区域打开完整主题会话">在会话中继续 →</span>
+              </div>
+            </section>
+
+            <section class="pane rec" id="recPane" aria-label="决策记录">
+              <div class="rec-head">
+                <div class="rec-title">决策记录<span class="count" id="recCount">5</span></div>
+                <div class="rec-filters"><span class="on" id="filterPending">待审核 1</span><span>全部</span><span>已通过</span><span>需修改</span></div>
+              </div>
+              <div class="rec-scroll">
+                <div class="pending" id="pendingCard">
+                  <div class="pending-head">
+                    <span class="type rec">记录提案</span>
+                    <span class="status pending" id="pendingStatus">待审核</span>
+                    <span class="time">8 分钟前</span>
+                  </div>
+                  <div class="pending-title">评审请求挂到工作项详情</div>
+                  <div class="pending-meta">来自主题会话 · 通过后进入活动记录，全文存资料库</div>
+                  <dl class="kv">
+                    <div><dt>决定</dt><dd>评审请求从主题页移到工作项详情</dd></div>
+                    <div><dt>理由</dt><dd>评审对象是工作项，不是主题</dd></div>
+                    <div><dt>影响</dt><dd>主题页少一个入口；工作项详情多一个区块</dd></div>
+                  </dl>
+                  <div class="pending-actions" id="pendingActions">
+                    <button class="btn-primary" id="approveBtn">通过</button>
+                    <button class="btn-ghost" id="reviseBtn">需修改</button>
+                    <button class="link" data-toast="在活动记录中查看这条决策（演示）">在活动记录查看</button>
+                  </div>
+                  <div class="revise-box" id="reviseBox">
+                    <input id="reviseInput" placeholder="写清楚要改什么，会退回主题会话" aria-label="退回原因">
+                    <div class="acts">
+                      <button class="btn-primary" id="reviseSubmit">退回主题会话</button>
+                      <button class="btn-link" id="reviseCancel">取消</button>
+                    </div>
+                  </div>
+                  <div class="revise-reason" id="reviseReason" hidden>退回原因：评审对象需要写清楚是工作项还是主题页。</div>
+                </div>
+
+                <div class="archive-card" id="archiveCard">
+                  <div class="pending-head">
+                    <span class="type archive">归档提案</span>
+                    <span class="status pending" id="archiveStatus">待确认</span>
+                    <span class="time">刚刚</span>
+                  </div>
+                  <div class="pending-title">归档主题「五子棋小游戏」</div>
+                  <div class="pending-meta">来自主题会话 · 归档后页面只读，可以重新打开</div>
+                  <ul class="check">
+                    <li class="ok"><span class="mark">✓</span><span>工作项：3 个，全部已合并</span></li>
+                    <li class="warn" id="checkReview"><span class="mark">!</span><span>待审核决策记录：1 条，先在右栏通过或退回</span></li>
+                    <li class="warn" id="checkAction"><span class="mark">!</span><span>需要你处理：1 项，先在左栏的行动消息里选允许或拒绝</span></li>
+                    <li class="ok"><span class="mark">✓</span><span>活动记录：已同步</span></li>
+                  </ul>
+                  <div class="arc-gate warn" id="arcGate">还有 2 项未处理，提交归档暂不可用。</div>
+                  <div class="arc-note">归档后主会话收到一行摘要；主题从「运行中」变成「已解决」，仍可在主题页重新打开。</div>
+                  <div class="pending-actions">
+                    <button class="btn-primary" id="archiveBtn" disabled>提交归档</button>
+                    <button class="btn-link" id="archiveCancel">取消</button>
+                  </div>
+                </div>
+
+                <ul class="rec-list" id="recList">
+                  <li class="rec-row"><span class="type start">启动提案</span><div class="rec-main"><div class="rec-row-title">启动工作项：主题页查看器</div><div class="rec-row-meta">已通过 · 昨天 16:20</div></div><span class="rec-chev">›</span></li>
+                  <li class="rec-row"><span class="type rec">记录提案</span><div class="rec-main"><div class="rec-row-title">决策记录全文存资料库</div><div class="rec-row-meta">已通过 · 昨天 11:05</div></div><span class="rec-chev">›</span></li>
+                  <li class="rec-row" id="revisedRow" hidden><span class="type rec">记录提案</span><div class="rec-main"><div class="rec-row-title">评审请求挂到工作项详情</div><div class="rec-row-meta">需修改 · 刚刚</div></div><span class="rec-chev">›</span></li>
+                  <li class="rec-row"><span class="type rec">记录提案</span><div class="rec-main"><div class="rec-row-title">主题卡显示工作项数</div><div class="rec-row-meta">需修改 · 2 天前</div></div><span class="rec-chev">›</span></li>
+                  <li class="rec-row"><span class="type archive">归档提案</span><div class="rec-main"><div class="rec-row-title">v0.1 主题页设计</div><div class="rec-row-meta">已归档 · 3 天前</div></div><span class="rec-chev">›</span></li>
+                </ul>
+              </div>
+              <div class="rec-foot"><span class="link" data-toast="打开活动记录页（演示）">在活动记录中查看全部 →</span></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  const app = document.getElementById('app')
+  const toast = document.getElementById('toast')
+  const params = new URLSearchParams(location.search)
+  const state = { step: 1, mode: 'wide', approved: false, revised: false, archived: false, action: 'pending' }
+
+  const notes = {
+    0: '总览：六条流动各有一个固定位置，先看全貌再看分步。',
+    1: '默认：左侧主题会话，右侧决策记录；待审核的记录置顶。',
+    2: '分配与上报：主会话把需求分进来，主题把进展按一行摘要报回去。',
+    3: '决策提案：记录、启动、归档三类提案都在右栏审核，通过或退回。',
+    4: '会话交接：正常交接折叠成一行；只有阻塞或失败才出现在会话里。',
+    5: '归档：先看未完成项，确认后主题变成已解决，页面只读。'
+  }
+
+  function setStep(step) {
+    state.step = step
+    app.dataset.step = String(step)
+    document.querySelectorAll('#stepNav button').forEach((button) => {
+      button.setAttribute('aria-selected', button.dataset.step === String(step) ? 'true' : 'false')
+    })
+    document.getElementById('stepNote').textContent = notes[step]
+    refreshGate()
+  }
+
+  function setMode(mode) {
+    state.mode = mode
+    app.dataset.mode = mode
+    document.getElementById('modeWide').classList.toggle('on', mode === 'wide')
+    document.getElementById('modeNarrow').classList.toggle('on', mode === 'narrow')
+    document.getElementById('expandBtn').textContent = mode === 'wide' ? '⤢' : '⤡'
+    document.getElementById('expandBtn').title = mode === 'wide' ? '展开到全屏' : '退出全屏'
+    if (mode === 'narrow') setPane(app.dataset.pane)
+  }
+
+  function setPane(pane) {
+    app.dataset.pane = pane
+    document.querySelectorAll('.mobile-tabs button').forEach((button) => {
+      const on = button.dataset.pane === pane
+      button.classList.toggle('on', on)
+      button.setAttribute('aria-selected', on ? 'true' : 'false')
+    })
+  }
+
+  function showToast(text) {
+    toast.textContent = text
+    toast.classList.add('on')
+    clearTimeout(showToast.timer)
+    showToast.timer = setTimeout(() => toast.classList.remove('on'), 2400)
+  }
+
+  function flash(element) {
+    element.classList.remove('flash')
+    void element.offsetWidth
+    element.classList.add('flash')
+  }
+
+  document.querySelectorAll('#stepNav button').forEach((button) => {
+    button.addEventListener('click', () => setStep(Number(button.dataset.step)))
+  })
+  document.getElementById('modeWide').addEventListener('click', () => setMode('wide'))
+  document.getElementById('modeNarrow').addEventListener('click', () => setMode('narrow'))
+  document.getElementById('expandBtn').addEventListener('click', () => setMode(state.mode === 'wide' ? 'narrow' : 'wide'))
+  document.querySelectorAll('.mobile-tabs button').forEach((button) => {
+    button.addEventListener('click', () => setPane(button.dataset.pane))
+  })
+
+  document.getElementById('needBtn').addEventListener('click', () => {
+    if (state.mode === 'narrow') setPane('conv')
+    const card = document.getElementById('actionCard')
+    card.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    flash(card)
+  })
+
+  document.addEventListener('click', (event) => {
+    const target = event.target.closest('[data-toast]')
+    if (!target) return
+    showToast(target.dataset.toast)
+  })
+
+  function setPendingCount(value) {
+    document.getElementById('filterPending').textContent = '待审核 ' + value
+    document.getElementById('recTabBadge').textContent = String(value)
+    if (value === 0) document.getElementById('reviewChip').hidden = true
+  }
+
+  function refreshGate() {
+    const reviewOpen = !state.approved && !state.revised
+    const actionOpen = state.action === 'pending'
+    const gate = document.getElementById('arcGate')
+    const button = document.getElementById('archiveBtn')
+    const reviewItem = document.getElementById('checkReview')
+    const actionItem = document.getElementById('checkAction')
+    reviewItem.className = reviewOpen ? 'warn' : 'ok'
+    actionItem.className = actionOpen ? 'warn' : 'ok'
+    reviewItem.innerHTML = reviewOpen
+      ? '<span class="mark">!</span><span>待审核决策记录：1 条，先在右栏通过或退回</span>'
+      : '<span class="mark">✓</span><span>待审核决策记录：0 条</span>'
+    actionItem.innerHTML = actionOpen
+      ? '<span class="mark">!</span><span>需要你处理：1 项，先在左栏的行动消息里选允许或拒绝</span>'
+      : '<span class="mark">✓</span><span>需要你处理：0 项</span>'
+    const open = (reviewOpen ? 1 : 0) + (actionOpen ? 1 : 0)
+    gate.className = open === 0 ? 'arc-gate ok' : 'arc-gate warn'
+    gate.textContent = open === 0 ? '未完成项已清空，可以提交归档。' : '还有 ' + open + ' 项未处理，提交归档暂不可用。'
+    button.disabled = open > 0 || state.archived
+  }
+
+  document.getElementById('approveBtn').addEventListener('click', () => {
+    state.approved = true
+    const card = document.getElementById('pendingCard')
+    card.classList.add('is-approved')
+    document.getElementById('pendingStatus').className = 'status approved'
+    document.getElementById('pendingStatus').textContent = '已通过'
+    document.getElementById('pendingActions').innerHTML = '<span class="receipt">✓ 已写入活动记录，全文存资料库</span><button class="link" data-toast="在活动记录中查看这条决策（演示）">在活动记录查看</button>'
+    document.getElementById('reviseBox').classList.remove('on')
+    setPendingCount(0)
+    refreshGate()
+    showToast('已通过：写入活动记录，顶部待审核数量减一')
+  })
+
+  document.getElementById('reviseBtn').addEventListener('click', () => {
+    document.getElementById('reviseBox').classList.add('on')
+    document.getElementById('reviseInput').focus()
+  })
+  document.getElementById('reviseCancel').addEventListener('click', () => {
+    document.getElementById('reviseBox').classList.remove('on')
+  })
+  document.getElementById('reviseSubmit').addEventListener('click', () => {
+    state.revised = true
+    const card = document.getElementById('pendingCard')
+    card.classList.add('is-revised')
+    document.getElementById('pendingStatus').className = 'status revising'
+    document.getElementById('pendingStatus').textContent = '需修改'
+    document.getElementById('pendingActions').innerHTML = '<span class="receipt" style="color:#b42318">已退回主题会话，原因留在记录里</span>'
+    document.getElementById('reviseBox').classList.remove('on')
+    document.getElementById('reviseReason').hidden = false
+    document.getElementById('revisedRow').hidden = false
+    setPendingCount(0)
+    refreshGate()
+    showToast('已退回主题会话：右栏保留「需修改」标记和原因')
+  })
+
+  function handleAction(decision) {
+    state.action = decision
+    const card = document.getElementById('actionCard')
+    card.classList.add('is-done')
+    document.getElementById('actionBtns').hidden = true
+    const done = document.getElementById('actionDone')
+    done.hidden = false
+    done.textContent = (decision === 'allowed' ? '已允许' : '已拒绝') + ' · 刚刚'
+    card.querySelector('.badge').textContent = '已处理'
+    document.getElementById('needBtn').hidden = true
+    refreshGate()
+    showToast(decision === 'allowed' ? '已允许：主题会话继续，归档检查更新' : '已拒绝：改用你提供的内容，归档检查更新')
+  }
+  document.getElementById('allowBtn').addEventListener('click', () => handleAction('allowed'))
+  document.getElementById('denyBtn').addEventListener('click', () => handleAction('denied'))
+
+  document.getElementById('archiveBtn').addEventListener('click', () => {
+    if (document.getElementById('archiveBtn').disabled) return
+    state.archived = true
+    app.dataset.archived = '1'
+    const life = document.getElementById('lifeChip')
+    life.className = 'chip chip-done'
+    life.textContent = '已解决'
+    document.getElementById('needBtn').hidden = true
+    document.getElementById('reviewChip').hidden = true
+    document.getElementById('archiveStatus').className = 'status approved'
+    document.getElementById('archiveStatus').textContent = '已归档'
+    document.getElementById('archiveBtn').disabled = true
+    document.getElementById('archiveBtn').textContent = '已归档'
+    document.getElementById('archiveCancel').hidden = true
+    const gate = document.getElementById('arcGate')
+    gate.className = 'arc-gate ok'
+    gate.textContent = '主题已归档，页面只读。'
+    document.getElementById('recCount').textContent = '6'
+    setPendingCount(0)
+    const list = document.getElementById('recList')
+    const row = document.createElement('li')
+    row.className = 'rec-row'
+    row.innerHTML = '<span class="type archive">归档提案</span><div class="rec-main"><div class="rec-row-title">五子棋小游戏</div><div class="rec-row-meta">已归档 · 刚刚</div></div><span class="rec-chev">›</span>'
+    list.prepend(row)
+    document.getElementById('convScroll').scrollTop = 0
+    showToast('已归档：主题变为已解决，主会话收到一行摘要')
+  })
+  document.getElementById('archiveCancel').addEventListener('click', () => {
+    setStep(1)
+    showToast('已取消归档')
+  })
+
+  // URL parameters make screenshots deterministic: ?step=1&mode=narrow&shot=1
+  if (params.get('shot') === '1') document.body.classList.add('shot')
+  const step = Number(params.get('step'))
+  setStep(Number.isInteger(step) && step >= 0 && step <= 5 ? step : 1)
+  const mode = params.get('mode') === 'narrow' ? 'narrow' : 'wide'
+  setMode(mode)
+  const pane = params.get('pane') === 'rec' ? 'rec' : 'conv'
+  setPane(pane)
+  if (params.get('revised') === '1') {
+    document.getElementById('reviseBtn').click()
+    document.getElementById('reviseInput').value = '评审对象需要写清楚是工作项还是主题页。'
+    document.getElementById('reviseSubmit').click()
+  }
+  if (params.get('approved') === '1') document.getElementById('approveBtn').click()
+  if (params.get('allowed') === '1') document.getElementById('allowBtn').click()
+  if (params.get('archived') === '1') document.getElementById('archiveBtn').click()
+})()
+</script>
+</body>
+</html>

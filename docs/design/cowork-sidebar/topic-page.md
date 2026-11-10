@@ -91,6 +91,10 @@ Cowork 的整体布局是左侧主会话、右侧侧边栏。右侧栏有四个�
 - [主题页 demo](../../discussion/topic-demo.png)
 - [HTML 源文件](../../discussion/topic-demo.html)
 
+## 关联
+
+点开主题后的页面见 [主题页：会话与决策记录](topic-session-page.md)。本文件只描述主题列表页，布局不变。
+
 ## 范围外
 
 - 评审、集成、CI 闸门相关功能不在本版本。
