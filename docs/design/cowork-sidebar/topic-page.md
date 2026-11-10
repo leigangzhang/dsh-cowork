@@ -184,3 +184,5 @@ stateDiagram-v2
 - 两行主题卡：主题名 + 一行摘要；标记在主题名右侧，时间在摘要右侧（截图 [topic-card-style.png](../../discussion/topic-card-style.png)）。
 - 边框颜色：阻塞红、运行中绿、空闲黑、已解决灰。
 - 完整交互稿、列表截图和 feature 待办已同步。
+- 前端开发提案与交付阶段见 [topic-page-frontend.md](../../../.agents/notes/proposed/feature/2026-11-10-topic-page-frontend.md)。
+- 后端设计提案（状态、事件通知、会话投递与迁移）见 [topic-page-backend.md](../../../.agents/notes/proposed/feature/2026-11-10-topic-page-backend.md)。
