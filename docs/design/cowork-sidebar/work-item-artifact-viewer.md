@@ -183,6 +183,6 @@ queued（排队）→ sent（已送达）→ thinking（思考中）→ working�
 
 ## 未决问题
 
-- 技术未核实项见[多类型文件嵌入研究](work-item-artifact-embedding-research.md)的待核实清单 V1–V16；开发前先 search 再原型。
+- 技术核实结果见[V1–V16 核实报告](work-item-artifact-verification.md)；开发前置门禁是 Excalidraw 中文字体策略和“下载体积/磁盘体积”的验收口径。
 - 附件类型、大小和数量的最终限制需要在实现时定。
 - “待确认/需反馈”与主题审查状态的边界在实现时再校验。

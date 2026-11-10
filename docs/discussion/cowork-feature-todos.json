@@ -1,5 +1,5 @@
 {
-  "version": 17,
+  "version": 18,
   "features": [
     {
       "id": "cowork-sidebar-topic-page",
@@ -73,9 +73,38 @@
         "右栏 378px 时列表单列，只显示类型、状态、评论数、附件数和更新时间",
         "状态可从待确认流转到已确认；评论、附件、版本在查看器内可见"
       ],
-      "next": "等待确认 v3 设计稿；确认后按研究文档 V1–V16 先 search 核实再原型实现",
+      "next": "V1–V16 已核实；先定 Excalidraw 中文字体策略和下载/磁盘体积口径，再进入实现",
       "updatedAt": "2026-11-10T12:45:00Z",
-      "designVersion": "v3"
+      "designVersion": "v3",
+      "verification": {
+        "report": "docs/design/cowork-sidebar/work-item-artifact-verification.md",
+        "done": [
+          "V2",
+          "V6",
+          "V7",
+          "V8",
+          "V9",
+          "V16"
+        ],
+        "partial": [
+          "V1",
+          "V3",
+          "V5",
+          "V10",
+          "V11",
+          "V12",
+          "V15"
+        ],
+        "withGap": [
+          "V4"
+        ],
+        "deferred": [
+          "V14"
+        ],
+        "negative": [
+          "V13"
+        ]
+      }
     },
     {
       "id": "cowork-artifact-studio-activity-stream",
@@ -328,97 +357,114 @@
       "id": "V1",
       "text": "Excalidraw 以懒加载块接入单文件客户端：CSS、字体资源、EXCALIDRAW_ASSET_PATH、React 18、构建产物大小",
       "verifyBy": "search + 构建原型",
-      "status": "pending"
+      "status": "partial",
+      "result": "Excalidraw 0.18.1 可挂载、可出图；JS 8.19 MB min/2.55 MB gzip，CSS 141 KB，Xiaolai 字体 13 MB；带全字体包体约 15 MB，去掉 Xiaolai 约 2.9 MB。EXCALIDRAW_ASSET_PATH 必须绝对 URL。"
     },
     {
       "id": "V2",
       "text": "Excalidraw 场景格式与元素级模型工具：稳定增加、修改、删除元素和文字",
       "verifyBy": "search + 原型",
-      "status": "pending"
+      "status": "done",
+      "result": "convertToExcalidrawElements、getSceneElements、updateScene、serializeAsJSON 均可用；元素级工具可行。"
     },
     {
       "id": "V3",
       "text": "Excalidraw 自动保存、版本校验、整文件锁的真实表现",
       "verifyBy": "原型",
-      "status": "pending"
+      "status": "partial",
+      "result": "挂载与 onChange 已确认；自动保存、版本校验、整文件锁属于插件逻辑，待实现原型。"
     },
     {
       "id": "V4",
       "text": "tools.guard 覆盖哪些写文件工具，拒绝后模型能否重试，bash 绕过如何补",
       "verifyBy": "源码 + 端到端",
-      "status": "pending"
+      "status": "done-with-gap",
+      "result": "write/edit/str_replace_editor 均可被 tools.guard 拦截，拒绝以 Error: 原因 返回；bash 绕过未解决。"
     },
     {
       "id": "V5",
       "text": "编辑行范围上报延迟与有效期，三方合并的重叠判定与误报",
       "verifyBy": "原型 + 真机",
-      "status": "pending"
+      "status": "partial",
+      "result": "fs.writeText replaceIfVersion 与 editText expected.version 存在；三方合并与范围上报待实现原型。"
     },
     {
       "id": "V6",
       "text": "TipTap 体积、HTML 往返、docx 导入导出基本格式保真",
       "verifyBy": "search + 原型",
-      "status": "pending"
+      "status": "done",
+      "result": "TipTap + 表格扩展 460 KB/146 KB gzip；基本 HTML 往返通过；所有 @tiptap 包必须锁同一版本，表格扩展不在 StarterKit。"
     },
     {
       "id": "V7",
       "text": "read/write-excel-file 最新版体积、多工作表、筛选排序与导出的关系",
       "verifyBy": "search + 原型",
-      "status": "pending"
+      "status": "done",
+      "result": "read/write-excel-file 多工作表读写通过；浏览器 123 KB/34 KB gzip；只处理值，不保留公式和样式。"
     },
     {
       "id": "V8",
       "text": "Pele 对模型生成 Mermaid 的兼容性和按类型体积",
       "verifyBy": "search + 原型",
-      "status": "pending"
+      "status": "done",
+      "result": "Pele 六类图 301 KB/114 KB gzip；六类样例渲染通过，标签转义；架构图需正确语法。"
     },
     {
       "id": "V9",
       "text": "CodeMirror 子集实际体积",
       "verifyBy": "构建",
-      "status": "pending"
+      "status": "done",
+      "result": "CodeMirror Markdown 子集 520 KB/179 KB gzip；最小行号编辑器 277 KB/90 KB gzip。"
     },
     {
       "id": "V10",
       "text": "SSE/EventSource 在真实宿主的认证与断线续传",
       "verifyBy": "端到端",
-      "status": "pending"
+      "status": "partial",
+      "result": "连接层流式响应与同源 HttpOnly/SameSite=Strict cookie 有源码依据；真实宿主 SSE E2E 未跑。"
     },
     {
       "id": "V11",
       "text": "同一会话串行、跨会话并行的宿主行为、限流和重启恢复",
       "verifyBy": "端到端",
-      "status": "pending"
+      "status": "partial",
+      "result": "同会话 followup 排队、inbox 持久化有源码依据；跨会话并行、限流和重启恢复未跑 E2E。"
     },
     {
       "id": "V12",
       "text": "全部组件接入后的客户端和包体大小（5–10 MB）",
       "verifyBy": "构建",
-      "status": "pending"
+      "status": "partial",
+      "result": "核心约 2.4 MB min/0.78 MB gzip；Excalidraw 另加约 11 MB min；含 Xiaolai 包体约 17 MB，去掉约 4 MB。"
     },
     {
       "id": "V13",
       "text": "ProcessOn 是否有官方私有嵌入方式",
       "verifyBy": "search",
-      "status": "pending"
+      "status": "done-negative",
+      "result": "无官方私有嵌入；ProcessOn 嵌入依赖公开分享，只做手动导入导出。"
     },
     {
       "id": "V14",
       "text": "PDF 页内区域批注与带批注副本导出",
       "verifyBy": "原型",
-      "status": "pending"
+      "status": "deferred",
+      "result": "宿主 PDF 预览已有 pdfjs 文本层和 viewport；页内区域批注可做，本版本不做。"
     },
     {
       "id": "V15",
       "text": "模型回复工具采用率、多模态附件路径校验",
       "verifyBy": "端到端",
-      "status": "pending"
+      "status": "partial",
+      "result": "图片消息和附件存储 API 确认；模型回复工具采用率需真实模型 E2E。"
     },
     {
       "id": "V16",
       "text": "docx 9.15.3 的 ./html 子入口能否直接 HTML → docx",
       "verifyBy": "search + 原型",
-      "status": "pending"
+      "status": "done",
+      "result": "docx/html 的 htmlToContent 可用；HTML→docx→HTML 保留标题、粗斜体、列表、表格。"
     }
-  ]
+  ],
+  "verificationReport": "docs/design/cowork-sidebar/work-item-artifact-verification.md"
 }

@@ -1,19 +1,19 @@
 # 工作项交付物：多类型文件嵌入与编辑研究
 
-Status: research（2026-11-10，v3；已按确认的开放问题更新，技术未核实项转待办）
+Status: research（2026-11-10，v4；V1–V16 已核实，结果见[核实报告](work-item-artifact-verification.md)）
 
 ## 结论
 
 1. **位置与记录。** 查看器优先放主区域；后台记录叫 `artifacts`，界面仍叫工作项；旧的代码隔离 `workItems` 不合并，保留原样。
 2. **所有文本类型都能编辑。** Markdown、源码、HTML/CSS、SVG 源码、Mermaid 源码、CSV/TSV 用 **CodeMirror 6**；Doc 用 **TipTap** 做所见即所得编辑，底层文件仍是 HTML。
 3. **图表用文本作为内容源。** 架构图、流程图、时序/角色交互图、ER 图、类图、状态图、思维导图、C4 统一写成 Mermaid 源码，用户和模型都改文本；预览用 **Pele**（MIT，无运行时依赖，支持 Mermaid 12.1 的全部图表类型）。
-4. **自由画布内建 Excalidraw。** 预算放宽后，Excalidraw 作为内建编辑器（懒加载块），文件仍以 `.excalidraw` 为准；draw.io、ProcessOn 等外部工具通过导入导出对接。
+4. **自由画布内建 Excalidraw。** Excalidraw 作为懒加载块，文件仍以 `.excalidraw` 为准。实测中文字体 Xiaolai 占 13 MB，全带会使包体超过 10 MB；建议不带 Xiaolai，中文走系统字体回退，需要手写中文字体时提供可选字体包。draw.io、ProcessOn 等外部工具通过导入导出对接。
 5. **Office 与 PDF 按“交换格式”处理。** Doc 以 HTML 为编辑源，docx 只做导入导出；表格以 CSV/TSV 为编辑源，xlsx 只做导入导出；PDF 只查看和批注，不在 HTML 里改正文。
 6. **实时流程复用 discussion 脚本的数据模型，换掉轮询。** 保留追加消息、版本号、作者、附件和大小限制，改成宿主事件加 SSE；同一主题会话内串行并合并，跨主题并行。
 7. **多模态双向。** 用户圈选或截图后上传；模型回复也可以带图片或文本附件。
 8. **并发上限已确认。** 主题内 1.5 秒合并窗口、每批最多 10 条批注；主会话跨主题并行默认 4，可配 1–8。
 9. **冲突按行加锁。** 用户和模型改到同一范围才锁；不重叠的修改自动合并。画布按整个文件锁。
-10. **体积预算放宽。** 按你的回复定到 5–10 MB：客户端按 5 MB、包体按 10 MB 执行；如果两个都按 10 MB 也可以再放宽。
+10. **体积预算放宽。** 按你的回复定到 5–10 MB：客户端按 5 MB、包体按 10 MB 执行。实测核心依赖约 2.4 MB min、0.78 MB gzip；Excalidraw 另加 8.19 MB JS 和 0.5 MB 非中文字体，懒加载后下载体积约 3.4 MB。完整中文字体会让包体到 15 MB 以上，必须先定字体策略。
 
 ## 本次确认的决定
 
@@ -68,7 +68,7 @@ Status: research（2026-11-10，v3；已按确认的开放问题更新，技术�
 | 候选 | 版本 / 许可 | 体积（min，2026-11-10 查询） | 判断 |
 |---|---|---|---|
 | Pele | 1.13.0 / MIT | 主入口 714 KB（gzip 262 KB）；支持按类型注册和 `pele/lazy` | **采用**（文本图表） |
-| Excalidraw | 0.18.1 / MIT | 入口 1.12 MB（gzip 353 KB）加懒加载块 | **采用**（自由画布，内建懒加载） |
+| Excalidraw | 0.18.1 / MIT | 入口 589 KB；全部 chunk 8.19 MB（gzip 2.55 MB）；CSS 141 KB；中文字体 13 MB | **采用**（自由画布，懒加载；字体策略待定） |
 | mermaid | 12.3.0 / MIT | 入口 667 KB（gzip 159 KB）加大量懒加载块 | 备选。Pele 兼容出问题时切换 |
 | maxGraph（draw.io 内核） | 0.25.1 / Apache-2.0 | 621 KB（gzip 168 KB） | 不采用。XML 画布状态 |
 | tldraw | 5.6.0 / 商用许可 | 1.86 MB（gzip 552 KB） | 不采用。生产需要商业授权 |
@@ -83,7 +83,7 @@ Status: research（2026-11-10，v3；已按确认的开放问题更新，技术�
 - **Doc**：TipTap 所见即所得，底层文件是 HTML；保留源码切换。批注按段落/块锚定。
 - **图表**：Mermaid 源码加 Pele 预览。先注册流程图、时序图、ER 图、类图、状态图、架构图六类；C4、思维导图按需加载。
 - **表格**：自建网格编辑 CSV/TSV，支持查看、编辑、筛选、排序；xlsx 导入导出按需加载。
-- **自由画布**：Excalidraw 内建（懒加载块），文件是 `.excalidraw`；外部工具通过导入导出对接。
+- **自由画布**：Excalidraw 内建（懒加载块），文件是 `.excalidraw`；资源路径用同源绝对地址；默认不带 Xiaolai 中文字体，外部工具通过导入导出对接。
 - **PDF**：浏览器原生查看或跳宿主预览，只做批注。
 
 ### 自建编辑器的能力边界
@@ -97,19 +97,25 @@ Status: research（2026-11-10，v3；已按确认的开放问题更新，技术�
 
 ### 体积预算
 
-| 项目 | 当前 / 预计 | 说明 |
-|---|---|---|
-| 已发布包 | 437 KB（本地 tgz，2026-11-09） | lib 2.1 MB 中类型声明 340 KB |
-| 客户端脚本 | 96 KB | 当前 `lib/client.js` |
-| 宿主脚本 | 40 KB | 当前 `lib/index.js` |
-| CodeMirror 子集 | 约 300 KB | 需构建实测 |
-| TipTap（Doc） | 约 370 KB | starter-kit 加 react |
-| Pele 六类图 | 未核实 | 主入口 714 KB 是上限；按类型注册应更小 |
-| Excalidraw | 1.5–4 MB | 入口 1.12 MB 加懒加载块和字体资源，需实测 |
-| docx / xlsx 转换 | 约 750 KB，按需 | mammoth 304 KB、docx 283 KB、读写表格约 160 KB |
-| 建议上限 | 客户端 5 MB；包体 10 MB | 超出时把 Excalidraw 或 Office 转换拆成可选包 |
+实测值（React external，esbuild min，不含 sourcemap）：
 
-估算合计约 3–6 MB min，落在 5–10 MB 区间内；Excalidraw 的实际产物要原型构建后确认。
+| 项目 | 实测 min | gzip | 说明 |
+|---|---|---|---|
+| CodeMirror（Markdown 子集） | 520 KB | 179 KB | 行号 + 语法 + 历史 + 键位 |
+| TipTap（含表格扩展） | 460 KB | 146 KB | Doc 专用；表格扩展必须单独装 |
+| Pele（六类图） | 301 KB | 114 KB | 流程图、时序、ER、类、状态、架构 |
+| read/write-excel-file | 123 KB | 34 KB | 表格导入导出 |
+| docx + mammoth | 906 KB | 275 KB | Doc 导入导出，按需 |
+| 现有客户端 | 96 KB | 约 30 KB | 当前 `lib/client.js` |
+| 核心合计 | 约 2.4 MB | 约 0.78 MB | 不含 Excalidraw |
+| Excalidraw JS（全部 chunk） | 8.19 MB | 2.55 MB | 懒加载 |
+| Excalidraw CSS + 非中文字体 | 约 640 KB | 约 520 KB | CSS 141 KB + 其他字体 |
+| Excalidraw 中文字体 Xiaolai | 13 MB | 13 MB | 建议不带；中文回退系统字体 |
+| 含 Excalidraw、去掉 Xiaolai | 约 11 MB | 约 3.9 MB | 下载体积在 5 MB 内 |
+| 含 Excalidraw 和 Xiaolai | 约 24 MB | 约 17 MB | 超过 10 MB 包体上限 |
+
+按下载体积（gzip）口径，核心约 0.78 MB，含 Excalidraw 约 3.9 MB；按磁盘 min 产物体积口径，核心约 2.4 MB，含 Excalidraw 约 11 MB。包体按压缩 tar 估算：去掉 Xiaolai 约 4 MB，带 Xiaolai 约 17 MB。建议验收按“首屏下载 ≤5 MB、包体 ≤10 MB”，并在文档里同时写明磁盘体积。
+
 
 ## 逐类型方案
 
@@ -173,7 +179,7 @@ Status: research（2026-11-10，v3；已按确认的开放问题更新，技术�
 - 批注层叠在画布上方，用元素 id 或归一化坐标定位；选中批注时高亮对应元素或区域。
 - 模型改画布优先用插件提供的元素级工具（增加、修改、删除元素、改文字、改颜色），不直接改整份 JSON；工具设计要按 Excalidraw 场景格式核实。
 - 导入导出：支持 `.excalidraw`、PNG、SVG；对接 draw.io 时用 SVG/PNG 中转，对接 ProcessOn 时手动导出导入。
-- 打包注意：Excalidraw 有 CSS、字体和资源路径；构建时要处理 `EXCALIDRAW_ASSET_PATH`、React 18 和动态导入。这些是待核实项。
+- 打包注意：Excalidraw 有 CSS、字体和资源路径；`EXCALIDRAW_ASSET_PATH` 必须是绝对 URL，否则出现文本元素时构建 URL 失败。CJS/chunk 接入和资源授权路由还需要实现原型。
 
 ### 外部工具（备用）
 
@@ -187,7 +193,7 @@ Status: research（2026-11-10，v3；已按确认的开放问题更新，技术�
 
 - 可编辑源是 `.html`；TipTap 负责所见即所得，保留源码切换。
 - 导入 `.docx`：mammoth 转 HTML，原 docx 保留为附件。
-- 导出 `.docx`：docx 库生成；docx 9.15.3 的 `./html` 子入口能否直接转换未核实，先测；不行按结构生成。
+- 导出 `.docx`：docx 9.15.3 的 `docx/html` 已确认可用，`htmlToContent` 直接读富文本 HTML；基本格式往返已通过。
 - 保真度目标：标题、段落、列表、粗斜体、链接、表格、图片。修订记录、复杂版式、域、宏不保证。
 - 需要在 WPS/Office 里看原版式时，用“在本地应用打开”。
 
@@ -310,30 +316,32 @@ Status: research（2026-11-10，v3；已按确认的开放问题更新，技术�
 
 组件版本、许可和体积来自 npm registry 与 bundlephobia（查询日期 2026-11-10）。体积是打包器估算，不等于本仓库产物；以原型构建为准。
 
-## 待核实清单（开发前优先 search，再做原型）
+## 待核实清单（V1–V16 已核实）
 
-| id | 待核实项 | 核实方式 | 状态 |
-|---|---|---|---|
-| V1 | Excalidraw 以懒加载块接入单文件客户端：CSS、字体资源、`EXCALIDRAW_ASSET_PATH`、React 18、构建产物大小 | search + 构建原型 | pending |
-| V2 | Excalidraw 场景格式与元素级模型工具：能稳定增加、修改、删除元素和文字，不破坏文件 | search + 原型 | pending |
-| V3 | Excalidraw 自动保存、版本校验、整文件锁在真实编辑中的表现 | 原型 | pending |
-| V4 | `tools.guard` 能覆盖哪些写文件工具（write/edit/替换类），拒绝后模型能否正确重试；bash 绕过如何补 | 源码 + 端到端 | pending |
-| V5 | 浏览器上报编辑行范围的延迟和有效期；三方合并的重叠判定与误报 | 原型 + 真机 | pending |
-| V6 | TipTap 在 Doc 上的体积、HTML 往返、docx 导入导出基本格式保真 | search + 原型 | pending |
-| V7 | read/write-excel-file 最新版体积、多工作表、筛选排序与导出的关系 | search + 原型 | pending |
-| V8 | Pele 对模型生成 Mermaid 的兼容性和按类型体积 | search + 原型 | pending |
-| V9 | CodeMirror 子集实际体积 | 构建 | pending |
-| V10 | SSE/EventSource 在真实宿主的认证、断线续传 | 端到端 | pending |
-| V11 | 同一会话串行、跨会话并行的宿主行为、限流和重启恢复 | 端到端 | pending |
-| V12 | 全部组件接入后的客户端和包体大小（5–10 MB） | 构建 | pending |
-| V13 | ProcessOn 是否有官方私有嵌入方式 | search | pending |
-| V14 | PDF 页内区域批注与带批注副本导出 | 原型 | pending |
-| V15 | 模型回复工具的采用率、多模态附件路径校验 | 端到端 | pending |
-| V16 | docx 9.15.3 的 `./html` 子入口能否直接 HTML → docx | search + 原型 | pending |
+详细结果、命令和证据见[核实报告](work-item-artifact-verification.md)。结论：
+
+| id | 结论 | 摘要 |
+|---|---|---|
+| V1 | 部分确认 | 可挂载、可出图；JS 8.19 MB min / 2.55 MB gzip；CSS 141 KB；Xiaolai 字体 13 MB，带全字体包体约 15 MB。`EXCALIDRAW_ASSET_PATH` 必须绝对 URL |
+| V2 | 确认 | `convertToExcalidrawElements`、`getSceneElements`、`updateScene`、`serializeAsJSON` 可用 |
+| V3 | 部分确认 | 挂载和 `onChange` 已确认；自动保存、版本、锁需要实现原型 |
+| V4 | 确认，有缺口 | write/edit/str_replace_editor 可拦截；bash 绕过未解决 |
+| V5 | 部分确认 | `replaceIfVersion` 和 `expected.version` 存在；三方合并需实现原型 |
+| V6 | 确认 | TipTap + 表格 460 KB / 146 KB gzip；基本 HTML 往返通过；所有 @tiptap 包必须锁同一版本 |
+| V7 | 确认 | 多工作表读写通过；浏览器 123 KB / 34 KB gzip；只处理值 |
+| V8 | 确认 | 六类图 301 KB / 114 KB gzip；六类样例渲染通过；标签转义 |
+| V9 | 确认 | CodeMirror Markdown 子集 520 KB / 179 KB gzip；最小 277 KB / 90 KB gzip |
+| V10 | 部分确认 | 流式响应和同源 cookie 有源码依据；真实宿主 SSE 未跑 |
+| V11 | 部分确认 | 同会话 `followup` 排队、inbox 持久化；跨会话并行和重启未跑 E2E |
+| V12 | 部分确认 | 核心约 2.4 MB min；Excalidraw 另加约 11 MB min；字体策略决定包体 |
+| V13 | 确认（否定） | 没有私有嵌入；ProcessOn 嵌入依赖公开分享，只做手动导入导出 |
+| V14 | 部分确认、后置 | 宿主 PDF 预览已有文本层和 viewport；页内批注可做，本版本不做 |
+| V15 | 部分确认 | 图片消息和附件存储确认；模型回复工具采用率需真实模型 E2E |
+| V16 | 确认 | `docx/html` 的 `htmlToContent` 可用；HTML→docx→HTML 基本格式保留 |
 
 ## 风险
 
-- **Excalidraw 集成风险最大。** 打包资源、场景格式、模型改画布、整文件锁四件事都还没有原型；如果 V1/V2/V3 不通过，退回“内建只读预览加外部编辑”。
+- **Excalidraw 的资源和接入仍是最大风险。** V1 已确认能挂载、能出图，但 CJS/chunk 接入、字体授权路由和包体还要原型；V2 已确认 API，V3 的自动保存和整文件锁需要在实现期验证。字体策略不解决前不要进实现。
 - **同行锁的覆盖范围。** 工具守卫能拦截常规编辑工具，但 bash 改文件绕不过；需要在提示词和校验两层补。
 - **TipTap 引入第二套文档模型。** 文件仍是 HTML，但编辑时是 ProseMirror 模型；往返和批注锚点要测试。
 - **docx/xlsx 保真度。** 只承诺基本查看、编辑、筛选、排序；复杂版式、公式、样式、修订不保证。
@@ -374,6 +382,6 @@ Status: research（2026-11-10，v3；已按确认的开放问题更新，技术�
 
 ## 开放问题
 
-- 5–10 MB 按“客户端 5 MB、包体 10 MB”执行是否正确？还是两个都取 10 MB？
-- Doc 用 TipTap 所见即所得是否接受？如果只要源码编辑，可以省掉这个依赖。
-- 表格的筛选和排序只作为视图状态，导出时可选“当前视图”或“原始顺序”，这样可以吗？
+- Excalidraw 的中文字体策略：不带 Xiaolai、中文回退系统字体（推荐），还是携带完整字体、放宽包体上限，或把画布拆成独立可选包？
+- “客户端 5 MB”按下载体积还是磁盘 min 产物验收？建议按下载体积，同时在文档里写明磁盘体积。
+- Doc 用 TipTap 所见即所得已按推荐采用；如果后续只要源码编辑，可以去掉这个依赖。
