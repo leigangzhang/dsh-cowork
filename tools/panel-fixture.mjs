@@ -5,7 +5,8 @@
  * Modes:
  *   node tools/panel-fixture.mjs apply [--repo=<path>] [--master=<sessionId>]
  *                                      [--live-topic=<sessionId>]
- *       Back up the project's data directory, then write one v2 fixture that
+ *       Back up the project's data directory (index, activity, inbox, reviews,
+ *       and the notices ledger), then write one v2 fixture that
  *       covers every state the panel has to render: active, idle (25 h silent,
  *       beyond the 24 h idle threshold), resolved-by-user, resolved-by-master,
  *       blocked + awaiting authorization with a pending request, needs_revision
@@ -13,9 +14,10 @@
  *       `--live-topic` replaces the active topic's id with a real session id so
  *       the "open topic" path can be verified against a session the host knows.
  *   node tools/panel-fixture.mjs restore [--repo=<path>]
- *       Put the backed-up index/activity/inbox/reviews back, atomically, then
- *       drop the backup. Idempotent while the backup exists; the restored index
- *       hash and the topic/thread counts are printed as proof.
+ *       Put the backed-up index/activity/inbox/reviews/notices back, atomically,
+ *       then drop the backup. Idempotent while the backup exists; the restored
+ *       index hash, the topic/thread counts, and the notice-ledger state are
+ *       printed as proof.
  *
  * Exit codes: 0 success, 1 operation failure, 2 usage error.
  *
@@ -112,6 +114,7 @@ function locate(repo) {
     index: join(data, 'index.json'),
     activity: join(data, 'activity.jsonl'),
     inbox: join(data, 'inbox.json'),
+    notices: join(data, 'notices.json'),
     reviews: join(data, 'reviews'),
     backup: join(data, BACKUP_RELATIVE),
     manifest: join(data, BACKUP_RELATIVE, 'manifest.json'),
@@ -490,14 +493,31 @@ async function backup(paths) {
     hadActivity: existsSync(paths.activity),
     hadInbox: existsSync(paths.inbox),
     hadReviews: existsSync(paths.reviews),
+    hadNotices: existsSync(paths.notices),
   }
   await mkdir(paths.backup, { recursive: true })
   await cp(paths.index, join(paths.backup, 'index.json'))
   if (manifest.hadActivity) await cp(paths.activity, join(paths.backup, 'activity.jsonl'))
   if (manifest.hadInbox) await cp(paths.inbox, join(paths.backup, 'inbox.json'))
   if (manifest.hadReviews) await cp(paths.reviews, join(paths.backup, 'reviews'), { recursive: true })
+  if (manifest.hadNotices) await cp(paths.notices, join(paths.backup, 'notices.json'))
   await writeFile(paths.manifest, `${JSON.stringify(manifest, null, 2)}\n`)
   return manifest
+}
+
+/**
+ * The notice ledger as one output row. A damaged file is reported as `rows:
+ * null` (never guessed) and still restored byte-for-byte from the backup.
+ */
+async function noticesState(filePath) {
+  const present = existsSync(filePath)
+  if (!present) return { present: false, rows: 0 }
+  try {
+    const parsed = JSON.parse(await readFile(filePath, 'utf8'))
+    return { present: true, rows: Array.isArray(parsed?.notices) ? parsed.notices.length : null }
+  } catch {
+    return { present: true, rows: null }
+  }
 }
 
 /** Replace a file in one atomic step (temp sibling, then rename). */
@@ -564,6 +584,8 @@ async function apply(flags) {
   const startedAt = Date.now()
   const manifest = await backup(paths)
   await mkdir(paths.data, { recursive: true })
+  // The fixture owns the ledger: start from an empty one, never mix old rows in.
+  await rm(paths.notices, { force: true })
   await writeFileAtomic(paths.index, `${JSON.stringify(document, null, 2)}\n`)
   await writeFileAtomic(
     paths.activity,
@@ -589,6 +611,7 @@ async function apply(flags) {
     reviews: reviewFiles.map(({ fileName }) => fileName),
     liveTopic: ids.active,
     hadReviews: manifest.hadReviews,
+    notices: { hadNotices: manifest.hadNotices, rows: 0, present: false },
     elapsedMs,
     withinBudget: elapsedMs <= BUDGET_MS,
   }, null, 2))
@@ -621,7 +644,15 @@ async function restore(flags) {
   } else {
     await rm(paths.reviews, { recursive: true, force: true })
   }
+  // The ledger was not part of the fixture: put the original bytes back, or
+  // remove the empty file a fixture run may have left behind.
+  if (manifest.hadNotices) {
+    await writeFileAtomic(paths.notices, await readFile(join(paths.backup, 'notices.json')))
+  } else {
+    await rm(paths.notices, { force: true })
+  }
   const restored = await readJson(paths.index, 'restored project index')
+  const notices = await noticesState(paths.notices)
   const elapsedMs = Date.now() - startedAt
   const indexSha256 = await sha256Of(paths.index)
   await rm(paths.backup, { recursive: true, force: true })
@@ -631,6 +662,7 @@ async function restore(flags) {
     indexSha256,
     topics: Array.isArray(restored.topics) ? restored.topics.length : 0,
     threads: Array.isArray(restored.threads) ? restored.threads.length : 0,
+    notices: { hadNotices: manifest.hadNotices, rows: notices.rows, present: notices.present },
     elapsedMs,
     withinBudget: elapsedMs <= BUDGET_MS,
   }, null, 2))
