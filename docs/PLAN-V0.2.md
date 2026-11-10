@@ -292,14 +292,15 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 ### 5.1 主题生命周期与已解决
 
-- `active ↔ idle`：`lastActiveAt` 超过 `idleAfterMs`（默认 2h）且无 `awaitingReview`/`blocked` 时为 `idle`；有新事件回 `active`。在读取和 `turn/end` 时惰性评估。
+- `active ↔ idle`：`lastActiveAt` 超过 `idleAfterMs`（2026-11-10 起默认 24h）且无 `awaitingReview`/`blocked`/`authorization` 时为 `idle`；有新事件回 `active`。在读取和 `turn/end` 时惰性评估。
 - `resolved`：
-  - 用户手动：随时；`resolvedBy='user'`。
-  - master 自动：`awaitingReview=false`、`blocked=false`、没有 `active` 工作项、`lastDeliveryConfirmedAt` 非空、`digest` 非空、`now - lastActiveAt >= resolveAfterMs`（默认 3 天）。全部满足才写；不提供撤销。
-  - 自动评估在 `project_status`、`route`、面板 overview 读取时和 `turn/end` 后执行；不新增后台定时器。写入前在项目锁内重读 `lastActiveAt`，避免与用户新消息竞争。
-  - `resolved` 不再被自动路由；用户手动打开并输入后回到 `active`，清空 `resolvedAt/resolvedBy`。
-- `awaitingReview`：评审请求接受时置位，verdict 时清除。
-- `blocked`：`handoff(blocked)` 或评审 `reject` 置位；`handoff(done)` 或新的评审通过清除。
+  - 只有用户手动归档：主题卡 ⋯ 菜单或 `cowork_topic_resolve`/`resolve` 路由；`resolvedBy='user'`。
+  - 没有 master 自动 resolved；`resolveAfterMs` 保留但弃用并忽略。
+  - 归档同时清 block/authorization、写只给主会话的 `topic-archived` 通知，并归档宿主主题会话；重复归档幂等。
+  - `resolved` 不再被自动路由；用户从菜单恢复（`reopen`）后回到 `active` 并 unarchive，归档记录保留。
+- `awaitingReview`：评审请求接受时置位，verdict 时清除；主题页不读它。
+- `blocked`：由 `blockedReason`（authorization/handoff/conflict）派生；`authorization` 由待授权请求置位，`handoff` 由 `cowork_handoff(blocked)` 或 `cowork_topic_report(blocked)` 置位；解除时按 `blockedFromStatus` 恢复 active/idle。评审 `reject` 仍置 `blocked=true` 并写 review-reject 收件箱，读时归一化为 handoff 阻塞（等待 master 处理）。
+- 待授权：`authorization` 非空即阻塞；`authorization.resolve`（master 或该 topic 会话）或归档会清除它，归档还会把原通知置 void。
 
 ### 5.2 store v2 与迁移
 
