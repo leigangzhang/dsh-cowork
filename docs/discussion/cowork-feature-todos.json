@@ -1,5 +1,5 @@
 {
-  "version": 14,
+  "version": 18,
   "features": [
     {
       "id": "cowork-sidebar-topic-page",
@@ -38,36 +38,73 @@
     {
       "id": "cowork-work-item-artifact-viewer",
       "title": "Cowork 工作项页：多模态交付物查看器",
-      "status": "design-approved",
+      "status": "design-draft",
       "approvedAt": "2026-11-10T04:37:20Z",
       "source": {
         "thread": "object:work-item",
-        "demo": "work-item-demo-v2.png",
-        "demoHtml": "work-item-demo-v2.html"
+        "demo": "work-item-demo-v3.png",
+        "demoHtml": "work-item-demo-v3.html",
+        "demos": [
+          "work-item-demo-v3-canvas.png",
+          "work-item-demo-v3-details.png"
+        ]
       },
       "scope": [
-        "工作项是用户需要查看、确认、反馈的多模态交付物，不是代码分支/提交/合并的容器",
-        "类型覆盖 PLAN/Markdown、设计稿、架构图、Canvas/Excalidraw、HTML demo/表格/文章",
-        "主区域提供工作项查看器，支持预览、批注、评论和附件",
-        "画布评论使用编号 pin 定位，评论与附件一起归档",
-        "右栏工作项列表只显示类型、状态、评论数、附件数",
-        "状态使用待查看、待确认、需反馈、进行中、已确认",
-        "附件是关键图稿，作为一等字段展示",
-        "不展示 branch、commit、merge 等代码管理字段"
+        "工作项是用户需要查看、确认、反馈、修改的多模态交付物；后台记录用 artifacts，界面仍叫工作项",
+        "类型覆盖 Markdown/PLAN、Doc、表格、图表、设计稿、Excalidraw 画布、PDF、HTML",
+        "查看器在主区域打开；右栏只保留工作项列表和状态汇总",
+        "文本逐行批注和编辑；Doc 段落批注和富文本编辑；画布按元素或区域批注和编辑",
+        "用户和模型可同时编辑，同一行范围冲突才加锁，不重叠自动合并；画布整文件锁",
+        "评论线程显示投递状态和模型回复，回复支持多模态附件",
+        "状态使用待查看、待确认、需反馈、进行中、已确认；模型活动状态单独显示",
+        "附件、截图和导出入口在首屏可见；不展示 branch、commit、merge、diff"
       ],
       "outOfScope": [
-        "实际 Excalidraw/Canvas 编辑器的实现",
-        "工作项版本控制的具体交互",
-        "评审请求页的具体实现"
+        "评审、集成、CI 闸门",
+        "多人协作和权限系统",
+        "PDF 正文编辑",
+        "复杂 Word 版式和 Excel 公式/样式保真"
       ],
       "acceptance": [
-        "工作项可在主区域打开为文档/画布/HTML 查看器，而不是只在侧栏显示摘要",
-        "支持在画布或文档上添加批注，并能定位到具体评论",
-        "评论支持附件，附件作为关键图稿可见",
-        "右栏列表在 378px 宽度下可读，且不出现 branch/commit/merge",
-        "状态可从待确认流转到已确认，并记录评论/附件数量"
+        "工作项在主区域打开，文档、Doc、表格、图表、画布、PDF 各有对应查看器",
+        "文本可逐行选中批注；Doc 可按段落批注；画布可按元素或区域批注",
+        "用户可在查看器直接编辑文本，保存状态可见；同行冲突被锁，不重叠修改自动合并",
+        "批注提交后能看到已送达、思考中、改文件中、已回复或失败状态；模型回复挂在批注上",
+        "右栏 378px 时列表单列，只显示类型、状态、评论数、附件数和更新时间",
+        "状态可从待确认流转到已确认；评论、附件、版本在查看器内可见"
       ],
-      "next": "评审、活动记录、项目记忆 demo 待确认；工作项页后续接入主题页和工作项列表"
+      "next": "V1–V16 已核实；先定 Excalidraw 中文字体策略和下载/磁盘体积口径，再进入实现",
+      "updatedAt": "2026-11-10T12:45:00Z",
+      "designVersion": "v3",
+      "verification": {
+        "report": "docs/design/cowork-sidebar/work-item-artifact-verification.md",
+        "done": [
+          "V2",
+          "V6",
+          "V7",
+          "V8",
+          "V9",
+          "V16"
+        ],
+        "partial": [
+          "V1",
+          "V3",
+          "V5",
+          "V10",
+          "V11",
+          "V12",
+          "V15"
+        ],
+        "withGap": [
+          "V4"
+        ],
+        "deferred": [
+          "V14"
+        ],
+        "negative": [
+          "V13"
+        ]
+      }
     },
     {
       "id": "cowork-artifact-studio-activity-stream",
@@ -254,6 +291,49 @@
         "route": "在主会话打印冲突并发起解决",
         "details": "待定"
       }
+    },
+    {
+      "id": "work-item-artifact-editing-and-embedding",
+      "status": "accepted",
+      "recordedAt": "2026-11-10T11:58:00Z",
+      "source": "chat",
+      "decision": "工作项交付物查看器优先放主区域，用户可直接编辑文本；后台记录用 artifacts，界面仍叫工作项；旧的代码隔离 workItems 不合并；模型回复支持多模态；架构图、流程图、角色交互图、ER 图等统一用文本图表机制；Doc、表格、PDF 优先 HTML 查看和编辑并支持导出到 WPS/Office；不集成重型画布编辑器，自由画布走外部工具。",
+      "implications": [
+        "新增 artifacts 记录与文件布局，不改动 v2 workItems",
+        "查看器以主区域全局面板为第一落点，右栏保留列表",
+        "文本编辑使用带版本校验的保存协议，用户与模型都可能改写文件",
+        "图表以 Mermaid 源码为内容源，预览渲染器单独选型",
+        "Doc、表格以 HTML/CSV 为可编辑源，docx/xlsx 为导入导出格式",
+        "自由画布编辑交给 draw.io Desktop、Excalidraw 网页端等外部工具",
+        "投递按会话串行、跨会话并行，主会话支持多主题并发"
+      ],
+      "editorSelection": {
+        "status": "accepted",
+        "text": "CodeMirror 6",
+        "doc": "TipTap（待原型核实）",
+        "diagram": "Mermaid 源码 + Pele",
+        "table": "自建网格 + read/write-excel-file",
+        "canvas": "Excalidraw（内建懒加载）",
+        "externalTools": "draw.io / ProcessOn 通过导入导出对接"
+      },
+      "updatedAt": "2026-11-10T12:24:00Z",
+      "budget": {
+        "client": "5 MB",
+        "package": "10 MB",
+        "note": "用户回复把上限放宽到 5–10 MB；文档按客户端 5 MB、包体 10 MB 执行。"
+      },
+      "conflictPolicy": "用户和模型改到同一行范围时才加锁；不重叠的修改自动合并；画布按整个文件锁。",
+      "officeFidelity": "docx/xlsx 满足基本查看、编辑、筛选、排序；不做复杂版式、公式、修订记录。",
+      "concurrency": {
+        "topicCoalesceMs": 1500,
+        "maxCommentsPerBatch": 10,
+        "globalParallelDefault": 4,
+        "globalParallelRange": [
+          1,
+          8
+        ],
+        "topicSessionConcurrency": 1
+      }
     }
   ],
   "openQuestions": [
@@ -271,5 +351,120 @@
       "source": "chat",
       "recordedAt": "2026-11-10T06:05:58Z"
     }
-  ]
+  ],
+  "verificationTodos": [
+    {
+      "id": "V1",
+      "text": "Excalidraw 以懒加载块接入单文件客户端：CSS、字体资源、EXCALIDRAW_ASSET_PATH、React 18、构建产物大小",
+      "verifyBy": "search + 构建原型",
+      "status": "partial",
+      "result": "Excalidraw 0.18.1 可挂载、可出图；JS 8.19 MB min/2.55 MB gzip，CSS 141 KB，Xiaolai 字体 13 MB；带全字体包体约 15 MB，去掉 Xiaolai 约 2.9 MB。EXCALIDRAW_ASSET_PATH 必须绝对 URL。"
+    },
+    {
+      "id": "V2",
+      "text": "Excalidraw 场景格式与元素级模型工具：稳定增加、修改、删除元素和文字",
+      "verifyBy": "search + 原型",
+      "status": "done",
+      "result": "convertToExcalidrawElements、getSceneElements、updateScene、serializeAsJSON 均可用；元素级工具可行。"
+    },
+    {
+      "id": "V3",
+      "text": "Excalidraw 自动保存、版本校验、整文件锁的真实表现",
+      "verifyBy": "原型",
+      "status": "partial",
+      "result": "挂载与 onChange 已确认；自动保存、版本校验、整文件锁属于插件逻辑，待实现原型。"
+    },
+    {
+      "id": "V4",
+      "text": "tools.guard 覆盖哪些写文件工具，拒绝后模型能否重试，bash 绕过如何补",
+      "verifyBy": "源码 + 端到端",
+      "status": "done-with-gap",
+      "result": "write/edit/str_replace_editor 均可被 tools.guard 拦截，拒绝以 Error: 原因 返回；bash 绕过未解决。"
+    },
+    {
+      "id": "V5",
+      "text": "编辑行范围上报延迟与有效期，三方合并的重叠判定与误报",
+      "verifyBy": "原型 + 真机",
+      "status": "partial",
+      "result": "fs.writeText replaceIfVersion 与 editText expected.version 存在；三方合并与范围上报待实现原型。"
+    },
+    {
+      "id": "V6",
+      "text": "TipTap 体积、HTML 往返、docx 导入导出基本格式保真",
+      "verifyBy": "search + 原型",
+      "status": "done",
+      "result": "TipTap + 表格扩展 460 KB/146 KB gzip；基本 HTML 往返通过；所有 @tiptap 包必须锁同一版本，表格扩展不在 StarterKit。"
+    },
+    {
+      "id": "V7",
+      "text": "read/write-excel-file 最新版体积、多工作表、筛选排序与导出的关系",
+      "verifyBy": "search + 原型",
+      "status": "done",
+      "result": "read/write-excel-file 多工作表读写通过；浏览器 123 KB/34 KB gzip；只处理值，不保留公式和样式。"
+    },
+    {
+      "id": "V8",
+      "text": "Pele 对模型生成 Mermaid 的兼容性和按类型体积",
+      "verifyBy": "search + 原型",
+      "status": "done",
+      "result": "Pele 六类图 301 KB/114 KB gzip；六类样例渲染通过，标签转义；架构图需正确语法。"
+    },
+    {
+      "id": "V9",
+      "text": "CodeMirror 子集实际体积",
+      "verifyBy": "构建",
+      "status": "done",
+      "result": "CodeMirror Markdown 子集 520 KB/179 KB gzip；最小行号编辑器 277 KB/90 KB gzip。"
+    },
+    {
+      "id": "V10",
+      "text": "SSE/EventSource 在真实宿主的认证与断线续传",
+      "verifyBy": "端到端",
+      "status": "partial",
+      "result": "连接层流式响应与同源 HttpOnly/SameSite=Strict cookie 有源码依据；真实宿主 SSE E2E 未跑。"
+    },
+    {
+      "id": "V11",
+      "text": "同一会话串行、跨会话并行的宿主行为、限流和重启恢复",
+      "verifyBy": "端到端",
+      "status": "partial",
+      "result": "同会话 followup 排队、inbox 持久化有源码依据；跨会话并行、限流和重启恢复未跑 E2E。"
+    },
+    {
+      "id": "V12",
+      "text": "全部组件接入后的客户端和包体大小（5–10 MB）",
+      "verifyBy": "构建",
+      "status": "partial",
+      "result": "核心约 2.4 MB min/0.78 MB gzip；Excalidraw 另加约 11 MB min；含 Xiaolai 包体约 17 MB，去掉约 4 MB。"
+    },
+    {
+      "id": "V13",
+      "text": "ProcessOn 是否有官方私有嵌入方式",
+      "verifyBy": "search",
+      "status": "done-negative",
+      "result": "无官方私有嵌入；ProcessOn 嵌入依赖公开分享，只做手动导入导出。"
+    },
+    {
+      "id": "V14",
+      "text": "PDF 页内区域批注与带批注副本导出",
+      "verifyBy": "原型",
+      "status": "deferred",
+      "result": "宿主 PDF 预览已有 pdfjs 文本层和 viewport；页内区域批注可做，本版本不做。"
+    },
+    {
+      "id": "V15",
+      "text": "模型回复工具采用率、多模态附件路径校验",
+      "verifyBy": "端到端",
+      "status": "partial",
+      "result": "图片消息和附件存储 API 确认；模型回复工具采用率需真实模型 E2E。"
+    },
+    {
+      "id": "V16",
+      "text": "docx 9.15.3 的 ./html 子入口能否直接 HTML → docx",
+      "verifyBy": "search + 原型",
+      "status": "done",
+      "result": "docx/html 的 htmlToContent 可用；HTML→docx→HTML 保留标题、粗斜体、列表、表格。"
+    }
+  ],
+  "verificationReport": "docs/design/cowork-sidebar/work-item-artifact-verification.md"
 }
