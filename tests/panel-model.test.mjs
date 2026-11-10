@@ -7,7 +7,6 @@ import {
   CARD_MENU_WIDTH,
   CLOCK_TICK_MS,
   FEEDBACK_TTL_MS,
-  INBOX_TITLE_MAX_CHARS,
   NOT_MASTER_MESSAGE,
   PROJECT_PATH_MAX_CHARS,
   TOPIC_ACTION_LABELS,
@@ -21,7 +20,6 @@ import {
   errorPresentation,
   formatLocalTimestamp,
   formatRelativeTime,
-  inboxNotice,
   masterBreadcrumbLabel,
   masterBreadcrumbTarget,
   middleEllipsis,
@@ -391,23 +389,33 @@ test('opening a topic has fixed steps and a master breadcrumb only for topic ses
   }), null)
 })
 
-test('header helpers keep the path and inbox hint bounded', () => {
+test('header helpers keep the project path bounded', () => {
   assert.equal(PROJECT_PATH_MAX_CHARS, 44)
   assert.match(middleEllipsis('/a/very/long/project/path/that/keeps/going', 16), /…/)
   assert.equal(shortTopicId('short'), 'short')
   assert.equal(shortTopicId('session-aaaa1111-2222').length, TOPIC_ID_MAX_CHARS)
 
-  assert.equal(inboxNotice([]), null)
-  const hint = inboxNotice([
-    inboxItem({ id: '1', summary: '第一条' }),
-    inboxItem({ id: '2', summary: '第二条' }),
-  ])
-  assert.equal(hint.count, 2)
-  assert.equal(hint.label, '待处理 2')
-  assert.match(hint.title, /第一条 · 第二条/)
-  const long = inboxNotice(Array.from({ length: 7 }, (_, index) => inboxItem({ id: String(index), summary: '很长'.repeat(40) })))
-  assert.ok(long.title.length <= INBOX_TITLE_MAX_CHARS + 1)
   assert.equal(FEEDBACK_TTL_MS, 5000)
+})
+
+test('the topic page header offers no inbox hint and keeps the refresh control on one line', async () => {
+  const modelModule = await import('../src/client/model.ts')
+  for (const retired of ['inboxNotice', 'InboxNotice', 'INBOX_TITLE_MAX_CHARS', 'INBOX_TITLE_SUMMARIES']) {
+    assert.equal(retired in modelModule, false, `${retired} must leave the topic page model`)
+  }
+  const clientUrl = new URL('../src/client/', import.meta.url)
+  const panelSource = await readFile(new URL('panel.tsx', clientUrl), 'utf8')
+  assert.equal(panelSource.includes('inboxHint'), false, 'the header no longer computes an inbox hint')
+  assert.equal(panelSource.includes('cw-inbox-chip'), false, 'the header no longer renders the v1 chip')
+  assert.equal(panelSource.includes('待处理'), false, 'no v1 "待处理 N" copy remains in the page shell')
+  assert.match(panelSource, /className="cw-icon-button"[\s\S]*?刷新/, 'the refresh control stays a labelled button')
+  assert.match(panelSource, /aria-label="刷新 Cowork 项目"/, 'the refresh control stays keyboard reachable')
+
+  const stylesSource = await readFile(new URL('styles.ts', clientUrl), 'utf8')
+  assert.equal(stylesSource.includes('.cw-inbox-chip'), false, 'the inbox chip style is gone')
+  assert.equal(stylesSource.includes('.cw-chip {'), false, 'the generic chip style left with its only user')
+  assert.match(stylesSource, /\.cw-header \{[\s\S]*?flex-wrap: nowrap/, 'the header never wraps')
+  assert.match(stylesSource, /\.cw-icon-button \{\n  flex: none;\n  white-space: nowrap;/, 'refresh cannot shrink or wrap at 381px')
 })
 
 test('parseTopicRow keeps the optional authorization fields and degrades invented values', () => {

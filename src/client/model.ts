@@ -13,7 +13,7 @@
  * and the list/detail split are gone by design; nothing here can bring them
  * back.
  */
-import type { PanelInboxItem, PanelTopic, PanelTopicStatus } from '../api-contract.ts'
+import type { PanelTopic, PanelTopicStatus } from '../api-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 
 /** How often relative timestamps are recomputed while the panel is open. */
@@ -27,12 +27,6 @@ export const TOPIC_ID_MAX_CHARS = 8
 
 /** How long an action receipt stays on screen. */
 export const FEEDBACK_TTL_MS = 5000
-
-/** Characters kept in the inbox chip's tooltip (the joined summaries). */
-export const INBOX_TITLE_MAX_CHARS = 160
-
-/** Most inbox summaries the tooltip joins; the count chip still shows them all. */
-export const INBOX_TITLE_SUMMARIES = 5
 
 /** The four groups, in the order the page renders them. */
 export const TOPIC_GROUP_ORDER = ['blocked', 'running', 'idle', 'resolved'] as const
@@ -257,32 +251,6 @@ export interface NoticePresentation {
   readonly path: string | null
   readonly retry: boolean
   readonly hint: string | null
-}
-
-/** One small header hint: how many inbox items are still waiting. */
-export interface InboxNotice {
-  readonly count: number
-  readonly label: string
-  readonly title: string
-}
-
-/**
- * Header hint for the undelivered inbox items (the wire already filters and
- * bounds them). No items means no hint; the tooltip joins the first five
- * summaries.
- */
-export function inboxNotice(inbox: readonly PanelInboxItem[]): InboxNotice | null {
-  if (inbox.length === 0) return null
-  const summaries = inbox
-    .slice(0, INBOX_TITLE_SUMMARIES)
-    .map(item => item.summary.trim())
-    .filter(summary => summary.length > 0)
-  const joined = summaries.join(' · ')
-  return {
-    count: inbox.length,
-    label: `待处理 ${inbox.length}`,
-    title: joined.length === 0 ? '有未投递的收件箱条目' : middleEllipsis(joined, INBOX_TITLE_MAX_CHARS),
-  }
 }
 
 /** Copy for a project without topics yet (as opposed to not initialized). */

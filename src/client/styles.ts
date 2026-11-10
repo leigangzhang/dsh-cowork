@@ -35,6 +35,7 @@ export const PANEL_CSS = `
 .cw-header {
   flex: none;
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   min-height: 34px;
@@ -92,6 +93,12 @@ export const PANEL_CSS = `
   border: 0.5px solid var(--dsw-alias-border-l2);
 }
 
+/* The refresh control must never shrink or wrap in the 381px sidebar. */
+.cw-icon-button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .cw-icon-button:hover,
 .cw-button:hover {
   background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-2));
@@ -117,25 +124,6 @@ export const PANEL_CSS = `
 .cw-root :focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 1px;
-}
-
-.cw-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 8px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.cw-inbox-chip {
-  flex: none;
-  border-color: var(--dsw-alias-state-warn-primary);
-  color: var(--dsw-alias-label-primary);
 }
 
 /* "需要你处理": the only needs-you entry; it opens the first waiting topic. */
