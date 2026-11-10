@@ -68,12 +68,25 @@ export interface UiWorkspaceService {
   unarchiveSession?(sessionId: string): Promise<void>
 }
 
+/**
+ * The host service the A2 notice contract adds (`ctx.sessionNotices`).
+ * Optional because the running host (DSH 0.2.1-rc.2) does not expose it: the
+ * plugin detects it and, without it, registers no conversation node (decision
+ * B). The append/update shapes are the frozen A2 contract, not live here.
+ */
+export interface SessionNoticesService {
+  append(notice: Readonly<Record<string, unknown>>): Promise<void>
+  update(noticeId: string, patch: Readonly<Record<string, unknown>>): Promise<void>
+}
+
 /** Options accepted by `slots.register`; only the fields the panel uses. */
 export interface SlotRegisterOptions {
   readonly name: string
   readonly key?: string
   readonly id?: string
   readonly order?: number
+  /** Node kind a conversation-chat seat matches (A2 only; unused under B). */
+  readonly kind?: string
 }
 
 /** A slot component as the registration accepts it (props are owned by the seat). */
@@ -95,6 +108,7 @@ export interface ClientContext {
   readonly sidebarRight?: SidebarRightService
   readonly sidebarRightTabs?: SidebarRightTabsService
   readonly uiWorkspace?: UiWorkspaceService
+  readonly sessionNotices?: SessionNoticesService
   /** Optional dependency injection: runs `callback` only once `services` exist. */
   inject(services: readonly string[], callback: (scope: ClientContext) => void | (() => void)): void
 }
