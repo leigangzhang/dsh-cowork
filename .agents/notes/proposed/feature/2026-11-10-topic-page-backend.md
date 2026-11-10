@@ -14,7 +14,13 @@ Class: feature
 2. **生命周期与定稿不一致。** 空闲阈值是 2 小时（`src/topic.ts:18`），3 天自动 resolved（`src/topic.ts:20,61-84`）；归档入口在菜单，自动 resolved 会绕过菜单，也不会产生归档消息。`overview` 读取时在锁内批量求值（`src/tool-runtime.ts:434`，`src/api.ts:373-384`）。
 3. **事件不是 1:1 消息。** `cowork_handoff` 用 `Inbox` + `promptSession` 唤醒主会话（`src/topic-tools.ts:236-345`）：最多 5 条合批、每条 200 字符，投递会向主会话发用户 prompt 并启动模型轮次（`src/inbox.ts:16,144-181`，`src/session-slice.ts:64-72`）。这不满足“1 个事件 = 1 条消息、实时、不阻塞”。
 
-**宿主能力是最大约束。** `dsh-session` 的 `session.append(type, data)` 只支持表面事件（`user/message`、`assistant/message`、`system/message`、`developer/message`、`tool/result`）；`appendPluginRecord` 只给 `packages/experimental/` 的包用；客户端的聊天节点按固定的 `ChatNodeKind` 分派，外部插件不能新增 kind。因此“主会话/主题会话里的提醒卡片”在当前宿主上没有“只展示、不进模型历史、不触发轮次”的 API。不能用 `user/message` 伪装：模型下一轮会读到，界面也会显示成用户自己发的消息；也不能用 inbox prompt：会合批、启动模型轮次。
+**宿主能力是最大约束。** 2026-11-10 的只读探针（报告 `/tmp/host-notice-probe.md`，只读、未改仓库/用户会话）确认：
+
+- `ctx.sessions` 是公开的 Cordis Service（`dsh-session/lib/index.js:1738`，SessionStore `:1714`），外部插件可以 inject；`Session.append` 也是公开的（`:1517`）。自定义非 surface 事件能写进内存日志，`deriveMessages()` 只投影 surface（`:1672`），所以不会进入模型历史；`append` 只 commit/notify，不触发 turn。in-process 探针：custom + `user/message` → `derivedCount=1`（只算 user）；plugin record → `derivedCount=0`。
+- `appendPluginRecord` 已存在（`:1295`），写 `ignorable:true` 的记录：不进模型历史、resume/fork 保留（`README.zh.md:74`）；但没有通用 notice 服务，`README.zh.md:70` 明确只允许 `packages/experimental/` 的包调用，外部插件不得使用。
+- 客户端聊天节点由 chat 包的 Definition 生成；`conversation.chat.node` 是 keyed seat（`dsh-client-ui-chat/lib/client.js:7185+`），没有 notice kind；unknown fallback 只接 unknown surface append（`:9694-9712`），非 surface 自定义事件不渲染；`conversation.chat.flow` 是 chat 包的 single slot（`:13208`）。
+
+所以“外部插件 append 一条 display-only 事件、客户端默认渲染”在当前宿主上不成立；可用的是“非模型 plugin record”，缺口是宿主是否授权外部插件使用它，以及客户端 node 契约。真实 GUI 渲染尚未验证。
 
 ## Proposal
 
@@ -72,12 +78,22 @@ Class: feature
 
 ### 4. 宿主通知卡（门禁）
 
-**路径 A（推荐）**：在 DSH 宿主增加 display-only notice 能力，dsh-cowork 通过端口接入。
+探针结果把 A 拆成两档；A1 更小，A2 更完整，B 仍是不改宿主的降级。
 
-- `dsh-session` 增加 `notice/message` 事件：非 surface、不进 `deriveMessages`、不触发轮次；按 `noticeId` 去重/更新；resume/fork 保留；数据 bounded。
-- 宿主提供 `ctx.sessionNotices.append/update` 或等价的公开服务，外部插件可调用，不受 `appendPluginRecord` 限制。
-- 客户端 `conversation.chat.node` 增加 `notice` kind 和对应席位；dsh-cowork 的客户端插件注册卡片渲染器，按钮把 `allow/deny/open` 动作回传给插件路由。
-- M0/M6 风格的真实宿主探针：两张卡分别出现在主会话和主题会话；不进模型历史、不触发 turn；按 noticeId 更新状态；归档/恢复后仍在。探针失败则停止 A，转 B。
+**A1（推荐先谈）— 复用 plugin record，补授权和客户端 node 契约。**
+
+- 宿主允许外部插件声明 `plugin:cowork/notice`（或等价的官方 namespace）记录；记录 `ignorable:true`，不进 `deriveMessages`、不触发 turn、resume/fork 保留，按 `noticeId` 幂等/更新。
+- 客户端公开 node 构造或 `notice` kind 与 seat；dsh-cowork 的客户端插件注册卡片渲染器，按钮把 `allow/deny/open` 回传给插件路由。
+- 需要宿主团队确认两件事：外部插件记录授权、客户端 node 形状（turn/group 归属）。探针只证明了记录层，没有证明 UI 层。
+
+**A2 — 新增 notice 事件和公开服务。**
+
+- `dsh-session` 增加 `notice/message` 事件：非 surface、不进 `deriveMessages`、不触发 turn；按 `noticeId` 去重/更新；resume/fork 保留；数据 bounded。
+- 宿主提供 `ctx.sessionNotices.append/update` 或等价公开服务，外部插件可调用，不受 `appendPluginRecord` 限制。
+- 客户端 `conversation.chat.node` 增加 `notice` kind 和 seat；渲染器与 actions 同 A1。
+- 改动面比 A1 大，适合宿主希望把 notice 做成一等能力而不是插件记录时。
+
+**宿主探针证据。** `node /tmp/probe-session.mjs` exit=0：logTypes=["cowork/notice","user/message"]，derivedCount=1（只投影 user），自定义事件不在 KNOWN 集合且无 ignorable；`node /tmp/probe-session2.mjs` exit=0：plugin record seq=1、ignorable=true、pluginRecordOf 可读、derivedCount=0。静态证据：`dsh-session/lib/index.js:1295,1517,1672,1714`、`dsh-session/README.zh.md:70,74`、`dsh-client-ui-chat/lib/client.js:7185,7685,9694,13208`、`dsh-api-session-controller/lib/client.js:279`。**未核实：** 真实 GUI 里卡片是否显示；需要临时 client plugin 注册 Definition+renderer、host plugin 向专用测试会话 append，本轮受权限和不动用户会话约束没有执行。
 
 **路径 B（宿主不改）**：主题页列表、状态、菜单、待授权标记照常实现；主会话和主题会话的提醒卡片延期；真正需要用户动作的待授权/阻塞仍走现有 inbox + prompt（会启动模型轮次、会合批，明确是临时降级），其余事件只写 activity，由新增的 master 只读工具 `cowork_notices` 提供给主会话 agent。B 会偏离已确认的“1:1 会话消息”设计，需要用户明确接受。
 
@@ -156,13 +172,14 @@ Class: feature
 - [B5] activity 的每个通知事件对每个 target 只生成一条 notices.json 记录，不合并、不批量；authorization-resolved 更新原通知而不是新增 — `source`
 - [B6] dispatcher 按事件顺序投递，失败指数退避最多 5 次，重放不重复；工具在投递失败时不回滚状态、不阻塞 — `tests`
 - [B7] PanelTopic 增加 awaitingAuthorization/blockedReason，PanelCounts 增加 awaitingAuthorization，排序按 blocked 优先且不再把 awaitingReview 置前 — `tests`
-- [B8] 宿主 notice 探针通过：卡片出现在主会话和主题会话，不进模型历史、不触发 turn，按 noticeId 更新；失败则走 B 并在设计里标注 — `decisions`
-- [B9] `npm run typecheck`、`npm run build`、`npm test` 全部通过；新增状态/事件/投递/路由测试覆盖上述规则 — `tests`
-- [B10] 设计文档、前端提案、demo 截图和接口字段同步；README/PLAN/预设说明更新 — `plan-docs`
+- [B8] 宿主侧选定 A1/A2/B，并拿到“外部插件 notice 记录授权 + 客户端 node 契约”的书面决定；在决定前不实现会话卡片 — `decisions`
+- [B9] 真实 GUI 探针通过：卡片出现在主会话和主题会话，不进模型历史、不触发 turn，按 noticeId 更新；失败则走 B 并记录偏离 — `decisions`
+- [B10] `npm run typecheck`、`npm run build`、`npm test` 全部通过；新增状态/事件/投递/路由测试覆盖上述规则 — `tests`
+- [B11] 设计文档、前端提案、demo 截图和接口字段同步；README/PLAN/预设说明更新 — `plan-docs`
 
 ## Risks
 
-- 宿主 notice 是最大依赖：A 需要 DSH 宿主改动，超出 dsh-cowork 仓库；B 会丢失已确认的 1:1 会话卡片。实施前必须先做真实宿主探针并选定 A/B。
+- 宿主 notice 是最大依赖：探针证明记录层可复用（plugin record 不进模型、不触发 turn、resume/fork 保留），但 UI 层未验证，外部插件记录授权还没有。A1 需要宿主团队两个决定（授权 + 客户端 node 契约），A2 面更大；B 会丢失已确认的 1:1 会话卡片。实施前先拿决定并补 GUI 探针。
 - 自动归档：本设计按“归档只从菜单发起”处理，移除 3 天自动 resolved；如果产品仍要自动归档，应复用同一 `topic-archived` 通知并明确 resolvedBy。
 - 归档/恢复的会话权限：保持 master-only；前端菜单在非 master 会话应禁用并给出原因；授权决定允许 topic 会话处理自己的请求。
 - 决策提案：本轮只做生成/存储/上报，不在主题页展示；工作项/Artifact 的查看与评审是后续页面。
@@ -177,5 +194,5 @@ Class: feature
 3. 事件、账本与投递：活动类型、notices.json、端口/dispatcher、1:1/重试/去重；测试。
 4. 工具与路由：report/proposal/authorization、authorization.resolve、归档/恢复、宿主会话 archive/unarchive、预设、cowork_notices；测试。
 5. 前端契约与文档：PanelTopic/Counts/sort、前端字段转必选、demo/截图同步。
-6. 宿主通知卡：探针后走 A 或 B；A 的宿主改动单独交付，B 记录偏离。
+6. 宿主通知卡：先拿 A1/A2/B 决定；A1/A2 的宿主改动单独交付，B 记录偏离；GUI 探针补齐后再接会话卡片。
 7. 收口：四条命令全绿，真实宿主探针证据归档。
