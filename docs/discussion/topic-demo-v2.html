@@ -119,26 +119,23 @@
     blocked: {
       title: '接入 GitHub 主页内容',
       cls: 'blocked',
-      chips: [['red', '阻塞'], ['gray', '等待主会话']],
+      chips: [['gray', '等待主会话']],
       digest: '与「个人网站结构讨论」范围重叠，等待主会话裁决。',
-      time: '2 分钟前',
-      work: 1
+      time: '2 分钟前'
     },
     running: {
       title: '整理个人主页文案',
       cls: 'running',
-      chips: [['blue', '运行中']],
+      chips: [],
       digest: '首版 Bio 已生成并上报，等待在工作项查看。',
-      time: '8 分钟前',
-      work: 2
+      time: '8 分钟前'
     },
     idle: {
       title: '个人网站结构讨论',
       cls: 'idle',
-      chips: [['gray', '空闲']],
+      chips: [],
       digest: '等待下一轮讨论，暂无阻塞。',
-      time: '1 小时前',
-      work: 1
+      time: '1 小时前'
     }
   }
 
@@ -183,14 +180,14 @@
     if (state.step === 0) return null
     if (state.archived) {
       return {
-        title: '五子棋小游戏', cls: 'resolved', chips: [['green', '已解决']],
-        digest: '已归档 · 主会话已记录。', time: '刚刚', work: 3
+        title: '五子棋小游戏', cls: 'resolved', chips: [],
+        digest: '已归档 · 主会话已记录。', time: '刚刚'
       }
     }
     if (state.step >= 4 && state.permission === 'pending') {
       return {
-        title: '五子棋小游戏', cls: 'blocked', chips: [['red', '阻塞'], ['amber', '待授权']],
-        digest: '等待授权：是否允许读取浏览器登录态。', time: '6 分钟前', work: 3
+        title: '五子棋小游戏', cls: 'blocked', chips: [['amber', '待授权']],
+        digest: '等待授权：是否允许读取浏览器登录态。', time: '6 分钟前'
       }
     }
     const digests = {
@@ -205,31 +202,32 @@
     }
     const times = { 1: '刚刚', 2: '3 分钟前', 3: '5 分钟前', 4: '6 分钟前', 5: '6 分钟前' }
     return {
-      title: '五子棋小游戏', cls: 'running', chips: [['blue', '运行中']],
-      digest: digests[Math.min(state.step, 4)], time: times[state.step] || '刚刚', work: 3
+      title: '五子棋小游戏', cls: 'running', chips: [],
+      digest: digests[Math.min(state.step, 4)], time: times[state.step] || '刚刚'
     }
   }
 
   function cardHtml(card, isDemo = false) {
-    const chips = card.chips.map(([kind, text]) => `<span class="chip ${kind}">${esc(text)}</span>`).join('')
+    const markers = card.chips.map(([kind, text]) => `<span class="marker ${kind}">${esc(text)}</span>`).join('')
     const more = isDemo
       ? '<button class="more more-button" data-card-menu="1" aria-label="主题菜单">⋯</button>'
       : '<span class="more">⋯</span>'
     const menu = isDemo && state.menu
       ? `<div class="card-menu" role="menu">
-          <button data-menu="open">打开主题会话</button>
           ${state.archived
-            ? '<button data-menu="restore" class="menu-restore">从归档中恢复</button>'
-            : '<button data-menu="archive" class="menu-archive">归档主题</button>'}
+            ? '<button data-menu="restore" class="menu-restore">恢复</button>'
+            : '<button data-menu="archive" class="menu-archive">归档</button>'}
         </div>`
       : ''
     return `<article class="topic-card ${card.cls}">
-      <h3 class="topic-title">${esc(card.title)}</h3>
-      <div class="chips">${chips}</div>
-      <p class="digest">${esc(card.digest)}</p>
-      <div class="topic-meta">
-        <span class="topic-meta-left">${esc(card.time)}<span class="meta-dot"></span><span class="work-count">${card.work} 个工作项</span></span>
+      <div class="topic-head">
+        <h3 class="topic-title">${esc(card.title)}</h3>
+        ${markers}
         ${more}
+      </div>
+      <div class="topic-body">
+        <p class="topic-summary">${esc(card.digest)}</p>
+        <span class="topic-time">${esc(card.time)}</span>
       </div>
       ${menu}
     </article>`
@@ -272,7 +270,7 @@
       + group('运行中', runningCards, runningCards.length)
       + group('空闲', [cardHtml(STATIC.idle)], 1)
       + group('已解决', resolvedCards, resolvedTotal, resolvedExtra)
-      + `<div class="field-note"><b>字段：</b>主题名 / 生命周期 / 待授权 / 更新时间 / 摘要 / 工作项数。决策记录和审查状态不进入主题列表。</div>`
+      + `<div class="field-note"><b>字段：</b>主题名 / 标记 / 摘要 / 时间。状态由分组标题表示；决策记录和审查状态不进入列表。</div>`
 
     document.getElementById('topicTabCount').textContent = String(6 + (state.step >= 1 ? 1 : 0))
   }
@@ -351,7 +349,7 @@
         <thead><tr><th>现在</th><th>事件</th><th>之后</th></tr></thead>
         <tbody>
           <tr><td>—</td><td>主会话分配</td><td>运行中</td></tr>
-          <tr><td>运行中</td><td>1 天没有活动</td><td>空闲</td></tr>
+          <tr><td>运行中</td><td>最后一次活动后 1 天</td><td>空闲</td></tr>
           <tr><td>空闲</td><td>新活动</td><td>运行中</td></tr>
           <tr><td>运行中 / 空闲</td><td>待授权、跨主题冲突、交接阻塞</td><td>阻塞</td></tr>
           <tr><td>阻塞</td><td>问题处理完</td><td>回到阻塞前的状态</td></tr>
@@ -363,7 +361,7 @@
       <p class="ov-note"><b>决策记录：</b>只在主题会话生成并上报；主题页不展示记录，也不展示审查状态。查看和提意见在工作项，资料进 Artifact 工作室，这两处不在本设计内。</p>
       <p class="ov-note"><b>需要你处理：</b>只统计待授权，是入口不是队列。分配、上报、提案的提醒在会话记录里，不在主题页复制。</p>
       <p class="ov-note"><b>待授权：</b>是标记不是分组。标记出现时主题在阻塞组；处理完回到阻塞前的状态。</p>
-      <p class="ov-note"><b>归档入口：</b>在主题卡的 ⋯ 菜单里，菜单里另有“从归档中恢复”。归档后主会话只留一条消息。</p>
+      <p class="ov-note"><b>归档入口：</b>在主题卡的 ⋯ 菜单里；已解决卡片的菜单里是“恢复”。归档后主会话只留一条消息。</p>
     </div>`
   }
 

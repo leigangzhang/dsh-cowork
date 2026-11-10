@@ -65,7 +65,9 @@
     box-shadow: 0 1px 1px rgba(16, 24, 40, .025);
   }
   .card.blocked { border-color: #fecdca; background: linear-gradient(180deg, #fff 0%, #fffbfa 100%); }
-  .card.resolved { background: #fcfcfd; }
+  .card.running { border-color: #75e0a7; }
+  .card.idle { border-color: #101828; background: #fcfcfd; }
+  .card.resolved { border-color: #c3c9d4; background: #fcfcfd; }
   .head { display: flex; align-items: center; gap: 6px; }
   .title {
     flex: 1;
@@ -172,7 +174,7 @@
 <div class="canvas">
   <header>
     <h1>主题卡样式：两行 + 菜单最多 2 行</h1>
-    <div class="sub">卡片只留主题名和一行摘要。待授权等标记放主题名右侧，时间放摘要右侧；运行中、阻塞、已解决由分组标题表示，不在卡片上重复。</div>
+    <div class="sub">卡片只留主题名和一行摘要。待授权等标记放主题名右侧，时间放摘要右侧；运行中、阻塞、已解决由分组标题表示，不在卡片上重复。边框颜色：阻塞红、运行中绿、空闲黑、已解决灰。</div>
   </header>
 
   <div class="grid">
@@ -205,7 +207,7 @@
 
       <div class="group-block">
         <div class="group-label">运行中</div>
-        <article class="card">
+        <article class="card running">
           <div class="head">
             <h3 class="title">整理个人主页文案</h3>
             <button class="more" aria-label="主题菜单">⋯</button>
@@ -213,6 +215,20 @@
           <div class="body">
             <p class="summary">首版 Bio 已生成并上报，等待在工作项查看。</p>
             <span class="time">8 分钟前</span>
+          </div>
+        </article>
+      </div>
+
+      <div class="group-block">
+        <div class="group-label">空闲</div>
+        <article class="card idle">
+          <div class="head">
+            <h3 class="title">个人网站结构讨论</h3>
+            <button class="more" aria-label="主题菜单">⋯</button>
+          </div>
+          <div class="body">
+            <p class="summary">等待下一轮讨论，暂无阻塞。</p>
+            <span class="time">1 小时前</span>
           </div>
         </article>
       </div>
@@ -235,7 +251,7 @@
     <div class="col">
       <div class="menu-row">
         <div class="group-label">运行中 <span>菜单展开 · 1 行</span></div>
-        <article class="card">
+        <article class="card running">
           <div class="head">
             <h3 class="title">整理个人主页文案</h3>
             <button class="more" aria-label="主题菜单">⋯</button>
@@ -269,7 +285,8 @@
           <li><b>两行：</b>主题名 + 一行摘要。</li>
           <li><b>待授权、等待主会话</b>等标记在主题名右侧；没有标记就不占位。</li>
           <li><b>时间</b>在摘要右侧（右下角）。</li>
-          <li><b>运行中 / 阻塞 / 已解决</b>不写进卡片，由分组标题表示。</li>
+          <li><b>运行中 / 阻塞 / 空闲 / 已解决</b>不写进卡片，由分组标题表示。</li>
+          <li><b>边框颜色：</b>阻塞红、运行中绿、空闲黑、已解决灰。</li>
           <li><b>菜单 1 行，最多 2 行。</b>归档可撤回、不弹确认；恢复不写主会话记录。</li>
           <li><b>空闲</b>从最后一次活动开始算，1 天后进入空闲组。</li>
         </ul>
@@ -277,7 +294,7 @@
     </div>
   </div>
 
-  <div class="foot">确认这版卡片后，再同步到完整交互稿和截图。</div>
+  <div class="foot">完整交互稿和列表截图已同步到这版卡片。</div>
 </div>
 </body>
 </html>

@@ -1,6 +1,6 @@
 # Cowork 右侧栏主题页设计（v2）
 
-Status: draft v2（2026-11-10；卡片菜单样式待确认；implementation not started）
+Status: draft v2（2026-11-10 确认；implementation not started）
 
 ## 背景
 
@@ -17,6 +17,7 @@ v1 的主题页是列表：需要你处理入口、四个生命周期分组、�
 5. 主题列表按事件更新状态；顶部“需要你处理”只统计待授权。
 6. 归档入口收进主题卡的 ⋯ 菜单；菜单只保留一个状态动作，1 行，最多 2 行。
 7. 空闲阈值：最后一次活动后 1 天。
+8. 卡片边框按分组着色：阻塞沿用当前红色，运行中绿色，空闲黑色，已解决灰色。
 
 ## 设计目标
 
@@ -54,6 +55,8 @@ v1 的主题页是列表：需要你处理入口、四个生命周期分组、�
 
 不进入卡片：生命周期（由分组标题表示）、工作项数、决策记录和审查状态、topic id、session id、cwd、scope、ownedPaths、aliases。
 
+边框颜色按分组：阻塞沿用当前红色，运行中绿色，空闲黑色，已解决灰色。边框只用于区分分组，不改变卡片文字。
+
 与 v1 的差异：卡片从「标题 + 状态标记 + 摘要 + 时间 + 工作项数」收成两行；移除生命周期标记和工作项数；审查状态也不进卡片。
 
 ## 主题卡菜单
@@ -68,7 +71,7 @@ v1 的主题页是列表：需要你处理入口、四个生命周期分组、�
 - 打开会话直接点卡片，不放进菜单。
 - 归档可撤回，不弹确认；归档后主会话只留一条“xx主题已归档”，列表移入已解决；未处理的待授权提醒失效。
 - 恢复：卡片回到运行中，不写主会话记录；归档记录保留；归档时失效的待授权不恢复。
-- 卡片样式：[topic-card-style.html](../../discussion/topic-card-style.html)，截图 [topic-card-style.png](../../discussion/topic-card-style.png)。样式确认后同步到完整交互稿。
+- 卡片样式：[topic-card-style.html](../../discussion/topic-card-style.html)，截图 [topic-card-style.png](../../discussion/topic-card-style.png)。已同步到完整交互稿。
 
 ## 事件与记录
 
@@ -164,7 +167,7 @@ stateDiagram-v2
 5. 待授权：主题移入阻塞；切到主题会话点允许或拒绝，列表回到运行中。
 6. 归档：点主题卡 ⋯ 里的“归档”；主会话只留一条“已归档”消息，列表移入已解决。已解决卡片的同一菜单里是“恢复”。
 
-卡片菜单样式先看 [topic-card-style.png](../../discussion/topic-card-style.png)；确认后再同步到完整交互稿。
+卡片样式和边框颜色已同步到完整交互稿和截图，见[主题卡样式](../../discussion/topic-card-style.png)。
 
 直接看某一步：`topic-demo-v2.html?step=4&view=topic`。
 
@@ -176,7 +179,8 @@ stateDiagram-v2
 - 跨主题冲突的对比和裁决界面。
 - 空闲判定阈值的最终数值。
 
-## 待确认
+## 已确认
 
-- 两行主题卡样式：主题名 + 一行摘要，标记在主题名右侧，时间在摘要右侧（截图 [topic-card-style.png](../../discussion/topic-card-style.png)）。
-- 确认后同步到完整交互稿、列表截图和 feature 待办。
+- 两行主题卡：主题名 + 一行摘要；标记在主题名右侧，时间在摘要右侧（截图 [topic-card-style.png](../../discussion/topic-card-style.png)）。
+- 边框颜色：阻塞红、运行中绿、空闲黑、已解决灰。
+- 完整交互稿、列表截图和 feature 待办已同步。
