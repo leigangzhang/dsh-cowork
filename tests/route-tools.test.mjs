@@ -187,6 +187,11 @@ test('layer 1 reuses the focus topic and never calls the model', async () => {
     assert.equal(document.lastRouteTopicId, 'session-focus')
     const activity = await store.readActivity()
     assert.ok(activity.events.some((event) => event.type === 'route-reused' && event.topicId === 'session-focus'))
+    // Reuse is not an assignment: the card already exists, so no 1:1 notice is
+    // emitted for the route-reused event.
+    assert.equal(activity.events.some((event) => event.type === 'topic-created'), false)
+    assert.equal(activity.events.some((event) => event.details?.notice !== undefined), false)
+    assert.deepEqual(await store.readNotices(), { version: 1, notices: [] })
   })
 })
 
@@ -249,6 +254,21 @@ test('a no-hit route creates a topic with the cowork-topic preset and both activ
     const types = activity.events.map((event) => event.type)
     assert.ok(types.includes('topic-created'))
     assert.ok(types.includes('route-created'))
+
+    // Assignment is the same 1:1 event `cowork_topic_create` emits: one master
+    // message and one topic card, recorded through the notice ledger.
+    const created = activity.events.find((event) => event.type === 'topic-created')
+    assert.equal(created.details.notice.kind, 'assignment')
+    assert.deepEqual([...created.details.notice.targets], ['master', 'topic'])
+    assert.match(created.details.notice.summary, /写一个全新的部署脚本 alpha/)
+    const ledger = await store.readNotices()
+    assert.deepEqual(
+      ledger.notices.map((row) => row.target).sort(),
+      ['master', 'topic'],
+      'one ledger row per target',
+    )
+    assert.ok(ledger.notices.every((row) => row.noticeId === created.eventId))
+    assert.ok(ledger.notices.every((row) => row.status === 'pending'), 'B mode stays pending')
   })
 })
 

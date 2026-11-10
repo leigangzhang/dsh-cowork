@@ -166,6 +166,13 @@ test('presetDefinitions returns fresh row arrays so callers cannot mutate a shar
   assert.equal(rowNames(presetById(TOPIC_PRESET_ID)).length, 10)
 })
 
+test('the master persona reads reports from cowork_notices, not blocked messages', () => {
+  assert.match(MASTER_PERSONA, /cowork_notices/)
+  assert.match(MASTER_PERSONA, /Review verdicts still arrive as messages/)
+  assert.equal(/blocked topics are delivered to you as messages/.test(MASTER_PERSONA), false)
+  assert.match(MASTER_PERSONA, /blocked and progress reports/)
+})
+
 test('the personas carry no legacy handoff state or merge override (KI-25)', () => {
   const text = [MASTER_PERSONA, TOPIC_PERSONA, REVIEWER_PERSONA].join('\n')
   assert.equal(/awaiting_review/.test(text), false, 'awaiting_review is no longer a review trigger')

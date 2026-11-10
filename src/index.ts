@@ -129,7 +129,7 @@ export interface Config {
    * installed profile keeps only the business tools, presets, and panel API.
    */
   enableDevRoutes: boolean
-  /** Silence after which a topic displays as idle (PLAN §5.10: 2h). */
+  /** Silence after which a topic displays as idle (24h). */
   idleAfterMs: number
   /**
    * Deprecated and ignored: the lifecycle never resolves a topic on its own any

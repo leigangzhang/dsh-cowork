@@ -73,6 +73,7 @@ export const TOPIC_PAGE_ERROR_CODES = {
   summaryTooLong: 'topic/summary-too-long',
   proposalTitleRequired: 'topic/proposal-title-required',
   proposalWriteFailed: 'topic/proposal-write-failed',
+  invalidKind: 'topic/invalid-kind',
 } as const
 
 /** The bounded topic view used by every topic tool. */
@@ -404,7 +405,7 @@ async function reportTopic(args: Record<string, unknown>, exec: unknown, deps: C
   }
   const kind = args.kind === undefined ? 'progress' : args.kind
   if (kind !== 'progress' && kind !== 'blocked') {
-    return toJson(failure(TOPIC_ERROR_CODES.topicTitleRequired, "kind must be 'progress' or 'blocked'"))
+    return toJson(failure(TOPIC_PAGE_ERROR_CODES.invalidKind, "kind must be 'progress' or 'blocked'"))
   }
   try {
     const opened = await openCallerTopic(caller, deps)
@@ -752,7 +753,8 @@ export function registerTopicTools(ctx: unknown, deps: CoworkToolDeps): Array<()
   // 6) cowork_topic_resolve — master-only manual archive.
   disposers.push(host.tools.register(defineTool({
     name: 'cowork_topic_resolve',
-    description: 'Archive one topic by user decision (idempotent; the topic session is not archived by this tool). Master only.',
+    description:
+      'Archive one topic by user decision: the topic moves to resolved and its host session is archived too (idempotent). Master only.',
     parameters: {
       topicId: { type: 'string', required: true, description: 'Topic to archive.' },
     },
