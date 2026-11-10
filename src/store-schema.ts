@@ -23,11 +23,36 @@ export const ACTIVITY_MAX_EVENTS = 500
 export const ACTIVITY_MAX_BYTES = 524288
 /** Most items `inbox.json` keeps. */
 export const INBOX_MAX_ITEMS = 50
+/** Most records the notice delivery ledger keeps (`notices.json` v1). */
+export const NOTICE_LEDGER_MAX_RECORDS = 200
 
 /** Lifecycle of one topic. */
 export const TOPIC_STATUSES = ['active', 'idle', 'resolved'] as const
 /** Lifecycle of one topic as recorded in the project index. */
 export type TopicStatus = (typeof TOPIC_STATUSES)[number]
+
+/**
+ * Why a topic is blocked. The flag is derived (`blocked === blockedReason !== null`),
+ * so the list is also the only legal source of that boolean.
+ */
+export const BLOCKED_REASONS = ['authorization', 'handoff', 'conflict'] as const
+/** Why a topic is blocked. */
+export type BlockedReason = (typeof BLOCKED_REASONS)[number]
+
+/** The statuses a block can be released back to. */
+export const BLOCKED_FROM_STATUSES = ['active', 'idle'] as const
+/** The status a block restores when it is cleared. */
+export type BlockedFromStatus = (typeof BLOCKED_FROM_STATUSES)[number]
+
+/** Longest authorization summary the index accepts, in code points. */
+export const AUTHORIZATION_SUMMARY_MAX_CHARS = 200
+
+/** One pending authorization request of a topic. */
+export interface TopicAuthorization {
+  requestId: string
+  summary: string
+  requestedAt: string
+}
 
 /** Lifecycle of one isolated work item. */
 export const WORK_ITEM_STATUSES = ['active', 'reviewing', 'merged', 'abandoned'] as const
@@ -109,6 +134,11 @@ export const ACTIVITY_TYPES = [
   'review-verdict',
   'work-item-created',
   'work-item-merged',
+  'topic-reported',
+  'decision-proposed',
+  'authorization-requested',
+  'authorization-resolved',
+  'topic-archived',
   'error',
 ] as const
 /** One kind of activity event. */
@@ -120,7 +150,16 @@ export interface TopicRecordV2 {
   title: string
   status: TopicStatus
   awaitingReview: boolean
+  /** Derived flag: `blocked !== null` — see {@link TopicRecordV2.blockedReason}. */
   blocked: boolean
+  /** Why the topic is blocked; null means it is not blocked. */
+  blockedReason: BlockedReason | null
+  /** Status the block restores when it is released; null when not blocked. */
+  blockedFromStatus: BlockedFromStatus | null
+  /** When the topic was first blocked, for diagnostics and sorting. */
+  blockedAt: string | null
+  /** Pending authorization request; non-null implies `blockedReason === 'authorization'`. */
+  authorization: TopicAuthorization | null
   scope: string
   ownedPaths: string[]
   aliases: string[]
@@ -383,16 +422,44 @@ export function normalizeProjectIndexV2(index: unknown): unknown {
   }
 }
 
-/** Read one v2 topic, defaulting only the tolerated legacy attachment fields. */
+/**
+ * Read one v2 topic, defaulting the tolerated legacy attachment fields and the
+ * block/authorization state an older document predates.
+ *
+ * A document written before the block model only carries `blocked: true`; it is
+ * normalised to the `handoff` reason (the only writer that could set the flag
+ * back then) with the current status as the status to restore. `blocked` stays
+ * the derived boolean, so a hand-edited inconsistency cannot survive a read:
+ * a pending authorization implies `authorization`, and the flag always follows
+ * `blockedReason`.
+ */
 function normalizeTopicV2(topic: unknown): unknown {
   if (!isRecord(topic)) return topic
   const nullWhenAbsent = (value: unknown): unknown => (value === undefined ? null : value)
+  const blockedFlag = topic.blocked === true
+  const authorization = nullWhenAbsent(topic.authorization)
+  const declaredReason = nullWhenAbsent(topic.blockedReason)
+  const reason: unknown = declaredReason ?? (
+    authorization !== null ? 'authorization' : blockedFlag ? 'handoff' : null
+  )
+  const fromStatus = nullWhenAbsent(topic.blockedFromStatus) ?? (
+    reason === null
+      ? null
+      : topic.status === 'idle' ? 'idle' : topic.status === 'active' ? 'active' : null
+  )
   return {
     ...topic,
     lastHandoffAt: nullWhenAbsent(topic.lastHandoffAt),
     reviewRequestedAt: nullWhenAbsent(topic.reviewRequestedAt),
     reviewedAt: nullWhenAbsent(topic.reviewedAt),
     latestReviewPath: nullWhenAbsent(topic.latestReviewPath),
+    // A non-boolean flag is passed through unchanged so validation fails closed
+    // instead of a damaged document being silently healed into "not blocked".
+    blocked: typeof topic.blocked === 'boolean' ? reason !== null : topic.blocked,
+    blockedReason: reason,
+    blockedFromStatus: fromStatus,
+    blockedAt: nullWhenAbsent(topic.blockedAt),
+    authorization,
   }
 }
 
@@ -431,6 +498,24 @@ export function projectIndexV2Problems(index: unknown): string[] {
   return problems
 }
 
+/** Schema problems of one pending authorization request, addressed by `where`. */
+function authorizationProblems(authorization: unknown, where: string): string[] {
+  if (!isRecord(authorization)) return [`${where} must be an object`]
+  const problems: string[] = []
+  if (!isNonEmptyString(authorization.requestId)) {
+    problems.push(`${where}.requestId must be a non-empty string`)
+  }
+  if (!isNonEmptyString(authorization.summary)) {
+    problems.push(`${where}.summary must be a non-empty string`)
+  } else if (Array.from(authorization.summary).length > AUTHORIZATION_SUMMARY_MAX_CHARS) {
+    problems.push(`${where}.summary must be at most ${AUTHORIZATION_SUMMARY_MAX_CHARS} characters`)
+  }
+  if (!isIsoDate(authorization.requestedAt)) {
+    problems.push(`${where}.requestedAt must be an ISO 8601 timestamp`)
+  }
+  return problems
+}
+
 /** Schema problems of one v2 topic record, addressed by `where`. */
 function topicV2Problems(topic: unknown, where: string): string[] {
   if (!isRecord(topic)) return [`${where} must be an object`]
@@ -444,6 +529,35 @@ function topicV2Problems(topic: unknown, where: string): string[] {
     problems.push(`${where}.awaitingReview must be a boolean`)
   }
   if (typeof topic.blocked !== 'boolean') problems.push(`${where}.blocked must be a boolean`)
+  // Absent block fields are legal on an older document (normalised on read);
+  // a present value must be coherent. `blocked` is derived from the reason.
+  if (topic.blockedReason !== undefined && topic.blockedReason !== null && !isOneOf(topic.blockedReason, BLOCKED_REASONS)) {
+    problems.push(`${where}.blockedReason must be one of ${BLOCKED_REASONS.join('|')} or null`)
+  }
+  if (
+    topic.blockedFromStatus !== undefined &&
+    topic.blockedFromStatus !== null &&
+    !isOneOf(topic.blockedFromStatus, BLOCKED_FROM_STATUSES)
+  ) {
+    problems.push(`${where}.blockedFromStatus must be one of ${BLOCKED_FROM_STATUSES.join('|')} or null`)
+  }
+  if (topic.blockedAt !== undefined && topic.blockedAt !== null && !isIsoDate(topic.blockedAt)) {
+    problems.push(`${where}.blockedAt must be an ISO 8601 timestamp or null`)
+  }
+  if (topic.authorization !== undefined && topic.authorization !== null) {
+    problems.push(...authorizationProblems(topic.authorization, `${where}.authorization`))
+    if (topic.blockedReason !== 'authorization') {
+      problems.push(`${where}.blockedReason must be authorization when a request is pending`)
+    }
+  } else if (topic.blockedReason === 'authorization') {
+    problems.push(`${where}.authorization must be an object when blockedReason is authorization`)
+  }
+  if (topic.blockedReason === null && typeof topic.blocked === 'boolean' && topic.blocked) {
+    problems.push(`${where}.blocked must be false when blockedReason is null`)
+  }
+  if (typeof topic.blockedReason === 'string' && topic.blockedReason !== null && topic.blocked === false) {
+    problems.push(`${where}.blocked must be true when blockedReason is set`)
+  }
   if (typeof topic.scope !== 'string') problems.push(`${where}.scope must be a string`)
   if (!isStringArray(topic.ownedPaths)) {
     problems.push(`${where}.ownedPaths must be an array of strings`)

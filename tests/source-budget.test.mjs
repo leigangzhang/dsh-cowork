@@ -109,7 +109,18 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
   const toolsSource = source('src/tools.ts')
   const domains = [
     ['src/project-tools.ts', source('src/project-tools.ts'), ['cowork_project_init', 'cowork_project_status']],
-    ['src/topic-tools.ts', source('src/topic-tools.ts'), ['cowork_topic_create', 'cowork_thread_create', 'cowork_topic_list', 'cowork_thread_list', 'cowork_handoff', 'cowork_topic_resolve']],
+    ['src/topic-tools.ts', source('src/topic-tools.ts'), [
+      'cowork_topic_create',
+      'cowork_thread_create',
+      'cowork_topic_list',
+      'cowork_thread_list',
+      'cowork_handoff',
+      'cowork_topic_resolve',
+      'cowork_topic_report',
+      'cowork_decision_propose',
+      'cowork_authorization_request',
+      'cowork_notices',
+    ]],
     ['src/route-tools.ts', source('src/route-tools.ts'), ['cowork_route']],
     ['src/memory-tools.ts', source('src/memory-tools.ts'), ['cowork_memory_write', 'cowork_memory_search']],
     ['src/checkout-tools.ts', source('src/checkout-tools.ts'), ['cowork_work_item_create', 'cowork_checkout_merge']],

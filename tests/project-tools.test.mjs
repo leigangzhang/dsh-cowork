@@ -186,7 +186,7 @@ const inboxEvents = (count) =>
     summary: `inbox ${index}`,
   }))
 
-test('the assembly registers the fifteen tools in the documented order', () => {
+test('the assembly registers the nineteen tools in the documented order', () => {
   const host = fakeHost()
   registerCoworkTools(host, fakeDeps())
   assert.deepEqual([...host.registry.keys()], [
@@ -199,6 +199,10 @@ test('the assembly registers the fifteen tools in the documented order', () => {
     'cowork_thread_list',
     'cowork_handoff',
     'cowork_topic_resolve',
+    'cowork_topic_report',
+    'cowork_decision_propose',
+    'cowork_authorization_request',
+    'cowork_notices',
     'cowork_work_item_create',
     'cowork_review_request',
     'cowork_review_verdict',
@@ -292,10 +296,10 @@ test('project_status replays undelivered inbox items once and stamps deliveredAt
   })
 })
 
-test('project_status lazily marks a three-hour silent topic idle and does not rewrite on no change', async () => {
+test('project_status lazily marks a >24h silent topic idle and does not rewrite on no change', async () => {
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [
-      topic({ topicId: 'topic-idle', lastActiveAt: iso(NOW_MS - 3 * HOUR_MS) }),
+      topic({ topicId: 'topic-idle', lastActiveAt: iso(NOW_MS - 25 * HOUR_MS) }),
     ])
     const before = await readFile(store.indexFile, 'utf8')
     const tool = statusTool(fakeDeps())
@@ -320,13 +324,13 @@ test('project_status lazily marks a three-hour silent topic idle and does not re
   })
 })
 
-test('project_status resolves a three-day silent topic that meets every condition', async () => {
+test('project_status never auto-resolves a stale topic; it only goes idle', async () => {
   await withRepo(async (repoPath) => {
     await seedProject(repoPath, [
       topic({
-        topicId: 'topic-resolved',
-        lastActiveAt: iso(NOW_MS - 3 * DAY_MS - HOUR_MS),
-        lastDeliveryConfirmedAt: iso(NOW_MS - 3 * DAY_MS - HOUR_MS),
+        topicId: 'topic-stale',
+        lastActiveAt: iso(NOW_MS - 30 * DAY_MS),
+        lastDeliveryConfirmedAt: iso(NOW_MS - 30 * DAY_MS),
         digest: 'delivered work',
       }),
     ])
@@ -335,12 +339,11 @@ test('project_status resolves a three-day silent topic that meets every conditio
 
     assert.equal(result.ok, true)
     assert.deepEqual(result.lifecycle.changes, [
-      { topicId: 'topic-resolved', from: 'active', to: 'resolved' },
+      { topicId: 'topic-stale', from: 'active', to: 'idle' },
     ])
-    assert.equal(result.topics[0].status, 'resolved')
-    assert.equal(result.topics[0].resolvedBy, 'master')
-    assert.equal(result.topics[0].resolvedAt, NOW_ISO)
-    assert.equal(result.counts.resolved, 1)
+    assert.equal(result.topics[0].status, 'idle')
+    assert.equal(result.topics[0].resolvedBy, null)
+    assert.equal(result.counts.resolved, 0, 'archiving is a user action only')
   })
 })
 
@@ -444,7 +447,7 @@ test('the status read point never auto-resolves a topic whose review needs revis
   })
 })
 
-test('the same stale topic with a passed review still resolves (R1 control)', async () => {
+test('a stale topic with a passed review is idle too, never resolved (R1 control)', async () => {
   await withRepo(async (repoPath) => {
     await seedProject(repoPath, [
       topic({
@@ -459,8 +462,8 @@ test('the same stale topic with a passed review still resolves (R1 control)', as
     const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
 
     assert.equal(result.ok, true, JSON.stringify(result))
-    assert.equal(result.counts.resolved, 1, 'the guard is specific to needs_revision')
-    assert.equal(result.topics[0].status, 'resolved')
+    assert.equal(result.counts.resolved, 0, 'no review state can archive a topic')
+    assert.equal(result.topics[0].status, 'idle')
   })
 })
 

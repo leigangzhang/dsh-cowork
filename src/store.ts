@@ -41,6 +41,8 @@ import {
   trimActivityEvents,
 } from './store-schema.js'
 import { MigrationError, applyLegacyView, legacyViewOf, migrateV1ToV2 } from './store-migration.js'
+import { NoticeFileError, NoticeLedgerFile } from './notice-store.js'
+import type { NoticeLedgerV1 } from './notices.js'
 import type {
   ActivityEvent,
   ActivityType,
@@ -69,6 +71,8 @@ const BACKUP_FILE_NAME = 'index.v1.backup.json'
 const ACTIVITY_FILE_NAME = 'activity.jsonl'
 /** Master inbox file name inside the project directory. */
 const INBOX_FILE_NAME = 'inbox.json'
+/** Notice delivery ledger file name inside the project directory. */
+const NOTICES_FILE_NAME = 'notices.json'
 /** Handoff directory name inside the project directory. */
 const HANDOFFS_DIR_NAME = 'handoffs'
 /** Review directory name inside the project directory. */
@@ -335,6 +339,9 @@ export class ProjectStore {
   readonly activityFile: string
   /** `<repo>/.dsh-cowork/inbox.json`. */
   readonly inboxFile: string
+  /** `<repo>/.dsh-cowork/notices.json` (the delivery ledger). */
+  readonly noticesFile: string
+  private readonly ledger: NoticeLedgerFile
   /** `<repo>/.dsh-cowork/.write.lock` (the writers' lock; `withFileLock` owns the sibling). */
   readonly lockFile: string
   private readonly clock: () => Date
@@ -351,6 +358,8 @@ export class ProjectStore {
     this.backupFile = join(this.projectDir, BACKUP_FILE_NAME)
     this.activityFile = join(this.projectDir, ACTIVITY_FILE_NAME)
     this.inboxFile = join(this.projectDir, INBOX_FILE_NAME)
+    this.noticesFile = join(this.projectDir, NOTICES_FILE_NAME)
+    this.ledger = new NoticeLedgerFile(this.projectDir, this.noticesFile, join(this.projectDir, LOCK_FILE_NAME))
     this.lockFile = join(this.projectDir, LOCK_FILE_NAME)
     this.clock = options.clock ?? ((): Date => new Date())
     this.explicitProjectId = options.projectId
@@ -533,7 +542,11 @@ export class ProjectStore {
       const base = await this.readIndexForWrite()
       const next = mutator(base)
       if (next === null) return base
-      const problems = projectIndexV2Problems(next)
+      // Normalise before validation and the write: a legacy mutator may hand
+      // back a topic that predates the block/authorization fields, and a written
+      // document must carry every field a reader relies on (write-complete).
+      const document = normalizeProjectIndexV2(next) as ProjectIndexV2
+      const problems = projectIndexV2Problems(document)
       if (problems.length > 0) {
         throw new StoreError(
           'store/invalid',
@@ -541,8 +554,8 @@ export class ProjectStore {
           this.indexFile,
         )
       }
-      await this.writeJson(this.indexFile, next)
-      return next
+      await this.writeJson(this.indexFile, document)
+      return document
     })
   }
 
@@ -703,6 +716,43 @@ export class ProjectStore {
       await this.writeJson(this.inboxFile, kept)
       return kept
     })
+  }
+
+  /** Read the delivery ledger; a missing file is empty, damage is `store/corrupt`. */
+  async readNotices(): Promise<NoticeLedgerV1> {
+    try {
+      return await this.ledger.read()
+    } catch (error) {
+      throw this.noticeError(error)
+    }
+  }
+
+  /** Validate, trim, and write the delivery ledger under the project lock. */
+  async writeNotices(ledger: NoticeLedgerV1): Promise<NoticeLedgerV1> {
+    try {
+      return await this.ledger.write(ledger)
+    } catch (error) {
+      throw this.noticeError(error)
+    }
+  }
+
+  /** Locked read-modify-write of the ledger (concurrent appends must not lose rows). */
+  async mutateNotices(mutator: (ledger: NoticeLedgerV1) => NoticeLedgerV1): Promise<NoticeLedgerV1> {
+    try {
+      return await this.ledger.mutate(mutator)
+    } catch (error) {
+      throw this.noticeError(error)
+    }
+  }
+
+  /** Map a ledger file failure onto this store's error codes. */
+  private noticeError(error: unknown): unknown {
+    if (!(error instanceof NoticeFileError)) return error
+    return new StoreError(
+      error.code === 'corrupt' ? 'store/corrupt' : 'store/invalid-notices',
+      `${error.filePath}: ${error.message}`,
+      error.filePath,
+    )
   }
 
   /**
@@ -1000,6 +1050,7 @@ export class ProjectStore {
       }
       throw error
     }
+    migrated.document = normalizeProjectIndexV2(migrated.document) as ProjectIndexV2
     const problems = projectIndexV2Problems(migrated.document)
     if (problems.length > 0) {
       throw new StoreError(
@@ -1008,7 +1059,7 @@ export class ProjectStore {
         this.indexFile,
       )
     }
-    if (!migrated.report.migrated) return migrated.document
+    if (!migrated.report.migrated) return normalizeProjectIndexV2(migrated.document) as ProjectIndexV2
 
     try {
       await this.writeMigrationBackup(originalText)

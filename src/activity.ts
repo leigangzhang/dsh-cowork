@@ -9,6 +9,13 @@
  * `ACTIVITY_TYPES` in `src/store-schema.ts`; this module does not copy it.
  */
 import { randomUUID } from 'node:crypto'
+import { NOTICE_SUMMARY_MAX_CHARS, noticeDescriptor } from './notices.js'
+import type {
+  ActivityNoticeDescriptor,
+  NoticeAction,
+  NoticeStatus,
+  NoticeTarget,
+} from './notices.js'
 import { ACTIVITY_TYPES } from './store-schema.js'
 import type { ActivityEvent, ActivityType, TopicRecordV2, TopicStatus } from './store-schema.js'
 
@@ -101,4 +108,172 @@ export function errorActivity(
   details: Record<string, unknown> = {},
 ): ActivityEvent {
   return buildActivityEvent({ type: 'error', topicId, summary, details }, now)
+}
+
+/** Longest title a notice descriptor carries, in code points. */
+export const NOTICE_TITLE_MAX_CHARS = 80
+
+/** Both sides of an event; the archive notice goes to the master only. */
+const BOTH_TARGETS: readonly NoticeTarget[] = ['master', 'topic']
+/** The archive notice is the one event the topic session does not receive. */
+const MASTER_ONLY: readonly NoticeTarget[] = ['master']
+
+/** Cut text to at most `limit` code points without splitting a pair. */
+function clip(text: string, limit: number): string {
+  const points = Array.from(text)
+  return points.length <= limit ? text : points.slice(0, limit).join('')
+}
+
+/**
+ * The `topic-reported` event of one report. `kind` distinguishes a progress
+ * report from a handoff-blocked report; both produce one notice per target.
+ */
+export function topicReportedActivity(
+  topic: TopicRecordV2,
+  input: { summary: string; kind: 'progress' | 'blocked' },
+  now: Date,
+): ActivityEvent {
+  const summary = clip(input.summary, NOTICE_SUMMARY_MAX_CHARS)
+  return buildActivityEvent({
+    type: 'topic-reported',
+    topicId: topic.topicId,
+    summary: input.kind === 'blocked' ? `topic blocked: ${summary}` : `topic reported progress: ${summary}`,
+    details: {
+      topicId: topic.topicId,
+      kind: input.kind,
+      summary,
+      notice: noticeDescriptor({
+        kind: 'report',
+        title: topic.title,
+        summary,
+        targets: BOTH_TARGETS,
+      }),
+    },
+  }, now)
+}
+
+/** The `decision-proposed` event of one decision proposal. */
+export function decisionProposedActivity(
+  topic: TopicRecordV2,
+  input: { proposalId: string; title: string; summary: string },
+  now: Date,
+): ActivityEvent {
+  const summary = clip(input.summary, NOTICE_SUMMARY_MAX_CHARS)
+  return buildActivityEvent({
+    type: 'decision-proposed',
+    topicId: topic.topicId,
+    summary: `proposed decision ${clip(input.title, NOTICE_TITLE_MAX_CHARS)}`,
+    details: {
+      topicId: topic.topicId,
+      proposalId: input.proposalId,
+      title: clip(input.title, NOTICE_TITLE_MAX_CHARS),
+      summary,
+      notice: noticeDescriptor({
+        kind: 'proposal',
+        title: topic.title,
+        summary,
+        targets: BOTH_TARGETS,
+        actions: ['open-work-item'],
+      }),
+    },
+  }, now)
+}
+
+/** The `authorization-requested` event; the notice is pending until resolved. */
+export function authorizationRequestedActivity(
+  topic: TopicRecordV2,
+  input: { requestId: string; summary: string },
+  now: Date,
+): ActivityEvent {
+  const summary = clip(input.summary, NOTICE_SUMMARY_MAX_CHARS)
+  return buildActivityEvent({
+    type: 'authorization-requested',
+    topicId: topic.topicId,
+    summary: `requested authorization: ${summary}`,
+    details: {
+      topicId: topic.topicId,
+      requestId: input.requestId,
+      notice: noticeDescriptor({
+        kind: 'authorization',
+        title: topic.title,
+        summary,
+        targets: BOTH_TARGETS,
+        actions: ['allow', 'deny'],
+        status: 'pending',
+      }),
+    },
+  }, now)
+}
+
+/**
+ * The `authorization-resolved` event. It updates the original notice instead of
+ * creating one: `details.noticeId` is the `authorization-requested` event id,
+ * and the descriptor carries the decision so `cowork_notices` and the port see
+ * the same status the card gets updated to.
+ */
+export function authorizationResolvedActivity(
+  topic: TopicRecordV2,
+  input: { requestId: string; noticeId: string; decision: 'allow' | 'deny'; summary: string },
+  now: Date,
+): ActivityEvent {
+  const status: NoticeStatus = input.decision === 'allow' ? 'allowed' : 'denied'
+  return buildActivityEvent({
+    type: 'authorization-resolved',
+    topicId: topic.topicId,
+    summary: `authorization ${input.decision === 'allow' ? 'allowed' : 'denied'}: ${clip(input.summary, NOTICE_SUMMARY_MAX_CHARS)}`,
+    details: {
+      topicId: topic.topicId,
+      requestId: input.requestId,
+      noticeId: input.noticeId,
+      decision: input.decision,
+      notice: noticeDescriptor({
+        kind: 'authorization',
+        title: topic.title,
+        summary: input.summary,
+        targets: BOTH_TARGETS,
+        actions: ['allow', 'deny'],
+        status,
+      }),
+    },
+  }, now)
+}
+
+/** The `topic-archived` event; only the master is notified. */
+export function topicArchivedActivity(
+  topic: TopicRecordV2,
+  input: { by: 'user' | 'master'; voidedAuthorizationNoticeId?: string | null },
+  now: Date,
+): ActivityEvent {
+  return buildActivityEvent({
+    type: 'topic-archived',
+    topicId: topic.topicId,
+    summary: `archived topic ${clip(topic.title, NOTICE_TITLE_MAX_CHARS)}`,
+    details: {
+      topicId: topic.topicId,
+      by: input.by,
+      resolvedAt: now.toISOString(),
+      // Archiving invalidates a pending authorization; the listing needs the
+      // withdrawn notice id because a delivered card keeps its delivery row.
+      ...(input.voidedAuthorizationNoticeId === undefined || input.voidedAuthorizationNoticeId === null
+        ? {}
+        : { voidedAuthorizationNoticeId: input.voidedAuthorizationNoticeId }),
+      notice: noticeDescriptor({
+        kind: 'archive',
+        title: topic.title,
+        summary: topic.digest,
+        targets: MASTER_ONLY,
+        status: 'void',
+      }),
+    },
+  }, now)
+}
+
+/** The assignment notice an already-built `topic-created` event carries. */
+export function assignmentNotice(topic: TopicRecordV2, brief: string): ActivityNoticeDescriptor {
+  return noticeDescriptor({
+    kind: 'assignment',
+    title: topic.title,
+    summary: brief.trim() === '' ? topic.scope : brief,
+    targets: BOTH_TARGETS,
+  })
 }

@@ -1,19 +1,21 @@
 /**
  * The cowork tool assembly (M10.4b): registration orchestration only.
  *
- * The fifteen tools live in their domain modules:
+ * The nineteen tools live in their domain modules:
  *
  * - `project-tools.ts` — project_init, project_status
  * - `route-tools.ts` — route
  * - `topic-tools.ts` — topic_create, thread_create (deprecated), topic_list,
- *   thread_list (deprecated), handoff, topic_resolve
+ *   thread_list (deprecated), handoff, topic_resolve, topic_report,
+ *   decision_propose, authorization_request, notices
  * - `checkout-tools.ts` — work_item_create, checkout_merge
  * - `review-tools.ts` — review_request, review_verdict
  * - `memory-tools.ts` — memory_write, memory_search
  *
  * The registration order is part of the public surface (PLAN-V0.2 §5.7):
  * project_init, project_status, route, topic_create, thread_create,
- * topic_list, thread_list, handoff, topic_resolve, work_item_create,
+ * topic_list, thread_list, handoff, topic_resolve, topic_report,
+ * decision_propose, authorization_request, notices, work_item_create,
  * review_request, review_verdict, memory_write, memory_search, checkout_merge.
  *
  * Host services arrive through `CoworkToolDeps`; nothing throws across the tool
@@ -48,7 +50,7 @@ interface ToolHost {
 }
 
 /**
- * Register the fifteen cowork tools and return their disposers. The caller owns
+ * Register the nineteen cowork tools and return their disposers. The caller owns
  * the effect scope; this function only composes the domain registrars, in the
  * documented order (the review tools before memory, merge last).
  */

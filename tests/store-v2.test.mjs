@@ -640,6 +640,67 @@ test('inbox writes, reads, and keeps the newest 50 items', async () => {
   })
 })
 
+/** One valid notice ledger row. */
+const noticeRecord = (overrides = {}) => ({
+  noticeId: 'event-1',
+  topicId: 'session-a',
+  target: 'master',
+  status: 'pending',
+  attempts: 0,
+  lastError: null,
+  updatedAt: CREATED_AT,
+  ...overrides,
+})
+
+test('the notice ledger is empty until written, then round-trips through the lock', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    assert.deepEqual(await store.readNotices(), { version: 1, notices: [] })
+
+    const rows = [
+      noticeRecord(),
+      noticeRecord({ noticeId: 'event-1', target: 'topic' }),
+      noticeRecord({ noticeId: 'event-2', status: 'delivered', attempts: 1 }),
+    ]
+    const kept = await store.writeNotices({ version: 1, notices: rows })
+    assert.deepEqual(kept.notices, rows)
+    assert.deepEqual(await store.readNotices(), { version: 1, notices: rows })
+    assert.equal(await modeOf(store.noticesFile), 0o600)
+    assert.match(await readFile(store.noticesFile, 'utf8'), /\n$/)
+    assert.deepEqual(residue(await readdir(store.projectDir)), [])
+  })
+})
+
+test('the notice ledger keeps at most 200 rows and refuses an invalid document', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const rows = Array.from({ length: 205 }, (_, index) => noticeRecord({
+      noticeId: `event-${index}`,
+      updatedAt: new Date(Date.parse(CREATED_AT) + index * 1000).toISOString(),
+    }))
+    const kept = await store.writeNotices({ version: 1, notices: rows })
+    assert.equal(kept.notices.length, 200)
+    assert.equal(kept.notices[0].noticeId, 'event-5', 'the oldest rows are dropped')
+
+    const empty = await readFile(store.noticesFile, 'utf8')
+    const bad = { noticeId: 'x', topicId: 'session-a', target: 'master', status: 'nope', attempts: 0, lastError: null, updatedAt: CREATED_AT }
+    await assert.rejects(store.writeNotices({ version: 1, notices: [bad] }), /status must be one of/)
+    assert.equal(await readFile(store.noticesFile, 'utf8'), empty, 'a refused write leaves the file alone')
+  })
+})
+
+test('a damaged notice ledger fails closed with its path', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    await mkdir(store.projectDir, { recursive: true })
+    await writeFile(store.noticesFile, '{ not json', 'utf8')
+    await rejectsStore(store.readNotices(), 'store/corrupt', store.noticesFile)
+
+    await writeFile(store.noticesFile, JSON.stringify({ version: 1, notices: [noticeRecord({ target: 'nobody' })] }), 'utf8')
+    await rejectsStore(store.readNotices(), 'store/corrupt', 'notices[0].target')
+  })
+})
+
 test('inbox damage fails closed and invalid items are refused before writing', async () => {
   await withTempDir(async (repoPath) => {
     const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
@@ -665,6 +726,10 @@ const topicV2 = (overrides = {}) => ({
   status: 'active',
   awaitingReview: false,
   blocked: false,
+  blockedReason: null,
+  blockedFromStatus: null,
+  blockedAt: null,
+  authorization: null,
   scope: '',
   ownedPaths: [],
   aliases: [],
@@ -881,7 +946,9 @@ test('mutateIndexDocument returning null writes nothing', async () => {
 
     const document = await store.mutateIndexDocument(() => null)
 
-    assert.deepEqual(document, v2Index())
+    // The lock-read document is normalised even when nothing is written, so a
+    // mutator always sees the canonical shape (routing targets defaulted).
+    assert.deepEqual(document, v2Index([topicV2()], { masterFocusTopicId: null, lastRouteTopicId: null }))
     assert.equal(await readFile(store.indexFile, 'utf8'), original)
     assert.equal((await stat(store.indexFile)).mtimeMs, before)
     assert.equal(existsSync(store.backupFile), false)

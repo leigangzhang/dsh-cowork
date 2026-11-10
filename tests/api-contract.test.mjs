@@ -6,6 +6,7 @@ import {
   ACTIVITY_DEFAULT_LIMIT,
   ACTIVITY_MAX_LIMIT,
   ACTIVITY_PATH,
+  AUTHORIZATION_RESOLVE_PATH,
   MAX_INBOX_ITEMS,
   MAX_PANEL_TOPICS,
   MAX_REQUEST_BODY_BYTES,
@@ -19,6 +20,7 @@ import {
   OVERVIEW_PATH,
   PANEL_REVIEW_SEVERITIES,
   PANEL_REVIEW_STATUSES,
+  PANEL_BLOCKED_REASONS,
   PANEL_REVIEW_VERDICTS,
   PANEL_TOPIC_STATUS_ORDER,
   PANEL_WORK_ITEM_STATUSES,
@@ -29,6 +31,7 @@ import {
   TOPIC_PATH,
   countPanel,
   defaultSelectedTopicId,
+  isPanelBlockedReason,
   isPanelError,
   isPanelReviewSeverity,
   isPanelReviewStatus,
@@ -68,6 +71,8 @@ function topic(overrides = {}) {
     title: 'Topic',
     status: 'active',
     blocked: false,
+    blockedReason: null,
+    awaitingAuthorization: false,
     awaitingReview: false,
     reviewStatus: null,
     latestReviewRequestId: null,
@@ -113,35 +118,39 @@ test('the wire status unions are exactly the canonical store-schema lists', asyn
   }
   // The list priority order is a second fact, so keep it next to the lifecycle.
   assert.deepEqual([...PANEL_TOPIC_STATUS_ORDER], ['active', 'idle', 'resolved'])
+  assert.deepEqual([...PANEL_BLOCKED_REASONS], await storeList('BLOCKED_REASONS'))
+  assert.deepEqual([...PANEL_BLOCKED_REASONS], ['authorization', 'handoff', 'conflict'])
 })
 
-test('sortTopicsForPanel ranks blocked, awaitingReview, then active/idle/resolved', () => {
+test('sortTopicsForPanel ranks blocked, awaitingAuthorization, then active/idle/resolved', () => {
   // Built in reverse priority order: the projection must reorder.
   const rows = [
     topic({ topicId: 'resolved', status: 'resolved' }),
     topic({ topicId: 'idle', status: 'idle' }),
     topic({ topicId: 'active', status: 'active' }),
-    topic({ topicId: 'awaiting', awaitingReview: true }),
+    topic({ topicId: 'review-only', awaitingReview: true }),
+    topic({ topicId: 'awaiting', awaitingReview: true, awaitingAuthorization: true }),
     topic({ topicId: 'blocked', blocked: true }),
   ]
   assert.deepEqual(
     sortTopicsForPanel(rows).map((row) => row.topicId),
-    ['blocked', 'awaiting', 'active', 'idle', 'resolved'],
+    ['blocked', 'awaiting', 'active', 'review-only', 'idle', 'resolved'],
+    'awaitingReview alone no longer changes the rank',
   )
 })
 
-test('the markers outrank status and blocked outranks awaitingReview', () => {
+test('the markers outrank status and blocked outranks awaitingAuthorization', () => {
   const rows = [
     topic({ topicId: 'resolved', status: 'resolved' }),
-    topic({ topicId: 'awaiting-resolved', status: 'resolved', awaitingReview: true }),
+    topic({ topicId: 'review-resolved', status: 'resolved', awaitingReview: true }),
     topic({ topicId: 'active', status: 'active' }),
     topic({ topicId: 'blocked-idle', status: 'idle', blocked: true }),
-    topic({ topicId: 'both', status: 'resolved', blocked: true, awaitingReview: true }),
+    topic({ topicId: 'both', status: 'resolved', blocked: true, awaitingAuthorization: true }),
   ]
   assert.deepEqual(
     sortTopicsForPanel(rows).map((row) => row.topicId),
-    ['blocked-idle', 'both', 'awaiting-resolved', 'active', 'resolved'],
-    'blocked rows lead, then awaiting review, then the plain topic states',
+    ['blocked-idle', 'both', 'active', 'resolved', 'review-resolved'],
+    'blocked rows lead, then awaited authorizations, then the plain topic states',
   )
 })
 
@@ -229,6 +238,7 @@ test('countPanel zero-fills every wire field', () => {
     idle: 0,
     resolved: 0,
     blocked: 0,
+    awaitingAuthorization: 0,
     awaitingReview: 0,
     pendingReview: 0,
     workItemActive: 0,
@@ -242,7 +252,7 @@ test('countPanel counts topic states, resolved included, plus the markers', () =
   const topics = [
     topic({ topicId: 'a1' }),
     topic({ topicId: 'a2', blocked: true }),
-    topic({ topicId: 'i1', status: 'idle', awaitingReview: true }),
+    topic({ topicId: 'i1', status: 'idle', awaitingReview: true, awaitingAuthorization: true }),
     topic({ topicId: 'r1', status: 'resolved', reviewStatus: 'pending' }),
   ]
   assert.deepEqual(countPanel(topics, []), {
@@ -250,6 +260,7 @@ test('countPanel counts topic states, resolved included, plus the markers', () =
     idle: 1,
     resolved: 1,
     blocked: 1,
+    awaitingAuthorization: 1,
     awaitingReview: 1,
     pendingReview: 1,
     workItemActive: 0,
@@ -378,7 +389,7 @@ test('the exported bounds keep the documented values and their relations', () =>
   assert.equal(MAX_REQUEST_BODY_BYTES, 8 * 1024, 'the write body cap is 8 KiB')
 })
 
-test('the six route paths are unique, absolute and stable', () => {
+test('the seven route paths are unique, absolute and stable', () => {
   const paths = [
     OVERVIEW_PATH,
     ACTIVITY_PATH,
@@ -386,6 +397,7 @@ test('the six route paths are unique, absolute and stable', () => {
     RESOLVE_PATH,
     REOPEN_PATH,
     ROUTE_MOVE_PATH,
+    AUTHORIZATION_RESOLVE_PATH,
   ]
   assert.deepEqual(paths, [
     '/api/cowork.overview',
@@ -394,6 +406,7 @@ test('the six route paths are unique, absolute and stable', () => {
     '/api/cowork.topic.resolve',
     '/api/cowork.topic.reopen',
     '/api/cowork.route.move',
+    '/api/cowork.authorization.resolve',
   ])
   assert.equal(new Set(paths).size, paths.length, 'every route has its own path')
   for (const path of paths) assert.equal(path.startsWith('/api/'), true, `${path} stays below /api`)
@@ -434,6 +447,7 @@ test('every status guard accepts its own members and rejects everything else', (
     [isPanelReviewStatus, PANEL_REVIEW_STATUSES],
     [isPanelReviewVerdict, PANEL_REVIEW_VERDICTS],
     [isPanelReviewSeverity, PANEL_REVIEW_SEVERITIES],
+    [isPanelBlockedReason, PANEL_BLOCKED_REASONS],
   ]
   for (const [guard, members] of guards) {
     for (const member of members) assert.equal(guard(member), true, `${String(member)} must be accepted`)
@@ -448,6 +462,8 @@ test('every status guard accepts its own members and rejects everything else', (
   assert.equal(isPanelReviewVerdict('pending'), false, 'pending is a request state, never a verdict')
   for (const verdict of PANEL_REVIEW_VERDICTS) assert.equal(isPanelReviewStatus(verdict), true)
   assert.equal(isPanelReviewSeverity('critical'), false)
+  assert.equal(isPanelBlockedReason('blocked'), false)
+  assert.equal(isPanelBlockedReason(null), false)
 })
 
 test('defaultSelectedTopicId picks the first row, or null for an empty list', () => {

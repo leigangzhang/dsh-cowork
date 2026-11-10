@@ -269,7 +269,7 @@ export class M12E2ERunner {
       case 'master-merge-decision': return this.stepMasterMergeDecision(step)
       case 'handoff-done': return this.stepHandoffDone(step)
       case 'merge': return this.stepMerge(step)
-      case 'auto-resolve': return this.stepAutoResolve(step)
+      case 'archive': return this.stepArchive(step)
       case 'no-undo': return this.stepNoUndo(step)
       case 'resolved-no-receive': return this.stepResolvedNoReceive(step)
       case 'reopen': return this.stepReopen(step)
@@ -717,23 +717,24 @@ export class M12E2ERunner {
     return text?.trim() === M12_E2E_WORK_CONTENT
   }
 
-  private async stepAutoResolve(step: MutableStep): Promise<void> {
+  /** Archive through the topic-page menu (the shipped resolve route). */
+  private async stepArchive(step: MutableStep): Promise<void> {
     const topic = this.topic()
-    const startedAt = Date.now()
-    const resolved = await this.poll('the topic auto-resolved by the lifecycle read point', async () => {
-      const rows = await this.overviewTopics(step)
-      const row = rows.find((entry) => entry.topicId === topic)
-      return row?.status === 'resolved' ? row : undefined
-    })
-    this.resolvedAt = resolved.resolvedAt
-    obs(step, { resolvedAt: resolved.resolvedAt, resolvedBy: resolved.resolvedBy, elapsedMs: Date.now() - startedAt, thresholds: { idleAfterMs: this.config.idleAfterMs, resolveAfterMs: this.config.resolveAfterMs } })
-    recordCheck(step, 'the topic resolved without a resolve tool call', resolved.resolvedAt !== null, String(resolved.resolvedAt))
-    recordCheck(step, 'the lifecycle marked it resolved by the master', resolved.resolvedBy === 'master', String(resolved.resolvedBy))
+    step.evidence.note = 'manual archive through POST /api/cowork.topic.resolve'
+    const result = await this.config.panel.resolve({ sessionId: this.master(), topicId: topic })
+    obs(step, { status: result.status, archiveBody: clip(stableJson(result.body), 2_000) })
+    const body = asRecord(result.body)
+    const panelTopic = asRecord(body?.topic)
+    recordCheck(step, 'POST /api/cowork.topic.resolve returns 200', result.status === 200, String(result.status))
+    recordCheck(step, 'the archive body is ok', body?.ok === true, clip(stableJson(result.body), 1_000))
+    recordCheck(step, 'the topic is archived', panelTopic?.status === 'resolved', String(panelTopic?.status))
+    recordCheck(step, 'the archive is attributed to the user', panelTopic?.resolvedBy === 'user', String(panelTopic?.resolvedBy))
+    const resolvedAt = typeof panelTopic?.resolvedAt === 'string' ? panelTopic.resolvedAt : null
+    this.resolvedAt = resolvedAt
     const indexRow = topicOf(await this.readIndex(), topic)
-    recordCheck(step, 'the index records the resolution', indexRow?.status === 'resolved' && indexRow.resolvedAt === resolved.resolvedAt, `${String(indexRow?.status)} ${String(indexRow?.resolvedAt)}`)
+    recordCheck(step, 'the index records the resolution', indexRow?.status === 'resolved' && indexRow.resolvedAt === resolvedAt, `${String(indexRow?.status)} ${String(indexRow?.resolvedAt)}`)
     const activity = await this.readActivity()
-    const transition = activity.events.find((event) => event.type === 'status-changed' && event.topicId === topic && asRecord(event.details)?.to === 'resolved')
-    recordCheck(step, 'the resolution is recorded in activity.jsonl', transition !== undefined, 'status-changed to resolved')
+    recordCheck(step, 'the archive is recorded in activity.jsonl', activity.events.some((event) => event.type === 'topic-archived' && event.topicId === topic), 'topic-archived')
   }
 
   private async stepNoUndo(step: MutableStep): Promise<void> {

@@ -17,11 +17,13 @@
  * a test can register the tools against recording fakes.
  */
 import { execFile } from 'node:child_process'
-import { statusChangedActivity } from './activity.js'
+import { statusChangedActivity, topicArchivedActivity } from './activity.js'
 import { CLONE_ISOLATION_PROVIDER } from './checkout.js'
 import type { CheckoutDeps, GitResult, GitRunner } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
 import { Inbox, InboxMarkError } from './inbox.js'
+import { findAuthorizationNoticeId, recordNoticesForEvent, voidAuthorizationNotice } from './notices.js'
+import type { NoticeLedgerStorePort, NoticeLedgerV1, TopicNoticePort } from './notices.js'
 import type { InboxEvent, InboxStore } from './inbox.js'
 import type { MemoryIo } from './memory.js'
 import type { PresetRegistryPort } from './presets.js'
@@ -29,8 +31,15 @@ import { SessionSlice } from './session-slice.js'
 import type { SessionSlicePorts } from './session-slice.js'
 import type { LlmRoutingPort } from './router-model.js'
 import { ProjectStore, StoreError, findProjectRoot } from './store.js'
+import { archiveTopicRecord } from './topic.js'
 import type { ProjectIndex, ThreadRecord } from './store.js'
-import type { ActivityEvent, ProjectIndexV2, TopicRecordV2, TopicStatus } from './store-schema.js'
+import type {
+  ActivityEvent,
+  ProjectIndexV2,
+  ReadActivityResult,
+  TopicRecordV2,
+  TopicStatus,
+} from './store-schema.js'
 import { evaluateTopicLifecycle } from './topic.js'
 import { ERROR_CODES, failure, readCaller } from './tool-model.js'
 import type { CallerIdentity, ToolFailure } from './tool-model.js'
@@ -101,6 +110,14 @@ export interface CoworkToolDeps {
   llmRoutingPort?: LlmRoutingPort
   /** The host's current default model, used when routing.provider/model are unset. */
   currentModelRoute?: () => CurrentModelRoute | null
+  /** Notice delivery runtime; absent means the ledger is written but not drained. */
+  notices?: TopicNoticeRuntime
+}
+
+/** The notice port plus the per-project kick the tools call after a write. */
+export interface TopicNoticeRuntime {
+  port: TopicNoticePort
+  kick(repoPath: string): void
 }
 
 /** Longest `brief` a tool may carry into a new topic or route prompt. */
@@ -201,6 +218,138 @@ export async function deliverInbox(options: DeliverInboxOptions): Promise<InboxD
     // the items stay in the file for the next pass either way.
     return { delivered: 0, failed: 0, error: describeError(error) }
   }
+}
+
+/**
+ * The store operations one topic-notice write needs. `ProjectStore` satisfies
+ * it; the notice helpers stay usable with a hand-built fake in tests.
+ */
+export interface TopicWriteStorePort extends LifecycleStorePort {
+  readNotices?(): Promise<NoticeLedgerV1>
+  writeNotices?(ledger: NoticeLedgerV1): Promise<NoticeLedgerV1>
+  mutateNotices?(mutator: (ledger: NoticeLedgerV1) => NoticeLedgerV1): Promise<NoticeLedgerV1>
+  readActivity?(limit?: number): Promise<ReadActivityResult>
+}
+
+/**
+ * Append one notice-carrying activity row, write its ledger rows, and kick the
+ * dispatcher. The activity row is the body the ledger points at, so a failed
+ * append writes no ledger row (there would be nothing to deliver); the caller
+ * still gets `false` and keeps its committed topic state.
+ */
+export async function recordNoticeEvent(
+  store: TopicWriteStorePort,
+  event: ActivityEvent,
+  now: Date,
+  runtime: TopicNoticeRuntime | undefined,
+  repoPath: string,
+): Promise<boolean> {
+  try {
+    await store.appendActivity(event)
+  } catch {
+    return false
+  }
+  if (store.writeNotices !== undefined && store.readNotices !== undefined) {
+    try {
+      await recordNoticesForEvent(store as NoticeLedgerStorePort & TopicWriteStorePort, event, now)
+    } catch {
+      // The ledger is delivery evidence, not topic state: a failed write leaves
+      // the event readable and must not fail the tool or roll the index back.
+    }
+  }
+  runtime?.kick(repoPath)
+  return true
+}
+
+/** What one shared archive write did. */
+export interface ArchiveTopicOutcome {
+  changed: boolean
+  topic: TopicRecordV2 | null
+  event: ActivityEvent | null
+  /** Ledger rows written for the archive notice (0 or 1: master only). */
+  noticeRows: number
+}
+
+/**
+ * The shared archive core of the resolve route and `cowork_topic_resolve`:
+ * clear the block and any pending authorization, mark the topic resolved by the
+ * user, then record the `topic-archived` activity and its master-only notice.
+ * Idempotent: an already resolved topic writes nothing and returns `changed:
+ * false`. Neither the activity nor the ledger can roll the committed state back.
+ */
+export async function archiveTopic(
+  store: TopicWriteStorePort,
+  topicId: string,
+  options: {
+    now: Date
+    repoPath: string
+    by?: 'user' | 'master'
+    runtime?: TopicNoticeRuntime
+    /** Re-checked inside the lock (the resolve route's master gate). */
+    assertAllowed?: (document: ProjectIndexV2) => void
+    log?: (message: string) => void
+  },
+): Promise<ArchiveTopicOutcome> {
+  let changed = false
+  let updated: TopicRecordV2 | null = null
+  let pendingRequest: string | null = null
+  const document = await store.mutateIndexDocument((base) => {
+    options.assertAllowed?.(base)
+    const topic = base.topics.find((entry) => entry.topicId === topicId)
+    if (topic === undefined || topic.status === 'resolved') return null
+    pendingRequest = topic.authorization?.requestId ?? null
+    const archived = archiveTopicRecord(topic, options.now.getTime(), options.by ?? 'user')
+    changed = true
+    updated = archived
+    return {
+      ...base,
+      topics: base.topics.map((entry) => (entry.topicId === topicId ? archived : entry)),
+    }
+  })
+  if (!changed || updated === null) {
+    return { changed: false, topic: document.topics.find((entry) => entry.topicId === topicId) ?? null, event: null, noticeRows: 0 }
+  }
+  // Find the notice the archive withdraws before writing its own event, so the
+  // event can name it (a delivered card keeps its delivery row, only the event
+  // records that the request is no longer decidable).
+  const voidedNoticeId = pendingRequest === null
+    ? null
+    : await findAuthorizationNoticeId(store, topicId, pendingRequest).catch(() => null)
+  const event = topicArchivedActivity(
+    updated,
+    { by: options.by ?? 'user', voidedAuthorizationNoticeId: voidedNoticeId },
+    options.now,
+  )
+  let noticeRows = 0
+  try {
+    await store.appendActivity(event)
+    if (store.writeNotices !== undefined && store.readNotices !== undefined) {
+      noticeRows = (await recordNoticesForEvent(store as NoticeLedgerStorePort & TopicWriteStorePort, event, options.now)).length
+    }
+  } catch (error) {
+    // Committed state stands; a lost event/ledger row is a logged evidence gap.
+    options.log?.(`topic archive event was not recorded: ${describeError(error)}`)
+    return { changed: true, topic: updated, event: null, noticeRows: 0 }
+  }
+  if (pendingRequest !== null && store.readNotices !== undefined) {
+    // Archiving invalidates the pending authorization: the user can no longer
+    // decide it, so its notice is withdrawn instead of lingering as pending.
+    try {
+      await voidAuthorizationNotice({
+        store: store as NoticeLedgerStorePort & TopicWriteStorePort,
+        document,
+        topicId,
+        requestId: pendingRequest,
+        now: options.now,
+        port: options.runtime?.port,
+        noticeId: voidedNoticeId,
+      })
+    } catch (error) {
+      options.log?.(`authorization notice was not voided: ${describeError(error)}`)
+    }
+  }
+  options.runtime?.kick(options.repoPath)
+  return { changed: true, topic: updated, event, noticeRows }
 }
 
 /** Build the session adapter over the injected host services. */
@@ -389,7 +538,8 @@ export interface LifecycleEvaluation {
 /** Everything the read point needs; the defaults live at the call site. */
 export interface LifecycleOptions {
   idleAfterMs: number
-  resolveAfterMs: number
+  /** Deprecated and ignored; kept so older callers still typecheck. */
+  resolveAfterMs?: number
   now: Date
   /**
    * Per-topic in-flight work-item count (M10, KI-24). It is called with the

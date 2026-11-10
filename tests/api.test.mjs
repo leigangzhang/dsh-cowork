@@ -44,6 +44,10 @@ function makeTopic(overrides = {}) {
     status: 'active',
     awaitingReview: false,
     blocked: false,
+    blockedReason: null,
+    blockedFromStatus: null,
+    blockedAt: null,
+    authorization: null,
     scope: 'scope one',
     ownedPaths: ['src/api.ts'],
     aliases: [],
@@ -137,6 +141,12 @@ function fakePorts(options = {}) {
     roots: [],
     listCalls: 0,
     readTexts: [],
+    notices: options.notices ?? { version: 1, notices: [] },
+    noticeWrites: 0,
+    archived: [],
+    unarchived: [],
+    prompts: [],
+    kicks: [],
   }
   const sessions = options.sessions ?? [{ sessionId: MASTER, cwd: '/repo' }]
   const storePort = {
@@ -185,6 +195,19 @@ function fakePorts(options = {}) {
         throw error
       }
     },
+    async readNotices() {
+      return state.notices
+    },
+    async writeNotices(ledger) {
+      state.noticeWrites += 1
+      state.notices = ledger
+      return ledger
+    },
+    async mutateNotices(mutator) {
+      state.noticeWrites += 1
+      state.notices = mutator(state.notices)
+      return state.notices
+    },
   }
   const ports = {
     // Deliberately no `inspectSession`: the routes must resolve the cwd from
@@ -219,6 +242,24 @@ function fakePorts(options = {}) {
     ...(options.idleAfterMs === undefined ? {} : { idleAfterMs: options.idleAfterMs }),
     ...(options.resolveAfterMs === undefined ? {} : { resolveAfterMs: options.resolveAfterMs }),
     log: (message) => state.logs.push(message),
+    ...(options.noArchive === true
+      ? {}
+      : { archiveSession: async (sessionId, archiveOptions) => {
+          state.archived.push({ sessionId, options: archiveOptions })
+          if (options.archiveError !== undefined) throw options.archiveError
+        } }),
+    ...(options.noUnarchive === true
+      ? {}
+      : { unarchiveSession: async (sessionId) => {
+          state.unarchived.push(sessionId)
+          if (options.unarchiveError !== undefined) throw options.unarchiveError
+        } }),
+    promptSession: options.noPrompt === true ? undefined : async (sessionId, text) => {
+      state.prompts.push({ sessionId, text })
+      return { accepted: options.promptAccepted ?? true }
+    },
+    ...(options.noticePort === undefined ? {} : { noticePort: options.noticePort }),
+    kickNotices: (repoPath) => state.kicks.push(repoPath),
   }
   return { ports, state }
 }
@@ -297,6 +338,7 @@ test('toPanelTopic maps a v2 topic, bounds its text, and counts open work', () =
   const topic = makeTopic({
     topicId: 't1',
     blocked: true,
+    blockedReason: 'handoff',
     awaitingReview: true,
     reviewStatus: 'needs_revision',
     latestReviewRequestId: 'req-1',
@@ -320,6 +362,8 @@ test('toPanelTopic maps a v2 topic, bounds its text, and counts open work', () =
   assert.equal(panel.topicId, 't1')
   assert.equal(panel.status, 'active')
   assert.equal(panel.blocked, true)
+  assert.equal(panel.blockedReason, 'handoff')
+  assert.equal(panel.awaitingAuthorization, false)
   assert.equal(panel.awaitingReview, true)
   assert.equal(panel.reviewStatus, 'needs_revision')
   assert.equal(panel.latestReviewRequestId, 'req-1')
@@ -332,8 +376,10 @@ test('toPanelTopic maps a v2 topic, bounds its text, and counts open work', () =
   // The wire carries no thread/reviewer/handoff facts: the exact key set pins it.
   assert.deepEqual(Object.keys(panel).sort(), [
     'activeWorkItems',
+    'awaitingAuthorization',
     'awaitingReview',
     'blocked',
+    'blockedReason',
     'digest',
     'lastActiveAt',
     'lastDeliveryConfirmedAt',
@@ -358,6 +404,28 @@ test('toPanelTopic degrades an unknown review state and a bogus resolver to null
   assert.equal(panel.resolvedAt, '2026-01-02T00:00:00.000Z')
 })
 
+test('toPanelTopic derives the authorization marker and surfaces the blocked reason', () => {
+  const pending = makeTopic({
+    blocked: true,
+    blockedReason: 'authorization',
+    blockedFromStatus: 'idle',
+    blockedAt: '2026-01-02T00:00:00.000Z',
+    authorization: { requestId: 'request-1', summary: 'may I?', requestedAt: '2026-01-02T00:00:00.000Z' },
+  })
+  const panel = api.toPanelTopic(makeDocument({ topics: [pending] }), pending)
+  assert.equal(panel.blocked, true)
+  assert.equal(panel.blockedReason, 'authorization')
+  assert.equal(panel.awaitingAuthorization, true, 'the marker is derived from the request, never stored twice')
+
+  const handoff = makeTopic({ blocked: true, blockedReason: 'handoff' })
+  const handoffPanel = api.toPanelTopic(makeDocument({ topics: [handoff] }), handoff)
+  assert.equal(handoffPanel.awaitingAuthorization, false)
+  assert.equal(handoffPanel.blockedReason, 'handoff')
+
+  const invented = makeTopic({ blockedReason: 'because' })
+  assert.equal(api.toPanelTopic(makeDocument({ topics: [invented] }), invented).blockedReason, null)
+})
+
 test('toErrorResponse maps every stable code to its documented status', () => {
   // One home for the status table; the contract's code list cannot grow
   // without this table and `panelErrorStatus` disagreeing.
@@ -372,6 +440,9 @@ test('toErrorResponse maps every stable code to its documented status', () => {
     'request/not-master': 403,
     'topic/not-found': 404,
     'topic/not-resolved': 409,
+    'authorization/not-found': 404,
+    'authorization/mismatch': 409,
+    'authorization/not-allowed': 403,
     'route/move-invalid': 400,
     'session/unknown': 400,
     'session/cwd-unavailable': 400,
@@ -380,7 +451,7 @@ test('toErrorResponse maps every stable code to its documented status', () => {
     'store/corrupt': 500,
     internal: 500,
   }
-  assert.equal(Object.keys(expected).length, 17, 'a new PanelErrorCode must decide its status here')
+  assert.equal(Object.keys(expected).length, 20, 'a new PanelErrorCode must decide its status here')
   for (const [code, status] of Object.entries(expected)) {
     assert.equal(api.panelErrorStatus(code), status, code)
     assert.deepEqual(api.toErrorResponse(new api.PanelApiError(code, 'm')), {
@@ -422,14 +493,15 @@ const ROUTES = [
   [contract.RESOLVE_PATH, 'POST'],
   [contract.REOPEN_PATH, 'POST'],
   [contract.ROUTE_MOVE_PATH, 'POST'],
+  [contract.AUTHORIZATION_RESOLVE_PATH, 'POST'],
 ]
 
-test('registerCoworkApi registers the six v2 routes and disposes them', async () => {
+test('registerCoworkApi registers the seven v2 routes and disposes them', async () => {
   const portBag = fakePorts()
   const fake = fakeConnection()
   const { host, effects } = fakeHost(fake.connection)
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(effects.length, 6, 'one fiber effect per route')
+  assert.equal(effects.length, 7, 'one fiber effect per route')
   assert.deepEqual(effects.map((effect) => effect.label), ROUTES.map(
     ([path]) => `dsh-cowork: panel route ${path}`,
   ))
@@ -441,7 +513,7 @@ test('registerCoworkApi registers the six v2 routes and disposes them', async ()
   for (const effect of effects) await effect.disposer()
   assert.equal(fake.routes.size, 0, 'disposal unregisters every route')
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(fake.routes.size, 6, 'a reload re-registers without a duplicate error')
+  assert.equal(fake.routes.size, 7, 'a reload re-registers without a duplicate error')
 })
 
 test('registerCoworkApi is a no-op when the host has no connection service', () => {
@@ -494,6 +566,7 @@ test('overview serves v2 topics, counts, and only the undelivered inbox', async 
     idle: 1,
     resolved: 1,
     blocked: 1,
+    awaitingAuthorization: 0,
     awaitingReview: 1,
     pendingReview: 1,
     workItemActive: 0,
@@ -515,7 +588,7 @@ test('overview serves v2 topics, counts, and only the undelivered inbox', async 
   assert.equal(portBag.state.writes, 0, 'nothing had to transition, so the lifecycle wrote nothing')
 })
 
-test('overview passes real in-flight work-item counts to the lifecycle', async () => {
+test('overview passes real in-flight work-item counts to the lifecycle (idle only)', async () => {
   const resolvable = {
     status: 'active',
     lastActiveAt: STALE,
@@ -537,16 +610,18 @@ test('overview passes real in-flight work-item counts to the lifecycle', async (
   )
   assert.equal(status, 200)
   const byId = topicsById(body.topics)
-  assert.equal(byId.get('quiet').status, 'resolved', 'a topic without open work is resolved by the read point')
-  assert.notEqual(byId.get('busy').status, 'resolved', 'an open work item blocks resolution')
+  // The read point only migrates idle/active now: no topic is ever archived by
+  // a clock, with or without open work.
+  assert.equal(byId.get('quiet').status, 'idle', 'a stale topic goes idle, never resolved')
   assert.equal(byId.get('busy').status, 'idle')
   assert.equal(byId.get('busy').activeWorkItems, 1)
+  assert.equal(body.counts.resolved, 0)
   assert.deepEqual(
     portBag.state.appended.map((event) => [event.type, event.topicId, event.details.to]),
     // The lifecycle walks the document order: `busy` first, then `quiet`.
     [
       ['status-changed', 'busy', 'idle'],
-      ['status-changed', 'quiet', 'resolved'],
+      ['status-changed', 'quiet', 'idle'],
     ],
   )
   assert.ok(portBag.state.writes >= 1, 'the transition was committed inside the lock')
@@ -567,7 +642,7 @@ test('a lifecycle activity failure is logged, not a failed overview', async () =
   )
   assert.equal(status, 200)
   assert.equal(body.ok, true)
-  assert.equal(topicsById(body.topics).get('quiet').status, 'resolved')
+  assert.equal(topicsById(body.topics).get('quiet').status, 'idle')
   assert.equal(portBag.state.logs.length, 1)
   assert.match(portBag.state.logs[0], /lifecycle activity not recorded/)
   assert.match(portBag.state.logs[0], /activity write failed/)
@@ -1111,8 +1186,8 @@ test('the M12 panel probe clears the same-origin guard (F4)', async () => {
   assert.equal(refused.body.error.code, 'request/origin')
 
   // The write half keeps the caller's content-type/body and adds the same
-  // origin headers: the reopen route reaches its own business gate (409 for an
-  // active topic), so no other host gate rejects the probe.
+  // origin headers: the reopen route reaches its own business logic (an
+  // already-live topic is an idempotent 200), so no host gate rejects the probe.
   const write = await readResponse(await routes.get(contract.REOPEN_PATH).fetch(
     panelProbe.panelProbeRequest(contract.REOPEN_PATH, {
       method: 'POST',
@@ -1120,8 +1195,8 @@ test('the M12 panel probe clears the same-origin guard (F4)', async () => {
       body: JSON.stringify({ sessionId: MASTER, topicId: 'topic-1' }),
     }),
   ))
-  assert.equal(write.status, 409)
-  assert.equal(write.body.error.code, 'topic/not-resolved')
+  assert.equal(write.status, 200)
+  assert.equal(write.body.ok, true)
 })
 
 test('write routes refuse a missing or wrong content type with 415', async () => {
@@ -1221,10 +1296,12 @@ test('resolve marks a topic resolved once and is idempotent afterwards', async (
   assert.equal(portBag.state.writes, 1)
   assert.equal(portBag.state.appended.length, 1)
   const event = portBag.state.appended[0]
-  assert.equal(event.type, 'status-changed')
+  assert.equal(event.type, 'topic-archived', 'archiving is its own event type')
   assert.equal(event.topicId, 'topic-1')
   assert.equal(event.time, NOW.toISOString())
-  assert.deepEqual(event.details, { topicId: 'topic-1', from: 'active', to: 'resolved', by: 'user' })
+  assert.equal(event.details.by, 'user')
+  assert.equal(event.details.notice.kind, 'archive')
+  assert.deepEqual([...event.details.notice.targets], ['master'], 'the archive notices the master only')
   assert.ok(typeof event.eventId === 'string' && event.eventId.length > 0)
 
   const second = await readResponse(await route.fetch(postRequest(contract.RESOLVE_PATH, body)))
@@ -1259,7 +1336,8 @@ test('resolve keeps a committed write when the activity append fails', async () 
   assert.equal(body.topic.status, 'resolved')
   assert.equal(portBag.state.writes, 1)
   assert.equal(portBag.state.logs.length, 1)
-  assert.match(portBag.state.logs[0], /activity not recorded/)
+  assert.match(portBag.state.logs[0], /topic archive event was not recorded/)
+  assert.match(portBag.state.logs[0], /activity lock timed out/)
 })
 
 // ---------------------------------------------------------------------------
@@ -1298,17 +1376,18 @@ test('reopen clears the resolution and records topic-reopened', async () => {
   })
 })
 
-test('reopen of a topic that is not resolved is 409 with no write', async () => {
+test('reopen of a topic that is not resolved is an idempotent 200 with no write', async () => {
   const portBag = fakePorts({ now: () => NOW })
   const { routes } = await registerRoutes(portBag)
   const { status, body } = await readResponse(
     await routes.get(contract.REOPEN_PATH)
       .fetch(postRequest(contract.REOPEN_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
   )
-  assert.equal(status, 409)
-  assert.equal(body.error.code, 'topic/not-resolved')
-  assert.equal(portBag.state.writes, 0)
-  assert.equal(portBag.state.appended.length, 0)
+  assert.equal(status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(body.topic.status, 'active')
+  assert.equal(portBag.state.writes, 0, 'an already live topic is not rewritten')
+  assert.equal(portBag.state.appended.length, 0, 'and produces no second reopen event')
 })
 
 // ---------------------------------------------------------------------------
@@ -1486,7 +1565,7 @@ test('the master check runs again inside the write lock', async () => {
 // real store integration (one lock per transaction, no nesting)
 // ---------------------------------------------------------------------------
 
-test('a real ProjectStore serves the six routes over real files and locks', async (t) => {
+test('a real ProjectStore serves the seven routes over real files and locks', async (t) => {
   // The unit tests above use a fake store; this one wires the routes to the
   // real store so the two independent lock acquisitions (index transaction,
   // then activity append) are exercised for real. A nested `withWriteLock`
@@ -1547,8 +1626,10 @@ test('a real ProjectStore serves the six routes over real files and locks', asyn
   assert.equal(document.topics.find((topic) => topic.topicId === 'topic-1').status, 'resolved')
   assert.deepEqual(
     (await realStore.readActivity(50)).events.map((event) => event.type),
-    ['status-changed'],
+    ['topic-archived'],
   )
+  assert.equal((await realStore.readNotices()).notices.length, 1, 'the archive writes one master notice row')
+  assert.equal((await realStore.readNotices()).notices[0].target, 'master')
 
   const reopened = await readResponse(
     await routes.get(contract.REOPEN_PATH)
@@ -1560,8 +1641,9 @@ test('a real ProjectStore serves the six routes over real files and locks', asyn
   assert.equal(document.topics.find((topic) => topic.topicId === 'topic-1').resolvedBy, null)
   assert.deepEqual(
     (await realStore.readActivity(50)).events.map((event) => event.type),
-    ['status-changed', 'topic-reopened'],
+    ['topic-archived', 'topic-reopened'],
   )
+  assert.equal((await realStore.readNotices()).notices.length, 1, 'reopening writes no notice')
 
   const moved = await readResponse(
     await routes.get(contract.ROUTE_MOVE_PATH).fetch(postRequest(contract.ROUTE_MOVE_PATH, {
@@ -1580,6 +1662,336 @@ test('a real ProjectStore serves the six routes over real files and locks', asyn
   )
   assert.deepEqual(
     (await realStore.readActivity(50)).events.map((event) => event.type),
-    ['status-changed', 'topic-reopened', 'route-corrected'],
+    ['topic-archived', 'topic-reopened', 'route-corrected'],
   )
+})
+
+// ---------------------------------------------------------------------------
+// archive semantics: host session, pending authorization, notices
+// ---------------------------------------------------------------------------
+
+/** A supported notice port that records the card patches. */
+function fakeNoticePort() {
+  const updates = []
+  return {
+    updates,
+    capabilities: () => ({ supported: true, actions: true, updates: true }),
+    append: async () => 'delivered',
+    update: async (sessionId, noticeId, patch) => {
+      updates.push({ sessionId, noticeId, patch })
+      return 'delivered'
+    },
+  }
+}
+
+/** One pending authorization topic plus the activity and ledger it produced. */
+function pendingAuthorizationFixture() {
+  const requested = makeEvent({
+    eventId: 'event-auth-1',
+    type: 'authorization-requested',
+    topicId: 'topic-1',
+    summary: 'requested authorization: may I?',
+    details: { topicId: 'topic-1', requestId: 'req-1', notice: { kind: 'authorization', title: 'Topic', summary: 'may I?', targets: ['master', 'topic'] } },
+  })
+  const topic = makeTopic({
+    topicId: 'topic-1',
+    status: 'active',
+    blocked: true,
+    blockedReason: 'authorization',
+    blockedFromStatus: 'idle',
+    blockedAt: '2026-01-02T00:00:00.000Z',
+    authorization: { requestId: 'req-1', summary: 'may I?', requestedAt: '2026-01-02T00:00:00.000Z' },
+  })
+  return { requested, topic }
+}
+
+test('resolve archives the host session, clears the pending authorization, and voids its notice', async () => {
+  const { requested, topic } = pendingAuthorizationFixture()
+  const document = makeDocument({ topics: [topic] })
+  const port = fakeNoticePort()
+  const portBag = fakePorts({
+    document,
+    now: () => NOW,
+    activity: [requested],
+    noticePort: port,
+    notices: {
+      version: 1,
+      notices: [
+        { noticeId: 'event-auth-1', topicId: 'topic-1', target: 'master', status: 'pending', attempts: 0, lastError: null, updatedAt: '2026-01-02T00:00:00.000Z' },
+        { noticeId: 'event-auth-1', topicId: 'topic-1', target: 'topic', status: 'pending', attempts: 0, lastError: null, updatedAt: '2026-01-02T00:00:00.000Z' },
+      ],
+    },
+  })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.RESOLVE_PATH)
+      .fetch(postRequest(contract.RESOLVE_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.topic.status, 'resolved')
+  assert.equal(body.topic.awaitingAuthorization, false)
+  assert.equal(body.topic.blockedReason, null)
+  assert.deepEqual(portBag.state.archived, [{ sessionId: 'topic-1', options: { stopActivity: true } }])
+  const stored = portBag.state.document.topics[0]
+  assert.equal(stored.authorization, null, 'the pending request is gone')
+  assert.equal(stored.blocked, false)
+  assert.equal(stored.blockedFromStatus, null)
+  const noticeRows = portBag.state.notices.notices
+  assert.deepEqual(
+    noticeRows.filter((row) => row.noticeId === 'event-auth-1').map((row) => [row.target, row.status]).sort(),
+    [['master', 'void'], ['topic', 'void']],
+    'the pending authorization notice is withdrawn',
+  )
+  const archiveRow = noticeRows.find((row) => row.noticeId !== 'event-auth-1')
+  assert.equal(archiveRow.target, 'master', 'the archive notifies the master only')
+  assert.deepEqual(port.updates.map((entry) => [entry.noticeId, entry.patch.status]), [
+    ['event-auth-1', 'void'],
+    ['event-auth-1', 'void'],
+  ])
+  const archivedEvent = portBag.state.appended.find((event) => event.type === 'topic-archived')
+  assert.equal(archivedEvent.details.voidedAuthorizationNoticeId, 'event-auth-1')
+})
+
+test('a refused host archive is logged and never fails or rolls back the resolve', async () => {
+  const portBag = fakePorts({ now: () => NOW, archiveError: new Error('session is busy') })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.RESOLVE_PATH)
+      .fetch(postRequest(contract.RESOLVE_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(status, 200, 'the index is already committed')
+  assert.equal(body.topic.status, 'resolved')
+  assert.equal(portBag.state.logs.length, 1)
+  assert.match(portBag.state.logs[0], /was not archived/)
+  assert.match(portBag.state.logs[0], /session is busy/)
+})
+
+test('reopen restores the host session and logs a refused restore', async () => {
+  const resolvedDocument = makeDocument({
+    topics: [makeTopic({ topicId: 'topic-1', status: 'resolved', resolvedAt: '2026-01-01T12:00:00.000Z', resolvedBy: 'user' })],
+  })
+  const ok = fakePorts({ document: resolvedDocument, now: () => NOW })
+  const okRoutes = await registerRoutes(ok)
+  const reopened = await readResponse(
+    await okRoutes.routes.get(contract.REOPEN_PATH)
+      .fetch(postRequest(contract.REOPEN_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(reopened.status, 200)
+  assert.deepEqual(ok.state.unarchived, ['topic-1'])
+  assert.equal(ok.state.notices.notices.length, 0, 'a reopen produces no notice')
+
+  const refused = fakePorts({
+    document: resolvedDocument,
+    now: () => NOW,
+    unarchiveError: new Error('session is unknown'),
+  })
+  const refusedRoutes = await registerRoutes(refused)
+  const again = await readResponse(
+    await refusedRoutes.routes.get(contract.REOPEN_PATH)
+      .fetch(postRequest(contract.REOPEN_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(again.status, 200)
+  assert.match(refused.state.logs[0], /was not restored/)
+})
+
+// ---------------------------------------------------------------------------
+// authorization.resolve
+// ---------------------------------------------------------------------------
+
+test('authorization.resolve allows the master to decide, restores the status, and prompts the topic only', async () => {
+  const { requested, topic } = pendingAuthorizationFixture()
+  const document = makeDocument({ topics: [topic] })
+  const port = fakeNoticePort()
+  const portBag = fakePorts({ document, now: () => NOW, activity: [requested], noticePort: port })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: MASTER,
+        topicId: 'topic-1',
+        requestId: 'req-1',
+        decision: 'allow',
+      }),
+    ),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(body.requestId, 'req-1')
+  assert.equal(body.decision, 'allow')
+  assert.equal(body.changed, true)
+  assert.equal(body.prompted, true)
+  assert.equal(body.noticeId, 'event-auth-1')
+  assert.equal(body.topic.status, 'idle', 'the block restores the status it interrupted')
+  assert.equal(body.topic.awaitingAuthorization, false)
+  const stored = portBag.state.document.topics[0]
+  assert.equal(stored.authorization, null)
+  assert.equal(stored.blockedReason, null)
+  assert.equal(stored.lastActiveAt, NOW.toISOString())
+  // The topic session continues; the master gets no extra message.
+  assert.deepEqual(portBag.state.prompts.map((entry) => entry.sessionId), ['topic-1'])
+  assert.match(portBag.state.prompts[0].text, /授权请求已允许/)
+  const resolved = portBag.state.appended.find((event) => event.type === 'authorization-resolved')
+  assert.equal(resolved.details.requestId, 'req-1')
+  assert.equal(resolved.details.noticeId, 'event-auth-1')
+  assert.equal(resolved.details.decision, 'allow')
+  assert.deepEqual(port.updates.map((entry) => [entry.sessionId, entry.patch.status]), [
+    ['master-session', 'allowed'],
+    ['topic-1', 'allowed'],
+  ])
+  assert.equal(portBag.state.noticeWrites, 0, 'a decision updates the notice, it never adds a ledger row')
+})
+
+test('the topic session may decide its own request without prompting itself', async () => {
+  const { requested, topic } = pendingAuthorizationFixture()
+  const document = makeDocument({ topics: [topic] })
+  const portBag = fakePorts({
+    document,
+    now: () => NOW,
+    activity: [requested],
+    sessions: [{ sessionId: 'topic-1', cwd: '/repo' }],
+  })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: 'topic-1',
+        topicId: 'topic-1',
+        requestId: 'req-1',
+        decision: 'deny',
+      }),
+    ),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.decision, 'deny')
+  assert.equal(body.prompted, false)
+  assert.deepEqual(portBag.state.prompts, [])
+})
+
+test('authorization.resolve rejects a wrong request id, a foreign session, and a missing request', async () => {
+  const { requested, topic } = pendingAuthorizationFixture()
+  const document = makeDocument({ topics: [topic] })
+
+  const mismatch = fakePorts({ document, now: () => NOW, activity: [requested] })
+  const mismatchRoutes = await registerRoutes(mismatch)
+  const wrong = await readResponse(
+    await mismatchRoutes.routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: MASTER, topicId: 'topic-1', requestId: 'req-other', decision: 'allow',
+      }),
+    ),
+  )
+  assert.equal(wrong.status, 409)
+  assert.equal(wrong.body.error.code, 'authorization/mismatch')
+  assert.equal(mismatch.state.writes, 0)
+
+  const foreign = fakePorts({
+    document,
+    now: () => NOW,
+    activity: [requested],
+    sessions: [{ sessionId: OTHER_SESSION, cwd: '/repo' }],
+  })
+  const foreignRoutes = await registerRoutes(foreign)
+  const denied = await readResponse(
+    await foreignRoutes.routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: OTHER_SESSION, topicId: 'topic-1', requestId: 'req-1', decision: 'allow',
+      }),
+    ),
+  )
+  assert.equal(denied.status, 403)
+  assert.equal(denied.body.error.code, 'authorization/not-allowed')
+  assert.equal(foreign.state.writes, 0)
+
+  const missing = fakePorts({ now: () => NOW })
+  const missingRoutes = await registerRoutes(missing)
+  const notFound = await readResponse(
+    await missingRoutes.routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'allow',
+      }),
+    ),
+  )
+  assert.equal(notFound.status, 404)
+  assert.equal(notFound.body.error.code, 'authorization/not-found')
+})
+
+test('authorization.resolve is idempotent for the same decision and conflicts on a different one', async () => {
+  const { requested, topic } = pendingAuthorizationFixture()
+  const resolvedTopic = makeTopic({ topicId: 'topic-1' })
+  const resolvedEvent = makeEvent({
+    eventId: 'event-auth-1-resolved',
+    type: 'authorization-resolved',
+    topicId: 'topic-1',
+    summary: 'authorization allowed',
+    details: { topicId: 'topic-1', requestId: 'req-1', noticeId: 'event-auth-1', decision: 'allow' },
+  })
+
+  const replay = fakePorts({
+    document: makeDocument({ topics: [resolvedTopic] }),
+    now: () => NOW,
+    activity: [requested, resolvedEvent],
+  })
+  const replayRoutes = await registerRoutes(replay)
+  const same = await readResponse(
+    await replayRoutes.routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'allow',
+      }),
+    ),
+  )
+  assert.equal(same.status, 200)
+  assert.equal(same.body.changed, false)
+  assert.equal(same.body.prompted, false)
+  assert.equal(same.body.noticeId, 'event-auth-1')
+  assert.equal(replay.state.writes, 0, 'a replay writes nothing')
+  assert.equal(replay.state.appended.length, 0)
+
+  const conflictRoutes = await registerRoutes(
+    fakePorts({
+      document: makeDocument({ topics: [resolvedTopic] }),
+      now: () => NOW,
+      activity: [requested, resolvedEvent],
+    }),
+  )
+  const conflict = await readResponse(
+    await conflictRoutes.routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'deny',
+      }),
+    ),
+  )
+  assert.equal(conflict.status, 409)
+  assert.equal(conflict.body.error.code, 'authorization/mismatch')
+})
+
+test('authorization.resolve validates the decision and required fields', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const route = routes.get(contract.AUTHORIZATION_RESOLVE_PATH)
+  const badDecision = await readResponse(await route.fetch(postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+    sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'maybe',
+  })))
+  assert.equal(badDecision.status, 400)
+  assert.equal(badDecision.body.error.code, 'request/invalid-body')
+
+  const missingRequest = await readResponse(await route.fetch(postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+    sessionId: MASTER, topicId: 'topic-1', decision: 'allow',
+  })))
+  assert.equal(missingRequest.status, 400)
+  assert.equal(missingRequest.body.error.code, 'request/invalid-body')
+})
+
+test('overview counts the topics that await an authorization', async () => {
+  const { topic } = pendingAuthorizationFixture()
+  const document = makeDocument({
+    topics: [topic, makeTopic({ topicId: 'topic-2' })],
+  })
+  const portBag = fakePorts({ document, now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { body } = await readResponse(
+    await routes.get(contract.OVERVIEW_PATH).fetch(getRequest(contract.OVERVIEW_PATH, overviewQuery())),
+  )
+  assert.equal(body.counts.awaitingAuthorization, 1)
+  assert.equal(body.counts.blocked, 1)
+  assert.equal(body.topics[0].topicId, 'topic-1', 'a blocked topic leads the list')
 })
