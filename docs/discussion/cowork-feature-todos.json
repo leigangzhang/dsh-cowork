@@ -1,5 +1,5 @@
 {
-  "version": 15,
+  "version": 16,
   "features": [
     {
       "id": "cowork-sidebar-topic-page",
@@ -271,11 +271,31 @@
         "投递按会话串行、跨会话并行，主会话支持多主题并发"
       ],
       "editorSelection": {
-        "status": "proposed",
+        "status": "accepted",
         "text": "CodeMirror 6",
-        "diagram": "Pele",
+        "doc": "TipTap（待原型核实）",
+        "diagram": "Mermaid 源码 + Pele",
         "table": "自建网格 + read/write-excel-file",
-        "canvas": "外部工具，核心包不内建"
+        "canvas": "Excalidraw（内建懒加载）",
+        "externalTools": "draw.io / ProcessOn 通过导入导出对接"
+      },
+      "updatedAt": "2026-11-10T12:24:00Z",
+      "budget": {
+        "client": "5 MB",
+        "package": "10 MB",
+        "note": "用户回复把上限放宽到 5–10 MB；文档按客户端 5 MB、包体 10 MB 执行。"
+      },
+      "conflictPolicy": "用户和模型改到同一行范围时才加锁；不重叠的修改自动合并；画布按整个文件锁。",
+      "officeFidelity": "docx/xlsx 满足基本查看、编辑、筛选、排序；不做复杂版式、公式、修订记录。",
+      "concurrency": {
+        "topicCoalesceMs": 1500,
+        "maxCommentsPerBatch": 10,
+        "globalParallelDefault": 4,
+        "globalParallelRange": [
+          1,
+          8
+        ],
+        "topicSessionConcurrency": 1
       }
     }
   ],
@@ -293,6 +313,104 @@
       "text": "跨主题冲突在主会话中如何展示和发起解决，细节待定。",
       "source": "chat",
       "recordedAt": "2026-11-10T06:05:58Z"
+    }
+  ],
+  "verificationTodos": [
+    {
+      "id": "V1",
+      "text": "Excalidraw 以懒加载块接入单文件客户端：CSS、字体资源、EXCALIDRAW_ASSET_PATH、React 18、构建产物大小",
+      "verifyBy": "search + 构建原型",
+      "status": "pending"
+    },
+    {
+      "id": "V2",
+      "text": "Excalidraw 场景格式与元素级模型工具：稳定增加、修改、删除元素和文字",
+      "verifyBy": "search + 原型",
+      "status": "pending"
+    },
+    {
+      "id": "V3",
+      "text": "Excalidraw 自动保存、版本校验、整文件锁的真实表现",
+      "verifyBy": "原型",
+      "status": "pending"
+    },
+    {
+      "id": "V4",
+      "text": "tools.guard 覆盖哪些写文件工具，拒绝后模型能否重试，bash 绕过如何补",
+      "verifyBy": "源码 + 端到端",
+      "status": "pending"
+    },
+    {
+      "id": "V5",
+      "text": "编辑行范围上报延迟与有效期，三方合并的重叠判定与误报",
+      "verifyBy": "原型 + 真机",
+      "status": "pending"
+    },
+    {
+      "id": "V6",
+      "text": "TipTap 体积、HTML 往返、docx 导入导出基本格式保真",
+      "verifyBy": "search + 原型",
+      "status": "pending"
+    },
+    {
+      "id": "V7",
+      "text": "read/write-excel-file 最新版体积、多工作表、筛选排序与导出的关系",
+      "verifyBy": "search + 原型",
+      "status": "pending"
+    },
+    {
+      "id": "V8",
+      "text": "Pele 对模型生成 Mermaid 的兼容性和按类型体积",
+      "verifyBy": "search + 原型",
+      "status": "pending"
+    },
+    {
+      "id": "V9",
+      "text": "CodeMirror 子集实际体积",
+      "verifyBy": "构建",
+      "status": "pending"
+    },
+    {
+      "id": "V10",
+      "text": "SSE/EventSource 在真实宿主的认证与断线续传",
+      "verifyBy": "端到端",
+      "status": "pending"
+    },
+    {
+      "id": "V11",
+      "text": "同一会话串行、跨会话并行的宿主行为、限流和重启恢复",
+      "verifyBy": "端到端",
+      "status": "pending"
+    },
+    {
+      "id": "V12",
+      "text": "全部组件接入后的客户端和包体大小（5–10 MB）",
+      "verifyBy": "构建",
+      "status": "pending"
+    },
+    {
+      "id": "V13",
+      "text": "ProcessOn 是否有官方私有嵌入方式",
+      "verifyBy": "search",
+      "status": "pending"
+    },
+    {
+      "id": "V14",
+      "text": "PDF 页内区域批注与带批注副本导出",
+      "verifyBy": "原型",
+      "status": "pending"
+    },
+    {
+      "id": "V15",
+      "text": "模型回复工具采用率、多模态附件路径校验",
+      "verifyBy": "端到端",
+      "status": "pending"
+    },
+    {
+      "id": "V16",
+      "text": "docx 9.15.3 的 ./html 子入口能否直接 HTML → docx",
+      "verifyBy": "search + 原型",
+      "status": "pending"
     }
   ]
 }
