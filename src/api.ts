@@ -1,9 +1,11 @@
 /**
  * HTTP surface of the CoWork panel (M11, wire v2).
  *
- * Six Exact Fetch routes live on the host `connection` service: three reads
- * (`overview`, `activity`, `topic`) and three master-only writes (`resolve`,
- * `reopen`, `route.move`). The browser never names a filesystem path: the
+ * Seven Exact Fetch routes live on the host `connection` service: three reads
+ * (`overview`, `activity`, `topic`) and four writes (`resolve`, `reopen`,
+ * `authorization.resolve`, `route.move`). `resolve`/`reopen`/`route.move` are
+ * master-only; `authorization.resolve` accepts the master or the topic's own
+ * session. The browser never names a filesystem path: the
  * project root comes from `sessionId` → session cwd → `findProjectRoot`, and
  * everything the routes need sits behind ports so the wire mapping is testable
  * without a running host.
@@ -1199,7 +1201,7 @@ function serve(
 }
 
 /**
- * Register the six panel routes on the host connection service.
+ * Register the seven panel routes on the host connection service.
  *
  * A host without `connection` (older builds, unit hosts) simply gets no panel
  * API: this returns without throwing so the rest of the plugin keeps loading.
