@@ -1032,6 +1032,39 @@ async function handleAuthorizationResolve(request: Request, ports: CoworkApiPort
     const next: TopicRecordV2 = { ...released, lastActiveAt: now.toISOString() }
     return { ...base, topics: base.topics.map((entry) => (entry.topicId === topicId ? next : entry)) }
   })
+  if (!changed) {
+    // The lock re-read found no pending authorization: another decision or an
+    // archive won the race after the pre-check. Answer from the recorded
+    // decision instead of reporting a no-op, so a duplicate click is idempotent
+    // and a conflicting one is still refused.
+    const recorded = await recordedDecision(store, topicId, requestId)
+    if (recorded === null) {
+      throw new PanelApiError(
+        'authorization/not-found',
+        `no pending authorization ${requestId} on ${topicId}`,
+      )
+    }
+    if (recorded.decision !== decision) {
+      throw new PanelApiError(
+        'authorization/mismatch',
+        `authorization ${requestId} was already ${recorded.decision}; refusing ${decision}`,
+      )
+    }
+    const settled = document.topics.find((entry) => entry.topicId === topicId)
+    if (settled === undefined) {
+      throw new PanelApiError('internal', `topic disappeared from the index: ${topicId}`)
+    }
+    const replay: AuthorizationResolveResponse = {
+      ok: true,
+      topic: toPanelTopic(document, settled),
+      requestId,
+      decision,
+      noticeId: recorded.noticeId,
+      prompted: false,
+      changed: false,
+    }
+    return jsonResponse(200, replay)
+  }
   let prompted = false
   if (changed) {
     await appendActivityLogged(store, ports, () => authorizationResolvedActivity(
