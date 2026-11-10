@@ -1,5 +1,5 @@
 {
-  "version": 16,
+  "version": 17,
   "features": [
     {
       "id": "cowork-sidebar-topic-page",
@@ -38,36 +38,44 @@
     {
       "id": "cowork-work-item-artifact-viewer",
       "title": "Cowork 工作项页：多模态交付物查看器",
-      "status": "design-approved",
+      "status": "design-draft",
       "approvedAt": "2026-11-10T04:37:20Z",
       "source": {
         "thread": "object:work-item",
-        "demo": "work-item-demo-v2.png",
-        "demoHtml": "work-item-demo-v2.html"
+        "demo": "work-item-demo-v3.png",
+        "demoHtml": "work-item-demo-v3.html",
+        "demos": [
+          "work-item-demo-v3-canvas.png",
+          "work-item-demo-v3-details.png"
+        ]
       },
       "scope": [
-        "工作项是用户需要查看、确认、反馈的多模态交付物，不是代码分支/提交/合并的容器",
-        "类型覆盖 PLAN/Markdown、设计稿、架构图、Canvas/Excalidraw、HTML demo/表格/文章",
-        "主区域提供工作项查看器，支持预览、批注、评论和附件",
-        "画布评论使用编号 pin 定位，评论与附件一起归档",
-        "右栏工作项列表只显示类型、状态、评论数、附件数",
-        "状态使用待查看、待确认、需反馈、进行中、已确认",
-        "附件是关键图稿，作为一等字段展示",
-        "不展示 branch、commit、merge 等代码管理字段"
+        "工作项是用户需要查看、确认、反馈、修改的多模态交付物；后台记录用 artifacts，界面仍叫工作项",
+        "类型覆盖 Markdown/PLAN、Doc、表格、图表、设计稿、Excalidraw 画布、PDF、HTML",
+        "查看器在主区域打开；右栏只保留工作项列表和状态汇总",
+        "文本逐行批注和编辑；Doc 段落批注和富文本编辑；画布按元素或区域批注和编辑",
+        "用户和模型可同时编辑，同一行范围冲突才加锁，不重叠自动合并；画布整文件锁",
+        "评论线程显示投递状态和模型回复，回复支持多模态附件",
+        "状态使用待查看、待确认、需反馈、进行中、已确认；模型活动状态单独显示",
+        "附件、截图和导出入口在首屏可见；不展示 branch、commit、merge、diff"
       ],
       "outOfScope": [
-        "实际 Excalidraw/Canvas 编辑器的实现",
-        "工作项版本控制的具体交互",
-        "评审请求页的具体实现"
+        "评审、集成、CI 闸门",
+        "多人协作和权限系统",
+        "PDF 正文编辑",
+        "复杂 Word 版式和 Excel 公式/样式保真"
       ],
       "acceptance": [
-        "工作项可在主区域打开为文档/画布/HTML 查看器，而不是只在侧栏显示摘要",
-        "支持在画布或文档上添加批注，并能定位到具体评论",
-        "评论支持附件，附件作为关键图稿可见",
-        "右栏列表在 378px 宽度下可读，且不出现 branch/commit/merge",
-        "状态可从待确认流转到已确认，并记录评论/附件数量"
+        "工作项在主区域打开，文档、Doc、表格、图表、画布、PDF 各有对应查看器",
+        "文本可逐行选中批注；Doc 可按段落批注；画布可按元素或区域批注",
+        "用户可在查看器直接编辑文本，保存状态可见；同行冲突被锁，不重叠修改自动合并",
+        "批注提交后能看到已送达、思考中、改文件中、已回复或失败状态；模型回复挂在批注上",
+        "右栏 378px 时列表单列，只显示类型、状态、评论数、附件数和更新时间",
+        "状态可从待确认流转到已确认；评论、附件、版本在查看器内可见"
       ],
-      "next": "评审、活动记录、项目记忆 demo 待确认；工作项页后续接入主题页和工作项列表"
+      "next": "等待确认 v3 设计稿；确认后按研究文档 V1–V16 先 search 核实再原型实现",
+      "updatedAt": "2026-11-10T12:45:00Z",
+      "designVersion": "v3"
     },
     {
       "id": "cowork-artifact-studio-activity-stream",
