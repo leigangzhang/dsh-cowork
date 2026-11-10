@@ -95,7 +95,7 @@
     },
     {
       "pattern": "docs/design/*",
-      "reason": "Cowork sidebar design index: internal routing page for design drafts and decision records; not user-facing until implementation lands"
+      "reason": "Cowork sidebar design docs and index: internal design drafts with background, design-process decisions, and demos; not user-facing until implementation lands"
     }
   ]
 }

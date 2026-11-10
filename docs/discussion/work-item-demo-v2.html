@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Cowork 工作项 Demo v2</title>
+<style>
+  :root {
+    --ink: #101828;
+    --muted: #667085;
+    --soft: #98a2b3;
+    --line: #e4e7ec;
+    --line-soft: #eef0f3;
+    --canvas: #eef1f5;
+    --panel: #f8f9fb;
+    --card: #ffffff;
+    --blue: #175cd3;
+    --blue-soft: #eff6ff;
+    --red: #b42318;
+    --red-soft: #fef3f2;
+    --amber: #b54708;
+    --amber-soft: #fffaeb;
+    --green: #067647;
+    --green-soft: #ecfdf3;
+    --gray-soft: #f2f4f7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--canvas);
+    color: var(--ink);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage {
+    width: 1280px;
+    height: 900px;
+    padding: 36px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    background:
+      radial-gradient(900px 500px at 22% 12%, #ffffff 0%, rgba(255,255,255,0) 70%),
+      radial-gradient(700px 500px at 90% 90%, #e9edf4 0%, rgba(233,237,244,0) 70%),
+      var(--canvas);
+  }
+  .app {
+    position: relative;
+    width: 1208px;
+    height: 828px;
+    display: flex;
+    overflow: hidden;
+    border: 1px solid #dfe3e8;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 22px 60px rgba(16, 24, 40, .12), 0 2px 8px rgba(16, 24, 40, .06);
+  }
+  .demo-badge {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 4;
+    padding: 4px 9px;
+    border: 1px solid #d1e9ff;
+    border-radius: 999px;
+    background: rgba(239, 248, 255, .94);
+    color: var(--blue);
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: .02em;
+    backdrop-filter: blur(8px);
+  }
+
+  /* Left: the main session remains the user's conversation context. */
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: #fcfcfd;
+    border-right: 1px solid var(--line);
+  }
+  .main-head {
+    height: 58px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(255, 255, 255, .78);
+  }
+  .main-head-left { display: flex; align-items: center; gap: 10px; }
+  .app-mark {
+    width: 25px;
+    height: 25px;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: #0f1115;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .main-title { font-size: 13px; font-weight: 650; }
+  .main-sub { color: var(--soft); font-size: 11px; margin-top: 1px; }
+  .main-actions { display: flex; gap: 6px; }
+  .ghost-icon {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--muted);
+  }
+  .main-body {
+    flex: 1;
+    min-height: 0;
+    padding: 24px 28px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow: hidden;
+  }
+  .day-label { align-self: center; color: var(--soft); font-size: 10.5px; letter-spacing: .06em; }
+  .row { display: flex; gap: 10px; align-items: flex-start; }
+  .row.user { justify-content: flex-end; }
+  .avatar {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    background: #101828;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .avatar.assistant { background: #e9f1ff; color: var(--blue); }
+  .bubble {
+    max-width: 480px;
+    padding: 10px 13px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    color: #344054;
+    font-size: 12.5px;
+    line-height: 1.6;
+    box-shadow: 0 1px 1px rgba(16, 24, 40, .02);
+  }
+  .row.user .bubble {
+    border-color: #d1e9ff;
+    border-bottom-right-radius: 4px;
+    background: #eff8ff;
+    color: #1849a9;
+  }
+  .notice-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 2px;
+    padding: 10px 12px;
+    border: 1px solid #fedf89;
+    border-radius: 10px;
+    background: #fffaeb;
+    color: #93370d;
+    font-size: 12px;
+  }
+  .notice-dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: #f79009;
+  }
+  .notice-card strong { font-weight: 650; }
+  .notice-link { margin-left: auto; color: #b54708; font-weight: 650; white-space: nowrap; }
+  .composer {
+    margin: 0 20px 18px;
+    padding: 10px 11px 9px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 4px 14px rgba(16, 24, 40, .04);
+  }
+  .composer-line { display: flex; align-items: center; gap: 8px; color: var(--soft); font-size: 12px; }
+  .composer-plus {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    background: var(--gray-soft);
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+  }
+  .composer-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 9px; }
+  .tiny-actions { display: flex; gap: 7px; color: var(--soft); font-size: 10.5px; }
+  .send {
+    width: 25px;
+    height: 25px;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: var(--blue);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  /* Right: sidebar owns its own tab bar and topic list. */
+  .sidebar {
+    width: 378px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+  }
+  .sidebar-head {
+    padding: 16px 16px 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+  .sidebar-eyebrow { color: var(--soft); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+  .sidebar-title { margin-top: 2px; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+  .sidebar-sub { margin-top: 2px; color: var(--muted); font-size: 11px; }
+  .sidebar-head-actions { display: flex; gap: 6px; padding-top: 2px; }
+  .new-topic {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 27px;
+    padding: 0 9px;
+    border: 1px solid #b2ddff;
+    border-radius: 7px;
+    background: #eff8ff;
+    color: var(--blue);
+    font-size: 11px;
+    font-weight: 650;
+  }
+  .tabs {
+    display: flex;
+    gap: 1px;
+    margin-top: 14px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(248, 249, 251, .86);
+  }
+  .tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 9px 8px 10px;
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .tab svg { width: 13px; height: 13px; opacity: .9; }
+  .tab.active { color: var(--blue); }
+  .tab.active::after {
+    content: "";
+    position: absolute;
+    left: 7px;
+    right: 7px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--blue);
+  }
+  .tab-count {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: #e9edf3;
+    color: #667085;
+    font-size: 9px;
+    font-weight: 700;
+  }
+  .tab.active .tab-count { background: var(--blue-soft); color: var(--blue); }
+  .sidebar-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 13px 13px 14px;
+  }
+  .sidebar-body::-webkit-scrollbar { width: 6px; }
+  .sidebar-body::-webkit-scrollbar-thumb { background: #d0d5dd; border-radius: 99px; }
+  .action-bar {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 15px;
+    padding: 10px 11px;
+    border: 1px solid #fecdca;
+    border-radius: 10px;
+    background: #fffbfa;
+  }
+  .action-icon {
+    width: 23px;
+    height: 23px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: var(--red-soft);
+    color: var(--red);
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .action-text { min-width: 0; flex: 1; }
+  .action-title { color: #912018; font-size: 11.5px; font-weight: 700; }
+  .action-sub { margin-top: 1px; color: #b42318; opacity: .72; font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .action-arrow { color: #d92d20; font-size: 13px; }
+  .group { margin-bottom: 15px; }
+  .group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 7px;
+    padding: 0 2px;
+    color: var(--soft);
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .group-head .count { color: #98a2b3; font-weight: 600; letter-spacing: 0; }
+  .topic-card {
+    position: relative;
+    margin-bottom: 8px;
+    padding: 11px 11px 10px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--card);
+    box-shadow: 0 1px 1px rgba(16, 24, 40, .025);
+  }
+  .topic-card.blocked { border-color: #fecdca; background: linear-gradient(180deg, #fff 0%, #fffbfa 100%); }
+  .topic-card.running { border-color: #e4e7ec; }
+  .topic-card.idle { background: #fcfcfd; }
+  .topic-title {
+    margin: 0 0 6px;
+    color: #101828;
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.4;
+  }
+  .topic-card.blocked .topic-title { color: #7a271a; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 19px;
+    padding: 0 7px;
+    border-radius: 999px;
+    font-size: 9.5px;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+  .chip::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .8; }
+  .chip.red { color: var(--red); background: var(--red-soft); }
+  .chip.amber { color: var(--amber); background: var(--amber-soft); }
+  .chip.green { color: var(--green); background: var(--green-soft); }
+  .chip.blue { color: var(--blue); background: var(--blue-soft); }
+  .chip.gray { color: #475467; background: var(--gray-soft); }
+  .digest {
+    margin: 0 0 8px;
+    color: #667085;
+    font-size: 10.75px;
+    line-height: 1.55;
+  }
+  .topic-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--soft);
+    font-size: 9.75px;
+  }
+  .topic-meta-left { display: flex; align-items: center; gap: 6px; }
+  .meta-dot { width: 3px; height: 3px; border-radius: 50%; background: #d0d5dd; }
+  .work-count { color: #667085; }
+  .more {
+    color: #98a2b3;
+    font-size: 14px;
+    line-height: 1;
+    letter-spacing: 1px;
+  }
+  .resolved-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border: 1px dashed #d0d5dd;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .55);
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .resolved-icon {
+    width: 17px;
+    height: 17px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--green-soft);
+    color: var(--green);
+    font-size: 10px;
+    font-weight: 800;
+  }
+  .resolved-chevron { margin-left: auto; color: #98a2b3; font-size: 13px; }
+  .field-note {
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line-soft);
+    color: #98a2b3;
+    font-size: 9.75px;
+    line-height: 1.55;
+  }
+  .field-note b { color: #667085; font-weight: 650; }
+</style>
+
+<style>
+  .artifact-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:9px; }
+  .artifact-title-row { display:flex; align-items:center; gap:8px; min-width:0; }
+  .artifact-title { margin:0; color:#101828; font-size:15px; font-weight:700; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .artifact-type { flex:none; padding:2px 7px; border-radius:5px; background:#f4f3ff; color:#6941c6; font-size:9px; font-weight:750; letter-spacing:.03em; }
+  .artifact-status { flex:none; padding:2px 7px; border-radius:999px; background:#fffaeb; color:#b54708; font-size:9.5px; font-weight:650; }
+  .artifact-meta { color:#98a2b3; font-size:9.75px; white-space:nowrap; }
+  .artifact-tabs { display:flex; align-items:center; gap:14px; padding-bottom:8px; border-bottom:1px solid #eef0f3; margin-bottom:12px; }
+  .artifact-tab { position:relative; color:#667085; font-size:10.5px; font-weight:600; }
+  .artifact-tab.active { color:#175cd3; }
+  .artifact-tab.active::after { content:""; position:absolute; left:0; right:0; bottom:-9px; height:2px; border-radius:2px; background:#175cd3; }
+  .artifact-tab .n { color:#98a2b3; font-weight:500; }
+  .artifact-tools { margin-left:auto; display:flex; gap:6px; color:#667085; font-size:9.5px; }
+  .artifact-tool { padding:3px 7px; border:1px solid #e4e7ec; border-radius:6px; background:#fff; }
+
+  .canvas-stage { position:relative; height:342px; overflow:hidden; border:1px solid #e4e7ec; border-radius:11px; background-color:#fbfcfe; background-image:radial-gradient(#d0d5dd 1px, transparent 1px); background-size:16px 16px; }
+  .canvas-toolrail { position:absolute; left:11px; top:12px; display:flex; flex-direction:column; gap:5px; z-index:4; }
+  .canvas-toolrail div { width:24px; height:24px; display:grid; place-items:center; border:1px solid #e4e7ec; border-radius:6px; background:#fff; color:#667085; font-size:11px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+  .canvas-toolrail div.active { border-color:#b2ddff; background:#eff8ff; color:#175cd3; }
+  .canvas-caption { position:absolute; left:45px; top:14px; color:#98a2b3; font-size:9px; letter-spacing:.06em; text-transform:uppercase; }
+  .canvas-app { position:absolute; left:73px; top:50px; width:612px; height:220px; display:flex; gap:12px; }
+  .canvas-main { width:390px; border:1px solid #cfd6df; border-radius:9px; background:#fff; box-shadow:0 2px 5px rgba(16,24,40,.04); overflow:hidden; }
+  .canvas-main-head { height:26px; padding:0 9px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #eef0f3; background:#f9fafb; color:#344054; font-size:8.5px; font-weight:650; }
+  .canvas-main-body { padding:11px; display:flex; flex-direction:column; gap:7px; }
+  .canvas-line { height:7px; border-radius:4px; background:#eef1f5; }
+  .canvas-line.short { width:56%; }
+  .canvas-line.bubble { height:24px; width:68%; margin-left:auto; border:1px solid #d1e9ff; background:#eff8ff; }
+  .canvas-line.bubble2 { height:32px; width:74%; border:1px solid #e4e7ec; background:#fff; }
+  .canvas-side { width:210px; border:1px solid #cfd6df; border-radius:9px; background:#fff; box-shadow:0 2px 5px rgba(16,24,40,.04); overflow:hidden; }
+  .canvas-side-head { height:26px; padding:0 9px; display:flex; align-items:center; border-bottom:1px solid #eef0f3; background:#f9fafb; color:#344054; font-size:8.5px; font-weight:650; }
+  .canvas-tabs { display:flex; gap:3px; padding:6px 7px 0; }
+  .canvas-tabs span { padding:2px 4px; border-radius:3px; background:#f2f4f7; color:#667085; font-size:6.5px; }
+  .canvas-tabs span:first-child { background:#eff8ff; color:#175cd3; font-weight:700; }
+  .canvas-group { margin:7px 8px 0; padding:5px 6px; border:1px solid #fecdca; border-radius:5px; background:#fffbfa; }
+  .canvas-group .g { height:5px; width:54%; border-radius:3px; background:#fecaca; }
+  .canvas-card { margin-top:4px; height:17px; border:1px solid #eef0f3; border-radius:4px; background:#fff; }
+  .canvas-card.small { width:82%; }
+  .canvas-pin { position:absolute; z-index:5; width:22px; height:22px; display:grid; place-items:center; border:2px solid #fff; border-radius:50%; background:#f04438; color:#fff; font-size:9px; font-weight:800; box-shadow:0 2px 5px rgba(16,24,40,.16); }
+  .canvas-pin.p2 { background:#7a5af8; }
+  .canvas-pin.p3 { background:#0ba5ec; }
+  .canvas-callout { position:absolute; z-index:4; padding:5px 7px; border:1px solid #d1e9ff; border-radius:6px; background:rgba(239,248,255,.92); color:#1849a9; font-size:8.5px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+  .canvas-note { position:absolute; right:17px; bottom:14px; width:150px; padding:7px 9px; border:1px dashed #d0d5dd; border-radius:7px; background:rgba(255,255,255,.85); color:#667085; font-size:8.25px; line-height:1.45; }
+  .canvas-note b { display:block; margin-bottom:2px; color:#344054; font-size:8.5px; }
+  .canvas-footer { position:absolute; left:45px; bottom:14px; color:#98a2b3; font-size:8.25px; }
+
+  .artifact-below { display:flex; gap:10px; margin-top:10px; }
+  .attachment-box { flex:1; min-width:0; padding:8px 9px; border:1px solid #e4e7ec; border-radius:9px; background:#fff; }
+  .attachment-label { margin-bottom:5px; color:#98a2b3; font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+  .attachment-items { display:flex; align-items:center; gap:7px; }
+  .attachment-thumb { width:36px; height:28px; padding:2px; border:1px solid #e4e7ec; border-radius:5px; background:#f9fafb; }
+  .attachment-thumb img { width:100%; height:100%; object-fit:cover; display:block; border-radius:2px; }
+  .attachment-name { min-width:0; color:#344054; font-size:9.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .attachment-sub { color:#98a2b3; font-size:8.5px; }
+  .comment-box { flex:1; min-width:0; padding:8px 9px; border:1px solid #e4e7ec; border-radius:9px; background:#fff; }
+  .comment-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; color:#98a2b3; font-size:9px; }
+  .comment-head b { color:#344054; font-size:9.5px; }
+  .comment-line { display:flex; gap:6px; margin-top:4px; color:#475467; font-size:9.5px; line-height:1.45; }
+  .comment-avatar { width:15px; height:15px; flex:none; display:grid; place-items:center; border-radius:50%; background:#e9f1ff; color:#175cd3; font-size:7px; font-weight:800; }
+  .comment-avatar.agent { background:#f4f3ff; color:#6941c6; }
+  .comment-pin { flex:none; padding:0 4px; border-radius:3px; background:#fef3f2; color:#b42318; font-size:7.5px; font-weight:700; }
+  .artifact-composer { margin-top:10px; padding:9px 10px; border:1px solid #e4e7ec; border-radius:9px; background:#fff; display:flex; align-items:center; gap:8px; color:#98a2b3; font-size:9.5px; }
+  .artifact-composer .plus { width:18px; height:18px; display:grid; place-items:center; border-radius:5px; background:#f2f4f7; color:#667085; font-size:12px; }
+  .artifact-composer .spacer { flex:1; }
+  .artifact-composer .send { width:22px; height:22px; display:grid; place-items:center; border-radius:6px; background:#175cd3; color:#fff; font-size:10px; }
+
+  .artifact-card { margin-bottom:8px; padding:10px; border:1px solid #e4e7ec; border-radius:10px; background:#fff; }
+  .artifact-card.selected { border-color:#b2ddff; box-shadow:0 0 0 2px #eff8ff; }
+  .artifact-card-top { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:5px; }
+  .artifact-kind { display:inline-flex; align-items:center; gap:4px; padding:1px 6px; border-radius:5px; font-size:8.5px; font-weight:700; }
+  .artifact-kind.canvas { color:#6941c6; background:#f4f3ff; }
+  .artifact-kind.plan { color:#175cd3; background:#eff8ff; }
+  .artifact-kind.design { color:#b54708; background:#fffaeb; }
+  .artifact-kind.html { color:#067647; background:#ecfdf3; }
+  .artifact-status-chip { padding:1px 6px; border-radius:999px; font-size:8.5px; font-weight:650; }
+  .artifact-status-chip.todo { color:#b42318; background:#fef3f2; }
+  .artifact-status-chip.review { color:#b54708; background:#fffaeb; }
+  .artifact-status-chip.doing { color:#175cd3; background:#eff8ff; }
+  .artifact-title2 { margin:0 0 3px; color:#344054; font-size:10.5px; font-weight:650; line-height:1.4; }
+  .artifact-parent { margin:0 0 6px; color:#98a2b3; font-size:9px; }
+  .artifact-meta2 { display:flex; justify-content:space-between; gap:8px; color:#98a2b3; font-size:8.75px; }
+  .artifact-meta2 .comments { color:#667085; }
+  .artifact-note { margin-top:12px; padding-top:9px; border-top:1px solid #eef0f3; color:#98a2b3; font-size:9.25px; line-height:1.55; }
+</style>
+
+</head>
+<body>
+<div class="stage">
+  <div class="app">
+    <div class="demo-badge">工作项 Demo v2 · 多模态交付物</div>
+
+    <main class="main">
+      <header class="main-head">
+        <div class="main-head-left">
+          <div class="app-mark">C</div>
+          <div>
+            <div class="main-title">架构图：侧边栏与主题页</div>
+            <div class="main-sub">工作项 · 来自主题「Cowork 布局」 · 待确认</div>
+          </div>
+        </div>
+        <div class="main-actions"><div class="ghost-icon">↗</div><div class="ghost-icon">⋯</div></div>
+      </header>
+
+      <div class="main-body" style="padding-bottom:14px;">
+        <div class="artifact-head">
+          <div class="artifact-title-row">
+            <span class="artifact-type">CANVAS</span>
+            <span class="artifact-status">待确认</span>
+          </div>
+          <div class="artifact-meta">3 条评论 · 1 个附件</div>
+        </div>
+
+        <div class="artifact-tabs">
+          <span class="artifact-tab active">预览</span>
+          <span class="artifact-tab">评论 <span class="n">3</span></span>
+          <span class="artifact-tab">版本 <span class="n">2</span></span>
+          <div class="artifact-tools"><span class="artifact-tool">批注</span><span class="artifact-tool">分享</span></div>
+        </div>
+
+        <div class="canvas-stage">
+          <div class="canvas-caption">CANVAS · sidebar-topic-layout</div>
+          <div class="canvas-toolrail">
+            <div class="active">↖</div><div>T</div><div>□</div><div>＋</div><div>◌</div>
+          </div>
+
+          <div class="canvas-app">
+            <div class="canvas-main">
+              <div class="canvas-main-head"><span>主会话</span><span>⋯</span></div>
+              <div class="canvas-main-body">
+                <div class="canvas-line short"></div>
+                <div class="canvas-line bubble"></div>
+                <div class="canvas-line bubble2"></div>
+                <div class="canvas-line"></div>
+                <div class="canvas-line short"></div>
+              </div>
+            </div>
+            <div class="canvas-side">
+              <div class="canvas-side-head"><span>侧边栏</span><span>⋯</span></div>
+              <div class="canvas-tabs"><span>主题</span><span>工作项</span><span>活动</span><span>记忆</span></div>
+              <div class="canvas-group"><div class="g"></div><div class="canvas-card"></div><div class="canvas-card small"></div></div>
+              <div class="canvas-group" style="border-color:#e4e7ec;background:#fff;"><div class="g" style="background:#d0d5dd"></div><div class="canvas-card"></div></div>
+            </div>
+          </div>
+
+          <div class="canvas-pin" style="left:596px;top:81px;">1</div>
+          <div class="canvas-pin p2" style="left:596px;top:162px;">2</div>
+          <div class="canvas-pin p3" style="left:374px;top:112px;">3</div>
+          <div class="canvas-callout" style="left:478px;top:252px;">四标签：主题 / 工作项 / 活动 / 记忆</div>
+          <div class="canvas-note"><b>待设计</b>工作项、活动、记忆页的字段与交互</div>
+          <div class="canvas-footer">点击画布任意位置添加批注 · 附件会随评论一起归档</div>
+        </div>
+
+        <div class="artifact-below">
+          <div class="attachment-box">
+            <div class="attachment-label">附件 · 关键图稿</div>
+            <div class="attachment-items">
+              <div class="attachment-thumb"><img src="topic-demo.png" alt="layout-v2.png"></div>
+              <div style="min-width:0"><div class="attachment-name">layout-v2.png</div><div class="attachment-sub">主题页布局初稿 · 364 KB</div></div>
+            </div>
+          </div>
+          <div class="comment-box">
+            <div class="comment-head"><b>最新评论</b><span>3 条</span></div>
+            <div class="comment-line"><span class="comment-avatar">L</span><span><span class="comment-pin">#1</span> 待授权不要单独成组，做成卡片标记。</span></div>
+            <div class="comment-line"><span class="comment-avatar agent">A</span><span><span class="comment-pin">#1</span> 已修正为顶部入口 + 卡片标签。</span></div>
+          </div>
+        </div>
+
+        <div class="artifact-composer"><span class="plus">+</span><span>在图中评论或添加附件…</span><span class="spacer"></span><span>图片</span><span>文件</span><span class="send">↑</span></div>
+      </div>
+    </main>
+
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div>
+          <div class="sidebar-eyebrow">Cowork</div>
+          <div class="sidebar-title">侧边栏</div>
+          <div class="sidebar-sub">工作区 · dsh-cowork</div>
+        </div>
+        <div class="sidebar-head-actions"><div class="new-topic">＋ 新工作项</div></div>
+      </div>
+
+      <nav class="tabs">
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 6.5h14M5 11h14M5 15.5h8" stroke-linecap="round"/><path d="M5.5 19.5 4 21v-3" stroke-linecap="round" stroke-linejoin="round"/></svg>主题 <span class="tab-count">6</span></div>
+        <div class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><path d="m8 12 2.5 2.5L16 9" stroke-linecap="round" stroke-linejoin="round"/></svg>工作项 <span class="tab-count">5</span></div>
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 12h3l2-5 4 10 2-5h4" stroke-linecap="round" stroke-linejoin="round"/></svg>活动记录</div>
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4.5h12v15H6z"/><path d="M9 8h6M9 11.5h6M9 15h4" stroke-linecap="round"/></svg>项目记忆</div>
+      </nav>
+
+      <div class="sidebar-body">
+        <div class="action-bar">
+          <div class="action-icon">!</div>
+          <div class="action-text"><div class="action-title">需要你处理 2 项</div><div class="action-sub">待确认 · 架构图 / 待查看 · PLAN</div></div>
+          <div class="action-arrow">→</div>
+        </div>
+
+        <section class="group">
+          <div class="group-head"><span>待你处理</span><span class="count">2</span></div>
+          <article class="artifact-card selected">
+            <div class="artifact-card-top"><span class="artifact-kind canvas">CANVAS</span><span class="artifact-status-chip todo">待确认</span></div>
+            <h3 class="artifact-title2">架构图：侧边栏与主题页</h3>
+            <p class="artifact-parent">来自 · Cowork 布局</p>
+            <div class="artifact-meta2"><span class="comments">3 条评论</span><span>1 个附件 · 刚刚</span></div>
+          </article>
+          <article class="artifact-card">
+            <div class="artifact-card-top"><span class="artifact-kind plan">PLAN</span><span class="artifact-status-chip review">待查看</span></div>
+            <h3 class="artifact-title2">PLAN：工作项信息模型</h3>
+            <p class="artifact-parent">来自 · Cowork 布局</p>
+            <div class="artifact-meta2"><span class="comments">0 条评论</span><span>2 个附件 · 10 分钟前</span></div>
+          </article>
+        </section>
+
+        <section class="group">
+          <div class="group-head"><span>进行中</span><span class="count">2</span></div>
+          <article class="artifact-card">
+            <div class="artifact-card-top"><span class="artifact-kind design">设计稿</span><span class="artifact-status-chip review">需反馈</span></div>
+            <h3 class="artifact-title2">设计稿：主题页初稿</h3>
+            <p class="artifact-parent">来自 · 右侧栏主题页</p>
+            <div class="artifact-meta2"><span class="comments">5 条评论</span><span>1 个附件 · 1 小时前</span></div>
+          </article>
+          <article class="artifact-card">
+            <div class="artifact-card-top"><span class="artifact-kind html">HTML</span><span class="artifact-status-chip doing">进行中</span></div>
+            <h3 class="artifact-title2">HTML Demo：主题页</h3>
+            <p class="artifact-parent">来自 · 右侧栏主题页</p>
+            <div class="artifact-meta2"><span class="comments">2 条评论</span><span>0 个附件 · 2 小时前</span></div>
+          </article>
+        </section>
+
+        <section class="group">
+          <div class="group-head"><span>已确认</span><span class="count">3</span></div>
+          <div class="resolved-row"><span class="resolved-icon">✓</span><span>已确认 3 个工作项</span><span class="resolved-chevron">›</span></div>
+        </section>
+
+        <div class="artifact-note">工作项不展示提交、合并等代码管理操作；保留文档、设计稿、架构图、Canvas、HTML 等可查看/批注的交付物。附件和评论是主字段。</div>
+      </div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,275 @@
+{
+  "version": 14,
+  "features": [
+    {
+      "id": "cowork-sidebar-topic-page",
+      "title": "Cowork 右侧栏主题页",
+      "status": "design-approved",
+      "approvedAt": "2026-11-09T23:17:43Z",
+      "source": {
+        "thread": "object:topic",
+        "demo": "topic-demo-v0.1.png",
+        "demoHtml": "topic-demo.html"
+      },
+      "scope": [
+        "整体为左侧主会话 + 右侧栏两栏布局",
+        "右侧栏四个标签：主题、工作项、活动记录、项目记忆",
+        "主题页顶部提供“需要你处理”入口",
+        "主题按阻塞、运行中、空闲、已解决分组",
+        "已解决分组默认折叠",
+        "主题卡字段：主题名、生命周期、审查状态、待授权标记、更新时间、一行摘要、工作项数",
+        "待授权只作为顶部入口和卡片标记，不单独增加第五个分组"
+      ],
+      "outOfScope": [
+        "工作项标签页的具体设计",
+        "活动记录标签页的具体设计",
+        "项目记忆标签页的具体设计",
+        "授权提醒在主会话中使用系统卡片还是普通消息"
+      ],
+      "acceptance": [
+        "右侧栏宽度约 378px 时仍能清晰显示四个标签和主题卡",
+        "主题页能同时看到需要处理入口和四个状态分组",
+        "阻塞主题带明显红色状态标记，审查状态独立显示",
+        "列表不出现 id、cwd、scope 等执行元数据",
+        "点击主题卡可进入主题详情或主会话对应位置"
+      ],
+      "next": "按同样密度设计工作项标签页 demo，等待用户确认后继续"
+    },
+    {
+      "id": "cowork-work-item-artifact-viewer",
+      "title": "Cowork 工作项页：多模态交付物查看器",
+      "status": "design-approved",
+      "approvedAt": "2026-11-10T04:37:20Z",
+      "source": {
+        "thread": "object:work-item",
+        "demo": "work-item-demo-v2.png",
+        "demoHtml": "work-item-demo-v2.html"
+      },
+      "scope": [
+        "工作项是用户需要查看、确认、反馈的多模态交付物，不是代码分支/提交/合并的容器",
+        "类型覆盖 PLAN/Markdown、设计稿、架构图、Canvas/Excalidraw、HTML demo/表格/文章",
+        "主区域提供工作项查看器，支持预览、批注、评论和附件",
+        "画布评论使用编号 pin 定位，评论与附件一起归档",
+        "右栏工作项列表只显示类型、状态、评论数、附件数",
+        "状态使用待查看、待确认、需反馈、进行中、已确认",
+        "附件是关键图稿，作为一等字段展示",
+        "不展示 branch、commit、merge 等代码管理字段"
+      ],
+      "outOfScope": [
+        "实际 Excalidraw/Canvas 编辑器的实现",
+        "工作项版本控制的具体交互",
+        "评审请求页的具体实现"
+      ],
+      "acceptance": [
+        "工作项可在主区域打开为文档/画布/HTML 查看器，而不是只在侧栏显示摘要",
+        "支持在画布或文档上添加批注，并能定位到具体评论",
+        "评论支持附件，附件作为关键图稿可见",
+        "右栏列表在 378px 宽度下可读，且不出现 branch/commit/merge",
+        "状态可从待确认流转到已确认，并记录评论/附件数量"
+      ],
+      "next": "评审、活动记录、项目记忆 demo 待确认；工作项页后续接入主题页和工作项列表"
+    },
+    {
+      "id": "cowork-artifact-studio-activity-stream",
+      "title": "Cowork Artifact 工作室与活动流",
+      "status": "design-approved",
+      "approvedAt": "2026-11-10T05:15:31Z",
+      "source": {
+        "thread": "object:activity",
+        "demo": "activity-demo-v3.png",
+        "demoHtml": "activity-demo-v3.html"
+      },
+      "scope": [
+        "左侧为 Artifact 工作室 / 资料库，右侧为活动流",
+        "活动流是已发生事件的追加式记录，关联会话和事件，只读，动作只有查看 / 打开来源",
+        "Artifact 工作室可收已发生的会话/事件资料，也可上传未绑定会话的待用资料",
+        "Artifact 工作室支持查看、编辑、删除、下载、打开；来源筛选区分已关联会话和未绑定会话",
+        "核心资料类型：决策记录、工作项、重要输入（上传文档/设计稿/远程链接）、输出产物（文件类输出，不含代码仓库）",
+        "活动流按天分组，支持按类别筛选；资料库支持网格/列表视图",
+        "handoff 隐式，不在活动流常驻；本版本不做评审、集成、CI 相关功能"
+      ],
+      "outOfScope": [
+        "实际 Excalidraw/Canvas/HTML 编辑器实现",
+        "评审、集成、CI 闸门功能",
+        "代码仓库作为核心资料"
+      ],
+      "acceptance": [
+        "活动流条目显示关联会话/事件，且不提供编辑、删除",
+        "Artifact 工作室可同时容纳会话资料和未绑定上传资料，并可按来源筛选",
+        "编辑、删除只在 Artifact 工作室发生；删除后活动流事件仍保留",
+        "活动流按天分组、按类别筛选；资料库可按类型管理",
+        "代码仓库和 CI 事件不进入这两个视图"
+      ],
+      "next": "等待评审/项目记忆 demo 确认；实现阶段再拆 Artifact 查看器与活动流存储"
+    },
+    {
+      "id": "cowork-project-memory-tab",
+      "title": "Cowork 项目记忆标签页",
+      "status": "design-approved",
+      "approvedAt": "2026-11-10T05:56:41Z",
+      "source": {
+        "thread": "object:memory",
+        "demo": "memory-demo-v3.png",
+        "demoHtml": "memory-demo-v3.html"
+      },
+      "scope": [
+        "项目级，不做跨项目存储",
+        "右侧栏只展示四类汇总：用户记忆、项目记忆、规则、技能",
+        "左侧会话框位置展示详细记忆，不展示时间线",
+        "上下文记忆用 Markdown 记录：添加时间、内容、来源",
+        "不同记忆类型使用不同详情样式：上下文 Markdown、用户记忆卡片、规则表格、技能卡",
+        "用户记忆只做项目内记忆，通过导入/导出与全局同步",
+        "项目记忆只记录项目上下文和关键决策摘要；决策全文只在 Artifact 资料库查看",
+        "规则只保留项目规则/会话规则，遵循规则唯一性，不重复声明已有规则",
+        "技能包括内置声明技能和用户上传技能，支持 /slash 和 Agent 自动调用，定义方式与 Anthropic Skills 一致",
+        "运行上下文由后台管理，不进记忆标签页"
+      ],
+      "outOfScope": [
+        "跨项目记忆",
+        "自学习技能",
+        "项目记忆保存决策记录全文",
+        "自动 Review 策略（仍待定）"
+      ],
+      "acceptance": [
+        "右侧栏四类汇总显示数量和范围，左侧展示选中类型的详情",
+        "上下文记忆以 Markdown 文档呈现，含添加时间和来源，不出现时间线 UI",
+        "决策摘要可跳转 Artifact 资料库查看全文",
+        "规则只显示项目规则/会话规则，不重复已有规则",
+        "技能显示内置/上传类型和 /slash、Agent 自动调用标记",
+        "运行上下文不在记忆标签页出现"
+      ],
+      "next": "四个标签页设计已覆盖；自动 Review 策略仍待定"
+    }
+  ],
+  "scopeDecisions": [
+    {
+      "id": "defer-review-integration-ci",
+      "status": "accepted",
+      "scope": "current-version",
+      "recordedAt": "2026-11-10T04:39:29Z",
+      "source": "object:review",
+      "decision": "本版本内先不做评审、集成等 CI 环节相关的功能。",
+      "implications": [
+        "评审请求页不进入本版本 feature 待办",
+        "工作项页不展示评审、合并、CI 闸门状态",
+        "活动记录不展示评审/合并事件；当前活动 demo 需要调整",
+        "主题页、工作项多模态交付物不受影响"
+      ]
+    }
+  ],
+  "designDecisions": [
+    {
+      "id": "topic-session-decision-handoff",
+      "status": "accepted",
+      "recordedAt": "2026-11-10T04:45:57Z",
+      "source": "object:topic",
+      "decision": "主会话将用户需求路由到主题会话；主题会话负责决策记录管理和跨主题 handoff。决策记录显式、用户可见、需要 review 或按用户批准的策略自动 review；handoff 可以隐式，只落后台文档或记忆。主会话需要感知这两类文档；决策记录的查看位置是活动流。主题页布局不变，只做功能扩展。",
+      "implications": [
+        "主会话负责路由，主题会话负责决策记录和跨主题 handoff",
+        "handoff 是隐式文档：后台文档/记忆，不占用户主视图",
+        "主会话需要能读取决策记录和 handoff",
+        "活动流是决策记录的查看入口，但活动流范围比决策记录更宽",
+        "主题页现有布局不需要调整，只扩展功能",
+        "自动 Review 的批准策略待定；决策记录仍需用户 review 或按未来确定的策略处理"
+      ],
+      "autoReviewPolicy": "pending",
+      "autoReviewNote": "自动 Review 的批准策略是主题级还是全局，尚未决定。"
+    },
+    {
+      "id": "project-scoped-memory-taxonomy",
+      "status": "accepted",
+      "recordedAt": "2026-11-10T05:30:25Z",
+      "source": "object:memory",
+      "decision": "工具最大范畴为项目级，不做跨项目存储。用户记忆只做项目内记忆，可通过导入/导出与全局同步；项目记忆只记录项目上下文和关键决策摘要；决策记录全文只在 Artifact 资料库中查看；规则只保留项目规则/会话规则，不重复声明其他已存在的规则；运行上下文由后台管理。",
+      "classification": {
+        "user_memory": [
+          "偏好",
+          "反复要求",
+          "个人约束"
+        ],
+        "project_memory": [
+          "项目上下文",
+          "关键决策摘要"
+        ],
+        "decision_records": "仅存放在 Artifact 资料库，不作为项目记忆全文保存",
+        "rules": [
+          "项目规则",
+          "会话规则"
+        ],
+        "runtime_context": "后台管理，不作为用户可见记忆分类",
+        "skills": [
+          "声明技能（内置）",
+          "用户上传技能"
+        ],
+        "skills_note": "技能可为内置声明或用户上传；支持 /slash 命令调用和 Agent 自动调用；定义方式与 Anthropic Skills 一致。",
+        "skills_invocation": [
+          "slash-command",
+          "agent-auto"
+        ],
+        "skills_format": "anthropic-skills"
+      },
+      "constraints": [
+        "最大作用域为项目级，不跨项目",
+        "用户记忆只做项目内记忆，导入/导出用于和全局同步",
+        "项目记忆不保存决策记录全文，只保存关键决策摘要",
+        "规则唯一性：系统/用户/全局规则已有唯一来源，记忆不重复声明",
+        "运行上下文不进入用户可见记忆分类"
+      ]
+    },
+    {
+      "id": "project-skills-invocation",
+      "status": "accepted",
+      "recordedAt": "2026-11-10T05:45:29Z",
+      "source": "object:memory",
+      "decision": "技能包括内置声明技能和用户上传技能；可通过 /slash 命令调用，也可由 Agent 自动调用；技能定义方式与 Anthropic Skills 一致。",
+      "scope": "project",
+      "invocation": [
+        "slash-command",
+        "agent-auto"
+      ],
+      "format": "anthropic-skills",
+      "note": "不做自学习；技能与规则分开。"
+    },
+    {
+      "id": "session-local-user-handoff",
+      "status": "accepted",
+      "recordedAt": "2026-11-10T05:59:00Z",
+      "source": "chat",
+      "decision": "不建统一收件箱；未覆盖的冲突/待处理统一在所属会话内转交给用户。主题会话内的问题发在主题会话，并在主会话发一句提醒；主会话内的问题直接发在主会话。正常 handoff 保持隐式；blocked/失败的 handoff 按所属会话转交。",
+      "routing": {
+        "topic_pending_or_conflict": "主题会话内发行动消息 + 主会话一行提醒",
+        "main_pending_or_conflict": "主会话内直接发行动消息",
+        "normal_handoff": "隐式，不展示",
+        "blocked_or_failed_handoff": "所属会话内发行动消息；主会话按需提醒",
+        "cross_topic_conflict": "仅在主会话打印冲突并发起解决；细节待定"
+      },
+      "constraints": [
+        "不新增独立收件箱对象或第五个标签",
+        "主题页的“需要你处理”只是入口，打开对应会话内的行动消息，不是队列",
+        "主会话提醒只保留一行摘要和打开主题入口，不复制完整详情",
+        "同一事件只提醒一次，处理后不再重复"
+      ],
+      "crossTopicConflict": {
+        "status": "initial-route-decided",
+        "route": "在主会话打印冲突并发起解决",
+        "details": "待定"
+      }
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "auto-review-policy-scope",
+      "status": "pending",
+      "text": "自动 Review 的批准策略是主题级还是全局？",
+      "source": "object:topic",
+      "recordedAt": "2026-11-10T04:50:46Z"
+    },
+    {
+      "id": "cross-topic-conflict-resolution",
+      "status": "pending",
+      "text": "跨主题冲突在主会话中如何展示和发起解决，细节待定。",
+      "source": "chat",
+      "recordedAt": "2026-11-10T06:05:58Z"
+    }
+  ]
+}
