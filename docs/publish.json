@@ -48,6 +48,10 @@
     {
       "pattern": "docs/design/*",
       "reason": "Cowork sidebar design docs and index: internal design drafts with background, design-process decisions, and demos; not user-facing until implementation lands"
+    },
+    {
+      "pattern": "docs/TOPIC_PAGE_HANDOFF.md",
+      "reason": "主题页前后端实现交接：定稿设计、前后端提案、宿主 A2 notice 门禁、实现顺序、验收命令和遗留风险；给下一个实现会话读，不是用户指南"
     }
   ]
 }
