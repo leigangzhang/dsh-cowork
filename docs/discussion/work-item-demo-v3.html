@@ -1,0 +1,1016 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Cowork 工作项页面设计 v3</title>
+<style>
+  :root {
+    --ink: #101828;
+    --muted: #475467;
+    --soft: #98a2b3;
+    --line: #e4e7ec;
+    --line-soft: #eef0f3;
+    --canvas: #eef1f5;
+    --panel: #f8f9fb;
+    --card: #fff;
+    --blue: #175cd3;
+    --blue-soft: #eff6ff;
+    --violet: #6941c6;
+    --violet-soft: #f4f3ff;
+    --green: #067647;
+    --green-soft: #ecfdf3;
+    --amber: #b54708;
+    --amber-soft: #fffaeb;
+    --red: #b42318;
+    --red-soft: #fef3f2;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: #dfe3e8;
+    color: var(--ink);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body[data-view] { background: var(--canvas); }
+  body[data-view] .board:not(.is-target) { display: none; }
+  body[data-view="text"] .board-text,
+  body[data-view="canvas"] .board-canvas,
+  body[data-view="details"] .board-details { display: block; }
+  body[data-view="text"] .board-text { margin: 0; }
+  body[data-view="canvas"] .board-canvas { margin: 0; }
+  body[data-view="details"] .board-details { margin: 0; }
+
+  .stage {
+    width: 1280px;
+    height: 900px;
+    padding: 32px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    background:
+      radial-gradient(900px 520px at 18% 10%, #ffffff 0%, rgba(255,255,255,0) 68%),
+      radial-gradient(720px 520px at 92% 92%, #e7ebf2 0%, rgba(231,235,242,0) 70%),
+      var(--canvas);
+  }
+  .board { margin: 36px auto; }
+  .board-label {
+    width: 1208px;
+    margin: 0 auto 10px;
+    color: #667085;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .board-label span { color: #98a2b3; font-weight: 500; letter-spacing: 0; text-transform: none; }
+
+  .app {
+    position: relative;
+    width: 1208px;
+    height: 828px;
+    display: flex;
+    overflow: hidden;
+    border: 1px solid #dfe3e8;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 22px 60px rgba(16,24,40,.12), 0 2px 8px rgba(16,24,40,.06);
+  }
+  .badge {
+    position: absolute;
+    top: 14px; right: 14px;
+    z-index: 20;
+    padding: 4px 9px;
+    border: 1px solid #d1e9ff;
+    border-radius: 999px;
+    background: rgba(239,248,255,.94);
+    color: var(--blue);
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: .02em;
+  }
+
+  /* ---------- viewer ---------- */
+  .viewer {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: #fcfcfd;
+    border-right: 1px solid var(--line);
+  }
+  .vhead {
+    flex: none;
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(255,255,255,.86);
+  }
+  .crumbs {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--soft); font-size: 10.5px;
+  }
+  .crumbs b { color: var(--muted); font-weight: 600; }
+  .vtitle-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+  .vtitle {
+    margin: 0; min-width: 0;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    color: #101828; font-size: 17px; font-weight: 720; letter-spacing: -.015em;
+  }
+  .vsub { display: flex; align-items: center; gap: 7px; margin-top: 5px; color: var(--soft); font-size: 10.5px; }
+  .vsub .dot { width: 3px; height: 3px; border-radius: 50%; background: #d0d5dd; }
+  .vactions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 27px; padding: 0 10px;
+    border: 1px solid var(--line); border-radius: 7px;
+    background: #fff; color: var(--muted);
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .btn.primary { border-color: #101828; background: #101828; color: #fff; }
+  .btn.soft { border-color: #b2ddff; background: var(--blue-soft); color: var(--blue); }
+  .btn.icon { width: 27px; padding: 0; justify-content: center; }
+  .btn svg { width: 12px; height: 12px; }
+  .live {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 20px; padding: 0 7px;
+    border: 1px solid #fedf89; border-radius: 999px;
+    background: var(--amber-soft); color: #93370d;
+    font-size: 9.5px; font-weight: 650;
+  }
+  .spinner {
+    width: 9px; height: 9px; flex: none;
+    border: 1.5px solid rgba(181,71,8,.28);
+    border-top-color: var(--amber);
+    border-radius: 50%;
+    animation: spin 1.1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .vtoolbar {
+    flex: none;
+    display: flex; align-items: center; gap: 8px;
+    height: 38px; padding: 0 20px;
+    border-bottom: 1px solid var(--line-soft);
+    background: #fff;
+  }
+  .tabs { display: flex; align-items: center; gap: 14px; height: 100%; }
+  .tab {
+    position: relative; display: flex; align-items: center; gap: 5px;
+    height: 100%; color: var(--muted); font-size: 11px; font-weight: 600;
+  }
+  .tab.active { color: var(--blue); }
+  .tab.active::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+    height: 2px; border-radius: 2px; background: var(--blue);
+  }
+  .tab .n { color: var(--soft); font-weight: 500; }
+  .tb-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .seg {
+    display: inline-flex; padding: 2px; border: 1px solid var(--line);
+    border-radius: 7px; background: #f9fafb;
+  }
+  .seg span {
+    padding: 2px 7px; border-radius: 5px; color: var(--muted);
+    font-size: 10px; font-weight: 600;
+  }
+  .seg span.on { background: #fff; color: #101828; box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+  .save { display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: 10px; font-weight: 600; }
+  .save .ok { width: 13px; height: 13px; display: grid; place-items: center; border-radius: 50%; background: var(--green-soft); font-size: 8px; }
+
+  .vbody { flex: 1; min-height: 0; display: flex; padding: 12px 14px 10px 16px; gap: 12px; }
+  .doc { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+  .doc-head {
+    flex: none; display: flex; align-items: center; gap: 7px;
+    padding: 8px 11px; border-bottom: 1px solid var(--line-soft);
+    background: #fcfcfd;
+  }
+  .file-icon { width: 19px; height: 19px; display: grid; place-items: center; border: 1px solid #d1e9ff; border-radius: 5px; background: var(--blue-soft); color: var(--blue); font-size: 9px; font-weight: 800; }
+  .file-name { color: #344054; font: 10.5px/1.3 var(--mono); }
+  .doc-head .rev { color: var(--soft); font-size: 9.5px; }
+  .doc-head .grow { flex: 1; }
+  .doc-head .tool { color: var(--muted); font-size: 9.5px; }
+  .attach-mini { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9.5px; }
+  .attach-mini i { width: 16px; height: 13px; border: 1px solid var(--line); border-radius: 3px; background: linear-gradient(135deg, #fff 45%, #dbeafe 45%, #dbeafe 70%, #fff 70%); }
+  .paper {
+    flex: 1; min-height: 0; padding: 14px 12px 10px 4px;
+    background:
+      linear-gradient(90deg, #fbfcfd 0 33px, #f1f3f6 33px, #f1f3f6 34px, #fff 34px);
+  }
+  .dline { position: relative; display: flex; align-items: flex-start; min-height: 20px; }
+  .ln {
+    flex: none; width: 26px; padding-right: 8px;
+    color: #b4bbc7; font: 9px/20px var(--mono); text-align: right;
+    -webkit-user-select: none;
+  }
+  .dt { position: relative; flex: 1; padding: 0 26px 0 4px; color: #344054; font-size: 10.5px; line-height: 20px; }
+  .dline.h1 .dt { color: #101828; font-size: 15px; font-weight: 720; line-height: 26px; }
+  .dline.h2 .dt { color: #101828; font-size: 12px; font-weight: 700; line-height: 24px; }
+  .dline.quote .dt { color: #667085; font-size: 10px; }
+  .dline.list .dt { padding-left: 16px; }
+  .dline.list .dt::before { content: "•"; position: absolute; left: 6px; color: #98a2b3; }
+  .dline.code .dt { color: #475467; font: 9.5px/18px var(--mono); }
+  .dline.hl .dt { color: #1849a9; background: linear-gradient(90deg, #eff8ff, #f7fbff 70%, #fff); border-radius: 4px; }
+  .dline.hl::before { content: ""; position: absolute; left: 30px; top: 2px; bottom: 2px; width: 2px; border-radius: 2px; background: #2e90fa; }
+  .dline.diff .dt { background: linear-gradient(90deg, #ecfdf3, #f6fef9 70%, #fff); border-radius: 4px; }
+  .dline.diff::before { content: ""; position: absolute; left: 30px; top: 2px; bottom: 2px; width: 2px; border-radius: 2px; background: #12b76a; }
+  .dline.stale .dt { background: linear-gradient(90deg, #fffaeb, #fffdf5 70%, #fff); border-radius: 4px; }
+  .dline.stale::before { content: ""; position: absolute; left: 30px; top: 2px; bottom: 2px; width: 2px; border-radius: 2px; background: #f79009; }
+  .pin {
+    position: absolute; right: 5px; top: 2px;
+    min-width: 17px; height: 17px; padding: 0 4px;
+    display: inline-grid; place-items: center;
+    border: 2px solid #fff; border-radius: 999px;
+    background: #2e90fa; color: #fff;
+    font-size: 8px; font-weight: 800;
+    box-shadow: 0 1px 3px rgba(16,24,40,.18);
+  }
+  .pin.p1 { background: #98a2b3; }
+  .pin.p2 { background: #2e90fa; }
+  .pin.p3 { background: #f79009; }
+  .pin.p4 { background: #f79009; }
+  .pin.resolved { background: #12b76a; }
+  .diff-mark { color: #067647; font-size: 8.5px; font-weight: 700; margin-left: 5px; }
+  .paper-foot {
+    flex: none; display: flex; align-items: center; gap: 7px;
+    padding: 7px 11px; border-top: 1px solid var(--line-soft);
+    color: var(--soft); font-size: 9px;
+  }
+  .chip-file { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--muted); font-size: 9px; }
+  .chip-file i { width: 9px; height: 9px; border-radius: 2px; background: #dbeafe; }
+  .paper-foot .grow { flex: 1; }
+
+  /* ---------- thread rail ---------- */
+  .threads {
+    width: 300px; flex: none;
+    display: flex; flex-direction: column;
+    border: 1px solid var(--line); border-radius: 11px;
+    background: #fff; overflow: hidden;
+  }
+  .threads-head { flex: none; padding: 10px 11px 8px; border-bottom: 1px solid var(--line-soft); }
+  .th-title { display: flex; align-items: center; gap: 6px; color: #101828; font-size: 11.5px; font-weight: 700; }
+  .th-title .count { padding: 0 5px; border-radius: 999px; background: #f2f4f7; color: #667085; font-size: 9px; font-weight: 700; }
+  .th-tools { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+  .th-tools .select { display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 9.5px; }
+  .th-tools .switch { margin-left: auto; display: flex; align-items: center; gap: 4px; color: var(--soft); font-size: 9px; }
+  .switch i { width: 18px; height: 10px; border-radius: 999px; background: #d0d5dd; position: relative; }
+  .switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+  .switch.on i { background: var(--blue); }
+  .switch.on i::after { left: 10px; }
+  .activity {
+    flex: none; display: flex; align-items: center; gap: 7px;
+    margin: 8px 10px 0; padding: 6px 8px;
+    border: 1px solid #fedf89; border-radius: 7px;
+    background: #fffdf5; color: #93370d; font-size: 9px; line-height: 1.4;
+  }
+  .activity .grow { flex: 1; }
+  .activity .time { color: #b54708; opacity: .7; font-size: 8.5px; }
+  .thread-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 9px 10px 8px; }
+  .thread-scroll::-webkit-scrollbar { width: 0; }
+  .thread {
+    margin-bottom: 7px; padding: 8px 9px 7px;
+    border: 1px solid var(--line); border-radius: 9px; background: #fff;
+  }
+  .thread.selected { border-color: #b2ddff; box-shadow: 0 0 0 2px #eff8ff; }
+  .thread.stale { border-color: #fedf89; background: #fffdf7; }
+  .tmeta { display: flex; align-items: center; gap: 5px; color: var(--soft); font-size: 8.5px; }
+  .avatar { width: 17px; height: 17px; flex: none; display: grid; place-items: center; border-radius: 50%; background: #101828; color: #fff; font-size: 7.5px; font-weight: 800; }
+  .avatar.model { background: var(--violet-soft); color: var(--violet); }
+  .tmeta b { color: #344054; font-size: 9px; font-weight: 650; }
+  .tmeta .anchor { margin-left: auto; padding: 1px 5px; border-radius: 4px; background: #eff8ff; color: var(--blue); font-size: 8px; font-weight: 650; }
+  .quote {
+    margin: 6px 0 0; padding: 5px 7px;
+    border-left: 2px solid #d1e9ff; border-radius: 0 4px 4px 0;
+    background: #f9fbfe; color: #667085; font-size: 9px; line-height: 1.45;
+  }
+  .ttext { margin-top: 5px; color: #344054; font-size: 10px; line-height: 1.5; }
+  .reply {
+    margin-top: 6px; padding: 6px 7px 5px;
+    border: 1px solid #e9e4ff; border-radius: 7px; background: #fcfbff;
+  }
+  .reply-head { display: flex; align-items: center; gap: 5px; }
+  .reply-head .who { color: #53389e; font-size: 9px; font-weight: 650; }
+  .reply-head .state { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; color: var(--green); font-size: 8px; font-weight: 650; }
+  .reply-head .state i { width: 10px; height: 10px; display: grid; place-items: center; border-radius: 50%; background: var(--green-soft); font-size: 6px; font-style: normal; }
+  .reply-body { margin-top: 4px; color: #475467; font-size: 9.5px; line-height: 1.5; }
+  .minidiff { margin-top: 5px; overflow: hidden; border: 1px solid var(--line-soft); border-radius: 5px; background: #fff; }
+  .minidiff div { padding: 1px 6px; font: 8.5px/1.45 var(--mono); }
+  .minidiff .del { background: #fef3f2; color: #b42318; }
+  .minidiff .add { background: #ecfdf3; color: #067647; }
+  .tstate { display: flex; align-items: center; gap: 5px; margin-top: 6px; color: var(--amber); font-size: 8.5px; font-weight: 600; }
+  .tstate .spinner { border-top-color: var(--amber); }
+  .tstate .stale-chip { padding: 1px 5px; border-radius: 4px; background: var(--amber-soft); color: var(--amber); font-weight: 650; }
+  .tactions { display: flex; align-items: center; gap: 8px; margin-top: 5px; padding-top: 5px; border-top: 1px solid #f2f4f7; color: var(--muted); font-size: 8.5px; }
+  .tactions .right { margin-left: auto; color: var(--soft); }
+  .resolved-line { display: flex; align-items: center; gap: 5px; padding: 6px 7px; border: 1px dashed #d0d5dd; border-radius: 7px; color: #667085; font-size: 8.5px; background: rgba(255,255,255,.6); }
+  .resolved-line .pin-dot { width: 14px; height: 14px; display: grid; place-items: center; border-radius: 50%; font-size: 7px; font-weight: 800; }
+  .resolved-line .arrow { margin-left: auto; color: #98a2b3; }
+  .thread.collapsed { padding: 7px 9px; }
+  .thread.collapsed .trow { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9px; }
+  .thread.collapsed .trow .pin-dot { width: 14px; height: 14px; display: grid; place-items: center; border-radius: 50%; background: #f2f4f7; color: #667085; font-size: 7px; font-weight: 800; }
+  .thread.collapsed .trow .resolved { margin-left: auto; color: var(--green); font-size: 8px; font-weight: 650; }
+  .composer { flex: none; margin: 0 10px 10px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 9px; background: #fff; box-shadow: 0 3px 10px rgba(16,24,40,.04); }
+  .composer .hint { color: var(--soft); font-size: 9px; }
+  .composer .cline { display: flex; align-items: center; gap: 6px; margin-top: 7px; color: var(--soft); font-size: 8.5px; }
+  .composer .plus { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 5px; background: #f2f4f7; color: #667085; font-size: 11px; }
+  .composer .cline .grow { flex: 1; }
+  .composer .send { width: 21px; height: 21px; display: grid; place-items: center; border-radius: 6px; background: var(--blue); color: #fff; font-size: 10px; }
+  .vfoot { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 20px; border-top: 1px solid var(--line-soft); background: #fff; color: var(--soft); font-size: 9px; }
+  .vfoot .grow { flex: 1; }
+  .vfoot b { color: var(--muted); font-weight: 650; }
+
+  /* ---------- right sidebar ---------- */
+  .sidebar { width: 378px; flex: none; display: flex; flex-direction: column; background: var(--panel); }
+  .sbhead { padding: 16px 16px 0; display: flex; align-items: flex-start; justify-content: space-between; }
+  .eyebrow { color: var(--soft); font-size: 9.5px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+  .sbtitle { margin-top: 2px; font-size: 15px; font-weight: 720; letter-spacing: -.01em; }
+  .sbsub { margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+  .newitem { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border: 1px solid #b2ddff; border-radius: 7px; background: var(--blue-soft); color: var(--blue); font-size: 10.5px; font-weight: 650; }
+  .stabs { display: flex; gap: 1px; margin-top: 13px; padding: 0 10px; border-bottom: 1px solid var(--line); }
+  .stab { position: relative; display: inline-flex; align-items: center; gap: 4px; padding: 9px 8px 10px; color: var(--muted); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+  .stab svg { width: 12px; height: 12px; opacity: .9; }
+  .stab.active { color: var(--blue); }
+  .stab.active::after { content: ""; position: absolute; left: 7px; right: 7px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--blue); }
+  .stab .cnt { min-width: 15px; height: 15px; padding: 0 4px; display: inline-grid; place-items: center; border-radius: 999px; background: #e9edf3; color: #667085; font-size: 8.5px; font-weight: 700; }
+  .stab.active .cnt { background: var(--blue-soft); color: var(--blue); }
+  .sbbody { flex: 1; min-height: 0; overflow: hidden; padding: 11px 12px 12px; }
+  .filter-row { display: flex; align-items: center; gap: 5px; margin-bottom: 11px; overflow: hidden; }
+  .fchip { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--muted); font-size: 9px; font-weight: 600; white-space: nowrap; }
+  .fchip.on { border-color: #b2ddff; background: var(--blue-soft); color: var(--blue); }
+  .fchip .n { color: var(--soft); font-weight: 600; }
+  .fchip.on .n { color: var(--blue); }
+  .search { margin-left: auto; width: 24px; height: 22px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--soft); font-size: 10px; }
+  .group { margin-bottom: 12px; }
+  .ghead { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; margin-bottom: 6px; color: var(--soft); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+  .ghead .n { color: #98a2b3; font-weight: 600; letter-spacing: 0; }
+  .wcard { position: relative; margin-bottom: 7px; padding: 10px 10px 9px; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 1px 1px rgba(16,24,40,.025); }
+  .wcard.selected { border-color: #b2ddff; box-shadow: 0 0 0 2px #eff8ff; }
+  .wcard.busy { background: linear-gradient(180deg,#fff 0%,#fffdf7 100%); border-color: #fedf89; }
+  .wtop { display: flex; align-items: center; gap: 5px; }
+  .kind { display: inline-flex; align-items: center; gap: 3px; padding: 1px 5px; border-radius: 4px; font-size: 8px; font-weight: 750; letter-spacing: .03em; }
+  .kind.plan { color: var(--blue); background: var(--blue-soft); }
+  .kind.canvas { color: var(--violet); background: var(--violet-soft); }
+  .kind.table { color: var(--green); background: var(--green-soft); }
+  .kind.design { color: var(--amber); background: var(--amber-soft); }
+  .kind.doc { color: #175cd3; background: #eff8ff; }
+  .kind.pdf { color: var(--red); background: var(--red-soft); }
+  .wstatus { margin-left: auto; padding: 1px 6px; border-radius: 999px; font-size: 8px; font-weight: 650; }
+  .wstatus.wait { color: var(--amber); background: var(--amber-soft); }
+  .wstatus.todo { color: var(--red); background: var(--red-soft); }
+  .wstatus.doing { color: var(--blue); background: var(--blue-soft); }
+  .wstatus.ok { color: var(--green); background: var(--green-soft); }
+  .wtitle { margin: 5px 0 2px; color: #101828; font-size: 11px; font-weight: 650; line-height: 1.4; }
+  .wparent { color: var(--soft); font-size: 8.5px; }
+  .wmeta { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 6px; color: var(--soft); font-size: 8.5px; }
+  .wmeta .left { display: flex; align-items: center; gap: 5px; }
+  .wmeta .model { display: inline-flex; align-items: center; gap: 3px; color: var(--amber); font-size: 8px; font-weight: 600; }
+  .wmeta .model .spinner { width: 7px; height: 7px; border-width: 1.2px; }
+  .resolved-row { display: flex; align-items: center; gap: 7px; padding: 8px 9px; border: 1px dashed #d0d5dd; border-radius: 8px; background: rgba(255,255,255,.6); color: var(--muted); font-size: 9.5px; }
+  .resolved-row .ok { width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; background: var(--green-soft); color: var(--green); font-size: 8px; font-weight: 800; }
+  .resolved-row .arrow { margin-left: auto; color: var(--soft); }
+  .sbnote { margin-top: 4px; padding-top: 9px; border-top: 1px solid var(--line); color: var(--soft); font-size: 9px; line-height: 1.55; }
+  .sbnote b { color: var(--muted); font-weight: 650; }
+
+  /* ---------- canvas board ---------- */
+  .cvtoolbar { flex: none; display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 16px; border-bottom: 1px solid var(--line-soft); background: #fff; }
+  .toolgroup { display: flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: #f9fafb; }
+  .tool { width: 24px; height: 22px; display: grid; place-items: center; border-radius: 5px; color: var(--muted); font-size: 11px; }
+  .tool.on { background: #fff; color: var(--blue); box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+  .cvtoolbar .divider { width: 1px; height: 17px; background: var(--line); margin: 0 3px; }
+  .cvtoolbar .grow { flex: 1; }
+  .cvtoolbar .zoom { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9.5px; }
+  .canvas-wrap { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px 14px 10px 16px; }
+  .canvas-panel { flex: 1; min-width: 0; position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background-color: #fbfcfe; background-image: radial-gradient(#d4dae2 1px, transparent 1px); background-size: 16px 16px; }
+  .cv-label { position: absolute; left: 14px; top: 11px; color: var(--soft); font: 8.5px var(--mono); letter-spacing: .04em; }
+  .cv-hint { position: absolute; right: 14px; top: 11px; color: var(--soft); font-size: 8.5px; }
+  .diagram { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  .node { position: absolute; padding: 8px 9px; border: 1px solid #cfd6df; border-radius: 8px; background: #fff; box-shadow: 0 2px 5px rgba(16,24,40,.05); }
+  .node .nt { color: #344054; font-size: 9px; font-weight: 700; }
+  .node .ns { margin-top: 2px; color: var(--soft); font-size: 7.5px; line-height: 1.4; }
+  .node.session { left: 16px; top: 54px; width: 132px; }
+  .node.record { left: 178px; top: 46px; width: 150px; border-color: #b2ddff; background: #f7fbff; }
+  .node.files { left: 356px; top: 46px; width: 136px; }
+  .node.comments { left: 178px; top: 176px; width: 150px; border: 1.5px dashed #2e90fa; background: #f2f8ff; box-shadow: 0 0 0 4px rgba(46,144,250,.08); }
+  .node.reply { left: 356px; top: 176px; width: 136px; border-color: #e9e4ff; background: #fcfbff; }
+  .node.versions { left: 16px; top: 176px; width: 132px; }
+  .cv-pin { position: absolute; z-index: 5; min-width: 19px; height: 19px; padding: 0 4px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 999px; color: #fff; font-size: 8px; font-weight: 800; box-shadow: 0 2px 5px rgba(16,24,40,.18); }
+  .cv-pin.p1 { background: #7a5af8; }
+  .cv-pin.p2 { background: #2e90fa; }
+  .cv-pin.p3 { background: #f79009; }
+  .cv-sel { position: absolute; left: 166px; top: 164px; width: 174px; height: 78px; border: 1.5px dashed #2e90fa; border-radius: 9px; background: rgba(46,144,250,.04); }
+  .cv-sel .handle { position: absolute; width: 7px; height: 7px; border: 1px solid #2e90fa; border-radius: 2px; background: #fff; }
+  .cv-sel .h1 { left: -4px; top: -4px; } .cv-sel .h2 { right: -4px; top: -4px; } .cv-sel .h3 { left: -4px; bottom: -4px; } .cv-sel .h4 { right: -4px; bottom: -4px; }
+  .cv-tag { position: absolute; left: 168px; top: 248px; padding: 2px 6px; border: 1px solid #b2ddff; border-radius: 4px; background: #eff8ff; color: var(--blue); font-size: 8px; font-weight: 650; }
+  .cv-bottom { flex: none; display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 20px; border-top: 1px solid var(--line-soft); background: #fff; color: var(--soft); font-size: 8.5px; }
+  .cv-bottom .grow { flex: 1; }
+
+  /* ---------- details board ---------- */
+  .details-stage { width: 1280px; padding: 28px 32px 34px; background: var(--canvas); }
+  .details-title { margin: 0 0 4px; color: #101828; font-size: 18px; font-weight: 740; letter-spacing: -.015em; }
+  .details-sub { margin: 0 0 16px; color: var(--muted); font-size: 11px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .card { min-width: 0; padding: 12px 13px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(16,24,40,.03); }
+  .card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .card-no { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 5px; background: #101828; color: #fff; font-size: 9px; font-weight: 750; }
+  .card-title { color: #101828; font-size: 11.5px; font-weight: 700; }
+  .card-note { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line-soft); color: var(--soft); font-size: 8.5px; line-height: 1.5; }
+  .mock { border: 1px solid var(--line); border-radius: 8px; background: #fcfcfd; overflow: hidden; }
+  .mock-head { display: flex; align-items: center; gap: 5px; padding: 6px 8px; border-bottom: 1px solid var(--line-soft); background: #fff; color: var(--muted); font-size: 8.5px; }
+  .mock-head .grow { flex: 1; }
+  .mock-body { padding: 8px; }
+  .fmtbar { display: flex; align-items: center; gap: 4px; margin-bottom: 7px; color: var(--muted); font-size: 8.5px; }
+  .fmtbar b { width: 16px; height: 16px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: 8px; }
+  .rich-line { height: 6px; margin-bottom: 5px; border-radius: 3px; background: #e9edf3; }
+  .rich-line.w80 { width: 80%; } .rich-line.w60 { width: 60%; } .rich-line.w90 { width: 90%; }
+  .rich-h { height: 8px; width: 58%; margin: 2px 0 6px; border-radius: 3px; background: #cfd6df; }
+  .table-mock { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .trow { display: grid; grid-template-columns: 1.2fr 1fr 1fr; border-bottom: 1px solid var(--line-soft); }
+  .trow:last-child { border-bottom: 0; }
+  .tcell { padding: 4px 5px; border-right: 1px solid var(--line-soft); color: var(--muted); font-size: 7.5px; white-space: nowrap; overflow: hidden; }
+  .tcell:last-child { border-right: 0; }
+  .trow.head .tcell { background: #f9fafb; color: #344054; font-weight: 700; }
+  .trow.head .tcell .sort { color: var(--blue); margin-left: 2px; }
+  .filterline { display: flex; gap: 3px; margin-bottom: 6px; }
+  .filterline span { padding: 1px 4px; border: 1px solid var(--line); border-radius: 999px; color: var(--soft); font-size: 7px; }
+  .pdf-page { position: relative; height: 110px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .pdf-line { height: 5px; margin-bottom: 5px; border-radius: 2px; background: #e9edf3; }
+  .pdf-line.w70 { width: 70%; } .pdf-line.w50 { width: 50%; } .pdf-line.w85 { width: 85%; }
+  .pdf-pin { position: absolute; min-width: 14px; height: 14px; padding: 0 3px; display: grid; place-items: center; border: 1.5px solid #fff; border-radius: 999px; background: #f04438; color: #fff; font-size: 6.5px; font-weight: 800; }
+  .banner { display: flex; align-items: flex-start; gap: 6px; padding: 7px 8px; border: 1px solid #fedf89; border-radius: 7px; background: #fffdf5; color: #93370d; font-size: 8.5px; line-height: 1.45; }
+  .banner .grow { flex: 1; }
+  .banner-actions { display: flex; gap: 4px; margin-top: 6px; }
+  .banner-actions span { padding: 2px 6px; border: 1px solid #fedf89; border-radius: 4px; background: #fff; color: #b54708; font-size: 7.5px; font-weight: 600; }
+  .banner-actions span.primary { border-color: #b54708; background: #b54708; color: #fff; }
+  .state-list { display: flex; flex-direction: column; gap: 5px; }
+  .state-row { display: flex; align-items: center; gap: 5px; padding: 4px 6px; border: 1px solid var(--line-soft); border-radius: 5px; color: var(--muted); font-size: 8.5px; }
+  .state-row .tag { padding: 1px 5px; border-radius: 999px; font-size: 7.5px; font-weight: 650; }
+  .tag.wait { background: var(--amber-soft); color: var(--amber); }
+  .tag.doing { background: var(--blue-soft); color: var(--blue); }
+  .tag.ok { background: var(--green-soft); color: var(--green); }
+  .tag.stale { background: var(--amber-soft); color: var(--amber); }
+  .tag.err { background: var(--red-soft); color: var(--red); }
+  .narrow { display: flex; gap: 8px; }
+  .narrow-list { width: 132px; flex: none; padding: 7px; border: 1px solid var(--line); border-radius: 7px; background: #f8f9fb; }
+  .narrow-list .wcard { margin-bottom: 5px; padding: 6px; }
+  .narrow-list .wtitle { font-size: 8px; }
+  .narrow-list .wmeta { display: none; }
+  .narrow-view { flex: 1; padding: 7px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+  .narrow-view .bar { height: 8px; width: 64%; margin-bottom: 6px; border-radius: 3px; background: #cfd6df; }
+  .narrow-view .lnx { height: 4px; margin-bottom: 4px; border-radius: 2px; background: #e9edf3; }
+  .narrow-view .lnx.short { width: 70%; }
+  .empty-row { display: flex; align-items: center; gap: 5px; padding: 6px 7px; border: 1px dashed var(--line); border-radius: 5px; color: var(--soft); font-size: 8px; margin-bottom: 5px; }
+  .empty-row .dot { width: 8px; height: 8px; border-radius: 50%; background: #e4e7ec; }
+  .rules { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 8.5px; line-height: 1.45; }
+  .rules b { color: #344054; }
+  .shot { position: relative; height: 70px; margin-top: 6px; overflow: hidden; border: 1px solid #b2ddff; border-radius: 6px; background: linear-gradient(135deg,#eff8ff,#dbeafe); }
+  .shot .crop { position: absolute; left: 9px; top: 9px; width: 92px; height: 48px; border: 1.5px dashed #2e90fa; border-radius: 4px; background: rgba(255,255,255,.45); }
+  .shot .lbl { position: absolute; right: 6px; bottom: 4px; color: #175cd3; font-size: 7px; }
+  .reply-attach { display: flex; align-items: center; gap: 5px; margin-top: 5px; padding: 4px 5px; border: 1px solid #e9e4ff; border-radius: 4px; background: #fff; color: #53389e; font-size: 7.5px; }
+  .reply-attach .thumb { width: 18px; height: 14px; border-radius: 2px; background: linear-gradient(135deg,#f4f3ff,#d9d6fe); }
+</style>
+</head>
+<body>
+
+<!-- ================= BOARD 1: text review ================= -->
+<section class="board board-text" id="board-text">
+  <div class="stage">
+    <div class="app">
+      <div class="badge">工作项 v3 · 文本审核与编辑</div>
+
+      <main class="viewer">
+        <header class="vhead">
+          <div class="crumbs">Cowork <span>/</span> 主题「工作项页设计」 <span>/</span> <b>工作项</b></div>
+          <div class="vtitle-row">
+            <h1 class="vtitle">PLAN：工作项交付物信息模型</h1>
+            <div class="vactions">
+              <span class="btn primary">编辑</span>
+              <span class="btn">在应用中打开</span>
+              <span class="btn">导出</span>
+              <span class="btn icon">⋯</span>
+            </div>
+          </div>
+          <div class="vsub">
+            <span>来自主题「工作项页设计」</span><span class="dot"></span>
+            <span>2 个文件</span><span class="dot"></span>
+            <span>更新 2 分钟前</span><span class="dot"></span>
+            <span class="live"><i class="spinner"></i>模型处理中 1</span>
+          </div>
+        </header>
+
+        <div class="vtoolbar">
+          <nav class="tabs">
+            <span class="tab active">文档</span>
+            <span class="tab">版本 <span class="n">3</span></span>
+            <span class="tab">附件 <span class="n">2</span></span>
+          </nav>
+          <div class="tb-right">
+            <span class="seg"><span class="on">阅读</span><span>源码</span></span>
+            <span class="save"><span class="ok">✓</span>已保存 · r12</span>
+            <span class="btn">批注</span>
+          </div>
+        </div>
+
+        <div class="vbody">
+          <section class="doc">
+            <div class="doc-head">
+              <span class="file-icon">M↓</span>
+              <span class="file-name">plan.md</span>
+              <span class="rev">Markdown · r12</span>
+              <span class="grow"></span>
+              <span class="attach-mini"><i></i>layout-v3.png</span>
+              <span class="attach-mini"><i></i>schema.json</span>
+            </div>
+            <div class="paper">
+              <div class="dline h1"><span class="ln">1</span><span class="dt">工作项交付物信息模型</span></div>
+              <div class="dline quote"><span class="ln">2</span><span class="dt">状态：待确认 · r12 · 2 个文件 · 来自主题「工作项页设计」</span></div>
+              <div class="dline"><span class="ln">3</span><span class="dt">&nbsp;</span></div>
+              <div class="dline h2"><span class="ln">4</span><span class="dt">1. 工作项是什么</span></div>
+              <div class="dline"><span class="ln">5</span><span class="dt">工作项是用户需要查看、确认、反馈的交付物，不是代码分支或提交的容器。</span></div>
+              <div class="dline"><span class="ln">6</span><span class="dt">它指向项目里已有的文件，查看器负责展示、批注和编辑。<span class="pin p1 resolved">1</span></span></div>
+              <div class="dline"><span class="ln">7</span><span class="dt">&nbsp;</span></div>
+              <div class="dline h2"><span class="ln">8</span><span class="dt">2. 记录结构</span></div>
+              <div class="dline"><span class="ln">9</span><span class="dt">工作项记录分两部分：</span></div>
+              <div class="dline list hl"><span class="ln">10</span><span class="dt">交付物记录：标题、类型、状态、文件列表、主题归属。<span class="pin p2">2</span></span></div>
+              <div class="dline list hl"><span class="ln">11</span><span class="dt">协作记录：评论、批注、回复、附件和版本。</span></div>
+              <div class="dline"><span class="ln">12</span><span class="dt">&nbsp;</span></div>
+              <div class="dline h2"><span class="ln">13</span><span class="dt">3. 状态</span></div>
+              <div class="dline diff"><span class="ln">14</span><span class="dt">状态只留在交付物记录里，协作记录不重复存状态。<span class="diff-mark">已改 · r12</span></span></div>
+              <div class="dline"><span class="ln">15</span><span class="dt">待查看 · 待确认 · 需反馈 · 进行中 · 已确认</span></div>
+              <div class="dline"><span class="ln">16</span><span class="dt">&nbsp;</span></div>
+              <div class="dline h2"><span class="ln">17</span><span class="dt">4. 与主题会话的关系</span></div>
+              <div class="dline"><span class="ln">18</span><span class="dt">批注会作为一条消息投递到主题会话。<span class="pin p3">3</span></span></div>
+              <div class="dline"><span class="ln">19</span><span class="dt">模型改完文件后，通过回复工具把结果挂回批注。</span></div>
+              <div class="dline"><span class="ln">20</span><span class="dt">&nbsp;</span></div>
+              <div class="dline h2"><span class="ln">21</span><span class="dt">5. 边界</span></div>
+              <div class="dline stale"><span class="ln">22</span><span class="dt">- 不展示 branch、commit、merge、diff。<span class="pin p4">4</span></span></div>
+              <div class="dline"><span class="ln">23</span><span class="dt">- 评审和 CI 不在本版本范围。</span></div>
+              <div class="dline"><span class="ln">24</span><span class="dt">&nbsp;</span></div>
+            </div>
+            <div class="paper-foot">
+              <span class="chip-file"><i></i>layout-v3.png · 1.2 MB</span>
+              <span class="chip-file"><i></i>schema.json · 18 KB</span>
+              <span class="grow"></span>
+              <span>选中行后可直接批注 · 模型回复会挂到批注上</span>
+            </div>
+          </section>
+
+          <aside class="threads">
+            <div class="threads-head">
+              <div class="th-title">评论 <span class="count">6</span><span style="margin-left:auto;color:#98a2b3;font-size:9px;font-weight:500">按位置排序</span></div>
+              <div class="th-tools">
+                <span class="select">全部评论 ⌄</span>
+                <span class="switch on"><i></i>只看待处理</span>
+              </div>
+            </div>
+
+            <div class="activity"><i class="spinner"></i><span class="grow">模型正在处理 #3：已送达 18 秒</span><span class="time">后台</span></div>
+
+            <div class="thread-scroll">
+              <article class="thread selected">
+                <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 10–11 行</span><span class="anchor">#2</span></div>
+                <div class="quote">工作项记录分两部分：交付物记录、协作记录。</div>
+                <div class="ttext">状态字段只应该留在交付物记录里，协作记录不要重复存一份。</div>
+                <div class="reply">
+                  <div class="reply-head"><span class="avatar model">M</span><span class="who">Cowork</span><span class="state"><i>✓</i>已回复</span></div>
+                  <div class="reply-body">已改：状态只留在交付物记录，协作记录只存评论和回复。</div>
+                  <div class="minidiff">
+                    <div class="del">− 协作记录：评论、批注、回复、附件、版本、状态</div>
+                    <div class="add">+ 协作记录：评论、批注、回复、附件和版本</div>
+                  </div>
+                </div>
+                <div class="tactions"><span>回复</span><span>引用</span><span class="right">标记已解决 ✓</span></div>
+              </article>
+
+              <article class="thread">
+                <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 18–19 行</span><span class="anchor">#3</span></div>
+                <div class="quote">批注会作为一条消息投递到主题会话。</div>
+                <div class="ttext">投递失败时，用户在哪里看到原因？不要让批注静默卡住。</div>
+                <div class="tstate"><i class="spinner"></i>已送达 · 模型思考中<span style="margin-left:auto;color:#98a2b3">18 秒</span></div>
+              </article>
+
+              <article class="thread stale" style="padding:7px 9px">
+                <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>原第 22 行</span><span class="anchor" style="background:#fffaeb;color:#b54708">#4</span></div>
+                <div class="ttext" style="margin-top:4px">这一条应该写进验收。</div>
+                <div class="tstate" style="margin-top:4px"><span class="stale-chip">位置待确认</span><span style="color:#98a2b3">原文已移动</span></div>
+              </article>
+
+              <div class="resolved-line"><span class="pin-dot" style="background:#ecfdf3;color:#067647">✓</span><span>已解决 2 条：#1 附件与评论是主字段</span><span class="arrow">›</span></div>
+            </div>
+
+            <div class="composer">
+              <div class="hint">在文档中选择行后批注；也可以直接评论整份文档。</div>
+              <div class="cline"><span class="plus">+</span><span>图片</span><span>文件</span><span class="grow"></span><span>Enter 发送</span><span class="send">↑</span></div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="vfoot">
+          <span><b>模型已回复</b> #1、#2</span><span>·</span>
+          <span>#3 思考中</span><span>·</span>
+          <span>#4 位置待确认</span>
+          <span class="grow"></span>
+          <span>内容版本 r12 · 保存于 14:32</span>
+        </div>
+      </main>
+
+      <aside class="sidebar">
+        <div class="sbhead">
+          <div>
+            <div class="eyebrow">Cowork</div>
+            <div class="sbtitle">工作项</div>
+            <div class="sbsub">工作区 · dsh-cowork · 5 个</div>
+          </div>
+          <span class="newitem">＋ 新工作项</span>
+        </div>
+        <nav class="stabs">
+          <span class="stab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 6.5h14M5 11h14M5 15.5h8" stroke-linecap="round"/></svg>主题 <span class="cnt">6</span></span>
+          <span class="stab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><path d="m8 12 2.5 2.5L16 9" stroke-linecap="round" stroke-linejoin="round"/></svg>工作项 <span class="cnt">5</span></span>
+          <span class="stab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 12h3l2-5 4 10 2-5h4" stroke-linecap="round" stroke-linejoin="round"/></svg>活动记录</span>
+          <span class="stab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4.5h12v15H6z"/><path d="M9 8h6M9 11.5h6M9 15h4" stroke-linecap="round"/></svg>项目记忆</span>
+        </nav>
+        <div class="sbbody">
+          <div class="filter-row">
+            <span class="fchip on">全部 <span class="n">5</span></span>
+            <span class="fchip">待确认 <span class="n">2</span></span>
+            <span class="fchip">待查看 <span class="n">1</span></span>
+            <span class="fchip">需反馈 <span class="n">1</span></span>
+            <span class="search">⌕</span>
+          </div>
+
+          <section class="group">
+            <div class="ghead"><span>待确认</span><span class="n">2</span></div>
+            <article class="wcard selected">
+              <div class="wtop"><span class="kind plan">PLAN</span><span class="wstatus wait">待确认</span></div>
+              <h3 class="wtitle">工作项交付物信息模型</h3>
+              <div class="wparent">来自 · 工作项页设计</div>
+              <div class="wmeta"><span class="left">6 条评论 · 2 个附件</span><span>2 分钟前</span></div>
+            </article>
+            <article class="wcard">
+              <div class="wtop"><span class="kind canvas">CANVAS</span><span class="wstatus wait">待确认</span></div>
+              <h3 class="wtitle">架构图：工作项与主题会话</h3>
+              <div class="wparent">来自 · 工作项页设计</div>
+              <div class="wmeta"><span class="left">3 条评论 · 1 个附件</span><span>8 分钟前</span></div>
+            </article>
+          </section>
+
+          <section class="group">
+            <div class="ghead"><span>需反馈</span><span class="n">1</span></div>
+            <article class="wcard busy">
+              <div class="wtop"><span class="kind table">TABLE</span><span class="wstatus doing">需反馈</span></div>
+              <h3 class="wtitle">表格：交付物字段清单</h3>
+              <div class="wparent">来自 · 工作项页设计</div>
+              <div class="wmeta"><span class="left">4 条评论 · 1 个附件</span><span class="model"><i class="spinner"></i>模型等待保存</span></div>
+            </article>
+          </section>
+
+          <section class="group">
+            <div class="ghead"><span>待查看</span><span class="n">1</span></div>
+            <article class="wcard">
+              <div class="wtop"><span class="kind design">DESIGN</span><span class="wstatus todo">待查看</span></div>
+              <h3 class="wtitle">设计稿：工作项页面初稿</h3>
+              <div class="wparent">来自 · 工作项页设计</div>
+              <div class="wmeta"><span class="left">1 条评论 · 2 个附件</span><span>1 小时前</span></div>
+            </article>
+          </section>
+
+          <section class="group">
+            <div class="ghead"><span>已确认</span><span class="n">1</span></div>
+            <div class="resolved-row"><span class="ok">✓</span><span>已确认 1 个工作项</span><span class="arrow">›</span></div>
+          </section>
+
+          <div class="sbnote"><b>这里只放交付物。</b>不展示 branch、commit、merge、diff；评审和 CI 不在本版本。附件和评论是主字段。</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ================= BOARD 2: canvas ================= -->
+<section class="board board-canvas" id="board-canvas">
+  <div class="stage">
+    <div class="app">
+      <div class="badge">工作项 v3 · 画布编辑与区域批注</div>
+
+      <main class="viewer">
+        <header class="vhead">
+          <div class="crumbs">Cowork <span>/</span> 主题「工作项页设计」 <span>/</span> <b>工作项</b></div>
+          <div class="vtitle-row">
+            <h1 class="vtitle">架构图：工作项与主题会话</h1>
+            <div class="vactions">
+              <span class="btn primary">完成编辑</span>
+              <span class="btn">在应用中打开</span>
+              <span class="btn">导出</span>
+              <span class="btn icon">⋯</span>
+            </div>
+          </div>
+          <div class="vsub">
+            <span>来自主题「工作项页设计」</span><span class="dot"></span>
+            <span>Canvas · r8</span><span class="dot"></span>
+            <span>更新 1 分钟前</span><span class="dot"></span>
+            <span class="live"><i class="spinner"></i>模型处理中 1</span>
+          </div>
+        </header>
+
+        <div class="cvtoolbar">
+          <div class="toolgroup"><span class="tool on">↖</span><span class="tool">手</span><span class="tool">□</span><span class="tool">→</span><span class="tool">T</span><span class="tool">✎</span></div>
+          <div class="divider"></div>
+          <div class="toolgroup"><span class="tool">↶</span><span class="tool">↷</span></div>
+          <div class="divider"></div>
+          <span class="zoom">100% ⌄</span>
+          <span class="grow"></span>
+          <span class="save"><span class="ok">✓</span>已保存 · r8</span>
+        </div>
+
+        <div class="canvas-wrap">
+          <div class="canvas-panel">
+            <div class="cv-label">architecture · work-item-flow</div>
+            <div class="cv-hint">框选或点选元素后批注</div>
+
+            <svg class="diagram" viewBox="0 0 508 560" preserveAspectRatio="none">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0 0 L10 5 L0 10 z" fill="#98a2b3"/>
+                </marker>
+              </defs>
+              <path d="M148 82 H174" stroke="#98a2b3" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+              <path d="M328 82 H352" stroke="#98a2b3" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+              <path d="M253 108 V170" stroke="#98a2b3" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+              <path d="M328 205 H352" stroke="#98a2b3" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
+              <text x="150" y="74" fill="#98a2b3" font-size="8">投递</text>
+              <text x="330" y="74" fill="#98a2b3" font-size="8">读取</text>
+              <text x="258" y="140" fill="#98a2b3" font-size="8">挂载</text>
+              <text x="330" y="197" fill="#98a2b3" font-size="8">回复</text>
+            </svg>
+
+            <div class="node session"><div class="nt">主题会话</div><div class="ns">用户提需求 · 模型执行<br/>批注以行动消息进入</div></div>
+            <div class="node record"><div class="nt">工作项记录 · artifacts</div><div class="ns">标题 · 类型 · 状态<br/>文件列表 · 主题归属</div></div>
+            <div class="node files"><div class="nt">文件</div><div class="ns">plan.md · 架构图.svg<br/>版本与锁</div></div>
+            <div class="node versions"><div class="nt">版本与锁</div><div class="ns">同行范围加锁<br/>不重叠自动合并</div></div>
+            <div class="node comments"><div class="nt">评论 / 批注</div><div class="ns">行 · 元素 · 区域<br/>附件与回复</div></div>
+            <div class="node reply"><div class="nt">模型回复</div><div class="ns">挂回批注<br/>带修改版本</div></div>
+
+            <div class="cv-sel">
+              <span class="handle h1"></span><span class="handle h2"></span><span class="handle h3"></span><span class="handle h4"></span>
+            </div>
+            <div class="cv-tag">圈选：评论与批注</div>
+            <div class="cv-pin p1" style="left:270px;top:34px">1</div>
+            <div class="cv-pin p2" style="left:270px;top:166px">2</div>
+            <div class="cv-pin p3" style="left:120px;top:166px">3</div>
+          </div>
+
+          <aside class="threads" style="width:280px">
+            <div class="threads-head">
+              <div class="th-title">评论 <span class="count">3</span></div>
+              <div class="th-tools"><span class="select">全部评论 ⌄</span><span class="switch on"><i></i>只看待处理</span></div>
+            </div>
+            <div class="activity"><i class="spinner"></i><span class="grow">模型等待 #2：你正在编辑</span><span class="time">后台</span></div>
+            <div class="thread-scroll">
+              <article class="thread selected">
+                <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>圈选区域</span><span class="anchor">#2</span></div>
+                <div class="ttext">批注要能选中一个框，也要能框住一块区域；模型改完后高亮对应元素。</div>
+                <div class="tstate"><i class="spinner"></i>已送达 · 等当前保存后改元素</div>
+              </article>
+              <article class="thread">
+                <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>工作项记录</span><span class="anchor">#1</span></div>
+                <div class="ttext">记录里不要出现 branch/commit 字段，状态只保留交付物状态。</div>
+                <div class="reply">
+                  <div class="reply-head"><span class="avatar model">M</span><span class="who">Cowork</span><span class="state"><i>✓</i>已回复</span></div>
+                  <div class="reply-body">已删除 2 个字段，状态枚举已收敛为 5 个。</div>
+                </div>
+              </article>
+              <article class="thread stale">
+                <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>原位置</span><span class="anchor" style="background:#fffaeb;color:#b54708">#3</span></div>
+                <div class="ttext">“版本与锁”这个节点要不要画进来？</div>
+                <div class="tstate"><span class="stale-chip">元素已删除</span><span style="color:#98a2b3">位置待确认</span></div>
+              </article>
+            </div>
+            <div class="composer">
+              <div class="hint">框选画布区域，或点选元素后批注。</div>
+              <div class="cline"><span class="plus">+</span><span>图片</span><span>文件</span><span class="grow"></span><span class="send">↑</span></div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="vfoot"><span><b>画布</b> 由 Excalidraw 内建编辑</span><span>·</span><span>用户编辑中：模型改画布会等当前保存</span><span class="grow"></span><span>r8 · 已保存 14:31</span></div>
+      </main>
+
+      <aside class="sidebar">
+        <div class="sbhead">
+          <div>
+            <div class="eyebrow">Cowork</div>
+            <div class="sbtitle">工作项</div>
+            <div class="sbsub">工作区 · dsh-cowork · 5 个</div>
+          </div>
+          <span class="newitem">＋ 新工作项</span>
+        </div>
+        <nav class="stabs">
+          <span class="stab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 6.5h14M5 11h14M5 15.5h8" stroke-linecap="round"/></svg>主题 <span class="cnt">6</span></span>
+          <span class="stab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><path d="m8 12 2.5 2.5L16 9" stroke-linecap="round" stroke-linejoin="round"/></svg>工作项 <span class="cnt">5</span></span>
+          <span class="stab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 12h3l2-5 4 10 2-5h4" stroke-linecap="round" stroke-linejoin="round"/></svg>活动记录</span>
+          <span class="stab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4.5h12v15H6z"/><path d="M9 8h6M9 11.5h6M9 15h4" stroke-linecap="round"/></svg>项目记忆</span>
+        </nav>
+        <div class="sbbody">
+          <div class="filter-row">
+            <span class="fchip on">全部 <span class="n">5</span></span>
+            <span class="fchip">待确认 <span class="n">2</span></span>
+            <span class="fchip">待查看 <span class="n">1</span></span>
+            <span class="fchip">需反馈 <span class="n">1</span></span>
+            <span class="search">⌕</span>
+          </div>
+          <section class="group">
+            <div class="ghead"><span>待确认</span><span class="n">2</span></div>
+            <article class="wcard">
+              <div class="wtop"><span class="kind plan">PLAN</span><span class="wstatus wait">待确认</span></div>
+              <h3 class="wtitle">工作项交付物信息模型</h3>
+              <div class="wparent">来自 · 工作项页设计</div>
+              <div class="wmeta"><span class="left">6 条评论 · 2 个附件</span><span>2 分钟前</span></div>
+            </article>
+            <article class="wcard selected">
+              <div class="wtop"><span class="kind canvas">CANVAS</span><span class="wstatus wait">待确认</span></div>
+              <h3 class="wtitle">架构图：工作项与主题会话</h3>
+              <div class="wparent">来自 · 工作项页设计</div>
+              <div class="wmeta"><span class="left">3 条评论 · 1 个附件</span><span class="model"><i class="spinner"></i>模型等待保存</span></div>
+            </article>
+          </section>
+          <section class="group">
+            <div class="ghead"><span>需反馈</span><span class="n">1</span></div>
+            <article class="wcard">
+              <div class="wtop"><span class="kind table">TABLE</span><span class="wstatus doing">需反馈</span></div>
+              <h3 class="wtitle">表格：交付物字段清单</h3>
+              <div class="wparent">来自 · 工作项页设计</div>
+              <div class="wmeta"><span class="left">4 条评论 · 1 个附件</span><span>12 分钟前</span></div>
+            </article>
+          </section>
+          <section class="group">
+            <div class="ghead"><span>待查看</span><span class="n">1</span></div>
+            <article class="wcard">
+              <div class="wtop"><span class="kind design">DESIGN</span><span class="wstatus todo">待查看</span></div>
+              <h3 class="wtitle">设计稿：工作项页面初稿</h3>
+              <div class="wparent">来自 · 工作项页设计</div>
+              <div class="wmeta"><span class="left">1 条评论 · 2 个附件</span><span>1 小时前</span></div>
+            </article>
+          </section>
+          <section class="group">
+            <div class="ghead"><span>已确认</span><span class="n">1</span></div>
+            <div class="resolved-row"><span class="ok">✓</span><span>已确认 1 个工作项</span><span class="arrow">›</span></div>
+          </section>
+          <div class="sbnote"><b>这里只放交付物。</b>不展示 branch、commit、merge、diff；评审和 CI 不在本版本。</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ================= BOARD 3: details ================= -->
+<section class="board board-details" id="board-details">
+  <div class="details-stage">
+    <h2 class="details-title">工作项页面 · 类型与状态细节</h2>
+    <p class="details-sub">同一套查看器骨架，按内容类型切换文档、表格、PDF 和画布；编辑、冲突、投递状态和窄屏各自有固定位置。</p>
+    <div class="grid">
+
+      <div class="card">
+        <div class="card-head"><span class="card-no">1</span><span class="card-title">Doc · 富文本查看与编辑</span><span class="kind doc" style="margin-left:auto">DOC</span></div>
+        <div class="mock">
+          <div class="mock-head"><span>需求说明.html</span><span class="grow"></span><span>r6 · 已保存</span></div>
+          <div class="mock-body">
+            <div class="fmtbar"><b>B</b><b><i>I</i></b><b><u>U</u></b><b>H1</b><b>•</b><span style="margin-left:auto;color:#98a2b3">导入 docx · 导出 docx</span></div>
+            <div class="rich-h"></div>
+            <div class="rich-line"></div>
+            <div class="rich-line w80"></div>
+            <div class="rich-line w90" style="background:#dbeafe"></div>
+            <div class="rich-line w60"></div>
+            <div class="rich-line w80"></div>
+          </div>
+        </div>
+        <div class="card-note">底部保留源码切换；批注按段落锚定。docx 只做导入导出，不做复杂版式。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-no">2</span><span class="card-title">表格 · 查看、编辑、筛选、排序</span><span class="kind table" style="margin-left:auto">TABLE</span></div>
+        <div class="mock">
+          <div class="mock-head"><span>字段清单.csv</span><span class="grow"></span><span>r4 · 已保存</span></div>
+          <div class="mock-body">
+            <div class="filterline"><span>筛选：全部</span><span>状态 ≠ 已确认</span><span>+ 添加条件</span></div>
+            <div class="table-mock">
+              <div class="trow head"><div class="tcell">字段 <span class="sort">↑</span></div><div class="tcell">类型</div><div class="tcell">说明</div></div>
+              <div class="trow"><div class="tcell">标题</div><div class="tcell">文本</div><div class="tcell">工作项名称</div></div>
+              <div class="trow"><div class="tcell" style="background:#fffaeb">状态 <span style="color:#b54708">•2</span></div><div class="tcell">枚举</div><div class="tcell">5 个值</div></div>
+              <div class="trow"><div class="tcell">文件列表</div><div class="tcell">数组</div><div class="tcell">登记路径</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="card-note">筛选和排序是视图状态；导出可选“当前视图”或“原始顺序”。xlsx 走导入导出。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-no">3</span><span class="card-title">PDF · 只读与批注</span><span class="kind pdf" style="margin-left:auto">PDF</span></div>
+        <div class="mock">
+          <div class="mock-head"><span>外部评审.pdf</span><span class="grow"></span><span>第 2 / 8 页</span></div>
+          <div class="mock-body">
+            <div class="pdf-page">
+              <div class="pdf-line w70"></div><div class="pdf-line"></div><div class="pdf-line w85"></div><div class="pdf-line"></div><div class="pdf-line w50"></div>
+              <div class="pdf-line w85" style="margin-top:8px"></div><div class="pdf-line w70"></div>
+              <span class="pdf-pin" style="left:120px;top:18px">1</span>
+              <span class="pdf-pin" style="left:170px;top:64px;background:#2e90fa">2</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-note">只做批注，不改正文；页内区域批注后置。需要改原文时用本地应用打开。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-no">4</span><span class="card-title">编辑与同行冲突</span><span class="kind plan" style="margin-left:auto">锁</span></div>
+        <div class="mock">
+          <div class="mock-body">
+            <div class="banner"><i class="spinner"></i><div class="grow">模型改了第 14–16 行；你正在编辑第 13–15 行，保存会暂停。<div class="banner-actions"><span class="primary">查看差异</span><span>加载最新</span><span>保留我的</span></div></div></div>
+            <div class="rich-line" style="margin-top:7px"></div>
+            <div class="rich-line w80"></div>
+            <div class="rich-line w60" style="background:#ecfdf3"></div>
+            <div style="margin-top:7px;color:#98a2b3;font-size:8px">不重叠的修改自动合并；重叠才加锁。</div>
+          </div>
+        </div>
+        <div class="card-note">保存状态固定显示“已保存 · r12 / 保存中 / 冲突”。画布按整个文件锁。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-no">5</span><span class="card-title">批注与投递状态</span><span class="kind canvas" style="margin-left:auto">状态</span></div>
+        <div class="state-list">
+          <div class="state-row"><span class="tag doing">已送达</span>宿主已接受消息，等待目标会话</div>
+          <div class="state-row"><span class="tag doing">思考中</span>目标会话 turn/start</div>
+          <div class="state-row"><span class="tag doing">改文件中</span>出现工具调用或文件变化</div>
+          <div class="state-row"><span class="tag ok">已回复</span>回复工具带回批注编号</div>
+          <div class="state-row"><span class="tag stale">位置待确认</span>原文或元素移动，重新定位失败</div>
+          <div class="state-row"><span class="tag err">失败</span>投递失败，可重试；会话归档则阻塞</div>
+        </div>
+        <div class="card-note">状态显示在批注卡和右栏卡片上；一次批注只对应一条投递，重试不重复建评论。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-no">6</span><span class="card-title">窄屏与全屏</span><span class="kind design" style="margin-left:auto">布局</span></div>
+        <div class="narrow">
+          <div class="narrow-list">
+            <div class="wcard selected"><div class="wtop"><span class="kind plan">PLAN</span><span class="wstatus wait">待确认</span></div><div class="wtitle">工作项交付物信息模型</div></div>
+            <div class="wcard"><div class="wtop"><span class="kind canvas">CANVAS</span><span class="wstatus wait">待确认</span></div><div class="wtitle">架构图：工作项与主题会话</div></div>
+            <div class="wcard"><div class="wtop"><span class="kind design">DESIGN</span><span class="wstatus todo">待查看</span></div><div class="wtitle">设计稿：工作项页面初稿</div></div>
+          </div>
+          <div class="narrow-view">
+            <div class="bar"></div>
+            <div class="lnx"></div><div class="lnx"></div><div class="lnx short"></div><div class="lnx"></div><div class="lnx short"></div>
+            <div style="margin-top:8px;padding:5px;border:1px solid #b2ddff;border-radius:5px;background:#eff8ff;color:#175cd3;font-size:7px">评论抽屉 · 6 条</div>
+          </div>
+        </div>
+        <div class="card-note">右栏 378px 时列表单列；查看器全屏，评论从右侧抽屉打开。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-no">7</span><span class="card-title">空、加载、错误</span><span class="kind doc" style="margin-left:auto">状态</span></div>
+        <div class="empty-row"><span class="dot"></span>还没有工作项：从主题页发起，或上传一个文件</div>
+        <div class="empty-row"><span class="dot" style="background:#b2ddff"></span>正在读取交付物和评论…</div>
+        <div class="empty-row" style="border-color:#fecdca"><span class="dot" style="background:#f04438"></span>文件已被删除：保留评论和记录，标为“文件缺失”</div>
+        <div class="card-note">删除文件不删除工作项记录；评论和活动继续可读，避免协作记录丢失。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-no">8</span><span class="card-title">固定规则</span><span class="kind canvas" style="margin-left:auto">规则</span></div>
+        <div class="rules">
+          <div><b>记录：</b>后台叫 artifacts，界面叫工作项；旧的代码隔离 workItems 不合并。</div>
+          <div><b>右栏：</b>类型、状态、评论数、附件数、更新时间；不出现 branch/commit/merge/diff。</div>
+          <div><b>状态：</b>待查看 / 待确认 / 需反馈 / 进行中 / 已确认。</div>
+          <div><b>实时：</b>主题内串行 + 1.5 秒合并；跨主题并行，默认 4。</div>
+          <div><b>多模态：</b>用户截图和模型回复附件都在评论里。</div>
+        </div>
+        <div class="card-note">批注、回复、附件都归档到工作项；导出和在本地应用打开是固定入口。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="card-no">9</span><span class="card-title">多模态评论</span><span class="kind canvas" style="margin-left:auto">图片</span></div>
+        <div class="mock">
+          <div class="mock-body">
+            <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>圈选区域</span><span class="anchor">#5</span></div>
+            <div class="quote">右侧栏的主题卡太挤了</div>
+            <div class="shot"><span class="crop"></span><span class="lbl">裁切 320 × 180</span></div>
+            <div class="reply">
+              <div class="reply-head"><span class="avatar model">M</span><span class="who">Cowork</span><span class="state"><i>✓</i>已回复</span></div>
+              <div class="reply-body">已把卡片分成两行，操作收进更多菜单。</div>
+              <div class="reply-attach"><span class="thumb"></span>修改后-主题卡.png · 128 KB</div>
+            </div>
+          </div>
+        </div>
+        <div class="card-note">用户截图和模型回复附件都归档到评论；图片按魔数校验，未知类型按下载处理。</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<script>
+  (function () {
+    const view = new URLSearchParams(location.search).get('view');
+    if (!view) return;
+    document.body.dataset.view = view;
+    const target = document.querySelector('.board-' + view);
+    if (target) target.classList.add('is-target');
+  })();
+</script>
+</body>
+</html>

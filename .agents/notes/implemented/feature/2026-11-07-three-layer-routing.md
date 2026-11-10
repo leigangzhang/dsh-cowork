@@ -54,7 +54,7 @@ M4 的路由是纯词法：subject 命中 ×3、最新交接摘要命中 ×2、�
 - `resolved` 不再被硬排除在「显式目标」之外：显式指定会得到 `resolved_match` 并新建，不向旧主题发消息；自动候选仍排除 `resolved`。
 - 纠正学习只写 `aliases`，上限与去重防止别名污染；活动的 details 不落 intent，意图中的敏感内容不进本地证据文件。
 - 模型调用增加延迟与成本：只在 `needs_model` 时调用，限制输入/输出与 2 秒超时；真实使用中需要观测调用率。重审条件：调用率持续偏高或每次路由明显变慢。
-- 失败一律回退，不阻塞路由：关闭第三层（`routing.enabled=false`）、未配置 provider/model、端口不存在、坏输出或超时都退回结构化候选/新建。真实宿主探针已验证宿主 `llm` 可达、最低档 `off` 与真实流（[M9_RESULT](../../../../docs/M9_RESULT.md)）；但 `cowork-topic` 未能在本机 web profile live 创建，三层路由的真实 E2E 仍归 M12。
+- 失败一律回退，不阻塞路由：关闭第三层（`routing.enabled=false`）、未配置 provider/model、端口不存在、坏输出或超时都退回结构化候选/新建。真实宿主探针已验证宿主 `llm` 可达、最低档 `off` 与真实流（[M9_RESULT](../../../../docs/archived/M9_RESULT.md)）；但 `cowork-topic` 未能在本机 web profile live 创建，三层路由的真实 E2E 仍归 M12。
 - 别名污染、焦点过期与意图敏感仍是接受的残余风险，分别由上界/显式覆盖/有界活动缓解；同一别名引发多次误路由、或焦点长期过期时重审。
 - 预算：`src/routing.ts` 15,855 B、`src/router-model.ts` 14,793 B、`src/llm-port.ts` 4,209 B，均独立成文件；`src/store.ts` 只增加两个 `null` 根字段（48,590 B，余量约 562 B）。
 

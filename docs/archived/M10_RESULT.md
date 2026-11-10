@@ -1,8 +1,8 @@
 # M10 交付结果
 
-- 状态：**M10 已交付（2026-11-08）**。评审请求、reviewer 生命周期、工作项与串行合并、handoff/status/persona 收口在 `feat/m10-review-request-workitems` 上落地；独立验证、隔离 review 与修复后的 delta review 均通过，最终代码 artifact 为 `e25a36f`（t15 独立复验，701/701）；delivery（t13）的最终 HEAD/PR 见后续 delivery 小节。本文件记录交付基线、清单、证据、审查与修复、偏差、回滚与未验证项，供 M11 接手。M10 启动时的交接见 [M10_HANDOFF.md](M10_HANDOFF.md)（保留启动版，状态行指向本文件）。执行层决定见 [M10 执行提案](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md)（已迁 implemented）；评审规则与工作项/合并边界见已迁移的两份记录（[评审按请求触发](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)、[并行隔离与合并](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)）。
+- 状态：**M10 已交付（2026-11-08）**。评审请求、reviewer 生命周期、工作项与串行合并、handoff/status/persona 收口在 `feat/m10-review-request-workitems` 上落地；独立验证、隔离 review 与修复后的 delta review 均通过，最终代码 artifact 为 `e25a36f`（t15 独立复验，701/701）；delivery（t13）的最终 HEAD/PR 见后续 delivery 小节。本文件记录交付基线、清单、证据、审查与修复、偏差、回滚与未验证项，供 M11 接手。M10 启动时的交接见 [M10_HANDOFF.md](M10_HANDOFF.md)（保留启动版，状态行指向本文件）。执行层决定见 [M10 执行提案](../../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md)（已迁 implemented）；评审规则与工作项/合并边界见已迁移的两份记录（[评审按请求触发](../../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)、[并行隔离与合并](../../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)）。
 - 适用：接手 V0.2 M11（面板/API v2 与会话可见性）的 agent 或人。范围：M10 的实际交付、验证证据、偏差与未验证项；不重新论证 M10 的决定。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.3/§4.2/§4.3/§4.5/§5.4/§5.5/§5.7/§5.10/§6 M10 拥有需求、数据模型、工具角色与验收；执行层决定、备选与测试影响面由 [M10 执行提案](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md) 拥有；评审规则与隔离/合并边界由两份 implemented 记录拥有；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
+- 事实源：[PLAN-V0.2](../PLAN-V0.2.md) §2.2/§2.3/§4.2/§4.3/§4.5/§5.4/§5.5/§5.7/§5.10/§6 M10 拥有需求、数据模型、工具角色与验收；执行层决定、备选与测试影响面由 [M10 执行提案](../../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md) 拥有；评审规则与隔离/合并边界由两份 implemented 记录拥有；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有遗留归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
 - **数字口径**：本文件的最终数字来自 t15（repair verification，最终代码 HEAD `e25a36f`）：`npm test` 701/701、diff sha `098a0ac4…`、四命令 exit 0、字节未变。review 当时（`e683a12`）的 698/698 与 diff sha `5e40f01b…` 只作为审查阶段的身份保留，不再代表最终代码状态；delivery 还会追加交付文档提交与 PR，最终交付 HEAD/PR 以 delivery 小节为准，本文件不预写。
 
 ## 交付基线
@@ -44,7 +44,7 @@
 - [A6] `cowork_handoff` 只剩 blocked/done；blocked 写收件箱，done 写 digest/交付确认并清标记；`project_status` 删除 handoff 兼容重放、使用真实 active 工作项计数；review 写入 canonical v2（不再写 legacy 字段）；KI-18/24/25 在本阶段收口或明确剩余归属 — `tests`：`tests/topic-tools.test.mjs`（`cowork_handoff exposes only blocked|done and no longer mentions awaiting_review`、`cowork_handoff(done) records the summary and delivery confirmation without prompting the master`、`cowork_handoff(blocked) sets the flag and wakes the master through one bounded inbox item`、`a blocked handoff bounds the inbox summary`、`deliverInbox reports an InboxMarkError as a value and never throws`）、`tests/project-tools.test.mjs`（`project_status reports work-item and review counts and no handoff replay`、`project_status keeps a topic with active or reviewing work items from resolving (KI-24)`、`project_init no longer reconciles a stale handoff into the index`、`the compatibility replay and the fixed work-item count are gone from the sources`）、`tests/source-budget.test.mjs`（`KI-25/KI-18: no legacy review writes, and the legacy read-only surface stays`）
 - [A7] 15 个工具按文档顺序注册；review_request 仅 topic、review_verdict 仅 reviewer、work_item_create topic/master、checkout_merge master；`tools.ts` 只编排；`dev-gate` 与角色拒绝测试覆盖 — `tests`：`tests/project-tools.test.mjs`（`the assembly registers the fifteen tools in the documented order`）、`tests/dev-gate.test.mjs`（`the business surface registers exactly fifteen tools in the documented order`、`cowork_handoff accepts exactly blocked and done (KI-25)`、`cowork_checkout_merge no longer accepts an unreviewed override (KI-25)`）、`tests/review-verdict.test.mjs`（`only the recorded reviewer may answer the request`）、`tests/work-item.test.mjs`（`the merge tool is master only`、`the master must name an existing topic; a topic creates only for itself`）、`tests/source-budget.test.mjs`（`the tool split owns every tool name and keeps tools.ts orchestration-only`）
 - [A8] `src/tools.ts` ≤49,152 B、`src/store.ts` 不越过 49,152 B、`src/**/*.ts` <51,200 B；不新增 M11/M12 模块（api-contract/client/面板、真实 E2E、迁移演练不在 M10）；`npm run check`/`typecheck`/`build`/`test` 全绿 — `source`：最终 `e25a36f` 上 `tools.ts` 2,924 B、`store.ts` 48,560 B、最大 `m2-e2e.ts` 49,923 B；`tests/source-budget.test.mjs`（`every src/**/*.ts and src/**/*.tsx file stays under the 50 KiB read limit`、`the tool split owns every tool name and keeps tools.ts orchestration-only`、`the work-item, review-request, and session modules own rules, not tool names`）；四命令 exit 0（见「验证基线」）
-- [A9] M10 收口：`review-request` 与 `parallel-isolation` 两份记录迁到 implemented 并按骨架重写；`topic-store-v2` 与 `topic-session-model` 当时仍在 M11/M12 收口（M12 已迁 implemented）；写 `docs/M10_RESULT.md` 与交接并更新 `KNOWN_ISSUES` 归属；`npm run check` 无未分类 `.md` — `decisions`：本文件、M10_HANDOFF 状态指针、[KNOWN_ISSUES](KNOWN_ISSUES.md)、`docs/publish.json`、两份 implemented 记录
+- [A9] M10 收口：`review-request` 与 `parallel-isolation` 两份记录迁到 implemented 并按骨架重写；`topic-store-v2` 与 `topic-session-model` 当时仍在 M11/M12 收口（M12 已迁 implemented）；写 `docs/M10_RESULT.md` 与交接并更新 `KNOWN_ISSUES` 归属；`npm run check` 无未分类 `.md` — `decisions`：本文件、M10_HANDOFF 状态指针、[KNOWN_ISSUES](../KNOWN_ISSUES.md)、`docs/publish.json`、两份 implemented 记录
 
 ## 审查与修复
 
@@ -100,15 +100,15 @@
 
 ## 遗留问题指针
 
-见 [KNOWN_ISSUES](KNOWN_ISSUES.md)：本阶段**关闭** KI-24（读取点接真实 `active`+`reviewing` 计数）与 KI-25（工具面只剩 `blocked|done`；旧 handoff 文件只读，未迁移残留写明）；**修订** KI-18（只剩读路径与 M11/M12 清理）与 KI-22（补 M10 未验证边界）；**新增** KI-26（合并串行仅单进程）、KI-27（isolation provider 仅 clone）、KI-28（reviewer 左侧栏可见至 M11）、KI-29（legacy dev E2E m2/m3 由 M12 取代）、KI-30（评审分级与用户评审 provenance 未实现）。KI-15/17/19/21/23 保持原归属。
+见 [KNOWN_ISSUES](../KNOWN_ISSUES.md)：本阶段**关闭** KI-24（读取点接真实 `active`+`reviewing` 计数）与 KI-25（工具面只剩 `blocked|done`；旧 handoff 文件只读，未迁移残留写明）；**修订** KI-18（只剩读路径与 M11/M12 清理）与 KI-22（补 M10 未验证边界）；**新增** KI-26（合并串行仅单进程）、KI-27（isolation provider 仅 clone）、KI-28（reviewer 左侧栏可见至 M11）、KI-29（legacy dev E2E m2/m3 由 M12 取代）、KI-30（评审分级与用户评审 provenance 未实现）。KI-15/17/19/21/23 保持原归属。
 
 ## 指针
 
 - M10 启动交接（保留启动版）：[M10_HANDOFF.md](M10_HANDOFF.md)。
-- 执行层决定与备选（implemented）：[2026-11-08-m10-review-request-workitems-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md)。
-- 评审规则（implemented）：[2026-11-07-review-request-model.md](../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)。
-- 工作项与合并边界（implemented）：[2026-11-07-parallel-isolation-and-merge.md](../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)。
-- 角色模型（implemented，M12 迁入）：[2026-11-07-topic-session-model.md](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)。
-- 索引 v2 与迁移（implemented，M12 迁入）：[2026-11-07-topic-store-v2.md](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)。
+- 执行层决定与备选（implemented）：[2026-11-08-m10-review-request-workitems-plan.md](../../.agents/notes/implemented/architecture/2026-11-08-m10-review-request-workitems-plan.md)。
+- 评审规则（implemented）：[2026-11-07-review-request-model.md](../../.agents/notes/implemented/feature/2026-11-07-review-request-model.md)。
+- 工作项与合并边界（implemented）：[2026-11-07-parallel-isolation-and-merge.md](../../.agents/notes/implemented/architecture/2026-11-07-parallel-isolation-and-merge.md)。
+- 角色模型（implemented，M12 迁入）：[2026-11-07-topic-session-model.md](../../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)。
+- 索引 v2 与迁移（implemented，M12 迁入）：[2026-11-07-topic-store-v2.md](../../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)。
 - M9 交付结果：[M9_RESULT.md](M9_RESULT.md)。
-- 遗留问题与归属：[KNOWN_ISSUES](KNOWN_ISSUES.md)。
+- 遗留问题与归属：[KNOWN_ISSUES](../KNOWN_ISSUES.md)。

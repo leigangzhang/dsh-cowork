@@ -23,7 +23,7 @@ M4 的评审由交接触发：只要主题进入 `awaiting_review`，master 或�
 
 **检查。** 插件在创建 reviewer 前做确定性检查：`base` 是 `head` 的祖先且两者不同、`path` 是仓库根或该主题的工作项目录（canonical 路径校验）、工作区干净、`git diff` 非空且与 `changedPaths` 一致、同一主题与工作项没有未决请求、`previousRequestId` 存在且已终结。任一不满足返回稳定错误码，`review-tools.ts` 在这些检查之前不创建 reviewer、不写文件、不写索引。
 
-**执行。** 每次请求新建一个独立 reviewer 会话（`cowork-reviewer` 预设），不继承主题对话；`session-visibility.ts` 负责创建与归档。请求写入后索引置 `awaitingReview=true`、`reviewStatus='pending'`、`latestReviewRequestId`、`reviewerSessionId`，然后投递 brief（范围、证据、上一轮）。任何一步失败按「请求文件 → 索引 → reviewer 归档」回滚并写 `error` 活动。verdict 完成后归档 reviewer（`stopActivity:true`）；归档失败保留会话并记录，不把 verdict 变成失败。M6 探针 4 证明创建后立即归档会让 turn 以 `blocked` 结束，因此禁止创建后立即归档（[M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §4）。
+**执行。** 每次请求新建一个独立 reviewer 会话（`cowork-reviewer` 预设），不继承主题对话；`session-visibility.ts` 负责创建与归档。请求写入后索引置 `awaitingReview=true`、`reviewStatus='pending'`、`latestReviewRequestId`、`reviewerSessionId`，然后投递 brief（范围、证据、上一轮）。任何一步失败按「请求文件 → 索引 → reviewer 归档」回滚并写 `error` 活动。verdict 完成后归档 reviewer（`stopActivity:true`）；归档失败保留会话并记录，不把 verdict 变成失败。M6 探针 4 证明创建后立即归档会让 turn 以 `blocked` 结束，因此禁止创建后立即归档（[M6 探针结果](../../../../docs/archived/M6_PROBE_RESULT.md) §4）。
 
 **verdict。** reviewer 调用 `cowork_review_verdict({requestId, verdict, findings, verification})`；插件校验调用者必须是该请求登记的 `reviewerSessionId`，且一个请求只接受一次 verdict。verdict 先写入请求文件，再更新 canonical 索引与主题/工作项。`needs_revision` 只把 findings 投回主题，不唤醒 master；`pass` 在工作项需要合并时写 `merge-needed` 收件箱；`reject` 置 `blocked` 并写 `review-reject` 收件箱。索引写失败时已落盘的 verdict 保留并报告。
 
@@ -56,7 +56,7 @@ M4 的评审由交接触发：只要主题进入 `awaiting_review`，master 或�
 - **分级（L0–L3）与用户手动评审 provenance 没有实现。** 原提案把风险分级当作决策的一部分，但 PLAN-V0.2 §5.4 没有分级要求，M10 的验收也不含分级；插件当前只实现「主题显式请求 → 建 reviewer」这一条路径，不按风险跳过或升级评审，也不记录用户手动 review 事件。需要时写新记录落地（[KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md) KI-30）。
 - 评审成本仍然存在；L2 阈值需要真实数据校准。重审条件：评审会话数与请求数长期明显偏离，或文档改动仍被频繁评审。
 - 旧 review 文件与新请求文件同目录：新代码不写 `latestReviewPath`/`reviewRequestedAt`/`reviewedAt`，`src/api.ts` 仍读 legacy 字段；M11 面板切到请求文件（KI-18）。
-- 本记录取代原 `proposed/feature/2026-11-07-review-request-model.md`；实现与证据见 [M10 交付结果](../../../../docs/M10_RESULT.md)。
+- 本记录取代原 `proposed/feature/2026-11-07-review-request-model.md`；实现与证据见 [M10 交付结果](../../../../docs/archived/M10_RESULT.md)。
 
 ## Testing
 
@@ -64,4 +64,4 @@ M4 的评审由交接触发：只要主题进入 `awaiting_review`，master 或�
 - [A2] 每次请求新建 reviewer 并由 `reviewerSessionId` 绑定；brief 失败按「请求文件 → 索引 → reviewer」回滚；verdict 后归档且不立即归档、不复用 — `tests`：`tests/review-request.test.mjs`（`a shared-tree request writes the pending file, the index, and the brief`、`a brief failure rolls the request back in order and records it`、`an index write failure archives the reviewer and removes the file`）、`tests/session-visibility.test.mjs`（`the reviewer session is created with the reviewer preset and its id`、`after a verdict the reviewer is archived with stopActivity`、`an archive failure is reported and never throws or drops the verdict`）
 - [A3] `needs_revision` 只投回主题，不 `prompt` master；`pass` 只有需要合并时才写收件箱；`reject` 置 blocked 并写收件箱；verdict 绑定 requestId 与 reviewerSessionId、一次生效 — `tests`：`tests/review-verdict.test.mjs`（`a pass verdict with a work item records, merges, and archives`、`a pass verdict on a shared work tree wakes nobody and writes no inbox`、`needs_revision goes back to the topic only, never to the master`、`a reject verdict blocks the topic and wakes the master`、`only the recorded reviewer may answer the request`、`a request accepts exactly one verdict`、`a failed inbox delivery keeps the item undelivered and reports it`）
 - [A4] L0–L3 分级与用户手动评审 provenance 未落地 — `decisions`：本记录 Consequences 与 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md) KI-30 记录未实现原因与归属（M11/M12）
-- [A5] AgentTeams 场景只保留一个评审负责人；规则写进评审说明与文档，不在代码里重复评审 — `decisions`：本记录、[M10 交付结果](../../../../docs/M10_RESULT.md)、[KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md)
+- [A5] AgentTeams 场景只保留一个评审负责人；规则写进评审说明与文档，不在代码里重复评审 — `decisions`：本记录、[M10 交付结果](../../../../docs/archived/M10_RESULT.md)、[KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md)

@@ -33,7 +33,7 @@ M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`chec
 | `checkoutPath` | `legacyCheckoutPath`（旧 clone 不自动转 work item） |
 | 旧 `handoffs/`、`reviews/` | 保留只读，不重写 |
 
-**归档在途 reviewer。** 迁移与回收里归档 reviewer 必须用 `archiveSession(id,{stopActivity:true})`：默认参数要求会话不活跃，运行中的 reviewer 会被拒绝（`WorkspaceActiveSessionError`；`dsh-workspace/lib/index.js:531-533`），而 `stopActivity` 会先停活动再写归档。新建 reviewer 的回收仍必须 after-verdict：创建后立即归档会让 turn 以 `blocked` 结束、拿不到 verdict（M6 探针 4，见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §4）。
+**归档在途 reviewer。** 迁移与回收里归档 reviewer 必须用 `archiveSession(id,{stopActivity:true})`：默认参数要求会话不活跃，运行中的 reviewer 会被拒绝（`WorkspaceActiveSessionError`；`dsh-workspace/lib/index.js:531-533`），而 `stopActivity` 会先停活动再写归档。新建 reviewer 的回收仍必须 after-verdict：创建后立即归档会让 turn 以 `blocked` 结束、拿不到 verdict（M6 探针 4，见 [M6 探针结果](../../../../docs/archived/M6_PROBE_RESULT.md) §4）。
 
 迁移失败保留备份并报 `store/corrupt`，不静默重建。迁移是单向的；回滚靠恢复备份并重装 `0.1.0`。
 
@@ -64,8 +64,8 @@ M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`chec
 - 活动/收件箱文件损坏：损坏行跳过并记录；整文件损坏时报错，不静默覆盖。重审条件：出现并发写入或磁盘错误。
 - schema 漂移：v2 字段只在 `store-schema.ts` 定义；新增字段必须带默认值和迁移说明。重审条件：出现第二个写索引的模块。
 - 版本兼容：0.2.0 不能读回 v1 的运行时；回滚必须恢复备份并重装。重审条件：需要双向迁移。
-- 落地路径：M6 探针 3/4 已确认 archive 语义与 reviewer 回收时机（见 [M6 探针结果](../../../../docs/M6_PROBE_RESULT.md) §3/§4）；M7 落地 v2 schema、迁移、备份与 activity/inbox 文件读写和锁（见 [M7 执行记录](./2026-11-07-store-v2-migration-plan.md)）；M8 把活动流裁剪、收件箱合并/重放接入生命周期（见 [M8 交付结果](../../../../docs/M8_RESULT.md)）；M10 落地评审请求文件写入与 verdict 合并（见 [M10 交付结果](../../../../docs/M10_RESULT.md)）；M12 完成迁移/回滚的真实 E2E 与文档收口。
-- 本记录由 M12 从 `proposed/architecture/` 下的同名提案迁入 `implemented/architecture/` 并按 implemented 骨架重写；交付事实与证据见 [M8 交付结果](../../../../docs/M8_RESULT.md) 与 [M10 交付结果](../../../../docs/M10_RESULT.md)。
+- 落地路径：M6 探针 3/4 已确认 archive 语义与 reviewer 回收时机（见 [M6 探针结果](../../../../docs/archived/M6_PROBE_RESULT.md) §3/§4）；M7 落地 v2 schema、迁移、备份与 activity/inbox 文件读写和锁（见 [M7 执行记录](./2026-11-07-store-v2-migration-plan.md)）；M8 把活动流裁剪、收件箱合并/重放接入生命周期（见 [M8 交付结果](../../../../docs/archived/M8_RESULT.md)）；M10 落地评审请求文件写入与 verdict 合并（见 [M10 交付结果](../../../../docs/archived/M10_RESULT.md)）；M12 完成迁移/回滚的真实 E2E 与文档收口。
+- 本记录由 M12 从 `proposed/architecture/` 下的同名提案迁入 `implemented/architecture/` 并按 implemented 骨架重写；交付事实与证据见 [M8 交付结果](../../../../docs/archived/M8_RESULT.md) 与 [M10 交付结果](../../../../docs/archived/M10_RESULT.md)。
 
 ## Testing
 
@@ -73,4 +73,4 @@ M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`chec
 - [A2] 迁移前写 `index.v1.backup.json`；迁移失败保留备份并报 `store/corrupt`，不静默重建 — `tests`：`tests/store-v2.test.mjs`
 - [A3] v2 round-trip 读写稳定；写只写 v2，读兼容 v1；索引/活动/收件箱共用锁 — `tests`：`tests/store-v2.test.mjs`、`tests/store.test.mjs`
 - [A4] 活动流上限 500 条/512 KiB 并裁剪最旧；收件箱投递失败保留并可重放 — `tests`：`tests/activity.test.mjs`、`tests/inbox.test.mjs`
-- [A5] 旧工具/preset 别名映射到 v2；`0.2.0` 的迁移、回滚与别名写进 README 与 M12 交接 — `decisions`：本记录、[PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §4.3/§5.2、[README](../../../../README.md)、[M12 交接](../../../../docs/M12_HANDOFF.md)
+- [A5] 旧工具/preset 别名映射到 v2；`0.2.0` 的迁移、回滚与别名写进 README 与 M12 交接 — `decisions`：本记录、[PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §4.3/§5.2、[README](../../../../README.md)、[M12 交接](../../../../docs/archived/M12_HANDOFF.md)

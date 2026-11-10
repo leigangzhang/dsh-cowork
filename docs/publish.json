@@ -19,59 +19,11 @@
     },
     {
       "pattern": "docs/archived/*",
-      "reason": "completed V0.1 development records and handoffs: environment- and version-bound historical evidence kept for audit, not current user guidance"
+      "reason": "completed V0.1 (M0–M4) and V0.2 (M6–M12) development records, handoffs, and delivery results: environment- and version-bound historical evidence kept for audit, not current user guidance"
     },
     {
       "pattern": "docs/PLAN-V0.2.md",
       "reason": "PLAN V0.2 (plugin 0.2.0): M6–M12 staged plan and acceptance for the topic-session model rewrite; V0.1 remains in docs/PLAN.md as the M0–M4 record"
-    },
-    {
-      "pattern": "docs/M6_PROBE_RESULT.md",
-      "reason": "M6 host probe results (LLM prepareCall and reasoning-off, session events, archive-then-prompt, reviewer reclaim, preset tool surface and per-agent policy, panel same-origin POST in real Chrome, clone readability): environment- and version-bound evidence for implementers and reviewers, not a user-facing guide"
-    },
-    {
-      "pattern": "docs/M6_HANDOFF.md",
-      "reason": "M6 stage handoff: deliverables, the 2026-11-07 M11 visibility decision (fallback b), verification evidence, rollback, and M7 preconditions; internal engineering record, not a user-facing guide"
-    },
-    {
-      "pattern": "docs/M8_HANDOFF.md",
-      "reason": "M8 startup handoff (historical, baseline 06ff66b): post-M7 baseline, startup sequence, implementation order, evidence plan, pitfalls, completion definition, rollback, and unverified items; kept as the phase's original handoff, delivery evidence lives in docs/M8_RESULT.md"
-    },
-    {
-      "pattern": "docs/M8_RESULT.md",
-      "reason": "M8 delivery result: baseline and commit sequence, shipped modules and store changes, four-command evidence and test counts, byte budgets, accepted deviations (F1-F3, v1 extensions, null mutator), completion-definition evidence, rollback, and unverified items for M9; internal engineering record, not a user-facing guide"
-    },
-    {
-      "pattern": "docs/M9_HANDOFF.md",
-      "reason": "M9 startup handoff (historical, baseline 7b9a6a5): post-M8 baseline, startup sequence, implementation order, evidence plan, pitfalls, completion definition, rollback and unverified items; kept as the phase's original handoff (rolled back after delivery), delivery evidence lives in docs/M9_RESULT.md"
-    },
-    {
-      "pattern": "docs/M9_RESULT.md",
-      "reason": "M9 delivery result: baseline, commit sequence, nine new modules and shipped behaviour, A1-A9 evidence, real-host probe scope (llm reachable, cowork-topic blocked by the disabled web profile), deviations, rollback and unverified items for M10; internal engineering record, not a user-facing guide"
-    },
-    {
-      "pattern": "docs/M10_HANDOFF.md",
-      "reason": "M10 startup handoff (2026-11-08): post-M9 baseline, startup sequence, M10.1-M10.5 implementation order, evidence/artifact rules, impact scan, pitfalls, completion definition, rollback and unverified items; internal engineering handoff for the next session, not a user-facing guide"
-    },
-    {
-      "pattern": "docs/M10_RESULT.md",
-      "reason": "M10 delivery result: baseline, commit sequence, shipped modules (review requests, reviewer lifecycle, work items, serial merge), A1-A9 evidence, review findings and the batch-repair round, deviations (read-side awaiting_review enum, review-file I/O placement, legacy init payload, audit-only handoff files), rollback, and unverified items for M11; internal engineering record, not a user-facing guide"
-    },
-    {
-      "pattern": "docs/M11_HANDOFF.md",
-      "reason": "M11 startup handoff (2026-11-08): post-M10 baseline and expected 701/701, startup sequence, M11 implementation order (wire v2, read/write routes, client rewrite, real Chrome), impact scan, pitfalls (legacy latestReviewPath, reviewer visibility, fixture isolation R9, client bundle cache), completion definition, rollback and unverified items; internal engineering handoff for the next session, not a user-facing guide"
-    },
-    {
-      "pattern": "docs/M11_RESULT.md",
-      "reason": "M11 delivery result: baseline and code artifact (6b7beab, diff sha, 732/732), delivered surface with byte budgets, A1-A10 evidence (contract/read/write/security tests, client model, real Chrome run record and screenshots, four commands), verification and review verdict, accepted deviations (idempotent resolve, append-only route.move, on-write migration, unarchive path, copy-path, port addition, flat counts, right-sidebar host behaviour), rollback, and unverified items for M12; internal engineering record, not a user-facing guide"
-    },
-    {
-      "pattern": "docs/M12_HANDOFF.md",
-      "reason": "M12 startup handoff (2026-11-08): post-M11 baseline and expected 732/732, startup sequence, M12 implementation order (real E2E driver, migration drill, installed-profile packaging, docs release pass), impact scan, pitfalls (migration on first open, reviewer visibility, real-data isolation, KIs), completion definition, rollback and unverified items; internal engineering handoff for the next session, not a user-facing guide"
-    },
-    {
-      "pattern": "docs/M12_RESULT.md",
-      "reason": "M12 delivery result: baseline 1b0801d and integration artifact 495a872 (diff sha, 773/773), commit sequence, delivered surface (m12-e2e driver/support/panel probe, migration-drill tool, dev routes, 0.2.0), A1-A10 evidence with command exit codes and evidence-file hashes, the installed-package real E2E run (17/17 steps, cleanup), migration drill and rollback, packaging/install/real-Chrome panel/uninstall, the real-data migration incident and byte-identical restore, deviations, rollback (incl. the unverified 0.1.0 reinstall), unverified items, and the final-delivery placeholder for the delivery task; internal engineering record, not a user-facing guide"
     },
     {
       "pattern": ".agents/notes/*",
