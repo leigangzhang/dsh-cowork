@@ -73,6 +73,7 @@ Status: draft（design approved 2026-11-10；implementation not started）
 ## 交互
 
 - 从右栏选择工作项，主区域打开对应查看器。
+- 文本类交付物支持用户直接编辑；保存、冲突和模型改写的处理见[多类型文件嵌入研究](work-item-artifact-embedding-research.md)。
 - 在画布上点击可添加批注；评论可定位到 pin。
 - 附件可预览、下载或在新窗口打开。
 - 评论支持图片、文本、Markdown 上传。

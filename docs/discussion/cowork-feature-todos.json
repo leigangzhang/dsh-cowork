@@ -1,5 +1,5 @@
 {
-  "version": 14,
+  "version": 15,
   "features": [
     {
       "id": "cowork-sidebar-topic-page",
@@ -253,6 +253,29 @@
         "status": "initial-route-decided",
         "route": "在主会话打印冲突并发起解决",
         "details": "待定"
+      }
+    },
+    {
+      "id": "work-item-artifact-editing-and-embedding",
+      "status": "accepted",
+      "recordedAt": "2026-11-10T11:58:00Z",
+      "source": "chat",
+      "decision": "工作项交付物查看器优先放主区域，用户可直接编辑文本；后台记录用 artifacts，界面仍叫工作项；旧的代码隔离 workItems 不合并；模型回复支持多模态；架构图、流程图、角色交互图、ER 图等统一用文本图表机制；Doc、表格、PDF 优先 HTML 查看和编辑并支持导出到 WPS/Office；不集成重型画布编辑器，自由画布走外部工具。",
+      "implications": [
+        "新增 artifacts 记录与文件布局，不改动 v2 workItems",
+        "查看器以主区域全局面板为第一落点，右栏保留列表",
+        "文本编辑使用带版本校验的保存协议，用户与模型都可能改写文件",
+        "图表以 Mermaid 源码为内容源，预览渲染器单独选型",
+        "Doc、表格以 HTML/CSV 为可编辑源，docx/xlsx 为导入导出格式",
+        "自由画布编辑交给 draw.io Desktop、Excalidraw 网页端等外部工具",
+        "投递按会话串行、跨会话并行，主会话支持多主题并发"
+      ],
+      "editorSelection": {
+        "status": "proposed",
+        "text": "CodeMirror 6",
+        "diagram": "Pele",
+        "table": "自建网格 + read/write-excel-file",
+        "canvas": "外部工具，核心包不内建"
       }
     }
   ],
