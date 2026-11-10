@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>主题卡样式：菜单最多 2 行</title>
+<title>主题卡样式：两行 + 菜单最多 2 行</title>
 <style>
   :root {
     --ink: #101828;
@@ -12,8 +12,6 @@
     --line-soft: #eef0f3;
     --canvas: #eef1f5;
     --card: #fff;
-    --blue: #175cd3;
-    --blue-soft: #eff6ff;
     --red: #b42318;
     --red-soft: #fef3f2;
     --amber: #b54708;
@@ -33,73 +31,100 @@
   .canvas {
     width: 960px;
     margin: 0 auto;
-    padding: 28px 32px 30px;
+    padding: 26px 32px;
     background:
       radial-gradient(700px 380px at 20% 0%, #ffffff 0%, rgba(255,255,255,0) 70%),
       var(--canvas);
   }
-  header { margin-bottom: 20px; }
+  header { margin-bottom: 16px; }
   h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
-  .sub { margin-top: 5px; color: var(--muted); font-size: 12px; }
+  .sub { margin-top: 5px; max-width: 820px; color: var(--muted); font-size: 12px; line-height: 1.7; }
   .grid { display: flex; gap: 32px; align-items: flex-start; }
   .col { width: 378px; flex: none; }
-  .row { margin-bottom: 18px; }
-  .label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 10.5px; font-weight: 600; }
-  .label span { color: var(--soft); font-weight: 400; }
+
+  .group-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 6px;
+    color: var(--soft);
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: .03em;
+  }
+  .group-label span { color: #c3c9d4; font-weight: 400; letter-spacing: 0; }
+  .group-block { margin-bottom: 14px; }
+  .group-block .card + .card { margin-top: 7px; }
 
   .card {
     position: relative;
-    padding: 11px 11px 10px;
+    padding: 9px 11px 8px;
     border: 1px solid var(--line);
-    border-radius: 11px;
+    border-radius: 10px;
     background: var(--card);
     box-shadow: 0 1px 1px rgba(16, 24, 40, .025);
   }
   .card.blocked { border-color: #fecdca; background: linear-gradient(180deg, #fff 0%, #fffbfa 100%); }
   .card.resolved { background: #fcfcfd; }
-  .title { margin: 0 0 6px; font-size: 12.5px; font-weight: 650; line-height: 1.4; }
+  .head { display: flex; align-items: center; gap: 6px; }
+  .title {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .card.blocked .title { color: #7a271a; }
-  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 19px;
-    padding: 0 7px;
+  .marker {
+    flex: none;
+    height: 18px;
+    padding: 0 6px;
     border-radius: 999px;
     font-size: 9.5px;
-    font-weight: 650;
+    line-height: 18px;
+    font-weight: 600;
     white-space: nowrap;
   }
-  .chip::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .8; }
-  .chip.red { color: var(--red); background: var(--red-soft); }
-  .chip.amber { color: var(--amber); background: var(--amber-soft); }
-  .chip.blue { color: var(--blue); background: var(--blue-soft); }
-  .chip.green { color: var(--green); background: var(--green-soft); }
-  .chip.gray { color: #475467; background: var(--gray-soft); }
-  .digest { margin: 0 0 8px; color: #667085; font-size: 10.75px; line-height: 1.55; }
-  .meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--soft); font-size: 9.75px; }
-  .meta .left { display: flex; align-items: center; gap: 6px; }
-  .dot { width: 3px; height: 3px; border-radius: 50%; background: #d0d5dd; }
-  .work { color: #667085; }
+  .marker.amber { color: var(--amber); background: var(--amber-soft); }
+  .marker.gray { color: #475467; background: var(--gray-soft); }
   .more {
-    padding: 0 2px;
+    flex: none;
+    width: 20px;
+    height: 18px;
+    padding: 0;
     border: 0;
+    border-radius: 5px;
     background: transparent;
     color: #98a2b3;
     font: inherit;
-    font-size: 14px;
-    line-height: 1;
+    font-size: 13px;
+    line-height: 18px;
     letter-spacing: 1px;
     cursor: pointer;
   }
-  .more.on { color: var(--ink); }
+  .more:hover { background: var(--gray-soft); color: var(--ink); }
+  .body { display: flex; align-items: baseline; gap: 10px; margin-top: 1px; }
+  .summary {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    color: var(--muted);
+    font-size: 10.75px;
+    line-height: 1.55;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .time { flex: none; color: var(--soft); font-size: 9.5px; }
 
-  .card.has-menu { margin-top: 46px; }
   .menu {
     position: absolute;
+    top: 30px;
     right: 7px;
-    bottom: 36px;
     z-index: 3;
     min-width: 76px;
     padding: 3px;
@@ -126,9 +151,10 @@
   .menu button:hover { background: var(--gray-soft); }
   .menu .archive { color: var(--red); }
   .menu .restore { color: var(--green); }
+  .menu-row { margin-bottom: 58px; }
 
   .notes {
-    margin-top: 4px;
+    margin-top: 2px;
     padding: 13px 14px;
     border: 1px solid var(--line-soft);
     border-radius: 10px;
@@ -139,82 +165,99 @@
   .notes li { display: flex; gap: 7px; color: var(--muted); font-size: 10.5px; line-height: 1.6; }
   .notes li::before { content: "·"; color: #c3c9d4; }
   .notes b { color: var(--ink); font-weight: 600; }
-  .foot { margin-top: 18px; color: var(--soft); font-size: 10px; }
+  .foot { margin-top: 16px; color: var(--soft); font-size: 10px; }
 </style>
 </head>
 <body>
 <div class="canvas">
   <header>
-    <h1>主题卡样式：菜单最多 2 行</h1>
-    <div class="sub">菜单只保留一个状态动作；打开会话直接点卡片。当前样式：菜单 1 行。</div>
+    <h1>主题卡样式：两行 + 菜单最多 2 行</h1>
+    <div class="sub">卡片只留主题名和一行摘要。待授权等标记放主题名右侧，时间放摘要右侧；运行中、阻塞、已解决由分组标题表示，不在卡片上重复。</div>
   </header>
 
   <div class="grid">
     <div class="col">
-      <div class="row">
-        <div class="label">运行中 <span>菜单收起</span></div>
-        <article class="card">
-          <h3 class="title">五子棋小游戏</h3>
-          <div class="chips"><span class="chip blue">运行中</span></div>
-          <p class="digest">已上报 2 条：初版棋盘完成 / 等待确认尺寸。</p>
-          <div class="meta">
-            <span class="left">3 分钟前<span class="dot"></span><span class="work">3 个工作项</span></span>
-            <button class="more" aria-label="主题菜单">⋯</button>
-          </div>
-        </article>
-      </div>
-
-      <div class="row">
-        <div class="label">阻塞 + 待授权 <span>菜单收起</span></div>
+      <div class="group-block">
+        <div class="group-label">阻塞 <span>状态只在分组标题上</span></div>
         <article class="card blocked">
-          <h3 class="title">接入 GitHub 主页内容</h3>
-          <div class="chips"><span class="chip red">阻塞</span><span class="chip amber">待授权</span></div>
-          <p class="digest">等待授权：是否允许读取浏览器登录态。</p>
-          <div class="meta">
-            <span class="left">6 分钟前<span class="dot"></span><span class="work">3 个工作项</span></span>
+          <div class="head">
+            <h3 class="title">五子棋小游戏</h3>
+            <span class="marker amber">待授权</span>
             <button class="more" aria-label="主题菜单">⋯</button>
+          </div>
+          <div class="body">
+            <p class="summary">等待授权：是否允许读取浏览器登录态。</p>
+            <span class="time">6 分钟前</span>
+          </div>
+        </article>
+        <article class="card blocked">
+          <div class="head">
+            <h3 class="title">接入 GitHub 主页内容</h3>
+            <span class="marker gray">等待主会话</span>
+            <button class="more" aria-label="主题菜单">⋯</button>
+          </div>
+          <div class="body">
+            <p class="summary">与「个人网站结构讨论」范围重叠，等待主会话裁决。</p>
+            <span class="time">2 分钟前</span>
           </div>
         </article>
       </div>
 
-      <div class="row">
-        <div class="label">已解决 <span>菜单收起</span></div>
-        <article class="card resolved">
-          <h3 class="title">五子棋小游戏</h3>
-          <div class="chips"><span class="chip green">已解决</span></div>
-          <p class="digest">已归档 · 主会话已记录。</p>
-          <div class="meta">
-            <span class="left">刚刚<span class="dot"></span><span class="work">3 个工作项</span></span>
+      <div class="group-block">
+        <div class="group-label">运行中</div>
+        <article class="card">
+          <div class="head">
+            <h3 class="title">整理个人主页文案</h3>
             <button class="more" aria-label="主题菜单">⋯</button>
+          </div>
+          <div class="body">
+            <p class="summary">首版 Bio 已生成并上报，等待在工作项查看。</p>
+            <span class="time">8 分钟前</span>
+          </div>
+        </article>
+      </div>
+
+      <div class="group-block">
+        <div class="group-label">已解决</div>
+        <article class="card resolved">
+          <div class="head">
+            <h3 class="title">五子棋小游戏</h3>
+            <button class="more" aria-label="主题菜单">⋯</button>
+          </div>
+          <div class="body">
+            <p class="summary">已归档 · 主会话已记录。</p>
+            <span class="time">刚刚</span>
           </div>
         </article>
       </div>
     </div>
 
     <div class="col">
-      <div class="row">
-        <div class="label">运行中 <span>菜单展开 · 1 行</span></div>
-        <article class="card has-menu">
-          <h3 class="title">五子棋小游戏</h3>
-          <div class="chips"><span class="chip blue">运行中</span></div>
-          <p class="digest">已上报 2 条：初版棋盘完成 / 等待确认尺寸。</p>
-          <div class="meta">
-            <span class="left">3 分钟前<span class="dot"></span><span class="work">3 个工作项</span></span>
-            <button class="more on" aria-label="主题菜单">⋯</button>
+      <div class="menu-row">
+        <div class="group-label">运行中 <span>菜单展开 · 1 行</span></div>
+        <article class="card">
+          <div class="head">
+            <h3 class="title">整理个人主页文案</h3>
+            <button class="more" aria-label="主题菜单">⋯</button>
+          </div>
+          <div class="body">
+            <p class="summary">首版 Bio 已生成并上报，等待在工作项查看。</p>
+            <span class="time">8 分钟前</span>
           </div>
           <div class="menu"><button class="archive">归档</button></div>
         </article>
       </div>
 
-      <div class="row">
-        <div class="label">已解决 <span>菜单展开 · 1 行</span></div>
-        <article class="card resolved has-menu">
-          <h3 class="title">五子棋小游戏</h3>
-          <div class="chips"><span class="chip green">已解决</span></div>
-          <p class="digest">已归档 · 主会话已记录。</p>
-          <div class="meta">
-            <span class="left">刚刚<span class="dot"></span><span class="work">3 个工作项</span></span>
-            <button class="more on" aria-label="主题菜单">⋯</button>
+      <div class="menu-row">
+        <div class="group-label">已解决 <span>菜单展开 · 1 行</span></div>
+        <article class="card resolved">
+          <div class="head">
+            <h3 class="title">五子棋小游戏</h3>
+            <button class="more" aria-label="主题菜单">⋯</button>
+          </div>
+          <div class="body">
+            <p class="summary">已归档 · 主会话已记录。</p>
+            <span class="time">刚刚</span>
           </div>
           <div class="menu"><button class="restore">恢复</button></div>
         </article>
@@ -223,17 +266,18 @@
       <div class="notes">
         <h2>规则</h2>
         <ul>
-          <li><b>菜单最多 2 行。</b>当前每个状态只有 1 行：归档，或恢复。</li>
-          <li><b>打开会话</b>直接点卡片，不放进菜单，减少一项。</li>
-          <li><b>归档可撤回</b>，不弹确认；归档后主会话只留一条“xx主题已归档”。</li>
-          <li><b>恢复</b>把卡片放回运行中，不写主会话记录。</li>
-          <li><b>空闲</b>从最后一次活动开始算，1 天后进入空闲。</li>
+          <li><b>两行：</b>主题名 + 一行摘要。</li>
+          <li><b>待授权、等待主会话</b>等标记在主题名右侧；没有标记就不占位。</li>
+          <li><b>时间</b>在摘要右侧（右下角）。</li>
+          <li><b>运行中 / 阻塞 / 已解决</b>不写进卡片，由分组标题表示。</li>
+          <li><b>菜单 1 行，最多 2 行。</b>归档可撤回、不弹确认；恢复不写主会话记录。</li>
+          <li><b>空闲</b>从最后一次活动开始算，1 天后进入空闲组。</li>
         </ul>
       </div>
     </div>
   </div>
 
-  <div class="foot">卡片内容沿用已确认字段；确认这个样式后再同步到完整交互稿。</div>
+  <div class="foot">确认这版卡片后，再同步到完整交互稿和截图。</div>
 </div>
 </body>
 </html>
