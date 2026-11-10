@@ -122,6 +122,8 @@ stateDiagram-v2
 
 ## 会话提醒卡
 
+提醒卡通过宿主 A2 的 notice kind 渲染，由 dsh-cowork 客户端插件注册；主题页列表本身不渲染这些卡。主会话和主题会话各一张，状态更新用同一个 noticeId，不新增消息。A2 契约确认和真实 GUI 探针通过前，卡片不进入实现。
+
 | 类型 | 主会话 | 主题会话 | 操作 |
 |---|---|---|---|
 | 分配 | 1 条消息 | 1 张提醒卡 | 无。本版隐藏接受、退回按钮 |
@@ -186,3 +188,4 @@ stateDiagram-v2
 - 完整交互稿、列表截图和 feature 待办已同步。
 - 前端开发提案与交付阶段见 [topic-page-frontend.md](../../../.agents/notes/proposed/feature/2026-11-10-topic-page-frontend.md)。
 - 后端设计提案（状态、事件通知、会话投递与迁移）见 [topic-page-backend.md](../../../.agents/notes/proposed/feature/2026-11-10-topic-page-backend.md)。
+- 会话提醒卡采用宿主 A2：新增 `notice/message` 事件、`ctx.sessionNotices.append/update` 和客户端 `notice` kind/seat；A1（复用 plugin record）不采用，B（不改宿主）为宿主拒绝 A2 时的备选。A2 契约确认前，会话卡片不进入实现。
