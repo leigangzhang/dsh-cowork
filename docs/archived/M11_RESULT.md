@@ -2,7 +2,7 @@
 
 - 状态：**M11 已交付（2026-11-08）**。HTTP API v2（wire/读路由/写路由/同源安全）、CoWork 面板 v2 重写与 v2 面板 fixture 已在 `feat/m11-http-api-panel` 上落地；独立验证（t5）与独立审查（t6，verdict=pass）通过，代码 artifact 为 `6b7beab`（`npm test` 732/732）。delivery 的最终 HEAD/PR 见后续 delivery 小节。本文件记录交付基线、交付面、A1–A10 证据、审查结论、已知偏差、回滚与未验证项，供 M12 接手。M11 启动时的交接见 [M11_HANDOFF.md](M11_HANDOFF.md)（保留启动版，顶部状态块指向本文件）。
 - 适用：接手 V0.2 M12（文档、真实 E2E、0.2.0）的 agent 或人。范围：M11 的实际交付、验证证据、偏差与未验证项；不重新论证 M11 的决定。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.3/§2.4/§4.2/§5.3/§5.6/§5.9/§5.10/§6 M11 拥有需求与验收；执行层决定与备选由 [M11 决策记录](../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md) 拥有；面板交互与可见性由两份 implemented 记录拥有（[面板与会话可见性](../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md)、[可见性降级决策](../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)）；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
+- 事实源：[PLAN-V0.2](../PLAN-V0.2.md) §2.2/§2.3/§2.4/§4.2/§5.3/§5.6/§5.9/§5.10/§6 M11 拥有需求与验收；执行层决定与备选由 [M11 决策记录](../../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md) 拥有；面板交互与可见性由两份 implemented 记录拥有（[面板与会话可见性](../../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md)、[可见性降级决策](../../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)）；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有遗留归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
 - **数字口径**：最终数字来自集成 commit `6b7beab`（t5 复验）：`npm test` **732/732**、`git diff 6a5310e..HEAD | shasum -a 256` = `e1e0f88d…`、四命令 exit 0。review 阶段（t6）读的是同一 HEAD；本批文档提交只改 `docs/**` 与 `.agents/notes/**`，代码 artifact 不变。
 
 ## 交付基线
@@ -48,7 +48,7 @@
 - [A7] 评审卡来自请求文件（requestId/范围/verdict/findings），legacy `latestReviewPath` 不再是当前状态来源；旧 review/handoff 文件只读 — `tests`：`tests/api.test.mjs`（`reviewRequestFileName` 文件名与记录不一致即跳过；`listReviews`/`latestReviews`/`writeReview`/`readReview` 不在 store 端口上）、`tests/source-budget.test.mjs`；`grep -n "latestReviewPath\|listReviews\|latestReviews\|writeReview" src/api.ts` 无匹配；真实 Chrome 评审卡显示 `req-fixture-pass`。
 - [A8] 真实 Chrome：同源写路由在已认证面板上下文返回 200 且回显 body；R8 预算、R9 fixture（apply/restore ≤5 s、真实 index hash 恢复）；截图与 run 记录进入本交付记录 — `decisions`：`.dsh-cowork/e2e/m11/panel-run.json`、6 张 jpg、`INTEGRATION_READY.json`（均在 gitignored 目录，不进仓库）。fixture apply 8 ms / 5 ms、restore 5 ms / 5 ms；恢复后 index sha256 `f7fec0db…` 与 pre-fixture 完全一致，reviews 3 个文件还原，activity/inbox 恢复为不存在；`bsk_session` start 3 / stop 1、>60 s 等待 0。
 - [A9] `npm run typecheck`/`build`/`check` 通过；`lib/client.js` 由 `npm run build` 产出；`src/**/*.ts` <51,200 B，client 按模块拆分 — `source`：`tests/source-budget.test.mjs`、`scripts/build.sh`；四命令 exit 0（732/732）；`lib/client.js` 89,235 B、sha `3b1b3588…`。
-- [A10] M11 收口：M11_RESULT/HANDOFF/KNOWN_ISSUES/publish.json/README/PLAN-V0.2 更新；3 份决策记录迁移为 implemented；AgentTeams 单一评审负责人边界写入记录 — `plan-docs`：本文件、[M11_HANDOFF](M11_HANDOFF.md)、[KNOWN_ISSUES](KNOWN_ISSUES.md)、`docs/publish.json`、`docs/README.md`、[PLAN-V0.2](PLAN-V0.2.md)、3 份 implemented 记录。
+- [A10] M11 收口：M11_RESULT/HANDOFF/KNOWN_ISSUES/publish.json/README/PLAN-V0.2 更新；3 份决策记录迁移为 implemented；AgentTeams 单一评审负责人边界写入记录 — `plan-docs`：本文件、[M11_HANDOFF](M11_HANDOFF.md)、[KNOWN_ISSUES](../KNOWN_ISSUES.md)、`docs/publish.json`、`docs/README.md`、[PLAN-V0.2](../PLAN-V0.2.md)、3 份 implemented 记录。
 
 ## 验证与审查
 
@@ -92,8 +92,8 @@
 
 ## 指针
 
-- M11 决策记录（implemented）：[2026-11-08-m11-http-api-panel.md](../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md)。
-- 面板交互与可见性（implemented）：[2026-11-07-panel-and-session-visibility.md](../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md)、[2026-11-07-topic-visibility-fallback.md](../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)。
+- M11 决策记录（implemented）：[2026-11-08-m11-http-api-panel.md](../../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md)。
+- 面板交互与可见性（implemented）：[2026-11-07-panel-and-session-visibility.md](../../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md)、[2026-11-07-topic-visibility-fallback.md](../../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)。
 - M11 启动交接（历史）：[M11_HANDOFF.md](M11_HANDOFF.md)；M10 交付结果：[M10_RESULT.md](M10_RESULT.md)。
-- 需求与验收：[PLAN-V0.2](PLAN-V0.2.md) §2.4/§5.9/§6 M11；流程与证据：[AGENTTEAM](AGENTTEAM.md)、[testing](testing.md)。
+- 需求与验收：[PLAN-V0.2](../PLAN-V0.2.md) §2.4/§5.9/§6 M11；流程与证据：[AGENTTEAM](../AGENTTEAM.md)、[testing](../testing.md)。
 - 真实 Chrome 证据（gitignored）：`.dsh-cowork/e2e/m11/panel-run.json`、6 张 `*.jpg`、`INTEGRATION_READY.json`、`pre-fixture.json`。

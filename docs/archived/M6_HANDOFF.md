@@ -1,9 +1,9 @@
 # M6 交接文档
 
 - 状态：**M6 与 M11 可见性决策已完成（2026-11-07）**。7 项宿主探针都有真实宿主证据；7 份 proposed 记录已与结论对齐；用户拍板 M11 采用降级方案 (b)；M7 执行提案已就绪。M6 主体经 PR #10 合并进 `origin/main`（`739f7e9`），本交接在其后补充 M7 执行摘要。团队 `m6-probes` 保留未删。
-- 当前事实（M7 收尾）：M7 已落地并终审通过——实现提交 `73d4083`、测试拆分 `a262273`、迁移记录转 implemented `ffd7c7f`、A1 宿主接线与 E2E 索引 v2 兼容 `6cb294c`（均在 `feat/m7-store-v2`，未 push）。A1 的 `archiveSession` 宿主端口已补齐（SessionSlicePorts 透传 → `tools.ts` 单一构造 helper → `index.ts` 的 `createStore`），M7 遗留与归属见 [KNOWN_ISSUES](KNOWN_ISSUES.md)；本文件其余内容保留为 M6 历史记录。
+- 当前事实（M7 收尾）：M7 已落地并终审通过——实现提交 `73d4083`、测试拆分 `a262273`、迁移记录转 implemented `ffd7c7f`、A1 宿主接线与 E2E 索引 v2 兼容 `6cb294c`（均在 `feat/m7-store-v2`，未 push）。A1 的 `archiveSession` 宿主端口已补齐（SessionSlicePorts 透传 → `tools.ts` 单一构造 helper → `index.ts` 的 `createStore`），M7 遗留与归属见 [KNOWN_ISSUES](../KNOWN_ISSUES.md)；本文件其余内容保留为 M6 历史记录。
 - 适用：接手 V0.2 后续阶段（M7 起）的 agent 或人。范围：M6 的探针结论与证据位置、已定决策、未验证项，以及 M7 的启动方式；不重新论证探针。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §3/§5/§6 拥有阶段、架构与验收；[M6 探针结果](M6_PROBE_RESULT.md) 拥有 7 项结论、证据命令与限制；[M11 可见性降级决策](../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md) 拥有 (b) 的决定、代价与验收；[M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md) 拥有 M7 的执行顺序、迁移事务与测试先行；[索引 v2 与迁移](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md) 拥有数据模型与六态映射（M12 已迁 implemented）；[面板与会话可见性](../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md) 拥有面板交互。本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN-V0.2](../PLAN-V0.2.md) §3/§5/§6 拥有阶段、架构与验收；[M6 探针结果](M6_PROBE_RESULT.md) 拥有 7 项结论、证据命令与限制；[M11 可见性降级决策](../../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md) 拥有 (b) 的决定、代价与验收；[M7 迁移实施记录](../../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md) 拥有 M7 的执行顺序、迁移事务与测试先行；[索引 v2 与迁移](../../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md) 拥有数据模型与六态映射（M12 已迁 implemented）；[面板与会话可见性](../../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md) 拥有面板交互。本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## 交付后状态（2026-11-07）
 
@@ -19,13 +19,13 @@
 
 ## 先读什么
 
-1. [AGENTS.md](../AGENTS.md)：纪律、命令、no-multi-orchestrator。
-2. [PLAN-V0.2](PLAN-V0.2.md) §2.2/§2.4、§3、§5.2/§5.9、§6 M6/M7：阶段、架构与验收。
+1. [AGENTS.md](../../AGENTS.md)：纪律、命令、no-multi-orchestrator。
+2. [PLAN-V0.2](../PLAN-V0.2.md) §2.2/§2.4、§3、§5.2/§5.9、§6 M6/M7：阶段、架构与验收。
 3. [M6 探针结果](M6_PROBE_RESULT.md)：7 项结论、证据命令、限制、M7–M12 影响。
-4. [M11 可见性降级决策](../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)：为什么是 (b)、代价、验收。
-5. [M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)：M7 的执行顺序、事务与测试先行。
-6. [索引 v2 与迁移](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)：数据模型、字段与六态映射（M12 已迁 implemented）。
-7. [docs/testing.md](testing.md)、[docs/documentation.md](documentation.md)、[tools/workflow.json](../tools/workflow.json)：证据面、文档分类与检查映射。
+4. [M11 可见性降级决策](../../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)：为什么是 (b)、代价、验收。
+5. [M7 迁移实施记录](../../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)：M7 的执行顺序、事务与测试先行。
+6. [索引 v2 与迁移](../../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)：数据模型、字段与六态映射（M12 已迁 implemented）。
+7. [docs/testing.md](../testing.md)、[docs/documentation.md](../documentation.md)、[tools/workflow.json](../../tools/workflow.json)：证据面、文档分类与检查映射。
 8. 本机可选：`.dsh-cowork/m6-probe/toolbelt` 与 `runs/`（gitignored）；复跑方法见 M6 结果 §10。
 
 ## 交付前的事实（历史）
@@ -37,7 +37,7 @@
 ## 第一步：M7 的启动顺序（已完成，保留为历史）
 
 1. `git fetch origin`；从含本交接的分支新建 `feat/m7-store-v2`（若本交接已合并进 main，则从 `origin/main`）。工作区必须干净；不要 rebase/force，不要继续在旧 `docs/v0.2-m6-results` 上提交。
-2. 读 [M7 实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md) 与 [topic-store-v2](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)；确认模块尚不存在、`src/store.ts` 余量约 8.6 KB。
+2. 读 [M7 实施记录](../../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md) 与 [topic-store-v2](../../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)；确认模块尚不存在、`src/store.ts` 余量约 8.6 KB。
 3. 先写会红的测试（`tests/store-migration.test.mjs`；更新 `tests/store.test.mjs`），再实现。
 4. 迁移要用的 M6 结论：取消在途 reviewer 必须 `archiveSession(id,{stopActivity:true})`；reviewer 回收是 after-verdict；M7 不接 `session/event`。
 

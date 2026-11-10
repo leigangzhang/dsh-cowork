@@ -1,8 +1,8 @@
 # M9 交付结果
 
-- 状态：**M9 已交付（2026-11-08）**。三层路由、模型兜底、工具拆分/别名、主题与预设改名在 `feat/m9-routing-tools-presets` 上落地并通过独立验证；本文件记录交付基线、清单、证据、偏差、探针结论、回滚与未验证项，供下一个阶段（M10）接手。M9 启动时的交接见 [M9_HANDOFF.md](M9_HANDOFF.md)（已回滚为启动文档，不再承载交付记录）。执行层的决定见 [M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)，路由需求规则见 [主会话到主题的三层路由](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
+- 状态：**M9 已交付（2026-11-08）**。三层路由、模型兜底、工具拆分/别名、主题与预设改名在 `feat/m9-routing-tools-presets` 上落地并通过独立验证；本文件记录交付基线、清单、证据、偏差、探针结论、回滚与未验证项，供下一个阶段（M10）接手。M9 启动时的交接见 [M9_HANDOFF.md](M9_HANDOFF.md)（已回滚为启动文档，不再承载交付记录）。执行层的决定见 [M9 执行记录](../../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)，路由需求规则见 [主会话到主题的三层路由](../../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
 - 适用：接手 V0.2 M10（评审请求、reviewer 生命周期、工作项）的 agent 或人。范围：M9 的实际交付、验证证据、已知偏差与未验证项；不重新论证 M9 的决定。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.2/§5.3/§5.7/§5.8/§5.10/§6 M9 拥有需求、工具角色表、配置默认值与验收；[M9 执行记录](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md) 拥有模块边界与备选；[三层路由记录](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md) 拥有路由规则；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留问题归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
+- 事实源：[PLAN-V0.2](../PLAN-V0.2.md) §2.2/§5.3/§5.7/§5.8/§5.10/§6 M9 拥有需求、工具角色表、配置默认值与验收；[M9 执行记录](../../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md) 拥有模块边界与备选；[三层路由记录](../../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md) 拥有路由规则；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有遗留问题归属；本文件只拥有「交付了什么、拿什么证明、从哪继续」。
 
 ## 交付基线
 
@@ -84,7 +84,7 @@
 
 ## 遗留问题指针
 
-见 [KNOWN_ISSUES](KNOWN_ISSUES.md)：KI-18（兼容层，M9 已完成 tools/presets 改写，剩余 M10→M12）、KI-22（真实 E2E/迁移，M12，含本次探针已验证与未验证的边界）、KI-23（inbox at-least-once 崩溃窗口，M12）、KI-24（`activeWorkItems=0`，M10）、KI-25（`awaiting_review`/legacy review 兼容，M10）。KI-15/17/19/21 保持原状。
+见 [KNOWN_ISSUES](../KNOWN_ISSUES.md)：KI-18（兼容层，M9 已完成 tools/presets 改写，剩余 M10→M12）、KI-22（真实 E2E/迁移，M12，含本次探针已验证与未验证的边界）、KI-23（inbox at-least-once 崩溃窗口，M12）、KI-24（`activeWorkItems=0`，M10）、KI-25（`awaiting_review`/legacy review 兼容，M10）。KI-15/17/19/21 保持原状。
 
 ## 回滚
 
@@ -96,10 +96,10 @@
 
 - M9 启动交接（历史，已回滚为启动文档）：[M9_HANDOFF.md](M9_HANDOFF.md)。
 - M10 启动交接：[M10_HANDOFF.md](M10_HANDOFF.md)。
-- M9 执行记录与备选：[2026-11-08-m9-routing-tools-presets-plan.md](../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)。
-- 路由需求规则：[2026-11-07-three-layer-routing.md](../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
-- 角色模型（implemented，M12 迁入）：[2026-11-07-topic-session-model.md](../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)。
-- 索引 v2 与迁移（implemented，M12 迁入）：[2026-11-07-topic-store-v2.md](../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)。
+- M9 执行记录与备选：[2026-11-08-m9-routing-tools-presets-plan.md](../../.agents/notes/implemented/architecture/2026-11-08-m9-routing-tools-presets-plan.md)。
+- 路由需求规则：[2026-11-07-three-layer-routing.md](../../.agents/notes/implemented/feature/2026-11-07-three-layer-routing.md)。
+- 角色模型（implemented，M12 迁入）：[2026-11-07-topic-session-model.md](../../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)。
+- 索引 v2 与迁移（implemented，M12 迁入）：[2026-11-07-topic-store-v2.md](../../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)。
 - 宿主能力证据：[M6_PROBE_RESULT.md](M6_PROBE_RESULT.md) §1（`prepareCall`/关闭推理）、§5（preset 工具面）。
 - M8 交付结果：[M8_RESULT.md](M8_RESULT.md)。
-- 遗留问题与归属：[KNOWN_ISSUES](KNOWN_ISSUES.md)。
+- 遗留问题与归属：[KNOWN_ISSUES](../KNOWN_ISSUES.md)。

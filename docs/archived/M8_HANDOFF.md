@@ -2,9 +2,9 @@
 
 > **历史文档（2026-11-08 补记）**：M8 已交付，交付结果、证据、偏差与回滚见 [M8_RESULT.md](M8_RESULT.md)。本文件保留为 M8 启动时的交接基线；文中的启动步骤、429 基线与「M8 落地后」动作都是当时的计划，已被 M8 执行完毕，不再按原文执行。
 
-- 状态：**M8 启动文档（2026-11-07）**。M7 已落地并终审通过；本文件写给下一个会话，用于启动 M8。M7 的实现事实、限制与证据在 [M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)；M8 的执行约定在 [M8 执行记录](../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)；需求规则在 [主题三态与已解决规则](../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)。
+- 状态：**M8 启动文档（2026-11-07）**。M7 已落地并终审通过；本文件写给下一个会话，用于启动 M8。M7 的实现事实、限制与证据在 [M7 迁移实施记录](../../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)；M8 的执行约定在 [M8 执行记录](../../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)；需求规则在 [主题三态与已解决规则](../../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)。
 - 适用：接手 V0.2 M8（主题生命周期、活动、收件箱）的 agent 或人。范围：M7 交付后的代码基线、M8 的启动方式、实施顺序与证据、回滚与未验证清单。不重新论证 M7 的迁移决定。
-- 事实源：[PLAN-V0.2](PLAN-V0.2.md) §2.3/§4.2/§4.3/§5.1/§5.6/§6 M8 拥有状态机、模块图、数据模型与验收；[M6 探针结果](M6_PROBE_RESULT.md) §2/§4 拥有 `session/event` 与 reviewer 归档的实测结论；[KNOWN_ISSUES](KNOWN_ISSUES.md) 拥有遗留问题的归属与重估触发条件；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN-V0.2](../PLAN-V0.2.md) §2.3/§4.2/§4.3/§5.1/§5.6/§6 M8 拥有状态机、模块图、数据模型与验收；[M6 探针结果](M6_PROBE_RESULT.md) §2/§4 拥有 `session/event` 与 reviewer 归档的实测结论；[KNOWN_ISSUES](../KNOWN_ISSUES.md) 拥有遗留问题的归属与重估触发条件；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## M7 交付后的状态（2026-11-07）
 
@@ -15,20 +15,20 @@
 - **M7 已交付**：磁盘只写 v2（`topics[]`/`workItems[]`）、读兼容 v1；迁移事务含一次性备份 `index.v1.backup.json`（原 v1 字节、不覆盖）、归档被取消评审的 reviewer、原子写与目录 fsync、fail closed；activity.jsonl 追加/裁剪（500 条 / 524288 B）、坏行跳过、并发安全；inbox.json 读写、50 条上限、整文件损坏报 `store/corrupt`。
 - **A1 已接线**：`SessionSlicePorts['workspaces'].archiveSession` 支持 `{stopActivity}`，`SessionSlice` 透传；`src/tools.ts` 的单一 `projectStoreFor` helper 与 `src/index.ts` 的 `panelPorts.createStore` 都把 `workspaceRegistry.archiveSession` 注入 `ProjectStoreOptions.archiveSession`。host-free 测试（fake registry + 真实 `ProjectStore`）证明迁移以 `(reviewer,{stopActivity:true})` 归档。
 - **E2E 索引解析已兼容 v2**：`src/m2-e2e-support.ts` 与 `src/m3-e2e-support.ts` 的 `parseIndex` 对 v1 原样返回、对 v2 校验后经 `legacyViewOf` 投影；E2E 驱动本体未在真实宿主重跑。
-- **canonical v2 读投影用只读模式（M8.1 落地）**：M7 的 `migrateV1ToV2` 是写语义（`awaiting_review` → active + `awaitingReview=false`、清空 review 指针、reviewer 进 `pendingReviewerArchives`），直接拿它做读投影会与 `readIndex()` 不一致，也违背 M7「纯读不迁移」的意图（[M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md) 的「读时惰性迁移、下次写入才落盘」一段，写作时 :38）。M8.1 给 `migrateV1ToV2(document, options?)` 增加可选 `{cancelInFlightReviews?: boolean}`，**默认 `true` 保持写路径与 M7 测试不变**；`false` 时 `awaiting_review` 投影为 `active` + `awaitingReview=true`，保留 `reviewStatus`/`reviewerSessionId`，不产生待归档列表。`readIndexDocument` 用只读模式，`readIndexForWrite` 保持默认写模式。所以在 v1 磁盘上 `readIndexDocument` 与 `readIndex()` 语义一致（都保留在途评审）；只有第一次真实写入才取消评审、备份并归档 reviewer，M9 读取点可以直接使用只读投影。测试分两层：`tests/store-migration.test.mjs` 覆盖只读/写两种模式，`tests/store-v2.test.mjs` 覆盖 canonical 读写与首次写迁移。
+- **canonical v2 读投影用只读模式（M8.1 落地）**：M7 的 `migrateV1ToV2` 是写语义（`awaiting_review` → active + `awaitingReview=false`、清空 review 指针、reviewer 进 `pendingReviewerArchives`），直接拿它做读投影会与 `readIndex()` 不一致，也违背 M7「纯读不迁移」的意图（[M7 迁移实施记录](../../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md) 的「读时惰性迁移、下次写入才落盘」一段，写作时 :38）。M8.1 给 `migrateV1ToV2(document, options?)` 增加可选 `{cancelInFlightReviews?: boolean}`，**默认 `true` 保持写路径与 M7 测试不变**；`false` 时 `awaiting_review` 投影为 `active` + `awaitingReview=true`，保留 `reviewStatus`/`reviewerSessionId`，不产生待归档列表。`readIndexDocument` 用只读模式，`readIndexForWrite` 保持默认写模式。所以在 v1 磁盘上 `readIndexDocument` 与 `readIndex()` 语义一致（都保留在途评审）；只有第一次真实写入才取消评审、备份并归档 reviewer，M9 读取点可以直接使用只读投影。测试分两层：`tests/store-migration.test.mjs` 覆盖只读/写两种模式，`tests/store-v2.test.mjs` 覆盖 canonical 读写与首次写迁移。
 - **未迁移的真实数据**：仓库内 `.dsh-cowork/index.json`（gitignored）仍是 v1，未做真实迁移；真实宿主 E2E 与真实数据迁移归 M12（KI-22）。
 - **KI 归属**：KI-20（迁移 activity 先于 index 写）与 KI-19（迁移报告仅内存）归 M8；KI-18（兼容视图/legacy 字段）归 M9→M10→M12；KI-21（fsync 崩溃持久性）与 KI-22（真实 E2E/真实数据迁移）归 M12。
 
 ## 先读什么
 
-1. [AGENTS.md](../AGENTS.md)：纪律、命令、文档与提交规则。
-2. [PLAN-V0.2](PLAN-V0.2.md) §2.3（状态机）、§4.2（模块图）、§4.3（数据模型）、§5.1（生命周期）、§5.6（活动/收件箱）、§6 M8（本阶段范围与完成标准）。
-3. [主题三态与已解决规则](../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)：三态、两标记、五条件、3 天/2 小时、重开（M8 已迁移为 implemented）。
-4. [M8 执行记录](../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)：模块边界、store 扩展、评估时机、KI 处置、验收与分阶段顺序（M8 已迁移为 implemented）。
-5. [M7 迁移实施记录](../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)：M7 实际交付、限制与 Testing；不要重做它的决定。
-6. [KNOWN_ISSUES](KNOWN_ISSUES.md)：KI-18..KI-22 的归属与重估触发条件。
+1. [AGENTS.md](../../AGENTS.md)：纪律、命令、文档与提交规则。
+2. [PLAN-V0.2](../PLAN-V0.2.md) §2.3（状态机）、§4.2（模块图）、§4.3（数据模型）、§5.1（生命周期）、§5.6（活动/收件箱）、§6 M8（本阶段范围与完成标准）。
+3. [主题三态与已解决规则](../../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md)：三态、两标记、五条件、3 天/2 小时、重开（M8 已迁移为 implemented）。
+4. [M8 执行记录](../../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)：模块边界、store 扩展、评估时机、KI 处置、验收与分阶段顺序（M8 已迁移为 implemented）。
+5. [M7 迁移实施记录](../../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)：M7 实际交付、限制与 Testing；不要重做它的决定。
+6. [KNOWN_ISSUES](../KNOWN_ISSUES.md)：KI-18..KI-22 的归属与重估触发条件。
 7. [M6 探针结果](M6_PROBE_RESULT.md) §2（`session/event` 与 500 条缓冲限制）、§4（reviewer 归档必须 after-verdict）。
-8. [docs/testing.md](testing.md)、[docs/documentation.md](documentation.md)、[tools/workflow.json](../tools/workflow.json)：证据面、文档分类、检查映射。
+8. [docs/testing.md](../testing.md)、[docs/documentation.md](../documentation.md)、[tools/workflow.json](../../tools/workflow.json)：证据面、文档分类、检查映射。
 9. [M6 交接](M6_HANDOFF.md)：交接骨架与历史约定；其中的启动步骤已完成，只读不重跑。
 
 ## 第一步：M8 的启动顺序
@@ -63,7 +63,7 @@
 
 - 每条实现的最小证据：`node --test <本阶段测试文件>` + `npm run typecheck`；阶段收口：`npm test` + `npm run typecheck` + `npm run build` + `npm run check`，逐条记录 exit code，不只说「通过」。
 - 测试只用 `os.tmpdir()` 夹具，不读写真实 `.dsh-cowork/`；不用固定 `sleep` 当就绪判据，等待用带截止时间的轮询或事件。
-- 本阶段不跑真实宿主 E2E（M12），也不迁移真实 `.dsh-cowork/index.json`；需要跨进程的结论按 [docs/testing.md](testing.md) 的规则留到 M12。
+- 本阶段不跑真实宿主 E2E（M12），也不迁移真实 `.dsh-cowork/index.json`；需要跨进程的结论按 [docs/testing.md](../testing.md) 的规则留到 M12。
 - 审查：实现者 ≠ 验证者 ≠ 最终审查者；verification 独立复跑，review 只读、verdict=pass 才收口。
 
 ## 陷阱
