@@ -122,6 +122,11 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
       'cowork_notices',
     ]],
     ['src/route-tools.ts', source('src/route-tools.ts'), ['cowork_route']],
+    ['src/request-tools.ts', source('src/request-tools.ts'), [
+      'cowork_user_review_request',
+      'cowork_request_question',
+      'cowork_request_plan',
+    ]],
     ['src/memory-tools.ts', source('src/memory-tools.ts'), ['cowork_memory_write', 'cowork_memory_search']],
     ['src/checkout-tools.ts', source('src/checkout-tools.ts'), ['cowork_work_item_create', 'cowork_checkout_merge']],
     ['src/review-tools.ts', source('src/review-tools.ts'), ['cowork_review_request', 'cowork_review_verdict']],
@@ -132,7 +137,7 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
       assert.ok(!toolsSource.includes(`name: '${name}'`), `src/tools.ts must not register ${name} directly`)
     }
   }
-  for (const call of ['registerProjectTools', 'registerRouteTools', 'registerTopicTools', 'registerWorkItemTools', 'registerReviewTools', 'registerMemoryTools', 'registerCheckoutTools']) {
+  for (const call of ['registerProjectTools', 'registerRouteTools', 'registerTopicTools', 'registerRequestTools', 'registerWorkItemTools', 'registerReviewTools', 'registerMemoryTools', 'registerCheckoutTools']) {
     assert.match(toolsSource, new RegExp(`${call}\\(`), `src/tools.ts must call ${call}`)
   }
 
@@ -142,6 +147,11 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
     ['src/llm-port.ts', READ_LIMIT_BYTES],
     ['src/project-tools.ts', READ_LIMIT_BYTES],
     ['src/topic-tools.ts', READ_LIMIT_BYTES],
+    ['src/request-tools.ts', READ_LIMIT_BYTES],
+    ['src/request-service.ts', READ_LIMIT_BYTES],
+    ['src/request-store.ts', READ_LIMIT_BYTES],
+    ['src/request-schema.ts', READ_LIMIT_BYTES],
+    ['src/inbox-api.ts', READ_LIMIT_BYTES],
     ['src/route-tools.ts', READ_LIMIT_BYTES],
     ['src/memory-tools.ts', READ_LIMIT_BYTES],
     ['src/checkout-tools.ts', READ_LIMIT_BYTES],

@@ -139,6 +139,8 @@ export const ACTIVITY_TYPES = [
   'authorization-requested',
   'authorization-resolved',
   'topic-archived',
+  'request-created',
+  'request-resolved',
   'error',
 ] as const
 /** One kind of activity event. */

@@ -133,6 +133,8 @@ test('the exported enumerations match PLAN-V0.2 §4.3', () => {
     'authorization-requested',
     'authorization-resolved',
     'topic-archived',
+    'request-created',
+    'request-resolved',
   ]) {
     assert.ok(ACTIVITY_TYPES.includes(type), `the topic page emits ${type}`)
   }
@@ -512,7 +514,7 @@ test('an activity event reports each invalid field by name', () => {
     [
       'activity.eventId must be a non-empty string',
       'activity.time must be an ISO 8601 timestamp',
-      'activity.type must be one of topic-created|route-reused|route-created|route-corrected|status-changed|topic-reopened|review-requested|review-verdict|work-item-created|work-item-merged|topic-reported|decision-proposed|authorization-requested|authorization-resolved|topic-archived|error',
+      'activity.type must be one of topic-created|route-reused|route-created|route-corrected|status-changed|topic-reopened|review-requested|review-verdict|work-item-created|work-item-merged|topic-reported|decision-proposed|authorization-requested|authorization-resolved|topic-archived|request-created|request-resolved|error',
       'activity.topicId must be a non-empty string or null',
       'activity.summary must be a non-empty string',
       'activity.details must be a JSON object',

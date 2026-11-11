@@ -338,7 +338,60 @@ export type PanelErrorCode =
   | 'session/list-timeout'
   | 'project/not-initialized'
   | 'store/corrupt'
+  | 'inbox/request-not-found'
+  | 'inbox/request-resolved'
+  | 'inbox/action-not-allowed'
+  | 'inbox/invalid-answer'
+  | 'inbox/invalid-comment'
+  | 'inbox/path-missing'
+  | 'inbox/open-unsupported'
+  | 'inbox/not-member'
   | 'internal'
+
+/**
+ * HTTP status per stable error code. It lives in the contract module (not in
+ * `src/api.ts`) because the write surface outgrew the 50 KiB read cap: the
+ * host's `panelErrorStatus` re-exports this one table, and
+ * `tests/api.test.mjs` pins every status here.
+ *
+ * Typed as a complete `Record`, so adding a code to {@link PanelErrorCode}
+ * without deciding its status is a compile error.
+ */
+export const PANEL_ERROR_STATUS: Readonly<Record<PanelErrorCode, number>> = {
+  'request/session-required': 400,
+  'request/topic-required': 400,
+  'request/invalid-query': 400,
+  'request/invalid-body': 400,
+  'request/body-too-large': 413,
+  'request/content-type': 415,
+  'request/origin': 403,
+  'request/not-master': 403,
+  'topic/not-found': 404,
+  'topic/not-resolved': 409,
+  'authorization/not-found': 404,
+  'authorization/mismatch': 409,
+  'authorization/not-allowed': 403,
+  'route/move-invalid': 400,
+  'session/unknown': 400,
+  'session/cwd-unavailable': 400,
+  'session/list-timeout': 504,
+  'project/not-initialized': 404,
+  'store/corrupt': 500,
+  'inbox/request-not-found': 404,
+  'inbox/request-resolved': 409,
+  'inbox/action-not-allowed': 400,
+  'inbox/invalid-answer': 400,
+  'inbox/invalid-comment': 400,
+  'inbox/path-missing': 404,
+  'inbox/open-unsupported': 501,
+  'inbox/not-member': 403,
+  internal: 500,
+}
+
+/** HTTP status for a stable error code. */
+export function panelErrorStatus(code: PanelErrorCode): number {
+  return PANEL_ERROR_STATUS[code]
+}
 
 /** Error body shared by every route. */
 export interface PanelErrorBody {

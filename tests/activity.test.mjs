@@ -26,6 +26,8 @@ const {
   buildActivityEvent,
   errorActivity,
   recordActivity,
+  requestCreatedActivity,
+  requestResolvedActivity,
   statusChangedActivity,
   topicReopenedActivity,
 } = await import('../src/activity.ts')
@@ -244,4 +246,61 @@ test('recording reuses the 512-KiB bound', async () => {
     assert.equal(read.events.length, 2, 'the oldest 300 KB row is dropped, the newest is kept')
     assert.equal(read.events[0].eventId, 'event-big-2')
   })
+})
+
+test('the request activity rows carry the request facts and no notice descriptor', () => {
+  const record = {
+    version: 1,
+    requestId: 'req-1',
+    projectId: 'p',
+    topicId: 'session-a',
+    kind: 'user-review',
+    status: 'pending',
+    title: 'canonical work',
+    summary: 'review it',
+    requestMessage: '主题「canonical work」请你审核：review it',
+    resolutionMessage: null,
+    payload: { purpose: 'review it' },
+    createdAt: NOW_ISO,
+    updatedAt: NOW_ISO,
+    resolvedAt: null,
+    resolvedBy: null,
+    delivery: { promptedAt: null, lastError: null },
+  }
+  const created = requestCreatedActivity(record, NOW)
+  assert.equal(created.type, 'request-created')
+  assert.equal(created.topicId, 'session-a')
+  assert.equal(created.time, NOW_ISO)
+  assert.deepEqual(created.details, {
+    requestId: 'req-1',
+    topicId: 'session-a',
+    kind: 'user-review',
+    status: 'pending',
+  })
+  // No `notice` descriptor: creating a request must not grow the notice ledger.
+  assert.equal('notice' in created.details, false)
+
+  const resolved = requestResolvedActivity(
+    { ...record, status: 'returned', resolutionMessage: '已退回评审。', resolvedAt: NOW_ISO, resolvedBy: 'user' },
+    { action: 'return' },
+    NOW,
+  )
+  assert.equal(resolved.type, 'request-resolved')
+  assert.deepEqual(resolved.details, {
+    requestId: 'req-1',
+    topicId: 'session-a',
+    kind: 'user-review',
+    action: 'return',
+    status: 'returned',
+    resolvedBy: 'user',
+  })
+  assert.equal('notice' in resolved.details, false)
+
+  const voided = requestResolvedActivity(
+    { ...record, status: 'void', resolutionMessage: '已作废。', resolvedAt: NOW_ISO, resolvedBy: 'user' },
+    { action: null },
+    NOW,
+  )
+  assert.equal(voided.details.action, null)
+  assert.equal(voided.details.status, 'void')
 })

@@ -765,7 +765,16 @@ function hostCurrentModelRoute(ctx: Context): () => CurrentModelRoute | null {
   }
 }
 
-/** The seven panel routes' shared ports; production and the M12 probe use the same ones. */
+/**
+ * The host session controller's desktop file-browser method (stage-0 probe 2).
+ * Structural because the plugin cannot import the app's own session types; a
+ * host without it answers `inbox/open-unsupported` at the open route.
+ */
+interface HostSessionOpener {
+  openWorkspacePath?(request: { path: string; action?: 'reveal' }): Promise<unknown>
+}
+
+/** The ten panel routes' shared ports; production and the M12 probe use the same ones. */
 function createPanelPorts(
   ctx: Context,
   assembly: CoworkAssemblyHost,
@@ -803,6 +812,15 @@ function createPanelPorts(
       sessions: assembly.sessionController,
       workspaces: assembly.workspaceRegistry,
     }).promptSession(sessionId, text),
+    // The inbox open route is the only caller: the browser sends a request or
+    // notice id, the host file browser is handed the resolved absolute path.
+    openWorkspacePath: async (path) => {
+      const opener = assembly.sessionController as unknown as HostSessionOpener
+      if (typeof opener.openWorkspacePath !== 'function') {
+        throw new Error('the host session controller exposes no openWorkspacePath')
+      }
+      await opener.openWorkspacePath({ path, action: 'reveal' })
+    },
     noticePort: notices.port,
     kickNotices: (repoPath) => notices.kick(repoPath),
     log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
@@ -930,8 +948,8 @@ export function apply(ctx: Context, config: Config): void {
     notices: noticeRuntime,
   }
 
-  // M11 panel: three read routes and four write routes over the host connection
-  // service. The project root is derived from the session's own cwd, never from
+  // M11 panel: four read routes and six write routes over the host connection
+  // service (the request inbox adds its read, resolve, and open routes). The project root is derived from the session's own cwd, never from
   // the request.
   const panelPorts = createPanelPorts(ctx, assembly, settings, noticeRuntime)
   registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
