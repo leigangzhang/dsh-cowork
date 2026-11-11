@@ -12,7 +12,6 @@
     --line: #e4e7ec;
     --line-soft: #eef0f3;
     --canvas: #eef1f5;
-    --card: #ffffff;
     --blue: #175cd3;
     --blue-soft: #eff6ff;
     --red: #b42318;
@@ -21,6 +20,8 @@
     --amber-soft: #fffaeb;
     --green: #067647;
     --green-soft: #ecfdf3;
+    --purple: #6941c6;
+    --purple-soft: #f4f3ff;
     --gray-soft: #f2f4f7;
   }
   * { box-sizing: border-box; }
@@ -73,16 +74,12 @@
     cursor: pointer;
     white-space: nowrap;
   }
-  .seg button[aria-pressed="true"] {
-    background: #101828;
-    color: #fff;
-    font-weight: 600;
-  }
+  .seg button[aria-pressed="true"] { background: #101828; color: #fff; font-weight: 600; }
 
   .app {
     display: flex;
     width: 1444px;
-    height: 860px;
+    height: 950px;
     overflow: hidden;
     border: 1px solid #dfe3e8;
     border-radius: 18px;
@@ -248,6 +245,7 @@
     background: linear-gradient(180deg, #fff7f7 0%, #fef3f2 100%);
     box-shadow: 0 1px 2px rgba(180,35,24,.04);
   }
+  .needs-you.is-clear { border-color: #abefc6; background: #f6fef9; }
   .needs-you-left { display: flex; align-items: center; gap: 9px; min-width: 0; }
   .needs-you-icon {
     width: 24px;
@@ -261,15 +259,19 @@
     font-weight: 800;
     font-size: 13px;
   }
+  .needs-you.is-clear .needs-you-icon { background: var(--green-soft); color: var(--green); }
   .needs-you-title { font-size: 12px; font-weight: 700; color: #912018; }
+  .needs-you.is-clear .needs-you-title { color: var(--green); }
   .needs-you-sub { font-size: 10.5px; color: #b42318; margin-top: 1px; }
+  .needs-you.is-clear .needs-you-sub { color: var(--green); }
   .needs-you-go { color: #b42318; font-size: 15px; }
+  .needs-you.is-clear .needs-you-go { color: var(--green); }
 
   .sidebar-body {
     flex: 1 1 auto;
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 344px;
+    grid-template-columns: 318px minmax(0, 1fr);
     gap: 12px;
     padding: 8px 12px 12px;
   }
@@ -278,7 +280,7 @@
 
   .section-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 8px;
     padding: 2px 2px 8px;
@@ -293,94 +295,49 @@
     font-size: 10px;
     text-align: center;
     line-height: 18px;
+    margin-left: 4px;
+    display: inline-block;
   }
   .section-hint { font-size: 10px; color: var(--soft); }
+  .filter-pill {
+    display: none;
+    align-items: center;
+    gap: 5px;
+    max-width: 240px;
+    padding: 2px 4px 2px 8px;
+    border: 1px solid #b2ddff;
+    border-radius: 99px;
+    background: var(--blue-soft);
+    color: var(--blue);
+    font-size: 10px;
+  }
+  .filter-pill.on { display: inline-flex; }
+  .filter-pill span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .filter-pill button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    padding: 0 2px;
+  }
 
-  .reminder-column, .topic-column {
+  .topic-column, .reminder-column {
     min-width: 0;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
     scrollbar-width: thin;
   }
-  .reminder-column::-webkit-scrollbar, .topic-column::-webkit-scrollbar { width: 6px; }
-  .reminder-column::-webkit-scrollbar-thumb, .topic-column::-webkit-scrollbar-thumb {
+  .topic-column::-webkit-scrollbar, .reminder-column::-webkit-scrollbar { width: 6px; }
+  .topic-column::-webkit-scrollbar-thumb, .reminder-column::-webkit-scrollbar-thumb {
     background: #d0d5dd;
     border-radius: 99px;
   }
 
-  .reminder-list { display: flex; flex-direction: column; gap: 9px; padding-bottom: 4px; }
-  .reminder-card {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    padding: 11px 12px 9px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: #fff;
-    box-shadow: 0 1px 2px rgba(16,24,40,.03);
-  }
-  .reminder-card:hover { border-color: #cfd6e0; box-shadow: 0 3px 10px rgba(16,24,40,.05); }
-  .reminder-card[data-kind="assignment"] { border-left: 2px solid #84adff; }
-  .reminder-card[data-kind="report"] { border-left: 2px solid #75e0a7; }
-  .reminder-card[data-kind="proposal"] { border-left: 2px solid #fdb022; }
-  .reminder-card[data-kind="authorization"] { border-left: 2px solid #fda29b; }
-  .reminder-card[data-kind="archive"] { border-left: 2px solid #d0d5dd; }
-  .reminder-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .reminder-type { display: flex; align-items: center; gap: 7px; min-width: 0; }
-  .type-icon {
-    width: 22px;
-    height: 22px;
-    flex: none;
-    display: grid;
-    place-items: center;
-    border-radius: 7px;
-    font-size: 12px;
-    font-weight: 800;
-  }
-  .type-icon svg { width: 12px; height: 12px; }
-  .reminder-card[data-kind="assignment"] .type-icon { background: var(--blue-soft); color: var(--blue); }
-  .reminder-card[data-kind="report"] .type-icon { background: var(--green-soft); color: var(--green); }
-  .reminder-card[data-kind="proposal"] .type-icon { background: var(--amber-soft); color: var(--amber); }
-  .reminder-card[data-kind="authorization"] .type-icon { background: var(--red-soft); color: var(--red); }
-  .reminder-card[data-kind="archive"] .type-icon { background: var(--gray-soft); color: #475467; }
-  .type-label { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: #475467; }
-  .reminder-time { font-size: 10px; color: var(--soft); white-space: nowrap; }
-  .reminder-title { font-size: 12.5px; font-weight: 650; color: #1d2939; line-height: 1.45; }
-  .reminder-summary { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
-  .reminder-foot {
-    margin-top: 2px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    color: var(--soft);
-    font-size: 10px;
-  }
-  .reminder-link {
-    border: 0;
-    padding: 0;
-    background: transparent;
-    color: var(--blue);
-    font: inherit;
-    font-size: 10.5px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .reminder-link:hover { text-decoration: underline; }
-  .reminder-link[disabled] { color: #98a2b3; cursor: not-allowed; text-decoration: none; }
-  .sync-dot {
-    display: inline-block;
-    width: 5px;
-    height: 5px;
-    margin-right: 5px;
-    border-radius: 99px;
-    background: #12b76a;
-    vertical-align: 1px;
-  }
-
-  .topic-list { display: flex; flex-direction: column; gap: 9px; }
-  .topic-group { margin-bottom: 2px; }
+  .topic-list { display: flex; flex-direction: column; gap: 9px; padding-bottom: 4px; }
+  .topic-group { margin-bottom: 1px; }
   .group-head {
     display: flex;
     align-items: center;
@@ -401,11 +358,21 @@
     border-radius: 11px;
     background: #fff;
     box-shadow: 0 1px 2px rgba(16,24,40,.02);
+    cursor: pointer;
+    transition: border-color .12s ease, box-shadow .12s ease, background .12s ease;
+    outline: none;
   }
   .topic-card[data-group="blocked"] { border-color: #fda29b; }
   .topic-card[data-group="running"] { border-color: #75e0a7; }
   .topic-card[data-group="idle"] { border-color: #d0d5dd; }
   .topic-card[data-group="resolved"] { border-color: #e4e7ec; background: #fcfcfd; }
+  .topic-card:hover { box-shadow: 0 3px 10px rgba(16,24,40,.06); }
+  .topic-card.is-active {
+    border-color: #84adff;
+    background: #f5f9ff;
+    box-shadow: 0 0 0 2px rgba(132,173,255,.28);
+  }
+  .topic-card:focus-visible { box-shadow: 0 0 0 2px rgba(132,173,255,.5); }
   .topic-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .topic-title { font-size: 12px; font-weight: 650; color: #1d2939; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .topic-marker {
@@ -457,6 +424,103 @@
     font-size: 10px;
   }
 
+  .reminder-list { display: flex; flex-direction: column; gap: 9px; padding-bottom: 4px; }
+  .reminder-card[hidden] { display: none; }
+  .reminder-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 12px 9px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(16,24,40,.03);
+    transition: opacity .15s ease, background .15s ease;
+  }
+  .reminder-card:hover { border-color: #cfd6e0; box-shadow: 0 3px 10px rgba(16,24,40,.05); }
+  .reminder-card[data-kind="assignment"] { border-left: 2px solid #84adff; }
+  .reminder-card[data-kind="report"] { border-left: 2px solid #75e0a7; }
+  .reminder-card[data-kind="proposal"] { border-left: 2px solid #fdb022; }
+  .reminder-card[data-kind="review"] { border-left: 2px solid #b692f6; }
+  .reminder-card[data-kind="authorization"] { border-left: 2px solid #fda29b; }
+  .reminder-card[data-kind="archive"] { border-left: 2px solid #d0d5dd; }
+  .reminder-card.is-done { background: #fcfcfd; opacity: .72; }
+  .reminder-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .reminder-type { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .type-icon {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .type-icon svg { width: 12px; height: 12px; }
+  .reminder-card[data-kind="assignment"] .type-icon { background: var(--blue-soft); color: var(--blue); }
+  .reminder-card[data-kind="report"] .type-icon { background: var(--green-soft); color: var(--green); }
+  .reminder-card[data-kind="proposal"] .type-icon { background: var(--amber-soft); color: var(--amber); }
+  .reminder-card[data-kind="review"] .type-icon { background: var(--purple-soft); color: var(--purple); }
+  .reminder-card[data-kind="authorization"] .type-icon { background: var(--red-soft); color: var(--red); }
+  .reminder-card[data-kind="archive"] .type-icon { background: var(--gray-soft); color: #475467; }
+  .type-label { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: #475467; }
+  .reminder-time { font-size: 10px; color: var(--soft); white-space: nowrap; }
+  .reminder-title { font-size: 12.5px; font-weight: 650; color: #1d2939; line-height: 1.45; }
+  .reminder-summary { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .reminder-foot {
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--soft);
+    font-size: 10px;
+  }
+  .reminder-actions { display: flex; align-items: center; gap: 5px; }
+  .act {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: #475467;
+    font: inherit;
+    font-size: 10px;
+    padding: 2px 7px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .act:hover { background: #f9fafb; }
+  .act.allow { border-color: #abefc6; background: var(--green-soft); color: var(--green); }
+  .act.deny { border-color: #fecdca; background: var(--red-soft); color: var(--red); }
+  .act.primary { border-color: #b2ddff; background: var(--blue-soft); color: var(--blue); }
+  .act:disabled { opacity: .45; cursor: not-allowed; }
+  .card-status {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 99px;
+    background: var(--gray-soft);
+    color: #475467;
+    font-size: 9.5px;
+    white-space: nowrap;
+  }
+  .reminder-card.is-done .card-status { display: inline-flex; }
+  .reminder-card.is-done .reminder-actions .act { display: none; }
+  .empty-filter {
+    display: none;
+    margin: 10px 2px;
+    padding: 18px 12px;
+    border: 1px dashed #d0d5dd;
+    border-radius: 12px;
+    background: #fff;
+    color: var(--soft);
+    font-size: 11px;
+    text-align: center;
+  }
+  .empty-filter.on { display: block; }
+
   .footnote {
     margin: 8px 4px 0;
     color: #667085;
@@ -482,7 +546,7 @@
   <header class="demo-bar">
     <div>
       <div class="demo-title">Cowork 侧栏提醒卡片 · 宽屏演示</div>
-      <div class="demo-sub">宽侧栏用多出来的横向空间放提醒卡片；窄侧栏回到当前的主题列表。静态演示，不接真实数据。</div>
+      <div class="demo-sub">宽侧栏左侧主题、右侧提醒；默认展示主会话全部题型。点主题筛选该主题的提醒，再点一次取消。静态演示，不接真实数据。</div>
     </div>
     <div class="demo-controls">
       <span class="demo-note">宽 ≥ 620px 显示提醒列</span>
@@ -516,7 +580,7 @@
         </div>
         <div class="row">
           <div class="avatar assistant">C</div>
-          <div class="bubble">收到。我会把这件事交给一个主题会话，进度和待确认的事项会出现在右侧提醒里。</div>
+          <div class="bubble">收到。我会把这件事交给一个主题会话，进度、审核和待确认的事项都会出现在右侧提醒里。</div>
         </div>
         <div class="row">
           <div class="avatar assistant">C</div>
@@ -542,138 +606,38 @@
         <div>
           <div class="sidebar-eyebrow">Cowork</div>
           <div class="sidebar-title">工作区 · dsh-cowork</div>
-          <div class="sidebar-sub">侧栏展开后，提醒和主题并排显示</div>
+          <div class="sidebar-sub">主题列表在左，提醒在右；点主题可筛选</div>
         </div>
         <div class="head-actions">
           <button type="button" class="refresh">刷新</button>
         </div>
       </header>
 
-      <div class="needs-you">
+      <div class="needs-you" id="needsYou">
         <div class="needs-you-left">
-          <div class="needs-you-icon">!</div>
+          <div class="needs-you-icon" id="needsYouIcon">!</div>
           <div>
-            <div class="needs-you-title">需要你处理 1 项</div>
-            <div class="needs-you-sub">待授权 · 五子棋小游戏</div>
+            <div class="needs-you-title" id="needsYouTitle">需要你处理 1 项</div>
+            <div class="needs-you-sub" id="needsYouSub">待授权 · 五子棋小游戏</div>
           </div>
         </div>
-        <div class="needs-you-go">→</div>
+        <div class="needs-you-go" id="needsYouGo">→</div>
       </div>
 
       <div class="sidebar-body">
-        <section class="reminder-column" aria-label="提醒">
-          <div class="section-head">
-            <div>
-              <span class="section-title">提醒</span>
-              <span class="section-count">5</span>
-            </div>
-            <span class="section-hint">按时间从新到旧</span>
-          </div>
-
-          <div class="reminder-list">
-            <article class="reminder-card" data-kind="assignment">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v9"/><path d="m5 9 3 3 3-3"/></svg>
-                  </span>
-                  <span class="type-label">分配</span>
-                </div>
-                <span class="reminder-time">14:02</span>
-              </div>
-              <div class="reminder-title">已分配主题「五子棋小游戏」</div>
-              <div class="reminder-summary">把「做一个五子棋小游戏」交给主题会话。</div>
-              <div class="reminder-foot">
-                <span><span class="sync-dot"></span>事件 1 · 已同步主题会话</span>
-                <button type="button" class="reminder-link">打开主题</button>
-              </div>
-            </article>
-
-            <article class="reminder-card" data-kind="report">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V4"/><path d="m5 7 3-3 3 3"/></svg>
-                  </span>
-                  <span class="type-label">上报</span>
-                </div>
-                <span class="reminder-time">14:05</span>
-              </div>
-              <div class="reminder-title">主题上报：初版棋盘完成</div>
-              <div class="reminder-summary">可以落子，棋盘 15×15。</div>
-              <div class="reminder-foot">
-                <span><span class="sync-dot"></span>事件 2 · 已同步主题会话</span>
-                <button type="button" class="reminder-link">打开主题</button>
-              </div>
-            </article>
-
-            <article class="reminder-card" data-kind="report">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V4"/><path d="m5 7 3-3 3 3"/></svg>
-                  </span>
-                  <span class="type-label">上报</span>
-                </div>
-                <span class="reminder-time">14:09</span>
-              </div>
-              <div class="reminder-title">主题上报：等待确认棋盘尺寸</div>
-              <div class="reminder-summary">暂按 15×15，可以调整。</div>
-              <div class="reminder-foot">
-                <span><span class="sync-dot"></span>事件 3 · 已同步主题会话</span>
-                <button type="button" class="reminder-link">打开主题</button>
-              </div>
-            </article>
-
-            <article class="reminder-card" data-kind="proposal">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m8 2.4 5.6 5.6L8 13.6 2.4 8 8 2.4Z"/></svg>
-                  </span>
-                  <span class="type-label">决策提案</span>
-                </div>
-                <span class="reminder-time">14:12</span>
-              </div>
-              <div class="reminder-title">决策提案已生成并上报</div>
-              <div class="reminder-summary">评审请求挂到工作项详情。</div>
-              <div class="reminder-foot">
-                <span><span class="sync-dot"></span>事件 4 · 已同步主题会话</span>
-                <button type="button" class="reminder-link" disabled title="工作项页面尚未实现">去工作项查看</button>
-              </div>
-            </article>
-
-            <article class="reminder-card" data-kind="authorization">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">!</span>
-                  <span class="type-label">待授权</span>
-                </div>
-                <span class="reminder-time">14:18</span>
-              </div>
-              <div class="reminder-title">待授权：是否允许读取浏览器登录态</div>
-              <div class="reminder-summary">用于生成个人主页文案。</div>
-              <div class="reminder-foot">
-                <span><span class="sync-dot"></span>事件 5 · 需要你处理</span>
-                <button type="button" class="reminder-link">去主题会话处理</button>
-              </div>
-            </article>
-          </div>
-        </section>
-
         <section class="topic-column" aria-label="主题">
           <div class="section-head">
             <div>
               <span class="section-title">主题</span>
               <span class="section-count">7</span>
             </div>
-            <span class="section-hint">按状态分组</span>
+            <span class="section-hint">点击筛选提醒</span>
           </div>
 
           <div class="topic-list">
             <div class="topic-group">
               <div class="group-head"><strong>阻塞</strong><span class="group-count">2</span></div>
-              <article class="topic-card" data-group="blocked">
+              <article class="topic-card" data-topic-id="gomoku" data-topic-name="五子棋小游戏" data-group="blocked" role="button" tabindex="0" aria-pressed="false">
                 <div class="topic-title-row">
                   <span class="topic-title">五子棋小游戏</span>
                   <span class="topic-marker auth">待授权</span>
@@ -681,7 +645,7 @@
                 <div class="topic-summary">等待授权：是否允许读取浏览器登录态。</div>
                 <div class="topic-foot"><span>6 分钟前</span><button type="button" class="more" aria-label="更多">⋯</button></div>
               </article>
-              <article class="topic-card" data-group="blocked" style="margin-top:8px">
+              <article class="topic-card" data-topic-id="github" data-topic-name="接入 GitHub 主页内容" data-group="blocked" role="button" tabindex="0" aria-pressed="false" style="margin-top:8px">
                 <div class="topic-title-row">
                   <span class="topic-title">接入 GitHub 主页内容</span>
                   <span class="topic-marker waiting">等待主会话</span>
@@ -693,19 +657,19 @@
 
             <div class="topic-group">
               <div class="group-head"><strong>运行中</strong><span class="group-count">1</span></div>
-              <article class="topic-card" data-group="running">
+              <article class="topic-card" data-topic-id="bio" data-topic-name="整理个人主页文案" data-group="running" role="button" tabindex="0" aria-pressed="false">
                 <div class="topic-title-row">
                   <span class="topic-title">整理个人主页文案</span>
                   <button type="button" class="more" aria-label="更多">⋯</button>
                 </div>
-                <div class="topic-summary">首版 Bio 已生成并上报，等待在工作项查看。</div>
+                <div class="topic-summary">首版 Bio 已生成并上报，等待审核后合并。</div>
                 <div class="topic-foot"><span>8 分钟前</span></div>
               </article>
             </div>
 
             <div class="topic-group">
               <div class="group-head"><strong>空闲</strong><span class="group-count">1</span></div>
-              <article class="topic-card" data-group="idle">
+              <article class="topic-card" data-topic-id="website" data-topic-name="个人网站结构讨论" data-group="idle" role="button" tabindex="0" aria-pressed="false">
                 <div class="topic-title-row">
                   <span class="topic-title">个人网站结构讨论</span>
                   <button type="button" class="more" aria-label="更多">⋯</button>
@@ -721,25 +685,256 @@
             </button>
           </div>
         </section>
+
+        <section class="reminder-column" aria-label="提醒">
+          <div class="section-head">
+            <div>
+              <span class="section-title" id="reminderTitle">提醒 · 全部类型</span>
+              <span class="section-count" id="reminderCount">6</span>
+              <span class="filter-pill" id="filterPill">
+                <span id="filterText">五子棋小游戏</span>
+                <button type="button" id="clearFilter" aria-label="取消筛选">×</button>
+              </span>
+            </div>
+            <span class="section-hint" id="reminderHint">按时间从新到旧</span>
+          </div>
+
+          <div class="reminder-list" id="reminderList">
+            <article class="reminder-card" data-kind="assignment" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v9"/><path d="m5 9 3 3 3-3"/></svg>
+                  </span>
+                  <span class="type-label">分配</span>
+                </div>
+                <span class="reminder-time">14:02</span>
+              </div>
+              <div class="reminder-title">已分配主题「五子棋小游戏」</div>
+              <div class="reminder-summary">把「做一个五子棋小游戏」交给主题会话。</div>
+              <div class="reminder-foot">
+                <span>事件 1 · 已同步主题会话</span>
+                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
+              </div>
+              <span class="card-status">已读</span>
+            </article>
+
+            <article class="reminder-card" data-kind="report" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V4"/><path d="m5 7 3-3 3 3"/></svg>
+                  </span>
+                  <span class="type-label">上报</span>
+                </div>
+                <span class="reminder-time">14:05</span>
+              </div>
+              <div class="reminder-title">主题上报：初版棋盘完成</div>
+              <div class="reminder-summary">可以落子，棋盘 15×15。</div>
+              <div class="reminder-foot">
+                <span>事件 2 · 已同步主题会话</span>
+                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
+              </div>
+              <span class="card-status">已读</span>
+            </article>
+
+            <article class="reminder-card" data-kind="proposal" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m8 2.4 5.6 5.6L8 13.6 2.4 8 8 2.4Z"/></svg>
+                  </span>
+                  <span class="type-label">决策提案</span>
+                </div>
+                <span class="reminder-time">14:12</span>
+              </div>
+              <div class="reminder-title">决策提案已生成并上报</div>
+              <div class="reminder-summary">评审请求挂到工作项详情，等待审阅。</div>
+              <div class="reminder-foot">
+                <span>事件 3 · 已同步主题会话</span>
+                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
+              </div>
+              <span class="card-status">已读</span>
+            </article>
+
+            <article class="reminder-card" data-kind="review" data-topic="bio" data-topic-name="整理个人主页文案">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">✓</span>
+                  <span class="type-label">评审</span>
+                </div>
+                <span class="reminder-time">14:15</span>
+              </div>
+              <div class="reminder-title">评审待处理：个人主页 Bio</div>
+              <div class="reminder-summary">改动 2 个文件，验证命令已跑过，等待通过或退回。</div>
+              <div class="reminder-foot">
+                <span>事件 4 · 等待审核</span>
+                <span class="reminder-actions">
+                  <button type="button" class="act allow" data-action="pass">通过</button>
+                  <button type="button" class="act deny" data-action="return">退回</button>
+                </span>
+              </div>
+              <span class="card-status">已通过</span>
+            </article>
+
+            <article class="reminder-card" data-kind="authorization" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">!</span>
+                  <span class="type-label">待授权</span>
+                </div>
+                <span class="reminder-time">14:18</span>
+              </div>
+              <div class="reminder-title">待授权：是否允许读取浏览器登录态</div>
+              <div class="reminder-summary">用于生成个人主页文案。</div>
+              <div class="reminder-foot">
+                <span>事件 5 · 需要你处理</span>
+                <span class="reminder-actions">
+                  <button type="button" class="act allow" data-action="allow">允许</button>
+                  <button type="button" class="act deny" data-action="deny">拒绝</button>
+                </span>
+              </div>
+              <span class="card-status">已允许</span>
+            </article>
+
+            <article class="reminder-card" data-kind="archive" data-topic="website" data-topic-name="个人网站结构讨论">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">✓</span>
+                  <span class="type-label">归档</span>
+                </div>
+                <span class="reminder-time">14:20</span>
+              </div>
+              <div class="reminder-title">主题已归档：个人网站结构讨论</div>
+              <div class="reminder-summary">用户从主题卡菜单归档，已解决。</div>
+              <div class="reminder-foot">
+                <span>事件 6 · 只给主会话</span>
+                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
+              </div>
+              <span class="card-status">已读</span>
+            </article>
+          </div>
+          <div class="empty-filter" id="emptyFilter">这个主题暂时没有提醒。</div>
+        </section>
       </div>
     </aside>
   </div>
 
   <p class="footnote">
-    提醒列只在宽侧栏出现；窄侧栏回到当前的单列主题列表。卡片字段：类型 / 标题 / 摘要 / 时间 / 事件号；待授权卡片的操作是打开主题会话，不在侧栏直接允许或拒绝。
+    宽侧栏左侧是主题、右侧是提醒；默认展示主会话所有题型。点击主题只保留该主题的提醒，再点同一个主题取消筛选。简单提醒用“知道了”收起，评审和授权直接在卡片里操作，不反复跳转。
   </p>
 </div>
 
 <script>
   const sidebar = document.getElementById('sidebar');
-  const buttons = [...document.querySelectorAll('[data-width]')];
-  for (const button of buttons) {
+  const widthButtons = [...document.querySelectorAll('[data-width]')];
+  const topicCards = [...document.querySelectorAll('.topic-card[data-topic-id]')];
+  const reminderCards = [...document.querySelectorAll('.reminder-card')];
+  const reminderTitle = document.getElementById('reminderTitle');
+  const reminderCount = document.getElementById('reminderCount');
+  const filterPill = document.getElementById('filterPill');
+  const filterText = document.getElementById('filterText');
+  const clearFilter = document.getElementById('clearFilter');
+  const emptyFilter = document.getElementById('emptyFilter');
+  const needsYou = document.getElementById('needsYou');
+  const needsYouTitle = document.getElementById('needsYouTitle');
+  const needsYouSub = document.getElementById('needsYouSub');
+  const needsYouIcon = document.getElementById('needsYouIcon');
+  const needsYouGo = document.getElementById('needsYouGo');
+  let selectedTopic = null;
+
+  for (const button of widthButtons) {
     button.addEventListener('click', () => {
-      const width = button.dataset.width;
-      sidebar.dataset.width = width;
-      for (const other of buttons) other.setAttribute('aria-pressed', String(other === button));
+      sidebar.dataset.width = button.dataset.width;
+      for (const other of widthButtons) other.setAttribute('aria-pressed', String(other === button));
     });
   }
+
+  function topicName(topicId) {
+    const card = topicCards.find(item => item.dataset.topicId === topicId);
+    return card ? card.dataset.topicName : '';
+  }
+
+  function applyFilter() {
+    const matching = reminderCards.filter(card => selectedTopic === null || card.dataset.topic === selectedTopic);
+    for (const card of reminderCards) card.hidden = !matching.includes(card);
+    const pending = matching.filter(card => !card.classList.contains('is-done'));
+    reminderCount.textContent = String(pending.length);
+    reminderTitle.textContent = selectedTopic === null
+      ? '提醒 · 全部类型'
+      : `提醒 · ${topicName(selectedTopic)}`;
+    filterPill.classList.toggle('on', selectedTopic !== null);
+    filterText.textContent = selectedTopic === null ? '' : topicName(selectedTopic);
+    emptyFilter.classList.toggle('on', matching.length === 0);
+    for (const card of topicCards) {
+      const active = card.dataset.topicId === selectedTopic;
+      card.classList.toggle('is-active', active);
+      card.setAttribute('aria-pressed', String(active));
+    }
+  }
+
+  function selectTopic(topicId) {
+    selectedTopic = selectedTopic === topicId ? null : topicId;
+    applyFilter();
+  }
+
+  for (const card of topicCards) {
+    card.addEventListener('click', event => {
+      if (event.target.closest('.more')) return;
+      selectTopic(card.dataset.topicId);
+    });
+    card.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      selectTopic(card.dataset.topicId);
+    });
+  }
+
+  clearFilter.addEventListener('click', () => {
+    selectedTopic = null;
+    applyFilter();
+  });
+
+  function markDone(card, label) {
+    card.classList.add('is-done');
+    const status = card.querySelector('.card-status');
+    if (status) status.textContent = label;
+    for (const button of card.querySelectorAll('button')) button.disabled = true;
+    applyFilter();
+  }
+
+  for (const button of document.querySelectorAll('[data-action]')) {
+    button.addEventListener('click', () => {
+      const card = button.closest('.reminder-card');
+      const action = button.dataset.action;
+      if (action === 'ack') {
+        markDone(card, '已读');
+        return;
+      }
+      if (action === 'pass') {
+        markDone(card, '已通过');
+        return;
+      }
+      if (action === 'return') {
+        markDone(card, '已退回');
+        return;
+      }
+      if (action === 'allow' || action === 'deny') {
+        markDone(card, action === 'allow' ? '已允许' : '已拒绝');
+        needsYou.classList.add('is-clear');
+        needsYouTitle.textContent = '需要你处理 0 项';
+        needsYouSub.textContent = '所有授权已处理';
+        needsYouIcon.textContent = '✓';
+        needsYouGo.textContent = '✓';
+      }
+    });
+  }
+
+  const initialTopic = new URLSearchParams(location.search).get('topic');
+  if (initialTopic && topicCards.some(card => card.dataset.topicId === initialTopic)) {
+    selectedTopic = initialTopic;
+  }
+  applyFilter();
 </script>
 </body>
 </html>
