@@ -146,6 +146,27 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
   }
 })
 
+test('the request-service split keeps its entry point a thin re-export', () => {
+  const entry = readFileSync(resolve(root, 'src/request-service.ts'), 'utf8')
+  assert.ok(
+    Buffer.byteLength(entry, 'utf8') <= 30 * 1024,
+    `src/request-service.ts is ${Buffer.byteLength(entry, 'utf8')} B; the split target is 30 KiB`,
+  )
+  const lifecycle = readFileSync(resolve(root, 'src/request-lifecycle.ts'), 'utf8')
+  const open = readFileSync(resolve(root, 'src/request-open.ts'), 'utf8')
+  const decision = readFileSync(resolve(root, 'src/authorization-decision.ts'), 'utf8')
+  assert.match(lifecycle, /export async function createRequest\(/)
+  assert.match(lifecycle, /export async function resolveRequest\(/)
+  assert.match(decision, /export async function resolveAuthorizationDecision\(/)
+  assert.match(decision, /export async function settleAuthorizationRequestRecord\(/)
+  assert.match(open, /export async function openRequestTarget\(/)
+  // The entry point only re-exports: no implementation lives there any more.
+  assert.equal(/\basync function |\bfunction /m.test(entry), false, 'src/request-service.ts holds no implementation')
+  assert.match(entry, /export \{ createRequest, promptRequestTopic, resolveRequest \}/)
+  assert.match(entry, /export \{ openRequestTarget \}/)
+  assert.match(entry, /export \{\s*\n  resolveAuthorizationDecision,\s*\n  settleAuthorizationRequestRecord,/)
+})
+
 test('the legacy keyword router is gone and nothing imports it', () => {
   assert.equal(existsSync(resolve(root, 'src/router.ts')), false, 'src/router.ts must be deleted')
   for (const file of sourceFiles(srcRoot)) {
