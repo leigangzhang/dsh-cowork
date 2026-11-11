@@ -590,6 +590,7 @@
     font-weight: 700;
     letter-spacing: .04em;
   }
+  .approval-body .card-expand { margin-top: 7px; }
   .card-expand {
     display: flex;
     align-items: center;
@@ -720,6 +721,7 @@
   }
   .approval-body, .plan-body { padding: 14px; }
   .approval-body p { margin: 0; color: #1d2939; font-size: 13px; line-height: 1.55; }
+  .review-title { margin-bottom: 4px; color: #101828; font-size: 14px; font-weight: 650; }
   .approval-body strong { font-weight: 700; }
   .approval-body code {
     display: block;
@@ -1058,27 +1060,22 @@
               <button type="button" class="note-link" data-placeholder="工作项页面尚未实现">查看提案</button>
             </div>
 
-            <article class="reminder-card" data-kind="review" data-topic="bio" data-topic-name="整理个人主页文案" data-actionable="true">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">✓</span>
-                  <span class="type-label">评审</span>
+            <article class="approval-card" data-kind="review" data-topic="bio" data-topic-name="整理个人主页文案" data-actionable="true">
+              <div class="approval-head"><span class="approval-label"><span class="amber-dot"></span>等待审核</span></div>
+              <div class="approval-body">
+                <div class="review-title">评审：个人主页 Bio</div>
+                <p>首版 Bio 已生成，等待审核后合并。</p>
+                <button type="button" class="card-expand" data-expand="review-details" aria-expanded="false">待审核摘要 <span>展开</span></button>
+                <div class="card-detail" id="review-details" hidden>
+                  <div class="detail-line"><span>目的</span><span>个人主页首版 Bio</span></div>
+                  <div class="detail-line"><span>改动</span><span>2 个文件 · +48 / −12</span></div>
+                  <div class="detail-line"><span>验证</span><span>npm test · 845 passed</span></div>
                 </div>
-                <span class="reminder-time">14:15</span>
               </div>
-              <div class="reminder-title">评审待处理：个人主页 Bio</div>
-              <div class="reminder-summary">首版 Bio 已生成，等待评审后合并。</div>
-              <button type="button" class="card-expand" data-expand="review-details" aria-expanded="false">待审核摘要 <span>展开</span></button>
-              <div class="card-detail" id="review-details" hidden>
-                <div class="detail-line"><span>目的</span><span>个人主页首版 Bio</span></div>
-                <div class="detail-line"><span>改动</span><span>2 个文件 · +48 / −12</span></div>
-                <div class="detail-line"><span>验证</span><span>npm test · 845 passed</span></div>
+              <div class="approval-actions">
+                <button type="button" class="btn-ghost" data-action="return">退回</button>
+                <button type="button" class="btn-dark" data-action="pass">通过</button>
               </div>
-              <div class="review-actions">
-                <button type="button" class="review-btn pass" data-action="pass">通过</button>
-                <button type="button" class="review-btn return" data-action="return">退回</button>
-              </div>
-              <div class="reminder-foot"><span>事件 4 · 等待审核</span></div>
               <span class="card-status">已通过</span>
             </article>
 
