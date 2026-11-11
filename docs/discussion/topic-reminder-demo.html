@@ -80,7 +80,7 @@
     position: relative;
     display: flex;
     width: 1444px;
-    height: 1600px;
+    height: 1800px;
     overflow: hidden;
     border: 1px solid #dfe3e8;
     border-radius: 18px;
@@ -873,6 +873,39 @@
   .ask-card.is-done .ask-answer,
   .ask-card.is-done .ask-foot { display: none; }
 
+  .request-thread { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .thread-msg { display: flex; align-items: flex-start; gap: 8px; }
+  .thread-msg.out { flex-direction: row-reverse; }
+  .thread-avatar {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: #e9f1ff;
+    color: var(--blue);
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .thread-avatar.user { background: #101828; color: #fff; }
+  .thread-bubble {
+    max-width: 86%;
+    padding: 8px 11px;
+    border-radius: 12px;
+    background: #f2f4f7;
+    color: #344054;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .thread-msg.in .thread-bubble { border-bottom-left-radius: 4px; }
+  .thread-msg.out .thread-bubble {
+    border-bottom-right-radius: 4px;
+    background: #eff8ff;
+    color: #1849a9;
+  }
+  .thread-msg[hidden] { display: none; }
+
   .footnote {
     margin: 8px 4px 0;
     color: #667085;
@@ -1060,11 +1093,12 @@
               <button type="button" class="note-link" data-placeholder="工作项页面尚未实现">查看提案</button>
             </div>
 
+            <div class="request-thread" data-topic="bio" data-topic-name="整理个人主页文案">
+              <div class="thread-msg in"><div class="thread-avatar">题</div><div class="thread-bubble">我提交了个人主页 Bio 的评审，帮我看一下。</div></div>
             <article class="approval-card" data-kind="review" data-topic="bio" data-topic-name="整理个人主页文案" data-actionable="true">
               <div class="approval-head"><span class="approval-label"><span class="amber-dot"></span>等待审核</span></div>
               <div class="approval-body">
-                <div class="review-title">评审：个人主页 Bio</div>
-                <p>首版 Bio 已生成，等待审核后合并。</p>
+                <p>个人主页 Bio 的首版已生成，等待审核后合并。</p>
                 <button type="button" class="card-expand" data-expand="review-details" aria-expanded="false">待审核摘要 <span>展开</span></button>
                 <div class="card-detail" id="review-details" hidden>
                   <div class="detail-line"><span>目的</span><span>个人主页首版 Bio</span></div>
@@ -1078,7 +1112,11 @@
               </div>
               <span class="card-status">已通过</span>
             </article>
+              <div class="thread-msg out" hidden><div class="thread-bubble"></div><div class="thread-avatar user">你</div></div>
+            </div>
 
+            <div class="request-thread" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              <div class="thread-msg in"><div class="thread-avatar">题</div><div class="thread-bubble">这次操作需要 danger-full-access 权限，请确认。</div></div>
             <article class="approval-card" data-kind="authorization" data-topic="gomoku" data-topic-name="五子棋小游戏" data-actionable="true">
               <div class="approval-head"><span class="approval-label"><span class="amber-dot"></span>等待审批</span></div>
               <div class="approval-body">
@@ -1091,7 +1129,11 @@
               </div>
               <span class="card-status">已允许</span>
             </article>
+              <div class="thread-msg out" hidden><div class="thread-bubble"></div><div class="thread-avatar user">你</div></div>
+            </div>
 
+            <div class="request-thread" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              <div class="thread-msg in"><div class="thread-avatar">题</div><div class="thread-bubble">有一个问题需要你选：接下来做什么？</div></div>
             <article class="ask-card" data-kind="question" data-topic="gomoku" data-topic-name="五子棋小游戏" data-actionable="true">
               <div class="ask-card-head"><span>弹窗演示</span><span class="ask-head-icons">⌄&nbsp;&nbsp;×</span></div>
               <p class="ask-question">这是一次 ask-user 提问弹窗的演练。选一个你希望我在本会话里接着做的方向（选完我会按选择执行；选「不用做」我就停在这里）。</p>
@@ -1119,7 +1161,11 @@
               </div>
               <span class="card-status">已提交</span>
             </article>
+              <div class="thread-msg out" hidden><div class="thread-bubble"></div><div class="thread-avatar user">你</div></div>
+            </div>
 
+            <div class="request-thread" data-topic="bio" data-topic-name="整理个人主页文案">
+              <div class="thread-msg in"><div class="thread-avatar">题</div><div class="thread-bubble">这次同时问三件事，先确认范围。</div></div>
             <article class="ask-card" data-kind="question" data-topic="bio" data-topic-name="整理个人主页文案" data-actionable="true">
               <div class="ask-card-head"><span>多问题演示</span><span class="ask-head-icons">⌄&nbsp;&nbsp;×</span></div>
               <p class="ask-question">Q1（多选）：这次弹窗同时问三件事，先确认你在验证的范围——你希望我接下来动哪些？</p>
@@ -1139,7 +1185,11 @@
               </div>
               <span class="card-status">已提交</span>
             </article>
+              <div class="thread-msg out" hidden><div class="thread-bubble"></div><div class="thread-avatar user">你</div></div>
+            </div>
 
+            <div class="request-thread" data-topic="github" data-topic-name="接入 GitHub 主页内容">
+              <div class="thread-msg in"><div class="thread-avatar">题</div><div class="thread-bubble">计划已经写好，等你确认。</div></div>
             <article class="plan-card" data-kind="authorization" data-topic="github" data-topic-name="接入 GitHub 主页内容" data-actionable="true">
               <div class="plan-head">
                 <span><span class="amber-dot"></span>计划待审</span>
@@ -1155,6 +1205,8 @@
               </div>
               <span class="card-status">已同意执行</span>
             </article>
+              <div class="thread-msg out" hidden><div class="thread-bubble"></div><div class="thread-avatar user">你</div></div>
+            </div>
 
             <div class="inbox-note" data-topic="website" data-topic-name="个人网站结构讨论">归档 · 个人网站结构讨论已归档<span>14:20</span></div>
           </div>
@@ -1175,7 +1227,7 @@
   const sidebar = document.getElementById('sidebar');
   const widthButtons = [...document.querySelectorAll('[data-width]')];
   const topicCards = [...document.querySelectorAll('.topic-card[data-topic-id]')];
-  const inboxItems = [...document.querySelectorAll('.reminder-card, .approval-card, .ask-card, .plan-card, .inbox-note')];
+  const inboxItems = [...document.querySelectorAll('.request-thread, .inbox-note')];
   const cards = [...document.querySelectorAll('[data-actionable="true"]')];
   const reminderTitle = document.getElementById('reminderTitle');
   const reminderCount = document.getElementById('reminderCount');
@@ -1327,11 +1379,21 @@
     });
   }
 
-  function markDone(card, label) {
+  function showReply(card, reply) {
+    const thread = card.closest('.request-thread');
+    const target = thread === null ? null : thread.querySelector('.thread-msg.out');
+    if (target === null) return;
+    target.hidden = false;
+    const bubble = target.querySelector('.thread-bubble');
+    if (bubble !== null) bubble.textContent = reply;
+  }
+
+  function markDone(card, label, reply = label) {
     card.classList.add('is-done');
     const status = card.querySelector('.card-status');
     if (status) status.textContent = label;
     for (const button of card.querySelectorAll('button:not([data-system-file])')) button.disabled = true;
+    showReply(card, reply);
     updateNeedsYou();
     applyFilter();
   }
@@ -1341,18 +1403,18 @@
       const card = button.closest('[data-actionable="true"]');
       if (card === null) return;
       const action = button.dataset.action;
-      if (action === 'pass') { markDone(card, '已通过'); return; }
-      if (action === 'return') { markDone(card, '已退回'); return; }
-      if (action === 'allow') { markDone(card, '已允许'); return; }
-      if (action === 'deny') { markDone(card, '已拒绝'); return; }
+      if (action === 'pass') { markDone(card, '已通过', '通过这次评审，可以合并。'); return; }
+      if (action === 'return') { markDone(card, '已退回', '退回，请按 findings 修改。'); return; }
+      if (action === 'allow') { markDone(card, '已允许', '允许一次。'); return; }
+      if (action === 'deny') { markDone(card, '已拒绝', '拒绝这次授权。'); return; }
       if (action === 'approve-plan') { markDone(card, '已批准计划'); return; }
       if (action === 'reject-plan') { markDone(card, '已拒绝'); return; }
       if (action === 'ask-option') { markDone(card, `已选择 ${button.dataset.choice}`); }
-      if (action === 'submit-single') { markDone(card, '已提交'); return; }
-      if (action === 'skip-ask') { markDone(card, '已跳过'); return; }
-      if (action === 'next-multi') { markDone(card, '已提交'); return; }
-      if (action === 'plan-revise') { markDone(card, '要求修改'); return; }
-      if (action === 'plan-approve') { markDone(card, '已同意执行'); }
+      if (action === 'submit-single') { const choice = card.querySelector('.ask-option.selected'); markDone(card, '已提交', choice === null ? '已提交回答。' : `已选择：${choice.dataset.choice}`); return; }
+      if (action === 'skip-ask') { markDone(card, '已跳过', '跳过这个问题。'); return; }
+      if (action === 'next-multi') { markDone(card, '已提交', '已提交这次多选。'); return; }
+      if (action === 'plan-revise') { markDone(card, '要求修改', '要求修改这个计划。'); return; }
+      if (action === 'plan-approve') { markDone(card, '已同意执行', '同意执行这个计划。'); }
     });
   }
 
@@ -1366,6 +1428,18 @@
     selectedTopic = initialTopic;
   }
   if (params.get('width') === 'narrow') setWidth('narrow');
+  if (params.get('replied') === '1') {
+    const review = document.querySelector('.approval-card[data-kind="review"]');
+    if (review !== null) {
+      const pass = review.querySelector('[data-action="pass"]');
+      if (pass !== null) pass.click();
+    }
+    const approval = document.querySelector('.approval-card[data-kind="authorization"]');
+    if (approval !== null) {
+      const allow = approval.querySelector('[data-action="allow"]');
+      if (allow !== null) allow.click();
+    }
+  }
   if (params.get('expanded') === '1') {
     document.querySelector('.app').style.height = '1800px';
     for (const id of ['review-details']) {
