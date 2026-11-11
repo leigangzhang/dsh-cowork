@@ -32,6 +32,9 @@ import {
 } from './activity.js'
 import { buildHandoffRecord, validateHandoff } from './handoff.js'
 import { noticeSummaries } from './notices.js'
+import { AUTHORIZATION_COMMAND_MAX_CHARS, REQUEST_SUMMARY_MAX_CHARS } from './inbox-contract.js'
+import { createRequest } from './request-service.js'
+import { REQUEST_TOOL_ERROR_CODES } from './request-tools.js'
 import { TOPIC_PRESET_ID } from './presets.js'
 import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
 import type { TopicRecordV2 } from './store-schema.js'
@@ -528,6 +531,12 @@ async function proposeDecision(args: Record<string, unknown>, exec: unknown, dep
  * `cowork_authorization_request`: block the topic on a pending authorization
  * and ask the user. The returned `requestId` is what the decision route needs;
  * the block restores the status the topic had before it.
+ *
+ * The topic `authorization` record and the request-inbox record share the one
+ * requestId. The inbox record is written after the block is committed (the
+ * block is the state that must not be lost): a failed request-file write is
+ * logged and reported as `requestRecorded: false` instead of pretending the
+ * card exists.
  */
 async function requestAuthorization(args: Record<string, unknown>, exec: unknown, deps: CoworkToolDeps): Promise<JsonValue> {
   const caller = callerOf(exec)
@@ -537,6 +546,13 @@ async function requestAuthorization(args: Record<string, unknown>, exec: unknown
     return toJson(failure(
       TOPIC_PAGE_ERROR_CODES.summaryRequired,
       `summary must be a non-empty string of at most ${TOPIC_SUMMARY_MAX_CHARS} characters`,
+    ))
+  }
+  const command = args.command === undefined ? null : requiredText(args.command, AUTHORIZATION_COMMAND_MAX_CHARS)
+  if (args.command !== undefined && command === null) {
+    return toJson(failure(
+      REQUEST_TOOL_ERROR_CODES.payloadInvalid,
+      `command must be a non-empty string of at most ${AUTHORIZATION_COMMAND_MAX_CHARS} characters`,
     ))
   }
   try {
@@ -566,9 +582,31 @@ async function requestAuthorization(args: Record<string, unknown>, exec: unknown
     if (updated === null) {
       return toJson(failure(TOPIC_ERROR_CODES.topicNotFound, `topic ${caller.sessionId} changed while requesting authorization`))
     }
+    let requestRecorded = false
+    try {
+      const document = await opened.opened.store.readIndexDocument()
+      const payload = command === null
+        ? { summary: truncateText(summary, REQUEST_SUMMARY_MAX_CHARS) }
+        : { summary: truncateText(summary, REQUEST_SUMMARY_MAX_CHARS), command }
+      await createRequest({
+        store: opened.opened.store,
+        repoPath: opened.opened.repoPath,
+        projectId: document.projectId,
+        topic: updated,
+        kind: 'authorization',
+        payload,
+        summary: trimmed,
+        requestId,
+        now,
+        log: deps.log,
+      })
+      requestRecorded = true
+    } catch (error) {
+      deps.log?.(`cowork_authorization_request: request ${requestId} was not recorded: ${error instanceof Error ? error.message : String(error)}`)
+    }
     const event = authorizationRequestedActivity(updated, { requestId, summary }, now)
     const notified = await recordNoticeEvent(opened.opened.store, event, now, deps.notices, opened.opened.repoPath)
-    return toJson(success({ requestId, topic: topicView(updated), noticed: notified }))
+    return toJson(success({ requestId, topic: topicView(updated), noticed: notified, requestRecorded }))
   } catch (error) {
     return toJson(mapError(error))
   }
@@ -804,9 +842,13 @@ export function registerTopicTools(ctx: unknown, deps: CoworkToolDeps): Array<()
   disposers.push(host.tools.register(defineTool({
     name: 'cowork_authorization_request',
     description:
-      'Ask the user to authorize something: blocks this topic with an authorization marker and returns the requestId the decision route needs. Topic only.',
+      'Ask the user to authorize something: blocks this topic with an authorization marker, writes the same requestId into the Cowork request inbox, and returns that id. Topic only.',
     parameters: {
       summary: { type: 'string', required: true, description: `What needs authorization, in one paragraph (max ${TOPIC_SUMMARY_MAX_CHARS} characters).` },
+      command: {
+        type: 'string',
+        description: `Optional command line the authorization is about, shown monospaced (max ${AUTHORIZATION_COMMAND_MAX_CHARS} characters).`,
+      },
     },
     output: { schema: { type: 'json' }, render: renderJson },
     execute: authorizationExecute,

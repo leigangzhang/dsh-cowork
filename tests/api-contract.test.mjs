@@ -41,6 +41,11 @@ import {
   sortTopicsForPanel,
   truncateSummary,
 } from '../src/api-contract.ts'
+import {
+  INBOX_OPEN_PATH,
+  INBOX_PATH,
+  INBOX_RESOLVE_PATH,
+} from '../src/inbox-contract.ts'
 
 const STORE_SCHEMA_SOURCE = fileURLToPath(new URL('../src/store-schema.ts', import.meta.url))
 const CONTRACT_SOURCE = fileURLToPath(new URL('../src/api-contract.ts', import.meta.url))
@@ -389,7 +394,7 @@ test('the exported bounds keep the documented values and their relations', () =>
   assert.equal(MAX_REQUEST_BODY_BYTES, 8 * 1024, 'the write body cap is 8 KiB')
 })
 
-test('the seven route paths are unique, absolute and stable', () => {
+test('the ten route paths are unique, absolute and stable', () => {
   const paths = [
     OVERVIEW_PATH,
     ACTIVITY_PATH,
@@ -398,6 +403,9 @@ test('the seven route paths are unique, absolute and stable', () => {
     REOPEN_PATH,
     ROUTE_MOVE_PATH,
     AUTHORIZATION_RESOLVE_PATH,
+    INBOX_PATH,
+    INBOX_RESOLVE_PATH,
+    INBOX_OPEN_PATH,
   ]
   assert.deepEqual(paths, [
     '/api/cowork.overview',
@@ -407,10 +415,16 @@ test('the seven route paths are unique, absolute and stable', () => {
     '/api/cowork.topic.reopen',
     '/api/cowork.route.move',
     '/api/cowork.authorization.resolve',
+    '/api/cowork.inbox',
+    '/api/cowork.inbox.resolve',
+    '/api/cowork.inbox.open',
   ])
   assert.equal(new Set(paths).size, paths.length, 'every route has its own path')
   for (const path of paths) assert.equal(path.startsWith('/api/'), true, `${path} stays below /api`)
   assert.equal(paths.includes('/api/cowork.handoff'), false, 'the legacy route is gone')
+  // The inbox half owns its three paths in `src/inbox-contract.ts`; this module
+  // re-states them in no list, so the test imports them from their one home.
+  assert.equal(new Set([...paths, INBOX_PATH, INBOX_RESOLVE_PATH, INBOX_OPEN_PATH]).size, 10)
 })
 
 test('isPanelError recognizes the shared error envelope only', () => {

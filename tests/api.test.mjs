@@ -22,6 +22,7 @@ register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const api = await import('../src/api.ts')
 const contract = await import('../src/api-contract.ts')
+const inboxContract = await import('../src/inbox-contract.ts')
 const reviewRequest = await import('../src/review-request.ts')
 const store = await import('../src/store.ts')
 const panelProbe = await import('../src/panel-probe.ts')
@@ -452,9 +453,22 @@ test('toErrorResponse maps every stable code to its documented status', () => {
     'session/list-timeout': 504,
     'project/not-initialized': 404,
     'store/corrupt': 500,
+    'inbox/request-not-found': 404,
+    'inbox/request-resolved': 409,
+    'inbox/action-not-allowed': 400,
+    'inbox/invalid-answer': 400,
+    'inbox/invalid-comment': 400,
+    'inbox/path-missing': 404,
+    'inbox/open-unsupported': 501,
+    'inbox/not-member': 403,
     internal: 500,
   }
-  assert.equal(Object.keys(expected).length, 20, 'a new PanelErrorCode must decide its status here')
+  assert.equal(Object.keys(expected).length, 28, 'a new PanelErrorCode must decide its status here')
+  assert.deepEqual(
+    Object.keys(expected).sort(),
+    [...Object.keys(contract.PANEL_ERROR_STATUS)].sort(),
+    'the table above and the contract carry the same codes',
+  )
   for (const [code, status] of Object.entries(expected)) {
     assert.equal(api.panelErrorStatus(code), status, code)
     assert.deepEqual(api.toErrorResponse(new api.PanelApiError(code, 'm')), {
@@ -497,14 +511,17 @@ const ROUTES = [
   [contract.REOPEN_PATH, 'POST'],
   [contract.ROUTE_MOVE_PATH, 'POST'],
   [contract.AUTHORIZATION_RESOLVE_PATH, 'POST'],
+  [inboxContract.INBOX_PATH, 'GET'],
+  [inboxContract.INBOX_RESOLVE_PATH, 'POST'],
+  [inboxContract.INBOX_OPEN_PATH, 'POST'],
 ]
 
-test('registerCoworkApi registers the seven v2 routes and disposes them', async () => {
+test('registerCoworkApi registers the ten v2 routes and disposes them', async () => {
   const portBag = fakePorts()
   const fake = fakeConnection()
   const { host, effects } = fakeHost(fake.connection)
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(effects.length, 7, 'one fiber effect per route')
+  assert.equal(effects.length, 10, 'one fiber effect per route')
   assert.deepEqual(effects.map((effect) => effect.label), ROUTES.map(
     ([path]) => `dsh-cowork: panel route ${path}`,
   ))
@@ -516,7 +533,7 @@ test('registerCoworkApi registers the seven v2 routes and disposes them', async 
   for (const effect of effects) await effect.disposer()
   assert.equal(fake.routes.size, 0, 'disposal unregisters every route')
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(fake.routes.size, 7, 'a reload re-registers without a duplicate error')
+  assert.equal(fake.routes.size, 10, 'a reload re-registers without a duplicate error')
 })
 
 test('registerCoworkApi is a no-op when the host has no connection service', () => {
