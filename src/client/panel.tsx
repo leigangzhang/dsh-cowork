@@ -1,27 +1,35 @@
 /**
- * The Cowork panel shell (topic-page v2): project header, inbox hint, the
- * "需要你处理" entry, receipts and the topic list.
+ * The Cowork panel shell (topic-page v2 + request inbox): project header,
+ * receipts, the topic list and the request inbox.
  *
- * The topic page is a single-column list now. There is no list/detail split, no
- * layout measurement, no detail fetch and no write form: opening a card only
- * switches the main area (`uiWorkspace.openSession`), and archiving/restoring a
- * topic is one immediate ⋯ menu action (master-only on the host).
+ * The panel measures its own content width with a `ResizeObserver` and renders
+ * two layouts: at >= 620px a fixed topic column next to an independently
+ * scrolling inbox column; below that only the topic list plus a "需要你处理 N 项"
+ * banner that opens the inbox full-width inside the panel (the host has no
+ * right-bar width setter, so nothing here touches host DOM). The inbox has its
+ * own load/error state, so a failed inbox read never blocks the topic list.
  *
- * Writes are optimistic: the card moves group first, the request follows, and a
- * failure rolls that one card back and leaves a visible receipt. A topic with a
- * request in flight cannot submit again.
+ * Topic writes are optimistic: the card moves group first, the request follows,
+ * and a failure rolls that one card back and leaves a visible receipt. Inbox
+ * writes validate the visible action, block double submits, replace the row with
+ * the server's item and keep a per-row receipt; a prompt failure is a warning,
+ * never a fabricated reply.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import {
   errorMessage,
+  loadInbox,
   loadOverview,
+  openInboxTarget,
   reopenTopic,
+  resolveInboxRequest,
   resolveTopic,
   toPanelError,
   type WireOverview,
   type WireTopic,
 } from './api.ts'
+import { actionAllowed, type InboxResponse, type RequestAction } from '../inbox-contract.ts'
 import {
   CLOCK_TICK_MS,
   FEEDBACK_TTL_MS,
@@ -46,6 +54,19 @@ import {
 import type { FooterActionOwnerProps, PanelErrorInfo, TabBodyProps } from './contracts.ts'
 import { COWORK_TAB_KIND, COWORK_TAB_TITLE, useClientServices } from './contracts.ts'
 import { TopicList, TopicStates } from './list.tsx'
+import {
+  InboxPanel,
+  type InboxActionInput,
+  type InboxReceipt,
+} from './inbox.tsx'
+import {
+  WIDE_PANEL_MIN_PX,
+  applyInboxItemUpdate,
+  buildInboxViewModel,
+  inboxNeedsYouTitle,
+  type InboxNoteView,
+  type InboxRequestView,
+} from './inbox-model.ts'
 import { ensurePanelStyles } from './styles.ts'
 
 type LoadPhase = 'loading' | 'ready' | 'error'
@@ -99,7 +120,19 @@ function rollbackTopic(
   return replaceTopic(overview, topicId, previous)
 }
 
-/** The Cowork tab body (session scope). */
+/** Which layout the panel content width allows. */
+type PanelWidthMode = 'wide' | 'narrow'
+
+/**
+ * The Cowork tab body (session scope).
+ *
+ * Wide (>= 620px of panel content): a fixed 318px topic column and an
+ * independently scrolling inbox column. Narrow: the topic list plus a banner
+ * with the pending-request count; the banner opens the inbox full-width inside
+ * the panel (the host exposes no right-bar width setter, so nothing touches the
+ * host DOM). The inbox is loaded and failed independently of the overview, and
+ * the topic filter survives a width change.
+ */
 export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   ensurePanelStyles()
   const services = useClientServices()
@@ -115,14 +148,47 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   const [reveal, setReveal] = useState<{ readonly topicId: string; readonly nonce: number } | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
 
+  const [inbox, setInbox] = useState<InboxResponse | null>(null)
+  const [inboxPhase, setInboxPhase] = useState<LoadPhase>('loading')
+  const [inboxError, setInboxError] = useState<PanelErrorInfo | null>(null)
+  const [selectedInboxTopicId, setSelectedInboxTopicId] = useState<string | null>(null)
+  const [inboxFocus, setInboxFocus] = useState(false)
+  const [pendingRequestIds, setPendingRequestIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [inboxReceipts, setInboxReceipts] = useState<ReadonlyMap<string, InboxReceipt>>(() => new Map())
+  const [widthMode, setWidthMode] = useState<PanelWidthMode>('wide')
+
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const feedbackTimer = useRef<number | null>(null)
   const pendingRef = useRef<Set<string>>(new Set())
+  const pendingRequestRef = useRef<Set<string>>(new Set())
   const overviewRef = useRef<WireOverview | null>(null)
   const lastSessionId = useRef(sessionId)
+  const lastInboxSessionId = useRef(sessionId)
 
   useEffect(() => {
     overviewRef.current = overview
   }, [overview])
+
+  // Measure the panel's own content width; the host owns the right-bar width,
+  // so this only decides which of the two in-panel layouts renders.
+  const measureWidth = useCallback(() => {
+    const node = rootRef.current
+    if (node === null) return
+    const width = node.getBoundingClientRect().width
+    if (width <= 0) return
+    setWidthMode(width < WIDE_PANEL_MIN_PX ? 'narrow' : 'wide')
+    if (width >= WIDE_PANEL_MIN_PX) setInboxFocus(false)
+  }, [])
+
+  useEffect(() => {
+    measureWidth()
+    if (typeof ResizeObserver === 'undefined') return
+    const node = rootRef.current
+    if (node === null) return
+    const observer = new ResizeObserver(() => { measureWidth() })
+    observer.observe(node)
+    return () => { observer.disconnect() }
+  }, [measureWidth])
 
   // Load / refresh the overview; abort the in-flight request when the effect
   // tears down (unmount, session change, refresh). A refresh keeps the current
@@ -153,6 +219,35 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
       controller.abort()
     }
   }, [sessionId, refreshToken])
+
+  // The inbox loads on its own: a failure here never blocks the topic list and
+  // only paints the inbox area's error + retry.
+  useEffect(() => {
+    const controller = new AbortController()
+    let active = true
+    if (lastInboxSessionId.current !== sessionId) {
+      lastInboxSessionId.current = sessionId
+      setInbox(null)
+      setInboxPhase('loading')
+      setSelectedInboxTopicId(null)
+      setInboxReceipts(new Map())
+    }
+    setInboxError(null)
+    setInboxPhase(current => (current === 'ready' ? 'ready' : 'loading'))
+    loadInbox(sessionId, selectedInboxTopicId, controller.signal).then(result => {
+      if (!active) return
+      setInbox(result)
+      setInboxPhase('ready')
+    }).catch((reason: unknown) => {
+      if (!active || controller.signal.aborted) return
+      setInboxError(toPanelError(reason))
+      setInboxPhase('error')
+    })
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [sessionId, refreshToken, selectedInboxTopicId])
 
   // Keep the relative timestamps honest while the panel stays open.
   useEffect(() => {
@@ -263,6 +358,89 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     }
   }, [markPending, sessionId, showFeedback])
 
+  /** Put one inbox receipt on the row it belongs to. */
+  const putReceipt = useCallback((id: string, receipt: InboxReceipt) => {
+    setInboxReceipts((previous) => {
+      const next = new Map(previous)
+      next.set(id, receipt)
+      return next
+    })
+  }, [])
+
+  /** Toggle the inbox topic filter; the topic session is never opened here. */
+  const toggleInboxFilter = useCallback((topicId: string) => {
+    setSelectedInboxTopicId(current => (current === topicId ? null : topicId))
+  }, [])
+
+  const clearInboxFilter = useCallback(() => {
+    setSelectedInboxTopicId(null)
+  }, [])
+
+  /**
+   * Resolve one request: validate the action against the row the user sees,
+   * block a second submit, replace the row with the server's item and move the
+   * counts. A failed write keeps the card actionable and only paints a local
+   * receipt; a prompt failure is a warning, never a fabricated reply.
+   */
+  const resolveRequest = useCallback(async (
+    item: InboxRequestView,
+    action: RequestAction,
+    input: InboxActionInput,
+  ) => {
+    if (pendingRequestRef.current.has(item.requestId)) return
+    if (!item.actions.includes(action) || !actionAllowed(item.requestKind, action)) {
+      putReceipt(item.requestId, { kind: 'error', text: '这个动作已不可用，请刷新后重试。' })
+      return
+    }
+    pendingRequestRef.current.add(item.requestId)
+    setPendingRequestIds(new Set(pendingRequestRef.current))
+    try {
+      const result = await resolveInboxRequest({
+        sessionId,
+        requestId: item.requestId,
+        action,
+        comment: input.comment,
+        answers: input.answers,
+      })
+      setInbox(current => current === null
+        ? current
+        : { ...current, ...applyInboxItemUpdate(current, result.item) })
+      if (result.promptError !== null) {
+        putReceipt(item.requestId, {
+          kind: 'warn',
+          text: `已记录，但主题会话未唤醒（${result.promptError}）`,
+        })
+      } else {
+        putReceipt(item.requestId, { kind: 'ok', text: '已提交' })
+      }
+    } catch (reason) {
+      const info = toPanelError(reason)
+      putReceipt(item.requestId, { kind: 'error', text: `提交失败：${info.message}` })
+    } finally {
+      pendingRequestRef.current.delete(item.requestId)
+      setPendingRequestIds(new Set(pendingRequestRef.current))
+    }
+  }, [putReceipt, sessionId])
+
+  /** Reveal the PLAN/proposal file behind one row; ids only, never a path. */
+  const openInboxItem = useCallback(async (item: InboxRequestView | InboxNoteView) => {
+    const id = item.kind === 'request' ? item.requestId : item.noticeId
+    if (pendingRequestRef.current.has(id)) return
+    pendingRequestRef.current.add(id)
+    setPendingRequestIds(new Set(pendingRequestRef.current))
+    try {
+      if (item.kind === 'request') await openInboxTarget({ sessionId, requestId: item.requestId })
+      else await openInboxTarget({ sessionId, noticeId: item.noticeId })
+      putReceipt(id, { kind: 'ok', text: '已在文件浏览器中打开' })
+    } catch (reason) {
+      const info = toPanelError(reason)
+      putReceipt(id, { kind: 'error', text: `打开失败：${info.message}` })
+    } finally {
+      pendingRequestRef.current.delete(id)
+      setPendingRequestIds(new Set(pendingRequestRef.current))
+    }
+  }, [putReceipt, sessionId])
+
   const masterTarget = overview === null
     ? null
     : masterBreadcrumbTarget({
@@ -293,12 +471,47 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     topicCount: overview?.topics.length ?? 0,
   })
   const stateNotice = error === null ? emptyNotice() : errorPresentation(error)
-  const needsYou = view?.needsYou ?? null
-  const needsYouCount = needsYou === null ? 0 : needsYou.count
-  const needsYouTopicId = needsYouCount > 0 ? needsYou?.topicId ?? null : null
+  const inboxView = inbox === null
+    ? null
+    : buildInboxViewModel({
+        inbox,
+        topics: overview?.topics ?? [],
+        selectedTopicId: selectedInboxTopicId,
+        nowMs,
+      })
+  const needsYou = inboxView?.needsYou ?? { count: 0, detail: '' }
+
+  const topicStates = <TopicStates state={surface} notice={stateNotice} onRefresh={refresh} />
+  const topicList = surface === 'default' && view !== null ? (
+    <TopicList
+      groups={view.groups}
+      nowMs={nowMs}
+      pendingTopicIds={pendingTopicIds}
+      revealTopicId={reveal === null ? null : reveal.topicId}
+      revealNonce={reveal === null ? 0 : reveal.nonce}
+      onOpenTopic={(topicId) => { void openTopic(topicId) }}
+      onArchive={(topicId, title) => { void archiveTopic(topicId, title) }}
+      onRestore={(topicId, title) => { void restoreTopic(topicId, title) }}
+      selectedFilterTopicId={selectedInboxTopicId}
+      onToggleFilter={toggleInboxFilter}
+    />
+  ) : null
+  const inboxPanel = (
+    <InboxPanel
+      view={inboxView}
+      phase={inboxPhase}
+      error={inboxError}
+      pendingRequestIds={pendingRequestIds}
+      receipts={inboxReceipts}
+      onResolve={(item, action, input) => { void resolveRequest(item, action, input) }}
+      onOpen={(item) => { void openInboxItem(item) }}
+      onClearFilter={clearInboxFilter}
+      onRetry={refresh}
+    />
+  )
 
   return (
-    <div className="cw-root" data-surface={surface}>
+    <div className="cw-root" data-surface={surface} data-width-mode={widthMode} ref={rootRef}>
       <header className="cw-header">
         <span
           className="cw-project"
@@ -328,36 +541,51 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
         </button>
       </header>
 
-      {needsYouTopicId === null ? null : (
-        <button
-          type="button"
-          className="cw-needs-you"
-          onClick={() => { void openTopic(needsYouTopicId) }}
-        >
-          <span className="cw-needs-you-title">需要你处理 {needsYouCount} 项</span>
-          <span className="cw-needs-you-hint">待授权 · 点此去主题会话处理</span>
-        </button>
-      )}
-
       {feedback === null ? null : (
         <p className="cw-receipt" role="status" data-kind={feedback.kind}>{feedback.text}</p>
       )}
 
-      <div className="cw-body">
-        <TopicStates state={surface} notice={stateNotice} onRefresh={refresh} />
-        {surface === 'default' && view !== null ? (
-          <TopicList
-            groups={view.groups}
-            nowMs={nowMs}
-            pendingTopicIds={pendingTopicIds}
-            revealTopicId={reveal === null ? null : reveal.topicId}
-            revealNonce={reveal === null ? 0 : reveal.nonce}
-            onOpenTopic={(topicId) => { void openTopic(topicId) }}
-            onArchive={(topicId, title) => { void archiveTopic(topicId, title) }}
-            onRestore={(topicId, title) => { void restoreTopic(topicId, title) }}
-          />
-        ) : null}
-      </div>
+      {widthMode === 'narrow' && inboxFocus ? (
+        <div className="cw-inbox-focus" data-testid="cw-inbox-focus">
+          <div className="cw-inbox-focus-bar">
+            <button
+              type="button"
+              className="cw-breadcrumb"
+              data-testid="cw-inbox-back"
+              onClick={() => { setInboxFocus(false) }}
+            >
+              ← 返回主题列表
+            </button>
+          </div>
+          {inboxPanel}
+        </div>
+      ) : widthMode === 'narrow' ? (
+        <>
+          <button
+            type="button"
+            className="cw-needs-you"
+            data-testid="cw-needs-you-banner"
+            onClick={() => { setInboxFocus(true) }}
+          >
+            <span className="cw-needs-you-title">{inboxNeedsYouTitle(needsYou.count)}</span>
+            {needsYou.detail === '' ? null : <span className="cw-needs-you-hint">{needsYou.detail}</span>}
+          </button>
+          <div className="cw-body">
+            {topicStates}
+            {topicList}
+          </div>
+        </>
+      ) : (
+        <div className="cw-body cw-columns">
+          <div className="cw-topic-column">
+            {topicStates}
+            {topicList}
+          </div>
+          <div className="cw-inbox-column">
+            {inboxPanel}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

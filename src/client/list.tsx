@@ -84,6 +84,10 @@ export interface TopicListProps {
   readonly onOpenTopic: (topicId: string) => void
   readonly onArchive: (topicId: string, title: string) => void
   readonly onRestore: (topicId: string, title: string) => void
+  /** Topic whose inbox filter is active, or null when the inbox shows all. */
+  readonly selectedFilterTopicId: string | null
+  /** Toggle the inbox topic filter; never opens the topic session. */
+  readonly onToggleFilter: (topicId: string) => void
 }
 
 /**
@@ -100,6 +104,8 @@ export function TopicList({
   onOpenTopic,
   onArchive,
   onRestore,
+  selectedFilterTopicId,
+  onToggleFilter,
 }: TopicListProps): ReactElement {
   const [resolvedOpen, setResolvedOpen] = useState(false)
   const resolvedToggleRef = useRef<HTMLButtonElement>(null)
@@ -126,6 +132,8 @@ export function TopicList({
           onOpenTopic={onOpenTopic}
           onArchive={onArchive}
           onRestore={onRestore}
+          selectedFilterTopicId={selectedFilterTopicId}
+          onToggleFilter={onToggleFilter}
         />
       ))}
     </div>
@@ -142,6 +150,8 @@ interface TopicGroupProps {
   readonly onOpenTopic: (topicId: string) => void
   readonly onArchive: (topicId: string, title: string) => void
   readonly onRestore: (topicId: string, title: string) => void
+  readonly selectedFilterTopicId: string | null
+  readonly onToggleFilter: (topicId: string) => void
 }
 
 /** One group: a titled header with its count, then its cards. */
@@ -155,6 +165,8 @@ export function TopicGroup({
   onOpenTopic,
   onArchive,
   onRestore,
+  selectedFilterTopicId,
+  onToggleFilter,
 }: TopicGroupProps): ReactElement {
   const headingId = useId()
   const cardsId = useId()
@@ -190,9 +202,11 @@ export function TopicGroup({
               group={group.key}
               nowMs={nowMs}
               pending={pendingTopicIds.has(card.topicId)}
+              filterActive={selectedFilterTopicId === card.topicId}
               onOpenTopic={onOpenTopic}
               onArchive={onArchive}
               onRestore={onRestore}
+              onToggleFilter={onToggleFilter}
             />
           ))}
         </div>
@@ -206,9 +220,11 @@ interface TopicCardProps {
   readonly group: string
   readonly nowMs: number
   readonly pending: boolean
+  readonly filterActive: boolean
   readonly onOpenTopic: (topicId: string) => void
   readonly onArchive: (topicId: string, title: string) => void
   readonly onRestore: (topicId: string, title: string) => void
+  readonly onToggleFilter: (topicId: string) => void
 }
 
 /** One two-line card: title + summary, marker and time right-aligned. */
@@ -217,9 +233,11 @@ export function TopicCard({
   group,
   nowMs,
   pending,
+  filterActive,
   onOpenTopic,
   onArchive,
   onRestore,
+  onToggleFilter,
 }: TopicCardProps): ReactElement {
   const [menuOpen, setMenuOpen] = useState(false)
   const [placement, setPlacement] = useState<MenuPlacement | null>(null)
@@ -346,6 +364,19 @@ export function TopicCard({
             {formatRelativeTime(card.updatedAt, nowMs)}
           </span>
         </span>
+      </button>
+      <button
+        type="button"
+        className="cw-card-filter"
+        data-testid="cw-topic-filter"
+        data-topic-id={card.topicId}
+        data-active={filterActive ? 'true' : 'false'}
+        aria-pressed={filterActive}
+        title="只看此主题的收件箱请求"
+        aria-label={`只看主题「${title}」的收件箱请求`}
+        onClick={() => { onToggleFilter(card.topicId) }}
+      >
+        筛选
       </button>
       <button
         ref={moreRef}
