@@ -104,7 +104,7 @@ sequenceDiagram
 1. **校验。** 调用者必须是 topic；主题必须存在且没有归档；`title` 和 `summary` 必须是非空字符串，并且不超过长度上限。
 2. **写提案文件。** 插件在项目锁内把记录写成 `<repo>/.dsh-cowork/proposals/<proposalId>.json`。写失败返回 `topic/proposal-write-failed`，不会继续改主题状态。
 3. **刷新活动时间。** 主题的 `lastActiveAt` 和 `updatedAt` 更新，空闲主题回到运行中。摘要、阻塞原因、待授权都不变。
-4. **写事件。** 活动流新增一条 `decision-proposed` 事件，`details` 里带 `proposalId`、提案标题、摘要和一段通知描述。
+4. **写事件。** 活动流新增一条 `decision-proposed` 事件，`details` 里带 `proposalId`、`proposalPath`、提案标题、摘要和一段通知描述。
 5. **写通知账本。** 按 master 和 topic 两个目标各写一行，记下通知编号、目标和投递状态。返回的 `noticed: true` 表示事件已经写进活动流；账本写入失败不会让工具失败，也不会回滚主题状态。
 6. **返回结果。** topic 会拿到提案对象、文件路径、主题视图和 `noticed`。
 
@@ -130,10 +130,10 @@ cowork_decision_propose({
 
 - 在 topic 会话里直接说“把这个选择记成决策记录”，topic 会调用上面的工具；
 - 查看完整内容时，打开 `filePath` 指向的 JSON 文件；
-- 在 master 会话里说“读一下最近的主题通知”，master 会调用 `cowork_notices`，看到主题名、摘要和投递状态；
-- 主题页不显示决策记录，当前也没有列出全部提案的工具。要找到某条提案，最可靠的方式是保留工具返回的 `filePath`，或者按 `topicId` 搜索 `.dsh-cowork/proposals/` 下的 JSON。
+- 在 master 会话里说“读一下最近的主题通知”，master 会调用 `cowork_notices`，看到主题名、摘要和投递状态；提案通知还带 `proposalId` 和 `proposalPath`；
+- 主题页不显示决策记录，当前也没有列出全部提案的工具。要找到某条提案，可以用 `cowork_notices` 返回的 `proposalPath` 直接打开文件，也可以按 `topicId` 搜索 `.dsh-cowork/proposals/` 下的 JSON。
 
-`cowork_notices` 返回的 `title` 是固定文案“决策提案”，不带提案自己的标题；通知里能看到的正文是“主题名 + 提案摘要”。所以提案标题和文件路径要以工具返回结果或文件内容为准。
+`cowork_notices` 返回的 `title` 是固定文案“决策提案”，不带提案自己的标题；通知正文是“主题名 + 提案摘要”。提案自己的标题和完整内容在 `proposalPath` 指向的文件里。
 
 ### 3.4 边界
 
@@ -350,7 +350,7 @@ flowchart TD
 
 - **会话里看不到提醒卡。** 当前宿主没有会话提醒通道，主会话和主题会话都不会出现分配、上报、提案或交接卡片；`notices.json` 保持 `pending`，master 只能通过 `cowork_notices` 读取。
 - **主题页不显示决策记录。** 主题卡只显示主题名和摘要；决策记录的查看页在工作项页面，目前还没有实现。
-- **没有列出提案的工具。** 提案写入后只有创建时的返回结果给出 `filePath`；`cowork_notices` 不包含提案编号和文件路径。要重新找到提案，需要按 `topicId` 搜索 `proposals/` 下的文件。
+- **没有列出全部提案的工具。** 提案写入后，`cowork_notices` 的提案通知带 `proposalId` 和 `proposalPath`，可以据此打开文件；要一次列出所有提案，需要按 `topicId` 搜索 `proposals/` 下的文件。
 - **提案没有后续动作。** 目前不能修改、采纳或关闭提案，`status` 始终是 `open`。
 - **master 读不到完整交接。** master 通过通知拿到主题名和摘要；完整字段保存在 `handoffs/` 文件里，由人直接打开。没有让 master 读取完整交接文件的工具。
 - **交接不会唤醒 master。** 这是有意的：交接不启动 master 的一轮对话。master 需要主动调用 `cowork_notices`，否则会晚一步看到。

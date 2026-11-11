@@ -19,7 +19,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 一个改动欠哪些证据 | [tools/workflow.json](../tools/workflow.json) |
 | 一个需求怎么被路由、新建 topic、经评审与工作项合并 | [routing.md](routing.md) |
 | 主题怎么记录决策、怎么把结果交接给 master | [decision-and-handoff.md](decision-and-handoff.md) |
-| master 与 topic 怎么共享项目上下文、记忆何时注入、handoff/活动/收件箱如何上下行 | [context.md](context.md) |
+| master 与 topic 怎么共享项目上下文、记忆何时注入、handoff/通知账本如何上下行 | [context.md](context.md) |
 
 ## Every home, and what it owns
 
@@ -33,7 +33,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/documentation.md` | guide | 文档种类、单一事实源、发布开关 |
 | `docs/routing.md` | guide | 三层路由、topic/工作项/评审请求的生命周期、改投与合并 |
 | `docs/decision-and-handoff.md` | guide | 决策记录与会话交接的实现与用法 |
-| `docs/context.md` | guide | 共享磁盘面、记忆注入、handoff/活动/收件箱上下行与四类会话隔离矩阵 |
+| `docs/context.md` | guide | 共享磁盘面、记忆注入、handoff/通知账本上下行与四类会话隔离矩阵 |
 | `docs/glossary.md` | reference | 术语含义与拼写 |
 | `docs/plain-language.md` | reference | 面向人的说法替换 |
 | `docs/KNOWN_ISSUES.md` | reference | 遗留问题的唯一清单：状态、归属与重估触发条件 |

@@ -8,10 +8,12 @@
 
 | 文件 | 内容 | 权威定义 |
 |---|---|---|
-| `index.json` | v2 项目索引：master、主题、工作项、路由目标 | [ProjectIndexV2](../src/store-schema.ts#L155-L170) |
-| `activity.jsonl` | 状态、路由、评审、合并与错误的事件流（证据，不是状态源） | [ActivityEvent](../src/store-schema.ts#L172-L185) |
-| `inbox.json` | master 必须决定的事；投递后写 `deliveredAt` | [InboxItem](../src/store-schema.ts#L193-L205) |
-| `handoffs/` | topic 的 handoff 审计文件 | [handoff.ts](../src/handoff.ts#L214) |
+| `index.json` | v2 项目索引：master、主题、工作项、路由目标 | [ProjectIndexV2](../src/store-schema.ts#L194) |
+| `activity.jsonl` | 状态、路由、评审、合并、主题上报、决策提案、待授权、归档与错误的事件流（证据，不是状态源） | [ActivityEvent](../src/store-schema.ts#L211) |
+| `inbox.json` | master 必须决定的事；投递后写 `deliveredAt` | [InboxItem](../src/store-schema.ts#L232) |
+| `handoffs/` | topic 的 handoff 审计文件 | [buildHandoffRecord](../src/handoff.ts#L214) |
+| `proposals/` | topic 的决策记录文件 | [DecisionProposalV1](../src/topic-tools.ts#L443) |
+| `notices.json` | 主题通知账本：每条通知送到哪个会话、是否送达 | [NoticeLedgerV1](../src/notices.ts#L95) |
 | `reviews/` | 每次评审请求的 pending/verdict 记录 | [ReviewRequestRecord](../src/review-request.ts#L121) |
 | `workitems/` | 隔离工作项 clone 与 `cowork/<workItemId>` 分支 | [checkout.ts](../src/checkout.ts#L45-L58) |
 | `memory/` | `constraints/decisions/facts` 三份项目记忆 | [memory.ts](../src/memory.ts) |
@@ -25,7 +27,9 @@ flowchart TD
   I["index.json（v2 唯一状态源）"]
   A["activity.jsonl"]
   B["inbox.json"]
+  N["notices.json"]
   H["handoffs/*.json"]
+  P["proposals/*.json"]
   V["reviews/*.json"]
   W["workitems/<id>（clone）"]
   MEM["memory/*.md"]
@@ -34,8 +38,13 @@ flowchart TD
   T -->|"工作项 / 评审请求 / handoff"| I
   R -->|"verdict"| I
   M -->|"消费收件箱"| B
-  T -->|"blocked / 评审结果"| B
+  R -->|"pass（有工作项）或 reject 触发的评审事件"| B
   T -->|"写 handoff 审计"| H
+  T -->|"写决策记录"| P
+  T -->|"写评审请求"| V
+  R -->|"读请求"| V
+  T -->|"上报 / handoff / 提案 / 待授权"| N
+  M -->|"cowork_notices 读取"| N
   T -->|"提交与修复"| W
   R -->|"读请求范围、复跑验证"| W
   T -->|"记忆读写"| MEM
@@ -68,11 +77,14 @@ flowchart TD
 
 **上行（topic / reviewer → master）**
 
-- `cowork_handoff(done)`：写审计文件，更新主题 `digest`（摘要，≤200 字）与 `lastDeliveryConfirmedAt`，**不 prompt master**。
-- `cowork_handoff(blocked)`：置 `blocked` 标记，写一条 `blocked` 收件箱并投递（≤200 字摘要）。
+- `cowork_handoff(done)`：写审计文件，更新主题 `digest`（摘要，≤200 字）与 `lastDeliveryConfirmedAt`，写一条 `topic-reported` 事件和对应通知；**不 prompt master**。
+- `cowork_handoff(blocked)`：置 `blocked` 标记并记住阻塞前的状态，写一条 `topic-reported` 事件和对应通知；不写收件箱，不 prompt master。
+- `cowork_topic_report` / `cowork_decision_propose` / `cowork_authorization_request`：写活动和通知账本；`authorization_request` 会把主题置为待授权阻塞；都不唤醒 master。
 - 评审 `pass`（有工作项）：写 `merge-needed` 收件箱，master 被唤醒后决定是否合并；`reject`：主题置 blocked，写 `review-reject` 收件箱。
-- 收件箱是 master 唯一被推送的状态：多条待办合并成一批（≤5 条），投递成功写 `deliveredAt`，失败保留并由 `cowork_project_status` 重放（[deliverInbox](../src/tool-runtime.ts#L178)、[inbox.ts](../src/inbox.ts#L17-L30)）。
-- master 不接收完整 handoff、评审请求或 findings 文本；它读 `cowork_project_status` / `cowork_topic_list` 的有界摘要、收件箱与活动尾部，或从面板看主题详情。
+- 收件箱仍是唯一会启动 master 一轮对话的推送：多条待办合并成一批（≤5 条），投递成功写 `deliveredAt`，失败保留并由 `cowork_project_status` 重放（[deliverInbox](../src/tool-runtime.ts#L178)、[inbox.ts](../src/inbox.ts#L17-L30)）。
+- master 不接收完整 handoff、评审请求或 findings 文本；它读 `cowork_project_status` / `cowork_topic_list` 的有界摘要、收件箱、活动尾部，以及 `cowork_notices` 的通知摘要。
+
+完整的决策记录与会话交接流程见 [decision-and-handoff.md](decision-and-handoff.md)。
 
 ```mermaid
 sequenceDiagram
@@ -83,6 +95,7 @@ sequenceDiagram
   participant D as handoffs/ + index.json
   participant R as reviewer
   participant B as inbox.json
+  participant N as notices.json
 
   U->>M: 需求
   M->>T: route 投递 brief 或用户原话
@@ -90,10 +103,11 @@ sequenceDiagram
   T->>R: review_request → 评审说明（范围/路径/证据）
   R-->>T: needs_revision → findings
   R-->>M: pass（有工作项）/ reject → 收件箱（不直接投 verdict 文本）
-  T->>D: handoff(done)：digest + lastDeliveryConfirmedAt
-  T->>B: handoff(blocked) 或评审 reject → 收件箱
+  T->>D: handoff(done 或 blocked)：文件 + digest/block
+  T->>N: 上报 / 提案 / handoff / 待授权 → 通知
   B-->>M: 有界摘要（≤5 条/批），deliveredAt
-  Note over M: 通过 project_status / 面板读取活动与主题摘要
+  M->>N: cowork_notices
+  Note over M: 通过 project_status / cowork_notices 读取状态与通知
 ```
 
 ## 4. 隔离矩阵
@@ -102,7 +116,7 @@ sequenceDiagram
 
 | 会话 | 工作目录与可见代码 | 写权限 | `cowork:memory` | 与其他会话共享 |
 |---|---|---|---|---|
-| master | 主仓库 | 无 `fs`/`bash`/搜索；通过 cowork 工具、ask-user/todo 与面板行动 | 是 | 索引、收件箱、活动尾部、有界主题摘要 |
+| master | 主仓库 | 无 `fs`/`bash`/搜索；通过 cowork 工具、ask-user/todo 与面板行动 | 是 | 索引、收件箱、通知账本、活动尾部、有界主题摘要 |
 | topic | 主仓库（默认） | `fs`/`bash`/搜索；创建并提交工作项 | 是 | 索引、记忆、handoff/review 文件；自己的对话 |
 | 工作项 | `<repo>/.dsh-cowork/workitems/<id>` 的 clone，分支 `cowork/<id>` | 只写自己的 clone 并提交 | 由所属 topic 的注入覆盖（clone 不是独立会话） | 已提交代码 + 索引 + 记忆；看不到主仓未提交改动与 `.dsh-cowork` |
 | reviewer | 主仓库；按请求读取工作项 clone | 无 `fs`；`bash` 与文件搜索可用，实际只读边界见 [KI-15](KNOWN_ISSUES.md) | 否 | 请求范围、索引、仓库；对话历史独立；verdict 后归档 |
