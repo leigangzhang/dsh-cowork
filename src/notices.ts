@@ -782,6 +782,10 @@ export interface NoticeSummary {
     attempts: number
     lastError: string | null
   }
+  /** Proposal id carried by a `decision-proposed` event. */
+  proposalId?: string
+  /** Repo-relative proposal file path, when the event carries it. */
+  proposalPath?: string
 }
 
 /**
@@ -807,9 +811,11 @@ export function noticeSummaries(
     }
   }
   const byId = new Map<string, TopicNotice>()
+  const detailsById = new Map<string, Record<string, unknown>>()
   for (const event of events) {
     const notice = noticeFor(event, target, { pluginId: options.pluginId })
     if (notice === null) continue
+    detailsById.set(notice.noticeId, isRecord(event.details) ? event.details : {})
     const previous = byId.get(notice.noticeId)
     if (previous !== undefined && Date.parse(previous.updatedAt) > Date.parse(notice.updatedAt)) continue
     // An update (the authorization decision) replaces the state but keeps the
@@ -827,6 +833,13 @@ export function noticeSummaries(
     // A row the ledger voided (archiving wipes a pending authorization) is a
     // withdrawn notice: it keeps its history but can no longer be acted on.
     const voided = ledgerRow?.status === 'void' || voidedIds.has(notice.noticeId)
+    const details = detailsById.get(notice.noticeId) ?? {}
+    const proposalId = typeof details.proposalId === 'string' && details.proposalId !== ''
+      ? details.proposalId
+      : undefined
+    const proposalPath = typeof details.proposalPath === 'string' && details.proposalPath !== ''
+      ? details.proposalPath
+      : undefined
     rows.push({
       noticeId: notice.noticeId,
       topicId: notice.topicId,
@@ -842,6 +855,8 @@ export function noticeSummaries(
         attempts: ledgerRow?.attempts ?? 0,
         lastError: ledgerRow?.lastError ?? null,
       },
+      ...(proposalId === undefined ? {} : { proposalId }),
+      ...(proposalPath === undefined ? {} : { proposalPath }),
     })
   }
   return rows.sort((left, right) => {

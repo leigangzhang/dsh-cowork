@@ -511,7 +511,7 @@ async function proposeDecision(args: Record<string, unknown>, exec: unknown, dep
     if (updated === null) {
       return toJson(failure(TOPIC_ERROR_CODES.topicNotFound, `topic ${caller.sessionId} changed while proposing`))
     }
-    const event = decisionProposedActivity(updated, { proposalId, title, summary }, now)
+    const event = decisionProposedActivity(updated, { proposalId, proposalPath: relativePath, title, summary }, now)
     const notified = await recordNoticeEvent(opened.opened.store, event, now, deps.notices, opened.opened.repoPath)
     return toJson(success({
       proposal,
@@ -808,7 +808,7 @@ export function registerTopicTools(ctx: unknown, deps: CoworkToolDeps): Array<()
   disposers.push(host.tools.register(defineTool({
     name: 'cowork_notices',
     description:
-      'Read the most recent topic notices (one per event) from the delivery ledger, optionally filtered by topic. Master only; read-only.',
+      'Read the most recent topic notices (one per event) from the delivery ledger, optionally filtered by topic. Proposal notices also carry proposalId and proposalPath. Master only; read-only.',
     parameters: {
       topicId: { type: 'string', description: 'Only return notices of this topic.' },
       limit: { type: 'integer', description: `Most rows to return (default ${TOPIC_NOTICES_DEFAULT_LIMIT}, max ${TOPIC_NOTICES_MAX_LIMIT}).` },

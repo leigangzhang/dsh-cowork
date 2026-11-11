@@ -149,10 +149,20 @@ test('the assignment and proposal events carry their own kinds and actions', () 
   assert.equal(assignmentNoticeOf.kind, 'assignment')
   assert.match(assignmentNoticeOf.summary, /start with the ledger/)
 
-  const proposal = decisionProposedActivity(topic(), { proposalId: 'p-1', title: 'pick schema', summary: 'v2' }, NOW)
+  const proposal = decisionProposedActivity(topic(), {
+    proposalId: 'p-1',
+    proposalPath: '.dsh-cowork/proposals/p-1.json',
+    title: 'pick schema',
+    summary: 'v2',
+  }, NOW)
   const proposalNotice = notices.noticeFor(proposal, 'master')
   assert.equal(proposalNotice.kind, 'proposal')
   assert.deepEqual(proposalNotice.actions, ['open-work-item'])
+
+  const rows = notices.noticeSummaries([proposal], { version: 1, notices: [] })
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].proposalId, 'p-1')
+  assert.equal(rows[0].proposalPath, '.dsh-cowork/proposals/p-1.json')
 })
 
 test('an authorization event is pending with allow/deny, and the decision patches the same id', () => {

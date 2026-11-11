@@ -616,7 +616,8 @@ test('cowork_decision_propose stores the proposal file and reports one event', a
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
     const deps = fakeDeps()
-    const propose = tools(deps).get('cowork_decision_propose')
+    const registry = tools(deps)
+    const propose = registry.get('cowork_decision_propose')
 
     const result = await propose.execute({
       title: 'choose the schema',
@@ -633,9 +634,15 @@ test('cowork_decision_propose stores the proposal file and reports one event', a
     const activity = await store.readActivity()
     const proposed = activity.events.find((event) => event.type === 'decision-proposed')
     assert.equal(proposed.details.proposalId, result.proposal.proposalId)
+    assert.equal(proposed.details.proposalPath, result.filePath)
     assert.equal(proposed.details.notice.kind, 'proposal')
     const ledger = await store.readNotices()
     assert.equal(ledger.notices.length, 2)
+
+    const listed = await registry.get('cowork_notices').execute({}, fakeExec('session-master', repoPath))
+    const proposalNotice = listed.notices.find((notice) => notice.kind === 'proposal')
+    assert.equal(proposalNotice.proposalId, result.proposal.proposalId)
+    assert.equal(proposalNotice.proposalPath, result.filePath)
 
     const missingTitle = await propose.execute({ title: '', summary: 'x' }, fakeExec('session-thread', repoPath))
     assert.equal(missingTitle.ok, false)

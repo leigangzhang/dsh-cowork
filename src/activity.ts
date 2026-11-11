@@ -155,7 +155,7 @@ export function topicReportedActivity(
 /** The `decision-proposed` event of one decision proposal. */
 export function decisionProposedActivity(
   topic: TopicRecordV2,
-  input: { proposalId: string; title: string; summary: string },
+  input: { proposalId: string; proposalPath?: string; title: string; summary: string },
   now: Date,
 ): ActivityEvent {
   const summary = clip(input.summary, NOTICE_SUMMARY_MAX_CHARS)
@@ -166,6 +166,7 @@ export function decisionProposedActivity(
     details: {
       topicId: topic.topicId,
       proposalId: input.proposalId,
+      ...(input.proposalPath === undefined ? {} : { proposalPath: input.proposalPath }),
       title: clip(input.title, NOTICE_TITLE_MAX_CHARS),
       summary,
       notice: noticeDescriptor({
