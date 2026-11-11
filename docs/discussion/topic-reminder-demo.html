@@ -873,6 +873,12 @@
   .ask-card.is-done .ask-answer,
   .ask-card.is-done .ask-foot { display: none; }
 
+  .plan-actions[hidden] { display: none; }
+  .plan-revise-box { padding: 0 14px 14px; }
+  .plan-revise-box[hidden] { display: none; }
+  .plan-revise-box .ask-answer { margin-top: 0; }
+  .plan-revise-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .plan-card.is-done .plan-revise-box { display: none; }
   .request-thread { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .thread-msg { display: flex; align-items: flex-start; gap: 8px; }
   .thread-msg.out { justify-content: flex-end; }
@@ -1197,6 +1203,13 @@
                 <button type="button" class="btn-ghost" data-action="plan-revise">✎&nbsp;要求修改</button>
                 <button type="button" class="btn-dark" data-action="plan-approve">同意执行</button>
               </div>
+              <div class="plan-revise-box" hidden>
+                <label class="ask-answer"><span class="ask-answer-icon">↳</span><input class="plan-revise-input" type="text" placeholder="输入你的修改要求" aria-label="输入你的修改要求" /></label>
+                <div class="plan-revise-actions">
+                  <button type="button" class="btn-ghost" data-action="cancel-revise">取消</button>
+                  <button type="button" class="btn-dark" data-action="submit-revise" disabled>提交</button>
+                </div>
+              </div>
               <span class="card-status">已同意执行</span>
             </article>
               <div class="thread-msg out" hidden><div class="thread-bubble"></div><div class="thread-avatar user">你</div></div>
@@ -1382,6 +1395,14 @@
     if (bubble !== null) bubble.textContent = reply;
   }
 
+  for (const input of document.querySelectorAll('.plan-revise-input')) {
+    input.addEventListener('input', () => {
+      const card = input.closest('.plan-card');
+      const submit = card === null ? null : card.querySelector('[data-action="submit-revise"]');
+      if (submit !== null) submit.disabled = input.value.trim() === '';
+    });
+  }
+
   function markDone(card, label, reply = label) {
     card.classList.add('is-done');
     const status = card.querySelector('.card-status');
@@ -1407,7 +1428,35 @@
       if (action === 'submit-single') { const choice = card.querySelector('.ask-option.selected'); markDone(card, '已提交', choice === null ? '已提交回答。' : `已选择：${choice.dataset.choice}`); return; }
       if (action === 'skip-ask') { markDone(card, '已跳过', '跳过这个问题。'); return; }
       if (action === 'next-multi') { markDone(card, '已提交', '已提交这次多选。'); return; }
-      if (action === 'plan-revise') { markDone(card, '要求修改', '要求修改这个计划。'); return; }
+      if (action === 'plan-revise') {
+        const actions = card.querySelector('.plan-actions');
+        const box = card.querySelector('.plan-revise-box');
+        if (actions !== null) actions.hidden = true;
+        if (box !== null) {
+          box.hidden = false;
+          const input = box.querySelector('.plan-revise-input');
+          if (input !== null) input.focus();
+        }
+        return;
+      }
+      if (action === 'cancel-revise') {
+        const actions = card.querySelector('.plan-actions');
+        const box = card.querySelector('.plan-revise-box');
+        const input = card.querySelector('.plan-revise-input');
+        const submit = card.querySelector('[data-action="submit-revise"]');
+        if (box !== null) box.hidden = true;
+        if (actions !== null) actions.hidden = false;
+        if (input !== null) input.value = '';
+        if (submit !== null) submit.disabled = true;
+        return;
+      }
+      if (action === 'submit-revise') {
+        const input = card.querySelector('.plan-revise-input');
+        const value = input === null ? '' : input.value.trim();
+        if (value === '') return;
+        markDone(card, '要求修改', `要求修改：${value}`);
+        return;
+      }
       if (action === 'plan-approve') { markDone(card, '已同意执行', '同意执行这个计划。'); }
     });
   }
@@ -1422,6 +1471,10 @@
     selectedTopic = initialTopic;
   }
   if (params.get('width') === 'narrow') setWidth('narrow');
+  if (params.get('revise') === '1') {
+    const revise = document.querySelector('.plan-card [data-action="plan-revise"]');
+    if (revise !== null) revise.click();
+  }
   if (params.get('replied') === '1') {
     const review = document.querySelector('.approval-card[data-kind="review"]');
     if (review !== null) {
