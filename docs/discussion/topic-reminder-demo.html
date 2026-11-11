@@ -80,7 +80,7 @@
     position: relative;
     display: flex;
     width: 1444px;
-    height: 1150px;
+    height: 1600px;
     overflow: hidden;
     border: 1px solid #dfe3e8;
     border-radius: 18px;
@@ -689,6 +689,188 @@
   }
   .demo-toast.on { opacity: 1; }
 
+  .amber-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-right: 7px;
+    border-radius: 99px;
+    background: #f79009;
+    vertical-align: 1px;
+  }
+  .approval-card, .plan-card {
+    border: 1px solid #fedf89;
+    border-radius: 12px;
+    background: #fff;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(16,24,40,.03);
+  }
+  .approval-label { display: inline-flex; align-items: center; gap: 0; }
+  .approval-head, .plan-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #fedf89;
+    background: #fffcf5;
+    color: #b54708;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .approval-body, .plan-body { padding: 14px; }
+  .approval-body p { margin: 0; color: #1d2939; font-size: 13px; line-height: 1.55; }
+  .approval-body strong { font-weight: 700; }
+  .approval-body code {
+    display: block;
+    margin-top: 10px;
+    color: #667085;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    word-break: break-all;
+  }
+  .approval-actions, .plan-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 0 14px 14px;
+  }
+  .btn-ghost, .btn-dark, .btn-muted {
+    min-height: 34px;
+    padding: 0 16px;
+    border-radius: 9px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-ghost { border: 1px solid #e4e7ec; background: #fff; color: #344054; }
+  .btn-ghost:hover { background: #f9fafb; }
+  .btn-dark { border: 1px solid #101828; background: #101828; color: #fff; }
+  .btn-dark:hover { background: #1d2939; }
+  .btn-muted { border: 1px solid #d0d5dd; background: #f2f4f7; color: #98a2b3; }
+  .btn-dark:disabled, .btn-muted:disabled { opacity: .45; cursor: not-allowed; }
+  .plan-open {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #667085;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .plan-open:hover { color: #b54708; }
+  .plan-title { color: #101828; font-size: 14px; font-weight: 650; line-height: 1.45; }
+  .plan-desc { margin: 6px 0 0; color: #475467; font-size: 13px; line-height: 1.55; }
+
+  .ask-card {
+    padding: 14px 16px 12px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(16,24,40,.03);
+  }
+  .ask-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #98a2b3;
+    font-size: 11px;
+  }
+  .ask-head-icons { letter-spacing: 2px; font-size: 14px; }
+  .ask-question {
+    margin: 8px 0 10px;
+    color: #101828;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.55;
+  }
+  .ask-options { display: flex; flex-direction: column; gap: 5px; }
+  .ask-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    width: 100%;
+    padding: 8px 9px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: #fff;
+    color: #344054;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ask-option:hover { background: #f9fafb; }
+  .ask-option.selected { border-color: #e4e7ec; background: #f8fafc; }
+  .ask-num {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    background: #f2f4f7;
+    color: #667085;
+    font-size: 11px;
+  }
+  .ask-option-body { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+  .ask-option-body strong { font-size: 13px; font-weight: 600; color: #101828; }
+  .ask-option-body em {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: #eff8ff;
+    color: #175cd3;
+    font-size: 9px;
+    font-style: normal;
+    font-weight: 600;
+  }
+  .ask-desc { flex-basis: 100%; color: #667085; font-size: 11.5px; line-height: 1.5; }
+  .ask-checks { display: flex; flex-direction: column; gap: 8px; }
+  .ask-check { display: flex; align-items: center; gap: 9px; color: #344054; font-size: 13px; cursor: pointer; }
+  .ask-check input { width: 15px; height: 15px; accent-color: #101828; }
+  .ask-answer {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 9px;
+    padding: 9px 0;
+    border-top: 1px solid #f2f4f7;
+    color: #98a2b3;
+    font-size: 12px;
+  }
+  .ask-answer-icon { color: #98a2b3; font-size: 13px; }
+  .ask-answer input {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #344054;
+    font: inherit;
+    font-size: 12px;
+  }
+  .ask-answer input::placeholder { color: #b4bac4; }
+  .ask-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 2px;
+  }
+  .ask-pager { color: #98a2b3; font-size: 12px; }
+  .ask-buttons { display: flex; gap: 8px; }
+  .approval-card.is-done .card-status,
+  .ask-card.is-done .card-status,
+  .plan-card.is-done .card-status { display: inline-flex; margin: 0 14px 12px; }
+  .approval-card.is-done .approval-actions,
+  .plan-card.is-done .plan-actions,
+  .ask-card.is-done .ask-options,
+  .ask-card.is-done .ask-checks,
+  .ask-card.is-done .ask-answer,
+  .ask-card.is-done .ask-foot { display: none; }
+
   .footnote {
     margin: 8px 4px 0;
     color: #667085;
@@ -783,10 +965,10 @@
 
       <div class="needs-you" id="needsYou" role="button" tabindex="0" aria-label="展开宽侧栏处理收件箱">
         <div class="needs-you-left">
-          <div class="needs-you-icon" id="needsYouIcon">4</div>
+          <div class="needs-you-icon" id="needsYouIcon">5</div>
           <div>
-            <div class="needs-you-title" id="needsYouTitle">需要你处理 4 项</div>
-            <div class="needs-you-sub" id="needsYouSub">待授权 2 · 待审核 1 · 待回答 1</div>
+            <div class="needs-you-title" id="needsYouTitle">需要你处理 5 项</div>
+            <div class="needs-you-sub" id="needsYouSub">待授权 2 · 待审核 1 · 待回答 2</div>
           </div>
         </div>
         <div class="needs-you-go" id="needsYouGo">→</div>
@@ -858,7 +1040,7 @@
           <div class="section-head">
             <div>
               <span class="section-title" id="reminderTitle">收件箱 · 全部类型</span>
-              <span class="section-count" id="reminderCount">8</span>
+              <span class="section-count" id="reminderCount">9</span>
               <span class="filter-pill" id="filterPill">
                 <span id="filterText">五子棋小游戏</span>
                 <button type="button" id="clearFilter" aria-label="取消筛选">×</button>
@@ -900,72 +1082,81 @@
               <span class="card-status">已通过</span>
             </article>
 
-            <article class="reminder-card" data-kind="authorization" data-topic="gomoku" data-topic-name="五子棋小游戏" data-actionable="true">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">!</span>
-                  <span class="type-label">授权</span>
-                </div>
-                <span class="reminder-time">14:18</span>
+            <article class="approval-card" data-kind="authorization" data-topic="gomoku" data-topic-name="五子棋小游戏" data-actionable="true">
+              <div class="approval-head"><span class="approval-label"><span class="amber-dot"></span>等待审批</span></div>
+              <div class="approval-body">
+                <p>允许本次操作使用 <strong>danger-full-access</strong> 权限：按你的要求在本会话内触发一次权限审核弹窗；这条命令只是在家目录下写一个用于验证的探针文件（当前 workspace-write 沙箱不允许工作区外写入），授权后我会立即删除它。</p>
+                <code>echo probe &gt; /Users/ray/.dsh-approval-probe.txt &amp;&amp; echo WROTE_OK &amp;&amp; ls -l /Users/ray/.dsh-approval-probe.txt</code>
               </div>
-              <div class="reminder-title">待授权：读取浏览器登录态</div>
-              <div class="reminder-summary">用于生成个人主页文案。</div>
-              <button type="button" class="card-expand" data-expand="auth-details" aria-expanded="false">授权请求内容 <span>展开</span></button>
-              <div class="card-detail" id="auth-details" hidden>
-                读取当前浏览器的登录态，用于抓取个人主页文案草稿。范围仅限本次生成，不会保存或上传登录信息。
+              <div class="approval-actions">
+                <button type="button" class="btn-ghost" data-action="deny">拒绝</button>
+                <button type="button" class="btn-dark" data-action="allow">允许一次</button>
               </div>
-              <div class="review-actions">
-                <button type="button" class="review-btn allow" data-action="allow">允许</button>
-                <button type="button" class="review-btn deny" data-action="deny">拒绝</button>
-              </div>
-              <div class="reminder-foot"><span>事件 5 · 需要你处理</span></div>
               <span class="card-status">已允许</span>
             </article>
 
-            <article class="reminder-card" data-kind="question" data-topic="gomoku" data-topic-name="五子棋小游戏" data-actionable="true">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">?</span>
-                  <span class="type-label">提问</span>
-                </div>
-                <span class="reminder-time">14:22</span>
+            <article class="ask-card" data-kind="question" data-topic="gomoku" data-topic-name="五子棋小游戏" data-actionable="true">
+              <div class="ask-card-head"><span>弹窗演示</span><span class="ask-head-icons">⌄&nbsp;&nbsp;×</span></div>
+              <p class="ask-question">这是一次 ask-user 提问弹窗的演练。选一个你希望我在本会话里接着做的方向（选完我会按选择执行；选「不用做」我就停在这里）。</p>
+              <div class="ask-options">
+                <button type="button" class="ask-option" data-choice="只验证弹窗，不做其他事">
+                  <span class="ask-num">1</span>
+                  <span class="ask-option-body"><strong>只验证弹窗，不做其他事</strong><em>推荐</em><span class="ask-desc">确认提问弹窗能正常显示和回传，然后结束本轮。</span></span>
+                </button>
+                <button type="button" class="ask-option" data-choice="继续排查收件箱 UI">
+                  <span class="ask-num">2</span>
+                  <span class="ask-option-body"><strong>继续排查 dsh-cowork 的收件箱/审核提醒 UI</strong><span class="ask-desc">在 docs/discussion 里刚改过提醒演示，可以接着看渲染和交互。</span></span>
+                </button>
+                <button type="button" class="ask-option" data-choice="演示权限审核完整流程">
+                  <span class="ask-num">3</span>
+                  <span class="ask-option-body"><strong>演示一次权限审核弹窗的完整流程</strong><span class="ask-desc">重新发起一次需要授权的越界写入，点击允许后把探针文件写完并立即删除。</span></span>
+                </button>
               </div>
-              <div class="reminder-title">选择棋盘尺寸</div>
-              <div class="reminder-summary">主题会话在等你回答，选一个尺寸继续。</div>
-              <div class="question-options">
-                <button type="button" class="question-option" data-action="ask-option" data-choice="15×15"><span>15×15</span><em>推荐</em></button>
-                <button type="button" class="question-option" data-action="ask-option" data-choice="19×19"><span>19×19</span><em>更大</em></button>
+              <label class="ask-answer"><span class="ask-answer-icon">↳</span><input type="text" placeholder="输入你的答案" aria-label="输入你的答案" /></label>
+              <div class="ask-foot">
+                <span class="ask-pager">‹&nbsp;&nbsp;1/1&nbsp;&nbsp;›</span>
+                <span class="ask-buttons">
+                  <button type="button" class="btn-ghost" data-action="skip-ask">跳过</button>
+                  <button type="button" class="btn-dark" data-action="submit-single" disabled>提交</button>
+                </span>
               </div>
-              <div class="reminder-foot"><span>事件 6 · 来自主题会话的提问</span></div>
-              <span class="card-status">已回答</span>
+              <span class="card-status">已提交</span>
             </article>
 
-            <article class="reminder-card" data-kind="authorization" data-special="plan" data-topic="github" data-topic-name="接入 GitHub 主页内容" data-actionable="true">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">!</span>
-                  <span class="type-label">授权</span>
-                  <span class="plan-badge">PLAN</span>
-                </div>
-                <span class="reminder-time">14:24</span>
+            <article class="ask-card" data-kind="question" data-topic="bio" data-topic-name="整理个人主页文案" data-actionable="true">
+              <div class="ask-card-head"><span>多问题演示</span><span class="ask-head-icons">⌄&nbsp;&nbsp;×</span></div>
+              <p class="ask-question">Q1（多选）：这次弹窗同时问三件事，先确认你在验证的范围——你希望我接下来动哪些？</p>
+              <div class="ask-checks">
+                <label class="ask-check"><input type="checkbox" /><span>什么都不做，只看弹窗形态</span></label>
+                <label class="ask-check"><input type="checkbox" /><span>看权限审核弹窗的「允许」分支</span></label>
+                <label class="ask-check"><input type="checkbox" /><span>继续 dsh-cowork 的收件箱 / 审核提醒 UI</span></label>
+                <label class="ask-check"><input type="checkbox" /><span>检查本机插件与工具链状态（只读）</span></label>
               </div>
-              <div class="reminder-title">PLAN 确认：个人主页改版</div>
-              <div class="reminder-summary">计划包含 3 个步骤，等待你确认后执行。</div>
-              <button type="button" class="card-expand" data-expand="plan-details" aria-expanded="false">查看 PLAN 内容 <span>展开</span></button>
-              <div class="card-detail" id="plan-details" hidden>
-                <div class="detail-line"><span>1</span><span>读取现有主页结构与文案</span></div>
-                <div class="detail-line"><span>2</span><span>生成新版 Bio 与项目列表</span></div>
-                <div class="detail-line"><span>3</span><span>在预览中确认后合并</span></div>
+              <label class="ask-answer"><span class="ask-answer-icon">↳</span><input type="text" placeholder="输入你的答案" aria-label="输入你的答案" /></label>
+              <div class="ask-foot">
+                <span class="ask-pager">‹&nbsp;&nbsp;1/3&nbsp;&nbsp;›</span>
+                <span class="ask-buttons">
+                  <button type="button" class="btn-ghost" data-action="skip-ask">跳过</button>
+                  <button type="button" class="btn-muted" data-action="next-multi" disabled>下一题</button>
+                </span>
+              </div>
+              <span class="card-status">已提交</span>
+            </article>
+
+            <article class="plan-card" data-kind="authorization" data-topic="github" data-topic-name="接入 GitHub 主页内容" data-actionable="true">
+              <div class="plan-head">
+                <span><span class="amber-dot"></span>计划待审</span>
+                <button type="button" class="plan-open" data-system-file="PLAN · 把本轮交互弹窗验证固化成一 份留档">查看全文 ›</button>
+              </div>
+              <div class="plan-body">
+                <div class="plan-title">计划：把本轮交互弹窗验证固化成一 份留档</div>
+                <p class="plan-desc">把本会话已经实测的四类交互（ask-user 单题、ask-user 多题、权限审核升级、计划审阅弹窗）的形态、返回结构、触发条件写成一份可复查的短文档，以后 GUI 交互退化时能直接对照。</p>
               </div>
               <div class="plan-actions">
-                <button type="button" class="review-btn pass" data-action="approve-plan">批准计划</button>
-                <button type="button" class="review-btn return" data-action="reject-plan">拒绝</button>
+                <button type="button" class="btn-ghost" data-action="plan-revise">✎&nbsp;要求修改</button>
+                <button type="button" class="btn-dark" data-action="plan-approve">同意执行</button>
               </div>
-              <div class="reminder-foot">
-                <span>事件 7 · PLAN 授权</span>
-                <button type="button" class="card-link" data-system-file="PLAN · 个人主页改版">打开 PLAN →</button>
-              </div>
-              <span class="card-status">已批准</span>
+              <span class="card-status">已同意执行</span>
             </article>
 
             <div class="inbox-note" data-topic="website" data-topic-name="个人网站结构讨论">归档 · 个人网站结构讨论已归档<span>14:20</span></div>
@@ -979,7 +1170,7 @@
   </div>
 
   <p class="footnote">
-    宽侧栏左侧是主题、右侧是收件箱。通知型事件和只需要查看的提案只在收件箱中央打印灰色小字，提案带“查看提案”跳转占位；评审、授权、提问和 PLAN 使用卡片。评审摘要和授权内容默认折叠，点击展开；PLAN 链接调用系统文件浏览器打开 PLAN 文件，不在侧边栏内嵌详情。窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏；收件箱独立上下滚动，左侧主题栏固定。
+    宽侧栏左侧是主题、右侧是收件箱。通知型事件和只需要查看的提案只在收件箱中央打印灰色小字，提案带“查看提案”跳转占位；评审、授权、提问和 PLAN 使用卡片。评审摘要默认折叠、点击展开；授权、单/多问题提问和 PLAN 按会话内弹窗样式直接展示；PLAN 的“查看全文”调用系统文件浏览器打开 PLAN 文件。窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏；收件箱独立上下滚动，左侧主题栏固定。
   </p>
 </div>
 
@@ -987,8 +1178,8 @@
   const sidebar = document.getElementById('sidebar');
   const widthButtons = [...document.querySelectorAll('[data-width]')];
   const topicCards = [...document.querySelectorAll('.topic-card[data-topic-id]')];
-  const inboxItems = [...document.querySelectorAll('.reminder-card, .inbox-note')];
-  const cards = [...document.querySelectorAll('.reminder-card')];
+  const inboxItems = [...document.querySelectorAll('.reminder-card, .approval-card, .ask-card, .plan-card, .inbox-note')];
+  const cards = [...document.querySelectorAll('[data-actionable="true"]')];
   const reminderTitle = document.getElementById('reminderTitle');
   const reminderCount = document.getElementById('reminderCount');
   const filterPill = document.getElementById('filterPill');
@@ -1121,18 +1312,37 @@
     placeholder.addEventListener('click', () => showToast(placeholder.dataset.placeholder));
   }
 
+  for (const option of document.querySelectorAll('.ask-option')) {
+    option.addEventListener('click', () => {
+      const card = option.closest('.ask-card');
+      for (const other of card.querySelectorAll('.ask-option')) other.classList.remove('selected');
+      option.classList.add('selected');
+      const submit = card.querySelector('[data-action="submit-single"]');
+      if (submit) submit.disabled = false;
+    });
+  }
+  for (const check of document.querySelectorAll('.ask-check input')) {
+    check.addEventListener('change', () => {
+      const card = check.closest('.ask-card');
+      const next = card.querySelector('[data-action="next-multi"]');
+      const any = [...card.querySelectorAll('.ask-check input')].some(input => input.checked);
+      if (next) next.disabled = !any;
+    });
+  }
+
   function markDone(card, label) {
     card.classList.add('is-done');
     const status = card.querySelector('.card-status');
     if (status) status.textContent = label;
-    for (const button of card.querySelectorAll('button')) button.disabled = true;
+    for (const button of card.querySelectorAll('button:not([data-system-file])')) button.disabled = true;
     updateNeedsYou();
     applyFilter();
   }
 
   for (const button of document.querySelectorAll('[data-action]')) {
     button.addEventListener('click', () => {
-      const card = button.closest('.reminder-card');
+      const card = button.closest('[data-actionable="true"]');
+      if (card === null) return;
       const action = button.dataset.action;
       if (action === 'pass') { markDone(card, '已通过'); return; }
       if (action === 'return') { markDone(card, '已退回'); return; }
@@ -1141,6 +1351,11 @@
       if (action === 'approve-plan') { markDone(card, '已批准计划'); return; }
       if (action === 'reject-plan') { markDone(card, '已拒绝'); return; }
       if (action === 'ask-option') { markDone(card, `已选择 ${button.dataset.choice}`); }
+      if (action === 'submit-single') { markDone(card, '已提交'); return; }
+      if (action === 'skip-ask') { markDone(card, '已跳过'); return; }
+      if (action === 'next-multi') { markDone(card, '已提交'); return; }
+      if (action === 'plan-revise') { markDone(card, '要求修改'); return; }
+      if (action === 'plan-approve') { markDone(card, '已同意执行'); }
     });
   }
 
@@ -1155,8 +1370,8 @@
   }
   if (params.get('width') === 'narrow') setWidth('narrow');
   if (params.get('expanded') === '1') {
-    document.querySelector('.app').style.height = '1500px';
-    for (const id of ['review-details', 'auth-details', 'plan-details']) {
+    document.querySelector('.app').style.height = '1800px';
+    for (const id of ['review-details']) {
       const detail = document.getElementById(id);
       const toggle = document.querySelector(`[data-expand="${id}"]`);
       if (detail === null || toggle === null) continue;
