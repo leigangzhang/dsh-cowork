@@ -1,21 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import { register } from 'node:module'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-
-// `src/api.ts` / `src/inbox-api.ts` import their siblings with the build's
-// `.js` specifiers; the hook `tests/api.test.mjs` uses makes them importable.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import {
+  makeSeedProject,
+  makeSeedRequest,
+  makeTopicFixture,
+  withRepo,
+} from './support/inbox-fixtures.mjs'
 
 const api = await import('../src/api.ts')
 const inbox = await import('../src/inbox-api.ts')
@@ -34,58 +26,11 @@ const TOPIC = 'session-topic'
 const OTHER_TOPIC = 'session-other-topic'
 const STRANGER = 'session-stranger'
 
-/** One v2 topic with every field the schema requires. */
-function topic(topicId, title, overrides = {}) {
-  return {
-    topicId,
-    title,
-    status: 'active',
-    awaitingReview: false,
-    blocked: false,
-    blockedReason: null,
-    blockedFromStatus: null,
-    blockedAt: null,
-    authorization: null,
-    scope: 'scope',
-    ownedPaths: [],
-    aliases: [],
-    digest: 'working',
-    cwd: '/repo',
-    legacyCheckoutPath: null,
-    createdAt: '2026-11-01T00:00:00.000Z',
-    updatedAt: '2026-11-01T00:00:00.000Z',
-    lastActiveAt: '2026-11-01T00:00:00.000Z',
-    lastDeliveryConfirmedAt: null,
-    resolvedAt: null,
-    resolvedBy: null,
-    latestReviewRequestId: null,
-    reviewStatus: null,
-    reviewerSessionId: null,
-    ...overrides,
-  }
-}
+/** The suite's v2 topic fixture, bound to one record template. */
+const topicRecord = makeTopicFixture({ scope: 'scope' })
+const topic = (topicId, title, overrides = {}) => topicRecord({ topicId, title, ...overrides })
 
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-inbox-api-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
-
-/** Seed the project index with the given topics. */
-async function seedProject(repoPath, topics) {
-  const store = new ProjectStore({ repoPath, clock: () => NOW, projectId: 'p' })
-  await store.initIndex(MASTER)
-  if (topics.length > 0) {
-    await store.mutateIndexDocument((document) => ({
-      ...document,
-      topics: topics.map((entry) => ({ ...entry, cwd: repoPath })),
-    }))
-  }
-  return store
-}
+const seedProject = makeSeedProject({ clock: () => NOW })
 
 /** A supported host notice port that records every patch. */
 function fakeNoticePort(state) {
@@ -192,19 +137,10 @@ async function readResponse(response) {
 }
 
 /** Create one request through the service of the seeded store. */
-async function seedRequest(repoPath, store, input) {
-  return service.createRequest({
-    store,
-    repoPath,
-    projectId: 'p',
-    topic: topic(input.topicId ?? TOPIC, 'Inbox backend'),
-    now: NOW,
-    requestId: input.requestId,
-    kind: input.kind,
-    payload: input.payload,
-    summary: input.summary,
-  })
-}
+const seedRequest = makeSeedRequest({
+  now: NOW,
+  topic: (input) => topic(input.topicId ?? TOPIC, 'Inbox backend'),
+})
 
 /** Seed the four request kinds plus the notification tail the read merges. */
 async function seedInbox(repoPath, store) {

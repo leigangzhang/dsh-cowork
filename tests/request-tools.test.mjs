@@ -1,21 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
-import { register } from 'node:module'
-import { tmpdir } from 'node:os'
+import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-
-// `src/tools.ts` value-imports its domain modules as `./x.js`; the resolve hook
-// `tests/api.test.mjs` uses makes the real assembly importable under node --test.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import {
+  makeSeedProject,
+  makeTopicFixture,
+  withRepo,
+} from './support/inbox-fixtures.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
 const { ProjectStore } = await import('../src/store.ts')
@@ -74,52 +65,15 @@ function fakeDeps() {
   return deps
 }
 
-const topic = (overrides = {}) => ({
+/** The suite's v2 topic fixture, bound to one record template. */
+const topic = makeTopicFixture({
   topicId: TOPIC,
   title: 'Inbox backend',
-  status: 'active',
-  awaitingReview: false,
-  blocked: false,
-  blockedReason: null,
-  blockedFromStatus: null,
-  blockedAt: null,
-  authorization: null,
   scope: 'inbox',
-  ownedPaths: [],
-  aliases: [],
   digest: 'working',
-  cwd: '/repo',
-  legacyCheckoutPath: null,
-  createdAt: '2026-11-01T00:00:00.000Z',
-  updatedAt: '2026-11-01T00:00:00.000Z',
-  lastActiveAt: '2026-11-01T00:00:00.000Z',
-  lastDeliveryConfirmedAt: null,
-  resolvedAt: null,
-  resolvedBy: null,
-  latestReviewRequestId: null,
-  reviewStatus: null,
-  reviewerSessionId: null,
-  ...overrides,
 })
 
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-request-tools-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
-
-async function seedProject(repoPath, topics) {
-  const store = new ProjectStore({ repoPath, clock: () => NOW, projectId: 'p' })
-  await store.initIndex(MASTER)
-  await store.mutateIndexDocument((document) => ({
-    ...document,
-    topics: topics.map((entry) => ({ ...entry, cwd: repoPath })),
-  }))
-  return store
-}
+const seedProject = makeSeedProject({ clock: () => NOW })
 
 function tools(deps) {
   const host = fakeHost()

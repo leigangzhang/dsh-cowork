@@ -4,8 +4,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * M7 contract tests for the v2 project store: the on-disk v1 → v2 migration
  * transaction (backup, reviewer archiving, fail-closed paths), the v1
@@ -16,15 +15,6 @@ import { register } from 'node:module'
  * and Node's type stripping does not retry a `.js` sibling as `.ts`; this is the
  * same resolve hook tests/review-verdict.test.mjs uses.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { ProjectStore, StoreError } = await import('../src/store.ts')
 const { legacyViewOf } = await import('../src/store-migration.ts')

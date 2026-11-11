@@ -1,21 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
-import { register } from 'node:module'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-
-// `src/request-service.ts` imports its siblings with the build's `.js`
-// specifiers, so the test loads it after the resolve hook.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import {
+  fakeHost,
+  makeSeedProject,
+  makeSeedRequest,
+  makeTopicFixture,
+  withRepo,
+} from './support/inbox-fixtures.mjs'
 
 const { ProjectStore } = await import('../src/store.ts')
 const service = await import('../src/request-service.ts')
@@ -28,36 +21,13 @@ const NOW_ISO = NOW.toISOString()
 const MASTER = 'session-master'
 const TOPIC = 'session-topic'
 
-/** One v2 topic with every field the schema requires. */
-function topic(overrides = {}) {
-  return {
-    topicId: TOPIC,
-    title: 'Inbox backend',
-    status: 'active',
-    awaitingReview: false,
-    blocked: false,
-    blockedReason: null,
-    blockedFromStatus: null,
-    blockedAt: null,
-    authorization: null,
-    scope: 'inbox',
-    ownedPaths: [],
-    aliases: [],
-    digest: 'working',
-    cwd: '/repo',
-    legacyCheckoutPath: null,
-    createdAt: '2026-11-01T00:00:00.000Z',
-    updatedAt: '2026-11-01T00:00:00.000Z',
-    lastActiveAt: '2026-11-01T00:00:00.000Z',
-    lastDeliveryConfirmedAt: null,
-    resolvedAt: null,
-    resolvedBy: null,
-    latestReviewRequestId: null,
-    reviewStatus: null,
-    reviewerSessionId: null,
-    ...overrides,
-  }
-}
+/** One v2 topic with the suite's identity and every required field. */
+const topic = makeTopicFixture({
+  topicId: TOPIC,
+  title: 'Inbox backend',
+  scope: 'inbox',
+  digest: 'working',
+})
 
 /** A topic blocked on one pending authorization. */
 function pendingAuthorization(overrides = {}) {
@@ -72,64 +42,10 @@ function pendingAuthorization(overrides = {}) {
   })
 }
 
-/** Fake host ports: the queue prompt and the notice channel. */
-function fakeHost({ accepted = true, promptError = null, noticePort = undefined } = {}) {
-  const prompts = []
-  const updates = []
-  const port = noticePort ?? {
-    capabilities: () => ({ supported: true, actions: true, updates: true }),
-    append: async () => 'delivered',
-    update: async (sessionId, noticeId, patch) => {
-      updates.push({ sessionId, noticeId, patch })
-      if (noticePort === undefined) return 'delivered'
-      return 'delivered'
-    },
-  }
-  return {
-    prompts,
-    updates,
-    port,
-    promptSession: async (sessionId, text) => {
-      prompts.push({ sessionId, text })
-      if (promptError !== null) throw new Error(promptError)
-      return { accepted }
-    },
-  }
-}
-
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-request-service-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
-
-async function seedProject(repoPath, topics) {
-  const store = new ProjectStore({ repoPath, clock: () => NOW, projectId: 'p' })
-  await store.initIndex(MASTER)
-  if (topics.length > 0) {
-    await store.mutateIndexDocument((document) => ({
-      ...document,
-      topics: topics.map((entry) => ({ ...entry, cwd: repoPath })),
-    }))
-  }
-  return store
-}
+const seedProject = makeSeedProject({ clock: () => NOW })
 
 /** Create one request for the seeded topic through the service. */
-async function seedRequest(repoPath, store, input) {
-  return service.createRequest({
-    store,
-    repoPath,
-    projectId: 'p',
-    topic: topic(),
-    now: NOW,
-    requestId: 'req-1',
-    ...input,
-  })
-}
+const seedRequest = makeSeedRequest({ now: NOW, topic: () => topic() })
 
 /** The persisted request of the repo. */
 async function readRequest(repoPath, requestId = 'req-1') {

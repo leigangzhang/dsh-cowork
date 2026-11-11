@@ -17,6 +17,8 @@ export const PANEL_STYLE_ID = '@dsh-external/dsh-cowork/panel'
 
 const MONO_FONT = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace"
 
+import { INBOX_COLUMN_GAP_PX, INBOX_COLUMN_MIN_PX, TOPIC_COLUMN_WIDTH_PX } from './inbox-layout.ts'
+
 export const PANEL_CSS = `
 .cw-root {
   display: flex;
@@ -653,8 +655,8 @@ export const PANEL_CSS = `
 
 .cw-columns {
   display: grid;
-  grid-template-columns: 318px minmax(280px, 1fr);
-  gap: 12px;
+  grid-template-columns: ${TOPIC_COLUMN_WIDTH_PX}px minmax(${INBOX_COLUMN_MIN_PX}px, 1fr);
+  gap: ${INBOX_COLUMN_GAP_PX}px;
   min-height: 0;
   min-width: 0;
   padding: 6px 4px 8px;

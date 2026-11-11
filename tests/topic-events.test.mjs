@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * Host-free contract tests for M8.2: the session event listener that keeps
  * topic activity fresh and reopens resolved topics. The event source, repo
@@ -10,15 +9,6 @@ import { register } from 'node:module'
  * `src/topic-events.ts` value-imports `./topic.js`, so this test installs the
  * same resolve hook tests/store-v2.test.mjs uses.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { TopicEvents } = await import('../src/topic-events.ts')
 

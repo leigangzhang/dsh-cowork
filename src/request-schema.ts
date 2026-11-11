@@ -35,7 +35,6 @@ import {
   REVIEW_MAX_VERIFICATION,
   REVIEW_PURPOSE_MAX_CHARS,
   REVIEW_TEXT_MAX_CHARS,
-  REQUEST_ACTIONS_BY_KIND,
   actionAllowed,
   actionForStatus,
   answerCoversQuestion,
@@ -742,23 +741,13 @@ export function applyResolution(record: RequestRecordV1, input: ResolutionPatchI
   return next
 }
 
-/** The action that produced one stored status, or null when it has none. */
-export function actionOfStatus(status: RequestStatus): keyof typeof REQUEST_ACTION_STATUS | null {
-  return actionForStatus(status)
-}
-
 /** Whether one action is offered by one kind (kind only, not status). */
 export function kindOffersAction(kind: RequestKind, action: unknown): boolean {
   return isRequestAction(action) && actionAllowed(kind, action)
 }
 
-/** Every action a kind offers, in card order. */
-export function actionsOfKind(kind: RequestKind): readonly string[] {
-  return REQUEST_ACTIONS_BY_KIND[kind]
-}
-
 /** Trimmed option rows for a question payload, ids minted as o1..on. */
-export function normalizeOptions(options: readonly unknown[] | undefined): QuestionOption[] {
+function normalizeOptions(options: readonly unknown[] | undefined): QuestionOption[] {
   if (!Array.isArray(options)) return []
   return options.map((option, index) => {
     const row = isRecord(option) ? option : {}

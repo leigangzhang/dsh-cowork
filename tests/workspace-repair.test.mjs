@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * Unit tests for the startup workspace repair.
  *
@@ -11,15 +10,6 @@ import { register } from 'node:module'
  * resolver maps a relative `.js` specifier to its `.ts` source the same way the
  * other source-level tests do.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { repairCoworkWorkspaces } = await import('../src/workspace-repair.ts')
 

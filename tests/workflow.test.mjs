@@ -146,3 +146,38 @@ test('README links the product plan', () => {
   const readme = read('README.md')
   assert.ok(readme.includes('docs/PLAN.md'))
 })
+
+test('the test suite keeps one definition of its shared setup', () => {
+  const testFiles = readdirSync(resolve(root, 'tests'))
+    .filter((name) => name.endsWith('.mjs'))
+  for (const name of testFiles) {
+    // This file holds the patterns themselves; it imports no fixture.
+    if (name === 'workflow.test.mjs') continue
+    const source = read(join('tests', name))
+    for (const [pattern, why] of [
+      [/async function withRepo\(/, 'withRepo'],
+      [/const HOOK_SOURCE =/, 'HOOK_SOURCE'],
+      [/async function seedRequest\(/, 'seedRequest'],
+      [/async function seedProject\(/, 'seedProject'],
+    ]) {
+      assert.equal(pattern.test(source), false, `${name} must import the shared ${why}`)
+    }
+  }
+  const fixtures = read(join('tests', 'support', 'inbox-fixtures.mjs'))
+  for (const pattern of [
+    /export async function withRepo\(/,
+    /export function makeTopicFixture\(/,
+    /export function makeSeedProject\(/,
+    /export function makeSeedRequest\(/,
+    /const TOPIC_TEMPLATE = /,
+  ]) {
+    assert.equal((fixtures.match(new RegExp(pattern.source, 'g')) ?? []).length, 1, pattern.source)
+  }
+  const surface = read(join('tests', 'support', 'public-surface.mjs'))
+  assert.equal((surface.match(/const PANEL_ROUTES = /g) ?? []).length, 1)
+  assert.equal((surface.match(/const BUSINESS_TOOL_ORDER = /g) ?? []).length, 1)
+  for (const name of ['dev-gate.test.mjs', 'api.test.mjs', 'api-contract.test.mjs', 'project-tools.test.mjs', 'source-budget.test.mjs']) {
+    assert.match(read(join('tests', name)), /public-surface\.mjs/, `${name} must use the shared public surface`)
+  }
+})
+

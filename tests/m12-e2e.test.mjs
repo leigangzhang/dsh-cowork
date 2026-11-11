@@ -4,8 +4,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * Host-free contract tests for the M12 E2E driver. The driver itself needs a
  * real DSH host (sessions, the panel connection, git); these tests pin the
@@ -15,15 +14,6 @@ import { register } from 'node:module'
  * plugin's pure modules (`store-schema`, `review-request`, `presets`), so this
  * file needs the usual `.js`→`.ts` resolve hook and nothing else.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const {
   M12_E2E_EVIDENCE_RELATIVE,

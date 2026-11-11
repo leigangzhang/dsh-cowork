@@ -40,15 +40,6 @@ import { formatRelativeTime } from './model.ts'
 /** The panel is wide once its own content width reaches this many CSS pixels. */
 export const WIDE_PANEL_MIN_PX = 620
 
-/** Below the wide threshold, this is the narrowest the inbox column may get. */
-export const INBOX_COLUMN_MIN_PX = 280
-
-/** Width of the fixed topic column inside the wide two-column layout. */
-export const TOPIC_COLUMN_WIDTH_PX = 318
-
-/** Gap between the topic column and the inbox column. */
-export const INBOX_COLUMN_GAP_PX = 12
-
 /** Header title of the inbox column. */
 export const INBOX_TITLE = '收件箱'
 
@@ -475,14 +466,6 @@ export function buildInboxViewModel(input: InboxViewModelInput): InboxViewModel 
     },
     empty: items.length === 0,
     truncated: input.inbox.truncated === true,
-  }
-}
-
-/** The narrow-panel banner copy for a view (title + non-zero breakdown). */
-export function needsYouBanner(view: InboxViewModel): { readonly title: string; readonly detail: string } {
-  return {
-    title: inboxNeedsYouTitle(view.needsYou.count),
-    detail: view.needsYou.detail,
   }
 }
 

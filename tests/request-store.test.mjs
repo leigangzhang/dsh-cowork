@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import './support/ts-hook.mjs'
+import { withRepo } from './support/inbox-fixtures.mjs'
 
 // `src/request-store.ts` imports its siblings with the build's `.js`
 // specifiers; the shared hook makes them importable here.
@@ -28,14 +29,6 @@ function record(requestId, overrides = {}) {
   })
 }
 
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-request-store-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
 
 test('create writes one 0600 file in a 0700 requests directory', async () => {
   await withRepo(async (repoPath) => {

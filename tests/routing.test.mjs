@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
+import { makeTopicFixture } from './support/inbox-fixtures.mjs'
 import {
   ALIAS_MAX_ITEMS,
   ALIAS_MAX_LENGTH,
@@ -31,53 +32,17 @@ import {
  * assembly uses TypeScript parameter properties, which strip-only mode rejects.
  */
 
-const HOOK_SOURCE = [
-  "import { readFileSync } from 'node:fs'",
-  "import { stripTypeScriptTypes } from 'node:module'",
-  "import { fileURLToPath } from 'node:url'",
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-  'export async function load(url, context, nextLoad) {',
-  "  if (url.startsWith('file:') && url.endsWith('.ts')) {",
-  "    const source = readFileSync(fileURLToPath(url), 'utf8')",
-  "    return { format: 'module', shortCircuit: true, source: stripTypeScriptTypes(source, { mode: 'transform' }) }",
-  '  }',
-  '  return nextLoad(url, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
-
 const DAY_MS = 24 * 60 * 60 * 1000
 const NOW_MS = Date.parse('2026-11-08T00:00:00.000Z')
 const iso = (ms) => new Date(ms).toISOString()
 
 /** A routable v2 topic; by default it is stale and matches nothing. */
-const topic = (overrides = {}) => ({
+const topic = makeTopicFixture({
   topicId: 'topic-a',
   title: '',
-  status: 'active',
-  awaitingReview: false,
-  blocked: false,
-  scope: '',
-  ownedPaths: [],
-  aliases: [],
-  digest: '',
-  cwd: '/repo',
-  legacyCheckoutPath: null,
   createdAt: iso(NOW_MS - 30 * DAY_MS),
   updatedAt: iso(NOW_MS - 30 * DAY_MS),
   lastActiveAt: iso(NOW_MS - 30 * DAY_MS),
-  lastDeliveryConfirmedAt: null,
-  resolvedAt: null,
-  resolvedBy: null,
-  latestReviewRequestId: null,
-  reviewStatus: null,
-  reviewerSessionId: null,
-  ...overrides,
 })
 
 /** A route context with no locality hints. */

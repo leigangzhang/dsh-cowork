@@ -1,21 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 // `src/presets.ts` is plain data with no sibling imports, but the rest of the
 // preset/assembly surface it is compared against uses the build's `.js`
 // specifiers. Node's type stripping does not retry relative `.js` as `.ts`, so
 // this test keeps the same small resolve hook tests/api.test.mjs uses. No host
 // is assembled here.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const {
   MASTER_PERSONA,

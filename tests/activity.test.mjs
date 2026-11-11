@@ -3,23 +3,13 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * M8.3 contract tests for business activity events (A5): the builders stamp
  * the injected clock and structured details, and recording reuses the M7 file
  * layer — 500 events / 512 KiB bounds and damaged-line skipping — instead of
  * re-implementing it. Cases run on a throwaway repository under os.tmpdir().
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { ProjectStore } = await import('../src/store.ts')
 const {

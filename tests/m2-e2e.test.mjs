@@ -4,23 +4,13 @@ import { readFileSync, statSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * `src/m2-e2e-support.ts` value-imports the pure `./store-schema.js` and
  * `./store-migration.js` modules (the index format is owned by the store), and
  * Node's type stripping does not retry a `.js` sibling as `.ts`. This test
  * installs the same resolve hook the store tests use, then imports support.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const {
   MAX_ASSISTANT_TEXT,

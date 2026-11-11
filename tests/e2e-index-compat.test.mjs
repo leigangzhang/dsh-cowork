@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * Contract tests for the M2/M3 E2E `parseIndex` helpers after M7: the drivers
  * still read `.dsh-cowork/index.json` directly, but the store now writes v2
@@ -13,15 +12,6 @@ import { register } from 'node:module'
  * `store-schema.js` / `store-migration.js` modules, so this test installs the
  * same resolve hook tests/review-verdict.test.mjs uses.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { parseIndex: parseM2Index } = await import('../src/m2-e2e-support.ts')
 const { parseIndex: parseM3Index } = await import('../src/m3-e2e-support.ts')

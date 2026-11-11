@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
+import { PANEL_ROUTES } from './support/public-surface.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,15 +11,6 @@ import { join } from 'node:path'
 // tested modules avoid runtime imports entirely; this route module cannot, so
 // the test installs a resolve hook that only retries relative `.js` specifiers
 // as `.ts` (and falls back to the real `.js` when there is no source sibling).
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const api = await import('../src/api.ts')
 const contract = await import('../src/api-contract.ts')
@@ -504,18 +496,6 @@ test('toErrorResponse keeps the store path for corruption and degrades the rest'
 // route registration
 // ---------------------------------------------------------------------------
 
-const ROUTES = [
-  [contract.OVERVIEW_PATH, 'GET'],
-  [contract.ACTIVITY_PATH, 'GET'],
-  [contract.TOPIC_PATH, 'GET'],
-  [contract.RESOLVE_PATH, 'POST'],
-  [contract.REOPEN_PATH, 'POST'],
-  [contract.ROUTE_MOVE_PATH, 'POST'],
-  [contract.AUTHORIZATION_RESOLVE_PATH, 'POST'],
-  [inboxContract.INBOX_PATH, 'GET'],
-  [inboxContract.INBOX_RESOLVE_PATH, 'POST'],
-  [inboxContract.INBOX_OPEN_PATH, 'POST'],
-]
 
 test('registerCoworkApi registers the ten v2 routes and disposes them', async () => {
   const portBag = fakePorts()
@@ -523,10 +503,10 @@ test('registerCoworkApi registers the ten v2 routes and disposes them', async ()
   const { host, effects } = fakeHost(fake.connection)
   api.registerCoworkApi(host, portBag.ports)
   assert.equal(effects.length, 10, 'one fiber effect per route')
-  assert.deepEqual(effects.map((effect) => effect.label), ROUTES.map(
+  assert.deepEqual(effects.map((effect) => effect.label), PANEL_ROUTES.map(
     ([path]) => `dsh-cowork: panel route ${path}`,
   ))
-  assert.deepEqual(fake.registered.map((route) => [route.path, route.methods.join(',')]), ROUTES)
+  assert.deepEqual(fake.registered.map((route) => [route.path, route.methods.join(',')]), PANEL_ROUTES)
   for (const route of fake.registered) {
     assert.equal(route.requestBody, 'buffered')
     assert.equal(typeof route.fetch, 'function')

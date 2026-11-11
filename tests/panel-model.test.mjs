@@ -696,8 +696,11 @@ test('the panel measures its own width, renders two independent columns and a na
   assert.match(panelSource, /applyInboxItemUpdate/)
   assert.equal(panelSource.includes('needsYouTopicId'), false, 'the topic-based entry is replaced by the inbox banner')
 
-  assert.match(stylesSource, /\.cw-columns \{[\s\S]*?grid-template-columns: 318px minmax\(280px, 1fr\)/)
-  assert.match(stylesSource, /\.cw-columns \{[\s\S]*?gap: 12px/)
+  assert.match(
+    stylesSource,
+    /\.cw-columns \{[\s\S]*?grid-template-columns: \$\{TOPIC_COLUMN_WIDTH_PX\}px minmax\(\$\{INBOX_COLUMN_MIN_PX\}px, 1fr\)/,
+  )
+  assert.match(stylesSource, /\.cw-columns \{[\s\S]*?gap: \$\{INBOX_COLUMN_GAP_PX\}px/)
   assert.match(stylesSource, /\.cw-topic-column \{[\s\S]*?overflow-y: auto/)
   assert.match(stylesSource, /\.cw-inbox-list \{[\s\S]*?overflow-y: auto/)
   assert.match(stylesSource, /\.cw-inbox-focus \{[\s\S]*?flex-direction: column/)
