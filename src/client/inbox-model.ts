@@ -356,7 +356,7 @@ export function unansweredAnswerHint(count: number): string {
   return count === 1 ? '还有 1 题未回答' : `还有 ${count} 题未回答`
 }
 
-/** Normalize a plan payload. *//** Normalize a plan payload. */
+/** Normalize a plan payload. */
 function planPayloadOf(value: RequestPayload | unknown): PlanPayload {
   const raw = recordOf(value)
   const planTitle = nonEmpty(raw.planTitle)
