@@ -396,6 +396,21 @@
   .topic-marker.auth { background: #fef3f2; color: var(--red); }
   .topic-summary { font-size: 10.5px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .topic-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--soft); font-size: 9.5px; }
+  .topic-actions { display: inline-flex; align-items: center; gap: 5px; }
+  .topic-filter {
+    padding: 0 5px;
+    border: 1px solid #e4e7ec;
+    border-radius: 6px;
+    background: #fff;
+    color: #667085;
+    font: inherit;
+    font-size: 9.5px;
+    line-height: 16px;
+    cursor: pointer;
+  }
+  .topic-filter:hover { border-color: #84adff; color: #175cd3; }
+  .topic-filter.is-active { border-color: #84adff; background: #f5f9ff; color: #175cd3; }
+  .topic-filter:focus-visible { outline: 2px solid rgba(132,173,255,.55); outline-offset: 1px; }
   .more {
     border: 0;
     background: transparent;
@@ -937,7 +952,7 @@
   <header class="demo-bar">
     <div>
       <div class="demo-title">Cowork 侧栏收件箱 · 宽屏演示</div>
-      <div class="demo-sub">宽侧栏左侧主题、右侧收件箱；默认展示主会话全部题型。点主题筛选该主题的消息，再点一次取消；窄侧栏隐藏收件箱，顶部显示需要你处理。静态演示，不接真实数据。</div>
+      <div class="demo-sub">宽侧栏左侧主题、右侧收件箱；默认展示主会话全部题型。点主题卡打开会话，点卡上的“筛选”只看该主题；窄侧栏隐藏收件箱，顶部显示需要你处理。静态演示，不接真实数据。</div>
     </div>
     <div class="demo-controls">
       <span class="demo-note">宽 ≥ 620px 显示收件箱</span>
@@ -1022,7 +1037,7 @@
               <span class="section-title">主题</span>
               <span class="section-count">7</span>
             </div>
-            <span class="section-hint">点击筛选收件箱</span>
+            <span class="section-hint">点击卡片打开会话；筛选按钮过滤收件箱</span>
           </div>
 
           <div class="topic-list">
@@ -1034,7 +1049,7 @@
                   <span class="topic-marker auth">待授权</span>
                 </div>
                 <div class="topic-summary">等待授权：是否允许读取浏览器登录态。</div>
-                <div class="topic-foot"><span>6 分钟前</span><button type="button" class="more" aria-label="更多">⋯</button></div>
+                <div class="topic-foot"><span>6 分钟前</span><span class="topic-actions"><button type="button" class="topic-filter" data-filter-topic="gomoku" aria-pressed="false" aria-label="只看五子棋小游戏收件箱">筛选</button><button type="button" class="more" aria-label="更多">⋯</button></span></div>
               </article>
               <article class="topic-card" data-topic-id="github" data-topic-name="接入 GitHub 主页内容" data-group="blocked" role="button" tabindex="0" aria-pressed="false" style="margin-top:8px">
                 <div class="topic-title-row">
@@ -1042,7 +1057,7 @@
                   <span class="topic-marker waiting">等待主会话</span>
                 </div>
                 <div class="topic-summary">与「个人网站结构讨论」范围重叠，等待主会话裁决。</div>
-                <div class="topic-foot"><span>2 分钟前</span><button type="button" class="more" aria-label="更多">⋯</button></div>
+                <div class="topic-foot"><span>2 分钟前</span><span class="topic-actions"><button type="button" class="topic-filter" data-filter-topic="github" aria-pressed="false" aria-label="只看接入 GitHub 主页内容收件箱">筛选</button><button type="button" class="more" aria-label="更多">⋯</button></span></div>
               </article>
             </div>
 
@@ -1054,7 +1069,7 @@
                   <button type="button" class="more" aria-label="更多">⋯</button>
                 </div>
                 <div class="topic-summary">首版 Bio 已生成并上报，等待审核后合并。</div>
-                <div class="topic-foot"><span>8 分钟前</span></div>
+                <div class="topic-foot"><span>8 分钟前</span><span class="topic-actions"><button type="button" class="topic-filter" data-filter-topic="bio" aria-pressed="false" aria-label="只看整理个人主页文案收件箱">筛选</button></span></div>
               </article>
             </div>
 
@@ -1066,7 +1081,7 @@
                   <button type="button" class="more" aria-label="更多">⋯</button>
                 </div>
                 <div class="topic-summary">等待下一轮讨论，暂无阻塞。</div>
-                <div class="topic-foot"><span>1 小时前</span></div>
+                <div class="topic-foot"><span>1 小时前</span><span class="topic-actions"><button type="button" class="topic-filter" data-filter-topic="website" aria-pressed="false" aria-label="只看个人网站结构讨论收件箱">筛选</button></span></div>
               </article>
             </div>
 
@@ -1081,7 +1096,7 @@
           <div class="section-head">
             <div>
               <span class="section-title" id="reminderTitle">收件箱 · 全部类型</span>
-              <span class="section-count" id="reminderCount">9</span>
+              <span class="section-count" id="reminderCount">10</span>
               <span class="filter-pill" id="filterPill">
                 <span id="filterText">五子棋小游戏</span>
                 <button type="button" id="clearFilter" aria-label="取消筛选">×</button>
@@ -1114,6 +1129,8 @@
             </article>
               <div class="thread-msg out" hidden><div class="thread-bubble"></div><div class="thread-avatar user">你</div></div>
             </div>
+
+            <div class="inbox-note" data-topic="bio" data-topic-name="整理个人主页文案">自动评审 · 通过 · 个人主页 Bio<span>14:16</span></div>
 
             <div class="request-thread" data-topic="gomoku" data-topic-name="五子棋小游戏">
               <div class="thread-msg in"><div class="thread-avatar">题</div><div class="thread-bubble">主题「五子棋小游戏」请求使用 danger-full-access 权限，请确认。</div></div>
@@ -1316,8 +1333,24 @@
     for (const card of topicCards) {
       const active = card.dataset.topicId === selectedTopic;
       card.classList.toggle('is-active', active);
-      card.setAttribute('aria-pressed', String(active));
+      const filter = card.querySelector('.topic-filter');
+      if (filter !== null) {
+        filter.classList.toggle('is-active', active);
+        filter.setAttribute('aria-pressed', String(active));
+      }
     }
+  }
+
+  const topicFilterButtons = [...document.querySelectorAll('.topic-filter[data-filter-topic]')];
+  for (const button of topicFilterButtons) {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      selectTopic(button.dataset.filterTopic);
+    });
+  }
+
+  function openTopic(topicId) {
+    showToast(`打开主题会话：${topicName(topicId)}`);
   }
 
   function selectTopic(topicId) {
@@ -1327,13 +1360,14 @@
 
   for (const card of topicCards) {
     card.addEventListener('click', event => {
-      if (event.target.closest('.more')) return;
-      selectTopic(card.dataset.topicId);
+      if (event.target.closest('.more') || event.target.closest('.topic-filter')) return;
+      openTopic(card.dataset.topicId);
     });
     card.addEventListener('keydown', event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (event.target.closest('.topic-filter')) return;
       event.preventDefault();
-      selectTopic(card.dataset.topicId);
+      openTopic(card.dataset.topicId);
     });
   }
 

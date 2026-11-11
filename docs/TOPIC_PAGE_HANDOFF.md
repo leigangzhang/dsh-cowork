@@ -2,7 +2,7 @@
 
 - 日期：2026-11-10
 - 状态：已实现（2026-11-10，B 模式；主题页/后端/通知账本完成，A2 会话提醒卡延期）
-- 后续扩展：右侧栏收件箱设计扩展了顶部 needsYou 入口；主题页本身保持本文的四组列表与菜单语义，见 [topic-inbox.md](design/cowork-sidebar/topic-inbox.md) 和 [TOPIC_INBOX_HANDOFF.md](TOPIC_INBOX_HANDOFF.md)。
+- 后续扩展：右侧栏收件箱设计扩展了 needsYou 入口，并在主题卡上增加只用于收件箱过滤的筛选按钮；主题页本身保持本文的四组列表与归档/恢复语义，见 [topic-inbox.md](design/cowork-sidebar/topic-inbox.md) 和 [TOPIC_INBOX_HANDOFF.md](TOPIC_INBOX_HANDOFF.md)。
 - 设计分支：`agent/topic-page-flow-design`；设计提交到 `b7e29f7`（已推送），本交接文档另有一个提交
 - 写这份交接时最新 main 是 `616c9e3`（工作项前端计划已合并）。设计分支基于更早的 `105c0bd`；开始实现前先 `git fetch` 确认 main，再合到最新 main，检查 README、design 索引和 feature-todos 的冲突
 - 工作区：`/Users/ray/Workspace/dsh-cowork`；目前只改过文档，`src/` 未动

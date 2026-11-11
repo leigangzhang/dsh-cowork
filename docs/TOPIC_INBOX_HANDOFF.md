@@ -3,7 +3,7 @@
 - 日期：2026-11-10
 - 状态：设计完成，未实现；本文件只改文档，`src/`、`presets/`、`tests/` 未动
 - 分支：`agent/decision-handoff-doc`
-- 设计基线：本文件提交前的 HEAD `ff43ea5`
+- 设计基线：`812666a`（设计文档与交接首次提交）；本轮补充见后续 docs 提交
 - 设计：[topic-inbox.md](design/cowork-sidebar/topic-inbox.md)
 - 提案：[2026-11-10-topic-inbox.md](../.agents/notes/proposed/feature/2026-11-10-topic-inbox.md)
 - 交互稿：[topic-reminder-demo.html](discussion/topic-reminder-demo.html)
@@ -22,13 +22,13 @@
 
 - 收件箱是 Cowork tab 内部第二列，不是第五个标签，不改主区域。
 - 宽侧栏 ≥620px：左主题栏固定，右收件箱独立滚动；窄侧栏 <620px 隐藏收件箱，顶部“需要你处理 N 项”。
-- 四类请求：`user-review`、`authorization`、`question`、`plan`。通知型事件：分配、上报、决策提案、归档。
+- 四类请求：`user-review`、`authorization`、`question`、`plan`。通知型事件：分配、上报、决策提案、自动评审结果、归档。
 - 请求结构固定为“左侧主题消息 + 卡片 + 解决后右侧用户回复”；两条消息由服务端持久化，前端不自己拼。
-- 评审是**用户评审请求**，不是自动 reviewer；自动 `cowork_review_request` / `cowork_review_verdict` 不改。
+- 评审卡是**用户评审请求**，不是自动 reviewer；自动 `cowork_review_request` / `cowork_review_verdict` 不改。自动 reviewer 的 `review-verdict` 只投影成一条居中灰字记录：无链接、无动作、不进入待处理计数。
 - PLAN 的“查看全文”由服务端调宿主文件浏览器打开仓库内文件；不做侧边抽屉，不接受浏览器传路径。
 - 不依赖宿主 A2 / `ctx.sessionNotices`；旧 `.dsh-cowork/inbox.json` 不读、不改。
 - 只有 authorization 改变主题阻塞；其他请求不改主题生命周期。
-- 主题卡点击仍打开主题会话；收件箱筛选用标题旁的主题选择器。demo 中“点主题卡筛选”只是原型捷径。
+- 主题卡主体点击打开主题会话；每张主题卡新增一个独立筛选按钮，用于切换收件箱的“只看此主题”过滤。筛选按钮是兄弟控件，不嵌套、不触发展开会话。
 
 ## 实现前必须先做的宿主探针
 
@@ -88,6 +88,7 @@
 拟新增：
 
 - `src/request-schema.ts`：记录、payload、状态组合、长度、消息生成、校验
+- 收件箱读层还需投影 `review-verdict` activity 为普通通知注释；不写 `notices.json` 行
 - `src/request-store.ts`：`requests/` 读写、锁、原子写、扫描上限
 - `src/request-service.ts`：create/resolve/open、authorization 桥接、prompt
 - `src/request-tools.ts`：四个工具
@@ -104,16 +105,18 @@
 - `src/index.ts`：注册 inbox 路由
 - `src/client/api.ts`：`loadInbox` / 解析
 - `src/client/inbox-model.ts`、`src/client/inbox.tsx`：视图模型和组件
-- `src/client/panel.tsx`：宽度测量、两列/窄栏、独立滚动、筛选
+- `src/client/panel.tsx`：宽度测量、两列/窄栏、独立滚动、筛选状态
+- `src/client/list.tsx`：主题卡筛选按钮（兄弟控件，不打开会话）
 - `src/client/styles.ts`：卡片/对话/注释样式
 
-测试：`tests/inbox-model.test.mjs`、`tests/inbox-api.test.mjs`；更新 `tests/panel-model.test.mjs`。
+测试：`tests/inbox-model.test.mjs`、`tests/inbox-api.test.mjs`；更新 `tests/panel-model.test.mjs`。测试要覆盖主题卡筛选按钮不打开会话、自动评审结果无动作。
 
 ### 阶段 3：动作、回复和文件打开
 
 - `POST /api/cowork.inbox.resolve`：四类动作、角色、幂等、prompt
 - `POST /api/cowork.inbox.open`：服务端解析路径 + 宿主 `openWorkspacePath`
-- 前端动作、输入、右侧回复、错误回执
+- 前端动作、输入、右侧回复、错误回执；自动评审结果保持只读
+- 主题卡筛选按钮、活动状态和清除筛选
 - authorization 解锁/通知更新桥接
 - 测试：解决矩阵、并发冲突、prompt 失败、路径守卫、文件打开失败
 
@@ -178,9 +181,15 @@ npm test
 - [ ] 收口：更新设计/提案/交接/索引/feature-todos，记录证据和遗留。
 - [ ] 汇报四项：改了什么（路径）、验证命令和结果、回滚方式、未核实项。
 
-## 需要确认的假设
+## 已确认与仍需核实
 
-1. “评审”卡是**用户评审请求**；如果实际要把自动 reviewer 的 verdict 转发到收件箱，需替换本设计的数据流。
-2. 主题卡点击仍打开会话；如果要点主题卡筛选，需要重新设计主题卡交互。
-3. 宿主没有宽度 setter 时，窄栏按钮只做面板内全宽收件箱；真正的自动展开是宿主依赖，不假装已支持。
-4. 当前 `authorization` 请求摘要可能没有 demo 里的 command 字段；实现时给工具增加可选 `command`，不改旧摘要语义。
+已确认：
+
+1. “评审”卡是**用户评审请求**；自动 reviewer 的 verdict 只是普通灰字记录，不做可操作卡。
+2. 主题卡主体点击打开会话；筛选按钮单独放在主题卡上。
+
+仍需实现前核实：
+
+1. 宿主没有宽度 setter 时，窄栏按钮只做面板内全宽收件箱；真正的自动展开是宿主依赖，不假装已支持。
+2. 当前 `authorization` 请求摘要可能没有 demo 里的 command 字段；实现时给工具增加可选 `command`，不改旧摘要语义。
+3. `review-verdict` 活动的真实 details 形状需按现有 `review-tools` 事件确认，再决定 note 文案。

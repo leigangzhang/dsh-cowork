@@ -68,7 +68,7 @@ A request to approve or revise one plan file. It is not the host Plan Mode; “�
 
 ### notification note
 
-A non-actionable inbox row for assignment, report, decision proposal or archive. It renders as centered gray text, not a card, and never carries “知道了”. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+A non-actionable inbox row for assignment, report, decision proposal, automated review verdict or archive. It renders as centered gray text, not a card, never carries “知道了”, and an automated review verdict has no link or action. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
 
 ### activity
 

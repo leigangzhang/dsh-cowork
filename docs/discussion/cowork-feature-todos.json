@@ -246,28 +246,31 @@
         "宽侧栏主题栏固定、收件箱独立滚动；窄侧栏只保留需要你处理入口",
         "四类请求：用户评审、权限审批、单/多问题 ask-user、PLAN 计划确认",
         "每条请求先显示左侧主题消息，再显示卡片；解决后显示右侧用户回复",
-        "分配、上报、决策提案、归档用居中灰色注释，不使用卡片",
+        "分配、上报、决策提案、自动评审结果、归档用居中灰色注释，不使用卡片",
+        "自动评审结果只做普通灰字记录：无链接、无动作、不进入待处理计数",
+        "主题卡主体点击打开会话；每张主题卡新增筛选按钮作为收件箱过滤入口",
         "请求解决后唤醒主题会话；authorization 保持主题阻塞/解锁",
         "PLAN 查看全文调用宿主文件浏览器；不做侧边抽屉",
         "不依赖宿主 A2，旧 .dsh-cowork/inbox.json 语义不变"
       ],
       "outOfScope": [
         "工作项页、diff 查看器、Artifact 工作室、项目记忆页",
-        "自动 reviewer 的 cowork_review_request / verdict 语义",
+        "自动 reviewer 的 cowork_review_request / verdict 语义（verdict 只作灰字记录）",
         "宿主 Plan Mode 和宿主 ask_user_question 弹窗",
         "旧 inbox.json 的 merge-needed / review-reject 队列",
         "宿主宽度设置本身；无法自动展开时用面板内全宽收件箱降级"
       ],
       "acceptance": [
         "四类请求都有持久化记录、工具、解决 API 和前端卡片动作",
+        "自动评审 verdict 只显示为无动作灰字，不生成请求卡",
         "左右消息由服务端持久化，刷新后仍在；解决后右侧回复出现",
-        "宽侧栏主题栏固定、收件箱独立滚动；窄侧栏横幅计数只统计 pending 请求",
-        "通知注释不进入待处理计数，提案/PLAN 只按 requestId/noticeId 打开仓库内文件",
+        "宽侧栏主题栏固定、收件箱独立滚动；主题卡筛选按钮只过滤、不打开会话",
+        "窄侧栏横幅计数只统计 pending 请求；通知注释不进入计数",
+        "提案/PLAN 只按 requestId/noticeId 打开仓库内文件；宿主能力缺失时明确降级",
         "authorization 阻塞/解锁和通知更新与现有语义一致，不重复卡片",
-        "不依赖 A2，旧 inbox.json 不被读写；宿主能力缺失时明确降级",
-        "设计、提案、交接、术语表和索引互相链接，npm run check 通过"
+        "不依赖 A2，旧 inbox.json 不被读写；设计、提案、交接、术语表和索引互相链接"
       ],
-      "next": "新会话先做宿主探针和基线，再按设计阶段实现请求存储/API/前端；当前只是 design-proposed，不要宣称已实现。",
+      "next": "新会话先做宿主探针和基线，再按设计阶段实现请求存储/API/前端；自动评审 verdict 与主题卡筛选按钮按本轮确认落地；当前只是 design-proposed，不要宣称已实现。",
       "design": "docs/design/cowork-sidebar/topic-inbox.md",
       "proposal": ".agents/notes/proposed/feature/2026-11-10-topic-inbox.md",
       "handoff": "docs/TOPIC_INBOX_HANDOFF.md",

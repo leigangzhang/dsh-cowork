@@ -4,7 +4,7 @@ Status: draft（design proposed，2026-11-10；未实现）
 决策提案: [2026-11-10-topic-inbox.md](../../../.agents/notes/proposed/feature/2026-11-10-topic-inbox.md)
 交接: [TOPIC_INBOX_HANDOFF.md](../../TOPIC_INBOX_HANDOFF.md)
 
-本方案把右侧栏从单列主题页扩展为“主题栏 + 收件箱”。收件箱承接评审、权限审批、ask-user 提问和 PLAN 待确认四类需要用户行动的请求，以及分配、上报、决策提案、归档四类只读通知。解决后，请求卡片下方追加一条右侧用户回复。
+本方案把右侧栏从单列主题页扩展为“主题栏 + 收件箱”。收件箱承接评审、权限审批、ask-user 提问和 PLAN 待确认四类需要用户行动的请求，以及分配、上报、决策提案、自动评审结果、归档五类只读通知。解决后，请求卡片下方追加一条右侧用户回复。
 
 交互稿和截图：
 
@@ -42,12 +42,12 @@ Status: draft（design proposed，2026-11-10；未实现）
 | 宽侧栏 | 可用宽度 ≥ 620px；左主题栏约 318px，右收件箱独立滚动 |
 | 窄侧栏 | < 620px 隐藏收件箱，顶部显示“需要你处理 N 项” |
 | 主题栏 | 不随收件箱滚动；自身内容超出时只在自己的列内滚动 |
-| 筛选 | 收件箱标题旁选主题；主题卡点击仍打开主题会话 |
+| 筛选 | 主题卡上新增筛选按钮；卡片主体点击仍打开主题会话，筛选按钮只过滤收件箱 |
 | 请求卡片 | 评审 / 权限审批 / ask-user / PLAN 四类，先左侧消息、再卡片 |
 | 解决后 | 卡片保留状态，右侧追加“你”的消息；主题会话被唤醒继续 |
-| 通知 | 分配 / 上报 / 决策提案 / 归档用居中灰字，不套卡片 |
+| 通知 | 分配 / 上报 / 决策提案 / 自动评审结果 / 归档用居中灰字，不套卡片 |
 | PLAN 全文 | 调宿主文件浏览器打开计划文件；不实现侧边抽屉 |
-| 通知通道 | 不依赖 A2；收件箱读取请求文件和现有 notices/activity |
+| 通知通道 | 不依赖 A2；收件箱读取请求文件、现有 notices/activity 和 review-verdict 事件 |
 | 旧 inbox | `.dsh-cowork/inbox.json` 保持原语义，本次不读写它 |
 
 ## 3. 术语
@@ -56,7 +56,7 @@ Status: draft（design proposed，2026-11-10；未实现）
 - **request（请求）**：一条需要用户动作的记录。四种 `kind`：`user-review`、`authorization`、`question`、`plan`。
 - **user review request（用户评审请求）**：请用户通过/退回的一次评审。它**不是** `cowork_review_request` 创建的自动 reviewer 请求，也不产生 reviewer verdict。
 - **plan request（计划确认请求）**：请用户同意/要求修改一份计划文件。它**不是**宿主 Plan Mode。
-- **notification note（通知注释）**：分配、上报、决策提案、归档的只读事件，用灰字展示。
+- **notification note（通知注释）**：分配、上报、决策提案、自动评审结果、归档的只读事件，用灰字展示；自动评审结果不跳转、不需要用户交互。
 
 > 现有术语 [review request](../../glossary.md#review-request) 继续指自动 reviewer 的评审范围；本设计中的“评审”卡一律指 user review request。旧 [inbox](../../glossary.md#inbox) 指 `.dsh-cowork/inbox.json`，与本收件箱不是同一个对象。
 
@@ -68,8 +68,8 @@ Status: draft（design proposed，2026-11-10；未实现）
 Cowork tab（可用宽度 ≥ 620px）
 ┌────────────────────────────┬──────────────────────────────────────┐
 │ 主题（固定）                 │ 收件箱（独立上下滚动）                 │
-│ 阻塞 / 运行中 / 空闲 / 已解决│ 收件箱 · 全部类型 N     [主题筛选]     │
-│ 主题卡                      │  左侧主题消息                         │
+│ 阻塞 / 运行中 / 空闲 / 已解决│ 收件箱 · 全部类型 N                  │
+│ 主题卡 + [筛选] 按钮         │  左侧主题消息                         │
 │                            │  ┌──────────────────────────────┐    │
 │                            │  │ 等待审批 / 等待审核 / 计划待审  │    │
 │                            │  │ 卡片正文与操作                 │    │
@@ -81,8 +81,10 @@ Cowork tab（可用宽度 ≥ 620px）
 
 - 主题栏宽约 318px，收件箱最小约 280px，中间 12px 间距；实际以容器宽度为准。
 - 主题栏 `overflow-y: auto`，但不随收件箱滚动；收件箱是独立滚动容器。
-- 收件箱顶部固定标题、类型筛选和主题筛选；内容区滚动。
-- 主题卡点击保持现有行为：打开主题会话。收件箱的“只看某主题”通过标题旁的主题选择器完成，不用主题卡双击或长按。
+- 收件箱顶部固定标题和当前筛选标签；内容区滚动。
+- 主题卡主体点击保持现有行为：打开主题会话。
+- 每张主题卡新增一个筛选按钮（漏斗/“筛选”），点击切换收件箱的“只看此主题”筛选；再次点击同一按钮清除筛选。筛选按钮是主题卡主体按钮的兄弟控件，不嵌套，不触发展开会话。
+- 收件箱标题显示当前筛选主题和一个清除入口；筛选按钮有 active 状态和 `aria-pressed`。
 
 ### 4.2 窄侧栏
 
@@ -108,7 +110,7 @@ Cowork tab（< 620px）
 - 横幅和“需要你处理”只统计 pending 请求；细分：待授权、待审核、待回答、待确认。
 - 排序：pending 请求在前，其余按 `updatedAt` 倒序；通知与已解决请求混排。
 - 空态：“收件箱为空”；不是错误。加载失败保留主题列表，收件箱单独显示错误和重试。
-- 主题筛选不改变主题栏选择，只过滤右侧；再次选“全部主题”清除。
+- 主题筛选不改变主题打开行为，只过滤右侧；再次点同一主题卡的筛选按钮或清除入口恢复全部。
 
 ## 5. 请求线程与卡片
 
@@ -169,6 +171,7 @@ Cowork tab（< 620px）
 
 - 分配 / 上报 / 归档：居中灰字，只显示类型、主题和一行摘要；无按钮、无“知道了”。
 - 决策提案：同样居中灰字，附“查看提案”链接；点击调用文件打开路由，显示提案 JSON。
+- 自动评审结果：从 `review-verdict` activity 投影成居中灰字，例如“自动评审 · 通过 · 个人主页 Bio”；没有链接、没有按钮、不要求用户处理，也不生成请求卡。
 - 通知不进入“需要你处理”计数，也不改变请求状态。
 - authorization 的旧通知不重复进入注释流，避免和权限卡重复。
 
@@ -194,7 +197,8 @@ Cowork tab（< 620px）
 | `src/client/inbox-model.ts` | 纯视图模型：合并请求/通知、排序、筛选、计数、动作可用性、对话消息、横幅文案；React-free |
 | `src/client/inbox.tsx` | `InboxPanel`、`RequestThread`、四类卡、通知注释、空/错/加载态 |
 | `src/client/api.ts` | 扩展 `loadInbox`、`resolveInboxRequest`、`openInboxTarget`；沿用运行时校验和错误 envelope |
-| `src/client/panel.tsx` | 加载 overview + inbox；`ResizeObserver` 宽度；宽/窄布局；主题栏固定；收件箱独立滚动 |
+| `src/client/panel.tsx` | 加载 overview + inbox；`ResizeObserver` 宽度；宽/窄布局；主题栏固定；收件箱独立滚动；筛选状态 |
+| `src/client/list.tsx` | 主题卡主按钮保持打开会话；新增兄弟筛选按钮、active 状态、`aria-pressed` 和回调 |
 | `src/client/styles.ts` | 收件箱、卡片、对话、注释、窄栏样式；公开主题 token + fallback |
 | `tests/inbox-model.test.mjs` | 排序、筛选、计数、动作规则、对话可见性、窄栏文案 |
 
@@ -204,7 +208,7 @@ Cowork tab（< 620px）
 
 - `overview`：主题列表，现有 `loadOverview`。
 - `inbox`：请求和通知，独立加载；加载失败不阻塞主题列表。
-- `selectedInboxTopicId`：主题筛选，默认 null。
+- `selectedInboxTopicId`：主题筛选，默认 null；由主题卡筛选按钮切换，`list.tsx` 只回调 topicId。
 - `pendingRequestIds`：正在提交的请求，防重复点击。
 - `widthMode`：由容器宽度推导的 `wide | narrow`；不做全局布局 store。
 
@@ -319,7 +323,8 @@ interface PlanPayload {
 - 所有工具先校验角色、主题存在且未归档、字段和路径；失败不写任何文件。
 - 新工具不唤醒模型、不弹宿主对话框，只写请求和 activity。
 - `cowork_authorization_request` 仍调用现有 `blockTopic` 和 authorization 事件；requestId 相同。
-- 自动 reviewer 工具保持不变；文档和工具描述都要说明两个“评审”的区别。
+- 自动 reviewer 工具保持不变；其 `review-verdict` 活动由收件箱投影成普通灰字注释，不生成用户请求卡、不创建通知行、不提供跳转。
+- 文档和工具描述都要说明两个“评审”的区别：`cowork_user_review_request` 是用户动作；reviewer 的 verdict 是只读记录。
 
 ### 7.4 解决服务
 
@@ -398,7 +403,7 @@ type PanelInboxItem =
   | {
       kind: 'notification'
       noticeId: string
-      noticeKind: 'assignment' | 'report' | 'proposal' | 'archive'
+      noticeKind: 'assignment' | 'report' | 'proposal' | 'review-verdict' | 'archive'
       topicId: string
       topicTitle: string
       summary: string
@@ -410,7 +415,7 @@ type PanelInboxItem =
 ```
 
 - 最多 50 项；`truncated` 表示还有更多。
-- 通知来源：`noticeSummaries(events, ledger, { target: 'master' })` 过滤 authorization；不修改账本。
+- 通知来源：`noticeSummaries(events, ledger, { target: 'master' })` 过滤 authorization，并补充从 `review-verdict` 活动投影的自动评审结果；不修改账本。自动评审结果 `canOpen=false`、无动作。
 - 主题名从 index 读取；找不到的主题用“已归档主题”占位。
 - `GET` 只读，不写 lifecycle、不写通知、不唤醒模型。
 
@@ -471,7 +476,7 @@ sequenceDiagram
 
 - `inbox-contract.ts`、`inbox-api.ts`、`src/index.ts` 接线。
 - `client/api.ts`、`inbox-model.ts`、`inbox.tsx`。
-- `panel.tsx` 宽/窄布局、主题栏固定、收件箱滚动、横幅。
+- `panel.tsx` 宽/窄布局、主题栏固定、收件箱滚动、横幅；`list.tsx` 主题卡筛选按钮。
 - 先渲染 pending 卡片和通知，不接动作。
 - 单测：wire 解析、视图模型、计数/筛选/对话可见性。
 
@@ -495,18 +500,17 @@ sequenceDiagram
 - [D1] 四类请求都有 schema、工具、API、前端卡和动作；无落点项 — `plan-docs` + 实现期 `tests/request-*.test.mjs`
 - [D2] 请求记录持久化左右消息、状态、payload；刷新后恢复 — `tests/request-store.test.mjs`
 - [D3] resolve 幂等、冲突、角色校验、prompt 失败不回滚 — `tests/request-service.test.mjs`
-- [D4] 收件箱宽/窄、固定主题栏、独立滚动、筛选、计数 — `tests/inbox-model.test.mjs` + GUI
+- [D4] 收件箱宽/窄、固定主题栏、独立滚动、主题卡筛选按钮、计数 — `tests/inbox-model.test.mjs` + GUI
 - [D5] PLAN/提案只按请求 id 打开仓库内文件；宿主缺失时明确失败 — `tests/inbox-api.test.mjs` + GUI
 - [D6] authorization 仍阻塞/解锁、通知更新且不重复卡片 — `tests/request-tools.test.mjs` + `tests/notices.test.mjs`
-- [D7] 通知注释不进入待处理计数，旧 `.dsh-cowork/inbox.json` 不被读写 — `tests/inbox-api.test.mjs`
+- [D7] 通知注释（含自动评审结果）不进入待处理计数、无动作；旧 `.dsh-cowork/inbox.json` 不被读写 — `tests/inbox-api.test.mjs`
 - [D8] `npm run check`、`typecheck`、`build`、`test` 通过；真实 GUI 证据记录 — `plan-docs` / 实现期门禁
 
 ## 12. 风险与未决
 
 - **宿主宽度接口未确认。** 当前契约没有 setter；“自动展开宽侧栏”可能只能以面板内全宽收件箱降级，必须先在探针阶段确认。
 - **文件打开能力依赖桌面宿主。** `openWorkspacePath` 只在原生宿主可用；远端/无桌面时返回错误。
-- **“评审”语义是假设。** 本设计按用户评审请求处理；如果目标是把自动 reviewer verdict 转发给用户，需要另一套数据流。
-- **主题卡筛选与打开冲突。** 本文保留点击打开会话，筛选用独立选择器；若产品要求点卡片筛选，需要重新设计主题卡交互。
+- **自动评审结果的边界。** user review request 与 reviewer verdict 是两条线；前者有请求卡和动作，后者只是灰字记录，后续不要把 verdict 做成可操作卡。
 - **四类请求与主题状态的关系。** 只有 authorization 阻塞主题；其他请求 pending 时主题仍可能显示运行中，是否要统一为阻塞需后续决定。
 - **重复通知。** authorization 同时存在主题记录、请求记录和通知账本；实现必须抑制通知流中的重复卡。
 - **A2 仍是延期项。** 本收件箱是侧栏 fallback，不解决主会话/主题会话的 1:1 会话卡（KI-40）。
