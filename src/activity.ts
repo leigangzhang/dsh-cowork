@@ -18,6 +18,7 @@ import type {
 } from './notices.js'
 import { ACTIVITY_TYPES } from './store-schema.js'
 import type { ActivityEvent, ActivityType, TopicRecordV2, TopicStatus } from './store-schema.js'
+import type { RequestAction, RequestKind, RequestRecordV1 } from './inbox-contract.js'
 
 /** Everything one business activity event is built from. */
 export interface ActivityInput {
@@ -277,4 +278,56 @@ export function assignmentNotice(topic: TopicRecordV2, brief: string): ActivityN
     summary: brief.trim() === '' ? topic.scope : brief,
     targets: BOTH_TARGETS,
   })
+}
+
+/** Short label per request kind, used by the two request activity rows. */
+const REQUEST_KIND_LABEL: Readonly<Record<RequestKind, string>> = {
+  'user-review': '用户评审',
+  authorization: '授权',
+  question: '提问',
+  plan: '计划确认',
+}
+
+/**
+ * The `request-created` event: one row per request a topic tool persisted. It
+ * carries no notice descriptor on purpose — the inbox reads request files, not
+ * notifications, so creating a request must not grow the notice ledger.
+ */
+export function requestCreatedActivity(record: RequestRecordV1, now: Date): ActivityEvent {
+  return buildActivityEvent({
+    type: 'request-created',
+    topicId: record.topicId,
+    summary: `requested ${REQUEST_KIND_LABEL[record.kind]} ${record.requestId}`,
+    details: {
+      requestId: record.requestId,
+      topicId: record.topicId,
+      kind: record.kind,
+      status: record.status,
+    },
+  }, now)
+}
+
+/**
+ * The `request-resolved` event of one committed decision (or an archive's
+ * `void`). Like `request-created` it carries no notice descriptor: the card is
+ * the request file, and the activity row is the audit trail.
+ */
+export function requestResolvedActivity(
+  record: RequestRecordV1,
+  input: { action: RequestAction | null },
+  now: Date,
+): ActivityEvent {
+  return buildActivityEvent({
+    type: 'request-resolved',
+    topicId: record.topicId,
+    summary: `resolved ${REQUEST_KIND_LABEL[record.kind]} request ${record.requestId} as ${record.status}`,
+    details: {
+      requestId: record.requestId,
+      topicId: record.topicId,
+      kind: record.kind,
+      action: input.action,
+      status: record.status,
+      resolvedBy: record.resolvedBy,
+    },
+  }, now)
 }

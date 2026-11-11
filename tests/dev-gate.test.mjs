@@ -46,14 +46,20 @@ const {
   ROUTE_MOVE_PATH,
   TOPIC_PATH,
 } = await import('../src/api-contract.ts')
+const {
+  INBOX_OPEN_PATH,
+  INBOX_PATH,
+  INBOX_RESOLVE_PATH,
+} = await import('../src/inbox-contract.ts')
 
-/** The seven panel routes: three reads, then the four writes. */
+/** The ten panel routes: four reads, then the six writes. */
 const PANEL_PATHS = [
-  OVERVIEW_PATH, ACTIVITY_PATH, TOPIC_PATH,
+  OVERVIEW_PATH, ACTIVITY_PATH, TOPIC_PATH, INBOX_PATH,
   RESOLVE_PATH, REOPEN_PATH, ROUTE_MOVE_PATH, AUTHORIZATION_RESOLVE_PATH,
+  INBOX_RESOLVE_PATH, INBOX_OPEN_PATH,
 ]
 
-/** The nineteen business tools — stable public names, pinned here on purpose. */
+/** The twenty-two business tools — stable public names, pinned here on purpose. */
 const BUSINESS_TOOLS = [
   'cowork_checkout_merge',
   'cowork_handoff',
@@ -73,6 +79,9 @@ const BUSINESS_TOOLS = [
   'cowork_authorization_request',
   'cowork_decision_propose',
   'cowork_notices',
+  'cowork_user_review_request',
+  'cowork_request_question',
+  'cowork_request_plan',
   'cowork_work_item_create',
 ]
 
@@ -94,6 +103,9 @@ const BUSINESS_TOOL_ORDER = [
   'cowork_decision_propose',
   'cowork_authorization_request',
   'cowork_notices',
+  'cowork_user_review_request',
+  'cowork_request_question',
+  'cowork_request_plan',
   'cowork_work_item_create',
   'cowork_review_request',
   'cowork_review_verdict',
@@ -227,7 +239,7 @@ test('Config defaults pin the M10 isolation and reviewer settings', () => {
   const normalized = normalizeConfig({})
   assert.deepEqual(normalized.isolation, { provider: 'clone' })
   assert.deepEqual(normalized.reviewer, { reclaim: 'after-verdict' })
-  assert.equal(BUSINESS_TOOL_ORDER.length, 19)
+  assert.equal(BUSINESS_TOOL_ORDER.length, 22)
 })
 
 test('the isolation provider has one source of truth', () => {
@@ -247,7 +259,7 @@ test('apply refuses an unsupported reviewer reclaim value at startup', () => {
   assert.deepEqual(host.effects, [])
 })
 
-test('the business surface registers exactly nineteen tools in the documented order', async () => {
+test('the business surface registers exactly twenty-two tools in the documented order', async () => {
   const host = fakeHost()
   apply(host.ctx, config(false))
   await settle()
@@ -288,7 +300,7 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   assert.deepEqual(host.routes, [])
   assert.deepEqual(fetchPaths(host), sorted(PANEL_PATHS))
 
-  // Exactly the nineteen business tools: the probe tools are absent.
+  // Exactly the twenty-two business tools: the probe tools are absent.
   assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
 
   // The four runner session feeds are not attached; the business topic

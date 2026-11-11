@@ -1,7 +1,7 @@
 /**
  * The cowork tool assembly (M10.4b): registration orchestration only.
  *
- * The nineteen tools live in their domain modules:
+ * The twenty-two tools live in their domain modules:
  *
  * - `project-tools.ts` — project_init, project_status
  * - `route-tools.ts` — route
@@ -9,14 +9,16 @@
  *   thread_list (deprecated), handoff, topic_resolve, topic_report,
  *   decision_propose, authorization_request, notices
  * - `checkout-tools.ts` — work_item_create, checkout_merge
+ * - `request-tools.ts` — user_review_request, request_question, request_plan
  * - `review-tools.ts` — review_request, review_verdict
  * - `memory-tools.ts` — memory_write, memory_search
  *
  * The registration order is part of the public surface (PLAN-V0.2 §5.7):
  * project_init, project_status, route, topic_create, thread_create,
  * topic_list, thread_list, handoff, topic_resolve, topic_report,
- * decision_propose, authorization_request, notices, work_item_create,
- * review_request, review_verdict, memory_write, memory_search, checkout_merge.
+ * decision_propose, authorization_request, notices, user_review_request,
+ * request_question, request_plan, work_item_create, review_request,
+ * review_verdict, memory_write, memory_search, checkout_merge.
  *
  * Host services arrive through `CoworkToolDeps`; nothing throws across the tool
  * boundary, and the review tools keep receiving their helpers by injection so
@@ -29,6 +31,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { registerCheckoutTools, registerWorkItemTools } from './checkout-tools.js'
 import { registerMemoryTools } from './memory-tools.js'
 import { registerProjectTools } from './project-tools.js'
+import { registerRequestTools } from './request-tools.js'
 import { registerReviewTools } from './review-tools.js'
 import { registerRouteTools } from './route-tools.js'
 import type { CoworkToolDeps } from './tool-runtime.js'
@@ -50,7 +53,7 @@ interface ToolHost {
 }
 
 /**
- * Register the nineteen cowork tools and return their disposers. The caller owns
+ * Register the twenty-two cowork tools and return their disposers. The caller owns
  * the effect scope; this function only composes the domain registrars, in the
  * documented order (the review tools before memory, merge last).
  */
@@ -60,6 +63,7 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
     ...registerProjectTools(host, deps),
     ...registerRouteTools(host, deps),
     ...registerTopicTools(host, deps),
+    ...registerRequestTools(host, deps),
     ...registerWorkItemTools(host, deps),
     ...registerReviewTools(host, {
       callerOf,

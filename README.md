@@ -7,9 +7,9 @@ DSH 的项目式主从协作插件。0.2.0 采用**主题会话模型**：master
 ## 它提供什么
 
 - **三个 preset**：`cowork-master`（显示为 `Cowork模式`）、`cowork-topic`、`cowork-reviewer`。新建会话只显示 master；topic/reviewer 由插件内部创建，不出现在选择器。定义与工具面见 [src/presets.ts](src/presets.ts)。
-- **19 个业务工具**：初始化、路由、主题、handoff、上报、决策提案、待授权、通知读取、工作项、评审、合并、记忆；名称与注册顺序见 [src/tools.ts](src/tools.ts)，参数以各工具模块为准。
-- **右侧栏 CoWork 面板**：单列主题列表（阻塞 / 运行中 / 空闲 / 已解决四组）、两行卡片、需要你处理入口、⋯ 归档/恢复菜单；不展示详情、工作项、评审请求和审查状态。七条 `/api/cowork.*` 路由见 [src/api-contract.ts](src/api-contract.ts)。
-- **项目记忆 / 活动流 / 通知账本 / master 收件箱**：跨会话保留决定与事实，状态变化可审计；主题通知写 `.dsh-cowork/notices.json` 账本，master 可用 `cowork_notices` 读取；收件箱只保留合入、评审退回和跨主题冲突等既有事件。
+- **22 个业务工具**：初始化、路由、主题、handoff、上报、决策提案、待授权、通知读取、用户评审请求、提问、计划确认、工作项、评审、合并、记忆；名称与注册顺序见 [src/tools.ts](src/tools.ts)，参数以各工具模块为准。
+- **右侧栏 CoWork 面板**：宽侧栏两列（主题列表 + 请求收件箱），窄侧栏只列主题并在顶部显示“需要你处理 N 项”，点入面板内全宽收件箱。四类请求（用户评审 / 权限审批 / 提问 / PLAN）按“左侧主题消息 + 行动卡 + 解决后的右侧用户回复”展示；分配、上报、决策提案、自动评审结果与归档用居中灰字；主题卡上有独立的收件箱筛选按钮，⋯ 菜单归档/恢复。十条 `/api/cowork.*` 路由见 [src/api-contract.ts](src/api-contract.ts) 与 [src/inbox-contract.ts](src/inbox-contract.ts)。
+- **项目记忆 / 活动流 / 通知账本 / master 收件箱 / 请求收件箱**：跨会话保留决定与事实，状态变化可审计；主题通知写 `.dsh-cowork/notices.json` 账本，master 可用 `cowork_notices` 读取；请求收件箱的请求记录写在 `.dsh-cowork/requests/<requestId>.json`，不读写旧 `inbox.json`；旧收件箱只保留合入、评审退回和跨主题冲突等既有事件。
 
 角色边界、状态机与生命周期规则由 [PLAN-V0.2](docs/PLAN-V0.2.md) 拥有；一次需求的完整闭环见 [routing.md](docs/routing.md)，上下文共享与记忆注入见 [context.md](docs/context.md)。
 
@@ -56,11 +56,13 @@ dsh --profile <profile> --port 3091 --no-open
 7. **handoff / 上报**：主题结束时调用 `cowork_handoff`；`done` 写摘要与交付确认，`blocked` 置 handoff 阻塞。进度/阻塞也可以先用 `cowork_topic_report` 单独上报。这些事件写 activity 与通知账本，不再通过收件箱唤醒 master；master 用 `cowork_notices` 读取。
 8. **已解决与重开**：主题没有自动 resolved；空闲从最后一次活动起 24 小时。用户从主题卡 ⋯ 菜单归档（会同时归档宿主主题会话），已解决卡同一菜单恢复（unarchive，不写通知）。待授权通过 `cowork_authorization_request` 产生，由 master 或该主题会话调用 `authorization.resolve` 决定。
 
-主题页提供单列四组列表和 ⋯ 归档/恢复；点卡片或“需要你处理”打开主题会话。决策记录查看、工作项和评审详情不在主题页，留给后续工作项页。
+主题页提供单列四组列表和 ⋯ 归档/恢复；点卡片或“需要你处理”打开主题会话。宽侧栏下右侧是请求收件箱：四类请求解决后右侧出现用户回复并唤醒主题会话，通知只读；主题卡筛选按钮只过滤收件箱，不打开会话。决策记录查看、工作项和评审详情不在主题页，留给后续工作项页。
 
-## 主题页与 reviewer 的可见性
+## 主题页、收件箱与 reviewer 的可见性
 
-- **主题页是单列列表**：四组按阻塞 / 运行中 / 空闲 / 已解决排序，已解决默认折叠；卡片两行，标记在主题名右侧、时间在摘要右侧；⋯ 菜单只有归档或恢复。需要你处理只统计待授权。
+- **主题页是单列列表**：四组按阻塞 / 运行中 / 空闲 / 已解决排序，已解决默认折叠；卡片两行，标记在主题名右侧、时间在摘要右侧；⋯ 菜单只有归档或恢复。需要你处理只统计 pending 请求（待授权 / 待审核 / 待回答 / 待确认）。
+- **收件箱是 Cowork tab 内的第二列**：宽侧栏（面板内容宽 ≥620px）左主题栏固定、右收件箱独立滚动；窄侧栏隐藏收件箱，顶部显示“需要你处理 N 项”，点击进入面板内全宽收件箱。宿主当前没有右栏宽度 setter，插件不操作宿主布局（[KI-42](docs/KNOWN_ISSUES.md)）。
+- **请求与自动评审是两条线**：用户评审请求（`cowork_user_review_request`）有卡片和通过/退回动作；自动 reviewer 的 `review-verdict` 只投影成居中灰字记录，无动作、无链接、不进入待处理计数。只有 authorization 会改变主题阻塞状态。
 - **归档会归档宿主主题会话**：菜单归档通过 resolve 路由清 block/authorization、写只给主会话的 `topic-archived` 通知，并 `archiveSession` 主题会话；恢复走 reopen/unarchive，不产生通知。主题会话不再按 v1 的方式常驻左侧栏。
 - **reviewer 不出现在 CoWork 列表**：面板只列主题，评审结果由 review 工具/请求文件承载；主题页不再展示评审卡。verdict 后插件归档 reviewer 会话。
 - **宿主左侧栏可能看到 reviewer**：插件没有会话过滤接口，这是已接受的上限（[KI-28](docs/KNOWN_ISSUES.md)）；不要理解为 reviewer 已对宿主隐藏。
@@ -122,6 +124,8 @@ dsh plugin --profile <profile> remove @dsh-external/dsh-cowork
 - **合并冲突不自动解决**：冲突中止主仓合并并保留工作项 clone，由主题或人处理（[KI-4](docs/KNOWN_ISSUES.md)）。
 - **`main`/`master` 不动**：插件拒绝合并到受保护分支，默认分支由人收口。
 - **收件箱是 at-least-once**：投递成功但 `deliveredAt` 未写时可能重复提示，不会丢事件（[KI-23](docs/KNOWN_ISSUES.md)）。
+- **请求收件箱的文件打开依赖桌面宿主**：PLAN/提案的“查看全文”由宿主 `sessionController.openWorkspacePath({ path, action: 'reveal' }, signal)` 执行（插件 port 传 `AbortSignal.timeout(10s)`；服务端解析仓库内路径，浏览器只传 id）；宿主没有该能力或拒绝时路由返回 `inbox/open-unsupported`，UI 显示错误，不伪造打开。
+- **右栏宽度由宿主控制**：插件没有宽度 setter；窄侧栏只能降级为面板内全宽收件箱，不操作宿主 DOM（[KI-42](docs/KNOWN_ISSUES.md)）。
 - **工作项 clone 只含已提交文件**：看不到主仓未提交改动与本地依赖，需要自装依赖（[KI-1](docs/KNOWN_ISSUES.md)）；隔离提供方当前只实现 clone（[KI-27](docs/KNOWN_ISSUES.md)）。
 - **文件策略前提是 workspace-write**：隔离目录必须可写（[KI-5](docs/KNOWN_ISSUES.md)）。
 - **workspace 记录启动补建（过渡，[KI-39](docs/KNOWN_ISSUES.md)）**：启动时只对存在 `.dsh-cowork/index.json` 的项目补建缺失的 DSH workspace，并 attach 会话；手动删除 workspace 后若其会话仍在项目根，下次启动会被重建。目标机制仍是只由 `cowork_project_init` / 会话创建登记。

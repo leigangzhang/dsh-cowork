@@ -1,9 +1,10 @@
 /**
  * HTTP surface of the CoWork panel (M11, wire v2).
  *
- * Seven Exact Fetch routes live on the host `connection` service: three reads
- * (`overview`, `activity`, `topic`) and four writes (`resolve`, `reopen`,
- * `authorization.resolve`, `route.move`). `resolve`/`reopen`/`route.move` are
+ * Ten Exact Fetch routes live on the host `connection` service: four reads
+ * (`overview`, `activity`, `topic`, `inbox`) and six writes (`resolve`,
+ * `reopen`, `authorization.resolve`, `route.move`, `inbox.resolve`,
+ * `inbox.open`). `resolve`/`reopen`/`route.move` are
  * master-only; `authorization.resolve` accepts the master or the topic's own
  * session. The browser never names a filesystem path: the
  * project root comes from `sessionId` → session cwd → `findProjectRoot`, and
@@ -50,6 +51,7 @@ import {
   isPanelReviewSeverity,
   isPanelReviewStatus,
   isPanelWorkItemStatus,
+  panelErrorStatus,
   sortTopicsForPanel,
   truncateSummary,
   type ActivityResponse,
@@ -70,16 +72,14 @@ import {
   type RouteMoveResponse,
   type TopicResponse,
 } from './api-contract.js'
-import { authorizationResolvedActivity, buildActivityEvent, topicReopenedActivity } from './activity.js'
-import {
-  updateAuthorizationNotice,
-} from './notices.js'
-import type { NoticeUpdateOutcome, TopicNoticePort } from './notices.js'
+import { buildActivityEvent, topicReopenedActivity } from './activity.js'
+import { inboxPanelRoutes } from './inbox-api.js'
+import type { InboxApiKit } from './inbox-api.js'
+import type { NoticeLedgerV1, TopicNoticePort } from './notices.js'
 import { isLoopbackHost } from './probe-model.js'
 import { parseReviewRequestRecord, reviewRequestFileName } from './review-request.js'
 import type { ReviewRequestRecord } from './review-request.js'
 import { applyRouteCorrection } from './routing.js'
-import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
 import type {
   ActivityEvent,
   InboxItem,
@@ -90,8 +90,13 @@ import type {
   TopicRecordV2,
   WorkItemRecordV2,
 } from './store-schema.js'
+import {
+  PanelServiceError,
+  resolveAuthorizationDecision,
+  settleAuthorizationRequestRecord,
+} from './request-service.js'
 import { StoreError } from './store.js'
-import { DEFAULT_IDLE_AFTER_MS, reopenResolvedTopic, unblockTopic } from './topic.js'
+import { DEFAULT_IDLE_AFTER_MS, reopenResolvedTopic } from './topic.js'
 import { activeWorkItemCount } from './work-item.js'
 import { archiveTopic, evaluateProjectLifecycle } from './tool-runtime.js'
 
@@ -116,6 +121,8 @@ export interface CoworkStorePort {
   readInbox(): Promise<InboxItem[]>
   /** Raw text read of one project-owned file; `null` when the file is gone. */
   readText(absPath: string): Promise<string | null>
+  /** The notice ledger; the inbox note stream reads it without writing it. */
+  readNotices?(): Promise<NoticeLedgerV1>
   /** `<repo>/.dsh-cowork/reviews`, the only home of review-request facts. */
   readonly reviewsDir: string
 }
@@ -160,6 +167,12 @@ export interface CoworkApiPorts {
   promptSession?(sessionId: string, text: string): Promise<{ accepted: boolean }>
   /** Host notice port, used to update the original authorization notice. */
   noticePort?: TopicNoticePort
+  /**
+   * Host file-browser port for `POST /api/cowork.inbox.open`. Optional: a host
+   * without the desktop capability answers `inbox/open-unsupported` instead of
+   * faking a success.
+   */
+  openWorkspacePath?(path: string): Promise<void>
   /** Schedule the notice dispatcher for one project after a committed write. */
   kickNotices?(repoPath: string): void
 }
@@ -168,6 +181,10 @@ export interface CoworkApiPorts {
 export type PanelFetchMethod = 'GET' | 'HEAD' | 'POST'
 /** Whether the channel buffers or streams the request body before the handler. */
 export type PanelRequestBodyMode = 'buffered' | 'streaming'
+
+// The status table moved to the contract module with the inbox codes; the host
+// keeps the stable export name the panel tests and the client rely on.
+export { panelErrorStatus, PANEL_ERROR_STATUS } from './api-contract.js'
 
 /** One Exact Fetch route as the host `connection` service declares it. */
 export interface PanelFetchRoute {
@@ -200,16 +217,16 @@ const ROUTE_MOVE_INTENT_MAX_CHARS = 500
 /** Most alias tokens one `route-corrected` activity carries. */
 const ROUTE_CORRECTION_DETAILS_MAX_TOKENS = 20
 
-/** A failure the routes map to a stable panel error code and HTTP status. */
-export class PanelApiError extends Error {
-  readonly code: PanelErrorCode
-  readonly path: string | undefined
-
+/**
+ * A failure the routes map to a stable panel error code and HTTP status.
+ * `PanelServiceError` is the shared base, so a failure raised by
+ * `src/request-service.ts` (resolve/open) and one raised here answer with the
+ * same envelope.
+ */
+export class PanelApiError extends PanelServiceError {
   constructor(code: PanelErrorCode, message: string, path?: string) {
-    super(message)
+    super(code, message, path)
     this.name = 'PanelApiError'
-    this.code = code
-    this.path = path
   }
 }
 
@@ -217,33 +234,6 @@ export class PanelApiError extends Error {
 export interface PanelErrorResult {
   readonly status: number
   readonly body: PanelErrorBody
-}
-
-/**
- * HTTP status per stable error code. Typed as a complete `Record`, so adding a
- * code to the contract without deciding its status is a compile error.
- */
-const PANEL_ERROR_STATUS: Readonly<Record<PanelErrorCode, number>> = {
-  'request/session-required': 400,
-  'request/topic-required': 400,
-  'request/invalid-query': 400,
-  'request/invalid-body': 400,
-  'request/body-too-large': 413,
-  'request/content-type': 415,
-  'request/origin': 403,
-  'request/not-master': 403,
-  'topic/not-found': 404,
-  'topic/not-resolved': 409,
-  'authorization/not-found': 404,
-  'authorization/mismatch': 409,
-  'authorization/not-allowed': 403,
-  'route/move-invalid': 400,
-  'session/unknown': 400,
-  'session/cwd-unavailable': 400,
-  'session/list-timeout': 504,
-  'project/not-initialized': 404,
-  'store/corrupt': 500,
-  internal: 500,
 }
 
 /**
@@ -262,11 +252,6 @@ const JSON_HEADERS: Readonly<Record<string, string>> = {
   'cache-control': 'no-store',
 }
 
-/** HTTP status for a stable error code. */
-export function panelErrorStatus(code: PanelErrorCode): number {
-  return PANEL_ERROR_STATUS[code]
-}
-
 function errorBody(code: PanelErrorCode, message: string, path?: string): PanelErrorBody {
   const error: { code: PanelErrorCode; message: string; path?: string } = { code, message }
   if (path !== undefined) error.path = path
@@ -280,7 +265,7 @@ function errorBody(code: PanelErrorCode, message: string, path?: string): PanelE
  * client cannot interpret.
  */
 export function toErrorResponse(error: unknown): PanelErrorResult {
-  if (error instanceof PanelApiError) {
+  if (error instanceof PanelApiError || error instanceof PanelServiceError) {
     return { status: panelErrorStatus(error.code), body: errorBody(error.code, error.message, error.path) }
   }
   if (error instanceof StoreError && error.code === 'store/corrupt') {
@@ -911,59 +896,14 @@ const noNoticePort: TopicNoticePort = {
   },
 }
 
-/** One recorded authorization decision, as the activity stream remembers it. */
-interface AuthorizationDecisionRecord {
-  decision: 'allow' | 'deny'
-  noticeId: string | null
-}
-
-/** Find the decision already recorded for a request, if any. */
-async function recordedDecision(
-  store: CoworkStorePort,
-  topicId: string,
-  requestId: string,
-): Promise<AuthorizationDecisionRecord | null> {
-  const { events } = await store.readActivity(ACTIVITY_MAX_EVENTS)
-  for (const event of events) {
-    if (event.type !== 'authorization-resolved' || event.topicId !== topicId) continue
-    const details = event.details as Record<string, unknown>
-    if (details.requestId !== requestId) continue
-    if (details.decision !== 'allow' && details.decision !== 'deny') continue
-    return {
-      decision: details.decision,
-      noticeId: typeof details.noticeId === 'string' ? details.noticeId : null,
-    }
-  }
-  return null
-}
-
-/** Find the `authorization-requested` event id whose notice a decision updates. */
-async function authorizationNoticeId(
-  store: CoworkStorePort,
-  topicId: string,
-  requestId: string,
-): Promise<string | null> {
-  const { events } = await store.readActivity(ACTIVITY_MAX_EVENTS)
-  for (const event of events) {
-    if (event.type !== 'authorization-requested' || event.topicId !== topicId) continue
-    const details = event.details as Record<string, unknown>
-    if (details.requestId === requestId) return event.eventId
-  }
-  return null
-}
-
-/** The short prompt a decided topic session receives to continue its work. */
-function authorizationPrompt(summary: string, decision: 'allow' | 'deny'): string {
-  const verb = decision === 'allow' ? '允许' : '拒绝'
-  return `授权请求已${verb}：${truncateSummary(summary)}。请继续。`
-}
-
 /**
  * `POST authorization.resolve`: record the user's decision on one pending
  * authorization. The master or the topic's own session may decide; the
  * `requestId` is idempotent (the same decision replays, a different one is a
- * conflict). The original notice is patched, not duplicated, and only the topic
- * session is prompted — the master gets no extra message.
+ * conflict). The decision core lives in `src/request-service.ts` and is shared
+ * with `POST /api/cowork.inbox.resolve`: there is exactly one unlock path. The original
+ * notice is patched, not duplicated, and only the topic session is prompted —
+ * the master gets no extra message.
  */
 async function handleAuthorizationResolve(request: Request, ports: CoworkApiPorts): Promise<Response> {
   const body = await readJsonBody(request)
@@ -976,139 +916,46 @@ async function handleAuthorizationResolve(request: Request, ports: CoworkApiPort
   }
   const { store, repoPath } = await openProject(ports, sessionId)
   const now = ports.now?.() ?? new Date()
-  const before = await store.readIndexDocument()
-  const topic = before.topics.find((entry) => entry.topicId === topicId)
-  if (topic === undefined) {
-    throw new PanelApiError('topic/not-found', `unknown topic: ${topicId}`)
-  }
-  // Permission: the master may decide any topic; a topic session only its own.
-  if (sessionId !== before.masterSessionId && sessionId !== topicId) {
-    throw new PanelApiError(
-      'authorization/not-allowed',
-      `session ${sessionId} may not decide an authorization of topic ${topicId}`,
-    )
-  }
-  const pending = topic.authorization ?? null
-  if (pending === null) {
-    const recorded = await recordedDecision(store, topicId, requestId)
-    if (recorded === null) {
-      throw new PanelApiError('authorization/not-found', `no pending authorization ${requestId} on ${topicId}`)
-    }
-    if (recorded.decision !== decision) {
-      throw new PanelApiError(
-        'authorization/mismatch',
-        `authorization ${requestId} was already ${recorded.decision}; refusing ${decision}`,
-      )
-    }
-    const response: AuthorizationResolveResponse = {
-      ok: true,
-      topic: toPanelTopic(before, topic),
-      requestId,
-      decision,
-      noticeId: recorded.noticeId,
-      prompted: false,
-      changed: false,
-    }
-    return jsonResponse(200, response)
-  }
-  if (pending.requestId !== requestId) {
-    throw new PanelApiError(
-      'authorization/mismatch',
-      `pending authorization is ${pending.requestId}, not ${requestId}`,
-    )
-  }
-  const noticeId = await authorizationNoticeId(store, topicId, requestId)
-  const summary = pending.summary
-  let changed = false
-  const document = await store.mutateIndexDocument((base) => {
-    if (base.masterSessionId !== sessionId && sessionId !== topicId) {
-      throw new PanelApiError('authorization/not-allowed', `session ${sessionId} may not decide ${topicId}`)
-    }
-    const current = base.topics.find((entry) => entry.topicId === topicId)
-    if (current === undefined || current.authorization === null) return null
-    if (current.authorization.requestId !== requestId) {
-      throw new PanelApiError('authorization/mismatch', `pending authorization is ${current.authorization.requestId}`)
-    }
-    changed = true
-    const released = unblockTopic(current, now.getTime())
-    const next: TopicRecordV2 = { ...released, lastActiveAt: now.toISOString() }
-    return { ...base, topics: base.topics.map((entry) => (entry.topicId === topicId ? next : entry)) }
+  const outcome = await resolveAuthorizationDecision({
+    store,
+    repoPath,
+    topicId,
+    requestId,
+    decision,
+    sessionId,
+    now,
+    promptSession: ports.promptSession,
+    noticePort: ports.noticePort,
+    kickNotices: ports.kickNotices,
+    log: (message: string) => ports.log?.(`panel authorization: ${message}`),
   })
-  if (!changed) {
-    // The lock re-read found no pending authorization: another decision or an
-    // archive won the race after the pre-check. Answer from the recorded
-    // decision instead of reporting a no-op, so a duplicate click is idempotent
-    // and a conflicting one is still refused.
-    const recorded = await recordedDecision(store, topicId, requestId)
-    if (recorded === null) {
-      throw new PanelApiError(
-        'authorization/not-found',
-        `no pending authorization ${requestId} on ${topicId}`,
-      )
-    }
-    if (recorded.decision !== decision) {
-      throw new PanelApiError(
-        'authorization/mismatch',
-        `authorization ${requestId} was already ${recorded.decision}; refusing ${decision}`,
-      )
-    }
-    const settled = document.topics.find((entry) => entry.topicId === topicId)
-    if (settled === undefined) {
-      throw new PanelApiError('internal', `topic disappeared from the index: ${topicId}`)
-    }
-    const replay: AuthorizationResolveResponse = {
-      ok: true,
-      topic: toPanelTopic(document, settled),
+  // Keep the inbox card in step with the legacy route's decision. A missing
+  // request record (a topic that never used the request tools) is a no-op, and
+  // a settlement failure is logged: the response shape of this route never
+  // changes because the inbox file could not be read or written.
+  try {
+    await settleAuthorizationRequestRecord({
+      store,
+      repoPath,
+      topicId,
       requestId,
       decision,
-      noticeId: recorded.noticeId,
-      prompted: false,
-      changed: false,
-    }
-    return jsonResponse(200, replay)
-  }
-  let prompted = false
-  if (changed) {
-    await appendActivityLogged(store, ports, () => authorizationResolvedActivity(
-      topic,
-      { requestId, noticeId: noticeId ?? '', decision, summary },
       now,
-    ))
-    let update: NoticeUpdateOutcome = 'unsupported'
-    if (noticeId !== null && ports.noticePort !== undefined) {
-      update = await updateAuthorizationNotice({
-        port: ports.noticePort,
-        document,
-        topicId,
-        noticeId,
-        decision,
-        now,
-      })
-      if (update === 'failed') ports.log?.(`panel authorization: notice ${noticeId} was not updated`)
-    }
-    // The topic continues on its own; the master already knows from the event.
-    if (ports.promptSession !== undefined && sessionId !== topicId) {
-      try {
-        const result = await ports.promptSession(topicId, authorizationPrompt(summary, decision))
-        prompted = result.accepted
-      } catch (error) {
-        ports.log?.(`panel authorization: topic ${topicId} was not prompted: ${messageOf(error)}`)
-      }
-    }
-    ports.kickNotices?.(repoPath)
-  }
-  const current = document.topics.find((entry) => entry.topicId === topicId)
-  if (current === undefined) {
-    throw new PanelApiError('internal', `topic disappeared from the index: ${topicId}`)
+      promptedAt: outcome.prompted ? now.toISOString() : null,
+      promptError: outcome.promptError,
+      log: (message: string) => ports.log?.(`panel authorization: ${message}`),
+    })
+  } catch (error) {
+    ports.log?.(`panel authorization: inbox card not settled: ${messageOf(error)}`)
   }
   const response: AuthorizationResolveResponse = {
     ok: true,
-    topic: toPanelTopic(document, current),
+    topic: toPanelTopic(outcome.document, outcome.topic),
     requestId,
     decision,
-    noticeId,
-    prompted,
-    changed,
+    noticeId: outcome.noticeId,
+    prompted: outcome.prompted,
+    changed: outcome.changed,
   }
   return jsonResponse(200, response)
 }
@@ -1201,7 +1048,7 @@ function serve(
 }
 
 /**
- * Register the seven panel routes on the host connection service.
+ * Register the ten panel routes on the host connection service.
  *
  * A host without `connection` (older builds, unit hosts) simply gets no panel
  * API: this returns without throwing so the rest of the plugin keeps loading.
@@ -1212,6 +1059,14 @@ function serve(
 export function registerCoworkApi(host: CoworkApiHost, ports: CoworkApiPorts): void {
   const connection = host.get('connection') as CoworkConnection | undefined
   if (connection === undefined) return
+  // The inbox half owns its three handlers; it receives the shared route
+  // plumbing as a value so neither module imports the other at runtime.
+  const inboxKit: InboxApiKit = {
+    openProject: (sessionId) => openProject(ports, sessionId),
+    readJsonBody,
+    jsonResponse,
+    serve: (handler) => serve(ports, handler),
+  }
   const routes: readonly PanelFetchRoute[] = [
     {
       path: OVERVIEW_PATH,
@@ -1255,6 +1110,7 @@ export function registerCoworkApi(host: CoworkApiHost, ports: CoworkApiPorts): v
       requestBody: 'buffered',
       fetch: serve(ports, (request) => handleAuthorizationResolve(request, ports)),
     },
+    ...inboxPanelRoutes(ports, inboxKit),
   ]
   for (const route of routes) {
     host.effect(() => connection.fetch.register(route), `dsh-cowork: panel route ${route.path}`)

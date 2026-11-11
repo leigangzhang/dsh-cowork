@@ -30,6 +30,34 @@ import {
   type ReopenResponse,
   type ResolveResponse,
 } from '../api-contract.ts'
+import {
+  INBOX_OPEN_PATH,
+  INBOX_PATH,
+  INBOX_RESOLVE_PATH,
+  actionAllowed,
+  emptyInboxCounts,
+  isInboxNotificationKind,
+  isRequestAction,
+  isRequestKind,
+  isRequestStatus,
+  type AuthorizationPayload,
+  type InboxAnswerInput,
+  type InboxCounts,
+  type InboxItem,
+  type InboxNotificationItem,
+  type InboxOpenResponse,
+  type InboxRequestItem,
+  type InboxResolveResponse,
+  type InboxResponse,
+  type PlanPayload,
+  type QuestionPayload,
+  type QuestionSpec,
+  type RequestAction,
+  type RequestPayload,
+  type RequestKind,
+  type ReviewPayload,
+  type ReviewVerification,
+} from '../inbox-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 
 /**
@@ -242,8 +270,221 @@ export function parseReopen(body: unknown): ReopenResponse {
   return { ok: true, topic }
 }
 
+/** One verification row from untrusted JSON; a row without a command is unusable. */
+function parseVerification(value: unknown): ReviewVerification | null {
+  if (!isRecord(value)) return null
+  const command = text(value.command)
+  if (command.trim() === '') return null
+  const exitCode = value.exitCode
+  return {
+    command,
+    exitCode: typeof exitCode === 'number' && Number.isFinite(exitCode) ? Math.trunc(exitCode) : 0,
+    evidence: text(value.evidence),
+  }
+}
+
+/** Narrow the payload of a `user-review` request; missing fields degrade. */
+export function parseReviewPayload(value: unknown): ReviewPayload {
+  const record = isRecord(value) ? value : {}
+  const reviewRequestId = optionalText(record.reviewRequestId)
+  const payload: ReviewPayload = {
+    purpose: text(record.purpose),
+    changedPaths: stringArray(record.changedPaths),
+    verification: Array.isArray(record.verification)
+      ? record.verification.map(parseVerification).filter((row): row is ReviewVerification => row !== null)
+      : [],
+  }
+  return reviewRequestId === null ? payload : { ...payload, reviewRequestId }
+}
+
+/** Narrow the payload of an `authorization` request. */
+export function parseAuthorizationPayload(value: unknown): AuthorizationPayload {
+  const record = isRecord(value) ? value : {}
+  const command = optionalText(record.command)
+  const summary = text(record.summary)
+  return command === null ? { summary } : { summary, command }
+}
+
+/** One question option; an option without an id is dropped. */
+function parseQuestionOption(value: unknown): InboxQuestionOption | null {
+  if (!isRecord(value)) return null
+  const id = nonEmptyString(value.id)
+  if (id === null) return null
+  const description = optionalText(value.description)
+  const option = {
+    id,
+    label: text(value.label),
+    recommended: value.recommended === true,
+  }
+  return description === null ? option : { ...option, description }
+}
+
+/** One question; a question without an id is dropped. */
+function parseQuestion(value: unknown): QuestionSpec | null {
+  if (!isRecord(value)) return null
+  const id = nonEmptyString(value.id)
+  if (id === null) return null
+  const options = Array.isArray(value.options)
+    ? value.options.map(parseQuestionOption).filter((option): option is InboxQuestionOption => option !== null)
+    : undefined
+  const question: QuestionSpec = {
+    id,
+    prompt: text(value.prompt),
+    mode: value.mode === 'multi' ? 'multi' : 'single',
+    allowText: value.allowText === true,
+  }
+  return options === undefined ? question : { ...question, options }
+}
+
+/** Narrow the payload of a `question` request; a missing list reads as none. */
+export function parseQuestionPayload(value: unknown): QuestionPayload {
+  const record = isRecord(value) ? value : {}
+  return {
+    questions: Array.isArray(record.questions)
+      ? record.questions.map(parseQuestion).filter((question): question is QuestionSpec => question !== null)
+      : [],
+  }
+}
+
+/** Narrow the payload of a `plan` request. */
+export function parsePlanPayload(value: unknown): PlanPayload {
+  const record = isRecord(value) ? value : {}
+  const planTitle = optionalText(record.planTitle)
+  const planPath = text(record.planPath)
+  return planTitle === null ? { planPath } : { planPath, planTitle }
+}
+
+/** Narrow one payload by the request kind it belongs to. */
+export function parseRequestPayload(kind: RequestKind, value: unknown): RequestPayload {
+  switch (kind) {
+    case 'user-review': return parseReviewPayload(value)
+    case 'authorization': return parseAuthorizationPayload(value)
+    case 'question': return parseQuestionPayload(value)
+    case 'plan': return parsePlanPayload(value)
+  }
+}
+
 /**
- * Read one response: the shared error envelope becomes a {@link PanelApiError}
+ * Narrow one request row. The id, kind and status are load-bearing (a card the
+ * page cannot label is dropped); topic title and payload degrade so a missing
+ * field never blanks the whole inbox. Terminal rows carry no actions.
+ */
+export function parseInboxRequestItem(value: unknown): InboxRequestItem | null {
+  if (!isRecord(value) || value.kind !== 'request') return null
+  const requestId = nonEmptyString(value.requestId)
+  if (requestId === null) return null
+  if (!isRequestKind(value.requestKind)) return null
+  if (!isRequestStatus(value.status)) return null
+  const topicId = nonEmptyString(value.topicId)
+  if (topicId === null) return null
+  const requestKind = value.requestKind
+  const actions = Array.isArray(value.actions)
+    ? value.actions.filter((action): action is RequestAction =>
+        isRequestAction(action) && actionAllowed(requestKind, action))
+    : []
+  return {
+    kind: 'request',
+    requestId,
+    requestKind,
+    topicId,
+    topicTitle: optionalText(value.topicTitle) ?? '已归档主题',
+    status: value.status,
+    title: text(value.title),
+    summary: text(value.summary),
+    requestMessage: text(value.requestMessage),
+    resolutionMessage: optionalText(value.resolutionMessage),
+    actions: value.status === 'pending' ? actions : [],
+    payload: parseRequestPayload(requestKind, value.payload),
+    createdAt: text(value.createdAt),
+    updatedAt: text(value.updatedAt),
+  }
+}
+
+/** Narrow one notification row; a row without a known kind is dropped. */
+export function parseInboxNotificationItem(value: unknown): InboxNotificationItem | null {
+  if (!isRecord(value) || value.kind !== 'notification') return null
+  const noticeId = nonEmptyString(value.noticeId)
+  if (noticeId === null) return null
+  if (!isInboxNotificationKind(value.noticeKind)) return null
+  const proposalPath = optionalText(value.proposalPath)
+  const canOpen = value.noticeKind !== 'review-verdict' && value.canOpen === true
+  const item: InboxNotificationItem = {
+    kind: 'notification',
+    noticeId,
+    noticeKind: value.noticeKind,
+    topicId: text(value.topicId),
+    topicTitle: optionalText(value.topicTitle) ?? '已归档主题',
+    summary: text(value.summary),
+    createdAt: text(value.createdAt),
+    updatedAt: text(value.updatedAt),
+    canOpen,
+  }
+  return proposalPath === null ? item : { ...item, proposalPath }
+}
+
+/** Narrow one request-inbox row by its discriminant; an unusable row is dropped. */
+export function parseInboxRow(value: unknown): InboxItem | null {
+  if (!isRecord(value)) return null
+  if (value.kind === 'request') return parseInboxRequestItem(value)
+  if (value.kind === 'notification') return parseInboxNotificationItem(value)
+  return null
+}
+
+/** Narrow the inbox counts; missing or invented fields read as 0. */
+export function parseInboxCounts(value: unknown): InboxCounts {
+  if (!isRecord(value)) return emptyInboxCounts()
+  return {
+    pending: count(value.pending),
+    review: count(value.review),
+    authorization: count(value.authorization),
+    question: count(value.question),
+    plan: count(value.plan),
+  }
+}
+
+/**
+ * Narrow the `GET /api/cowork.inbox` body. A malformed envelope fails the read
+ * (the panel shows the retryable error); a single unusable row is dropped so
+ * one hand-edited request file never blanks the inbox.
+ */
+export function parseInboxResponse(body: unknown): InboxResponse {
+  if (!isRecord(body)) throw new PanelApiError('internal', '收件箱响应不是对象')
+  if (body.ok !== true) throw new PanelApiError('internal', '收件箱响应缺少 ok: true')
+  const items = requiredArray(body.items, 'items')
+    .map(parseInboxRow)
+    .filter((item): item is InboxItem => item !== null)
+  return {
+    ok: true,
+    items,
+    counts: parseInboxCounts(body.counts),
+    truncated: body.truncated === true,
+  }
+}
+
+/** Narrow the resolve body; the returned row carries the right-hand reply. */
+export function parseInboxResolveResponse(body: unknown): InboxResolveResponse {
+  if (!isRecord(body)) throw new PanelApiError('internal', '解决响应不是对象')
+  if (body.ok !== true) throw new PanelApiError('internal', '解决响应缺少 ok: true')
+  const item = parseInboxRequestItem(body.item)
+  if (item === null) throw new PanelApiError('internal', '解决响应里的收件箱项不可用')
+  return {
+    ok: true,
+    item,
+    changed: body.changed === true,
+    prompted: body.prompted === true,
+    promptError: optionalText(body.promptError),
+  }
+}
+
+/** Narrow the open body; the host only answers `opened: true` on success. */
+export function parseInboxOpenResponse(body: unknown): InboxOpenResponse {
+  if (!isRecord(body) || body.ok !== true || body.opened !== true) {
+    throw new PanelApiError('internal', '打开响应缺少 ok: true 与 opened: true')
+  }
+  return { ok: true, opened: true }
+}
+
+/** Read one response: the shared error envelope becomes a {@link PanelApiError}
  * with the host's code, message and optional path; a non-JSON or malformed body
  * becomes `internal`. Aborts surface unchanged so callers can ignore them.
  */
@@ -334,3 +575,82 @@ export async function reopenTopic(
 ): Promise<ReopenResponse> {
   return parseReopen(await postPanelJson(REOPEN_PATH, { sessionId, topicId }, signal))
 }
+
+/** One option of one question, as narrowed from the wire. */
+export interface InboxQuestionOption {
+  readonly id: string
+  readonly label: string
+  readonly description?: string
+  readonly recommended?: boolean
+}
+
+/** Body of a resolve write; `comment` and `answers` are kind-specific. */
+export interface InboxResolveRequest {
+  readonly sessionId: string
+  readonly requestId: string
+  readonly action: RequestAction
+  /** User-review findings or plan revise reason, already validated locally. */
+  readonly comment?: string
+  /** Question answers; one entry per answered question. */
+  readonly answers?: readonly InboxAnswerInput[]
+}
+
+/** Body of an open write: a request file or a proposal note, never a path. */
+export interface InboxOpenRequest {
+  readonly sessionId: string
+  readonly requestId?: string
+  readonly noticeId?: string
+}
+
+/**
+ * Load the request inbox for one session. `topicId` narrows the read to one
+ * topic; the server still returns the project-wide counts.
+ */
+export async function loadInbox(
+  sessionId: string,
+  topicId?: string | null,
+  signal?: AbortSignal,
+): Promise<InboxResponse> {
+  const params: Record<string, string> = { sessionId }
+  if (topicId !== undefined && topicId !== null && topicId.trim() !== '') params.topicId = topicId
+  return parseInboxResponse(await fetchPanelJson(INBOX_PATH, params, signal))
+}
+
+/**
+ * Resolve one pending request. The action is validated against the frozen
+ * kind/action table before the write; the host re-validates the same action.
+ */
+export async function resolveInboxRequest(
+  payload: InboxResolveRequest,
+  signal?: AbortSignal,
+): Promise<InboxResolveResponse> {
+  const comment = payload.comment === undefined ? null : payload.comment.trim()
+  const body: Record<string, unknown> = {
+    sessionId: payload.sessionId,
+    requestId: payload.requestId,
+    action: payload.action,
+  }
+  if (comment !== null && comment !== '') body.comment = comment
+  if (payload.answers !== undefined && payload.answers.length > 0) body.answers = payload.answers
+  return parseInboxResolveResponse(await postPanelJson(INBOX_RESOLVE_PATH, body, signal))
+}
+
+/**
+ * Ask the host to reveal the file behind a request or a proposal note. The
+ * browser sends ids only; the server resolves and guards the path.
+ */
+export async function openInboxTarget(
+  payload: InboxOpenRequest,
+  signal?: AbortSignal,
+): Promise<InboxOpenResponse> {
+  const requestId = payload.requestId === undefined ? null : payload.requestId.trim()
+  const noticeId = payload.noticeId === undefined ? null : payload.noticeId.trim()
+  if ((requestId === null || requestId === '') && (noticeId === null || noticeId === '')) {
+    throw new PanelApiError('inbox/path-missing', '打开目标缺少 requestId 或 noticeId')
+  }
+  const body: Record<string, unknown> = { sessionId: payload.sessionId }
+  if (requestId !== null && requestId !== '') body.requestId = requestId
+  if (noticeId !== null && noticeId !== '') body.noticeId = noticeId
+  return parseInboxOpenResponse(await postPanelJson(INBOX_OPEN_PATH, body, signal))
+}
+

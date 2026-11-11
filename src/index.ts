@@ -765,7 +765,49 @@ function hostCurrentModelRoute(ctx: Context): () => CurrentModelRoute | null {
   }
 }
 
-/** The seven panel routes' shared ports; production and the M12 probe use the same ones. */
+/** How long the host desktop opener may take before the call is aborted. */
+export const OPEN_WORKSPACE_PATH_TIMEOUT_MS = 10_000
+
+/**
+ * The host session controller's desktop file-browser method (stage-0 probe 2).
+ * Structural because the plugin cannot import the app's own session types; a
+ * host without it answers `inbox/open-unsupported` at the open route.
+ *
+ * The installed host (DSH 0.2.1-rc.2) reads `signal.throwIfAborted()` before
+ * touching the filesystem, so the second argument is mandatory at this
+ * boundary: calling it with only the request object threw
+ * "Cannot read properties of undefined (reading 'aborted')" and every real
+ * "查看全文" turned into `inbox/open-unsupported` (t13 F-GUI-1).
+ */
+export interface HostSessionOpener {
+  openWorkspacePath?(
+    request: { path: string; action?: 'reveal' },
+    signal: AbortSignal,
+  ): Promise<unknown>
+}
+
+/**
+ * Build the panel's `openWorkspacePath` port from one host session controller.
+ *
+ * The route passes an absolute path inside the repository; this adapter binds
+ * the host's two-argument contract and a bounded timeout signal. A host
+ * without the method, or a host that rejects the native open, throws and the
+ * open route maps that onto `inbox/open-unsupported` — never a faked success.
+ */
+export function createOpenWorkspacePathPort(
+  opener: HostSessionOpener | undefined,
+  timeoutMs: number = OPEN_WORKSPACE_PATH_TIMEOUT_MS,
+): (path: string) => Promise<void> {
+  return async (path: string): Promise<void> => {
+    const open = opener?.openWorkspacePath
+    if (typeof open !== 'function') {
+      throw new Error('the host session controller exposes no openWorkspacePath')
+    }
+    await open.call(opener, { path, action: 'reveal' }, AbortSignal.timeout(timeoutMs))
+  }
+}
+
+/** The ten panel routes' shared ports; production and the M12 probe use the same ones. */
 function createPanelPorts(
   ctx: Context,
   assembly: CoworkAssemblyHost,
@@ -803,6 +845,12 @@ function createPanelPorts(
       sessions: assembly.sessionController,
       workspaces: assembly.workspaceRegistry,
     }).promptSession(sessionId, text),
+    // The inbox open route is the only caller: the browser sends a request or
+    // notice id, the host file browser is handed the resolved absolute path.
+    // The adapter supplies the AbortSignal the installed host requires.
+    openWorkspacePath: createOpenWorkspacePathPort(
+      assembly.sessionController as unknown as HostSessionOpener,
+    ),
     noticePort: notices.port,
     kickNotices: (repoPath) => notices.kick(repoPath),
     log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
@@ -930,8 +978,8 @@ export function apply(ctx: Context, config: Config): void {
     notices: noticeRuntime,
   }
 
-  // M11 panel: three read routes and four write routes over the host connection
-  // service. The project root is derived from the session's own cwd, never from
+  // M11 panel: four read routes and six write routes over the host connection
+  // service (the request inbox adds its read, resolve, and open routes). The project root is derived from the session's own cwd, never from
   // the request.
   const panelPorts = createPanelPorts(ctx, assembly, settings, noticeRuntime)
   registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)

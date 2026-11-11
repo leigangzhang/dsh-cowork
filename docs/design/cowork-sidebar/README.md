@@ -5,7 +5,7 @@
 | 设计 | 设计文档 | Demo |
 |---|---|---|
 | 右侧栏主题页 | [topic-page.md](topic-page.md) | [topic-demo-v2.png](../../discussion/topic-demo-v2.png) |
-| 右侧栏收件箱（请求卡片与通知） | [topic-inbox.md](topic-inbox.md) | [topic-reminder-demo.png](../../discussion/topic-reminder-demo.png) · [HTML](../../discussion/topic-reminder-demo.html) |
+| 右侧栏收件箱（请求卡片与通知，已实现） | [topic-inbox.md](topic-inbox.md) | [topic-reminder-demo.png](../../discussion/topic-reminder-demo.png) · [HTML](../../discussion/topic-reminder-demo.html) |
 | 工作项：多模态交付物查看器 | [work-item-artifact-viewer.md](work-item-artifact-viewer.md) | [work-item-demo-v3.png](../../discussion/work-item-demo-v3.png) · [HTML](../../discussion/work-item-demo-v3.html) |
 | 工作项：前端实现方案 | [work-item-frontend.md](work-item-frontend.md) | [work-item-demo-v3.png](../../discussion/work-item-demo-v3.png) |
 | 工作项：后端调研与实现设计 | [work-item-backend.md](work-item-backend.md) | — |

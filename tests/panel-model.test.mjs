@@ -666,6 +666,41 @@ test('toPanelError and errorMessage preserve the wire code and stay readable', (
   assert.equal(errorMessage('plain'), 'plain')
 })
 
+test('the panel measures its own width, renders two independent columns and a narrow banner', async () => {
+  const clientUrl = new URL('../src/client/', import.meta.url)
+  const panelSource = await readFile(new URL('panel.tsx', clientUrl), 'utf8')
+  const stylesSource = await readFile(new URL('styles.ts', clientUrl), 'utf8')
+  const inboxModel = await import('../src/client/inbox-model.ts')
+
+  assert.equal(inboxModel.WIDE_PANEL_MIN_PX, 620)
+  assert.match(panelSource, /new ResizeObserver/)
+  assert.match(panelSource, /WIDE_PANEL_MIN_PX/)
+  assert.match(panelSource, /getBoundingClientRect\(\)\.width/)
+  assert.match(panelSource, /data-width-mode=/)
+  assert.match(panelSource, /className="cw-body cw-columns"/)
+  assert.match(panelSource, /className="cw-topic-column"/)
+  assert.match(panelSource, /className="cw-inbox-column"/)
+  assert.match(panelSource, /data-testid="cw-inbox-focus"/)
+  assert.match(panelSource, /data-testid="cw-inbox-back"/)
+  assert.match(panelSource, /data-testid="cw-needs-you-banner"/)
+  assert.match(panelSource, /loadInbox\(/)
+  assert.match(panelSource, /resolveInboxRequest\(/)
+  assert.match(panelSource, /openInboxTarget\(/)
+  assert.match(panelSource, /selectedFilterTopicId=\{selectedInboxTopicId\}/)
+  assert.match(panelSource, /onToggleFilter=\{toggleInboxFilter\}/)
+  assert.match(panelSource, /item\.actions\.includes\(action\)/)
+  assert.match(panelSource, /pendingRequestRef\.current\.has/)
+  assert.match(panelSource, /已记录，但主题会话未唤醒/)
+  assert.match(panelSource, /applyInboxItemUpdate/)
+  assert.equal(panelSource.includes('needsYouTopicId'), false, 'the topic-based entry is replaced by the inbox banner')
+
+  assert.match(stylesSource, /\.cw-columns \{[\s\S]*?grid-template-columns: 318px minmax\(280px, 1fr\)/)
+  assert.match(stylesSource, /\.cw-columns \{[\s\S]*?gap: 12px/)
+  assert.match(stylesSource, /\.cw-topic-column \{[\s\S]*?overflow-y: auto/)
+  assert.match(stylesSource, /\.cw-inbox-list \{[\s\S]*?overflow-y: auto/)
+  assert.match(stylesSource, /\.cw-inbox-focus \{[\s\S]*?flex-direction: column/)
+})
+
 test('the client sources carry no detail/list-split or review vocabulary', async () => {
   const clientUrl = new URL('../src/client/', import.meta.url)
   const entries = await readdir(clientUrl, { withFileTypes: true })
@@ -703,7 +738,7 @@ test('the client sources carry no detail/list-split or review vocabulary', async
   const panelSource = sources.get('panel.tsx')
   assert.match(panelSource, /buildTopicViewModel/)
   assert.match(panelSource, /openSession/)
-  assert.match(panelSource, /needsYouTopicId/)
+  assert.match(panelSource, /data-testid="cw-needs-you-banner"/)
   assert.match(panelSource, /archiveTopic/)
   assert.match(panelSource, /restoreTopic/)
   assert.equal(panelSource.includes('loadTopic'), false)
@@ -727,4 +762,63 @@ test('the client sources carry no detail/list-split or review vocabulary', async
   assert.match(stylesSource, /\.cw-footer-slot \{[\s\S]*?width: calc\(100% \+ 4px\)[\s\S]*?margin: 4px -2px/)
   assert.match(stylesSource, /\.cw-footer-button \{[\s\S]*?height: 42px/)
   assert.match(stylesSource, /data-wide='false'[\s\S]*?width: 36px/)
+})
+
+test('the question card gates submit on every answer and renders the unanswered hint', async () => {
+  const clientUrl = new URL('../src/client/', import.meta.url)
+  const inboxSource = await readFile(new URL('inbox.tsx', clientUrl), 'utf8')
+  const modelSource = await readFile(new URL('inbox-model.ts', clientUrl), 'utf8')
+  const model = await import('../src/client/inbox-model.ts')
+
+  // The gate and its copy live in the model (React-free), not in the component.
+  assert.match(modelSource, /export function answerCoversQuestion\(/)
+  assert.match(modelSource, /export function unansweredQuestionCount\(/)
+  assert.match(modelSource, /export function answersComplete\(/)
+  assert.equal(model.answersComplete([{ id: 'q1', prompt: 'p', mode: 'single', options: [{ id: 'o1', label: 'a' }] }], {}), false)
+  assert.equal(model.unansweredAnswerHint(2), '还有 2 题未回答')
+
+  // The card uses the model's verdict and never re-derives "any answer".
+  assert.match(inboxSource, /unansweredQuestionCount\(questions, answers\)/)
+  assert.match(inboxSource, /answersComplete\(questions, answers\)/)
+  assert.match(inboxSource, /isDisabled=\{action => action === 'submit' && !allAnswered\}/)
+  assert.equal(inboxSource.includes('questions.some('), false)
+  assert.match(inboxSource, /data-testid="cw-inbox-answer-hint"/)
+  assert.match(inboxSource, /unansweredAnswerHint\(unanswered\)/)
+  assert.match(inboxSource, /role="status"/)
+  assert.match(inboxSource, /aria-live="polite"/)
+  // The hint only shows while a submit is possible but blocked.
+  assert.match(inboxSource, /shouldShowUnansweredHint\(item\.actions\.length, pending, unanswered\)/)
+  assert.equal(inboxSource.includes('!pending || unanswered === 0'), false)
+})
+
+test('the panel persists the topic filter per session and refreshes the overview after a resolve', async () => {
+  const clientUrl = new URL('../src/client/', import.meta.url)
+  const panel = await readFile(new URL('panel.tsx', clientUrl), 'utf8')
+  const inbox = await readFile(new URL('inbox.tsx', clientUrl), 'utf8')
+
+  // Restore on mount and on a session switch; persist/clear on the toggle.
+  assert.match(panel, /useState<string \| null>\s*\(\s*\(\) => readStoredFilter\(browserFilterStorage\(\), sessionId\)/)
+  assert.match(panel, /setSelectedInboxTopicId\(readStoredFilter\(browserFilterStorage\(\), sessionId\)\)/)
+  assert.match(panel, /writeStoredFilter\(browserFilterStorage\(\), sessionId, topicId\)/)
+  assert.match(panel, /clearStoredFilter\(browserFilterStorage\(\), sessionId\)/)
+
+  // A stored filter naming a topic the overview no longer lists is cleared.
+  assert.match(panel, /result\.topics\.some\(topic => topic\.topicId === current\)/)
+
+  // The resolve success path refreshes the overview (topic block marker/counts)
+  // and the refresh sits before the catch, so a failed write cannot fake it.
+  const resolveStart = panel.indexOf('const resolveRequest = useCallback')
+  const depsAt = panel.indexOf('}, [putReceipt, refresh, sessionId])', resolveStart)
+  assert.ok(resolveStart > 0 && depsAt > resolveStart, 'the resolve callback is found')
+  const resolveBody = panel.slice(resolveStart, depsAt + '}, [putReceipt, refresh, sessionId])'.length)
+  const okReceipt = resolveBody.indexOf("text: '已提交'")
+  const refreshCall = resolveBody.indexOf('refresh()')
+  const catchAt = resolveBody.indexOf('} catch (reason) {')
+  assert.ok(okReceipt > 0 && refreshCall > okReceipt, 'the refresh follows the committed resolve')
+  assert.ok(catchAt > refreshCall, 'the refresh is on the success path only')
+  assert.match(resolveBody, /\[putReceipt, refresh, sessionId\]/, 'the callback closes over refresh')
+
+  // The plan card stops rendering its inline revise editor once terminal.
+  assert.match(inbox, /\{revising && item\.pending \? \(/)
+  assert.equal(inbox.includes('{revising ? ('), false, 'the editor is not rendered on a resolved card')
 })

@@ -17,11 +17,12 @@
  * a test can register the tools against recording fakes.
  */
 import { execFile } from 'node:child_process'
-import { statusChangedActivity, topicArchivedActivity } from './activity.js'
+import { requestResolvedActivity, statusChangedActivity, topicArchivedActivity } from './activity.js'
 import { CLONE_ISOLATION_PROVIDER } from './checkout.js'
 import type { CheckoutDeps, GitResult, GitRunner } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
 import { Inbox, InboxMarkError } from './inbox.js'
+import { RequestStore } from './request-store.js'
 import { findAuthorizationNoticeId, recordNoticesForEvent, voidAuthorizationNotice } from './notices.js'
 import type { NoticeLedgerStorePort, NoticeLedgerV1, TopicNoticePort } from './notices.js'
 import type { InboxEvent, InboxStore } from './inbox.js'
@@ -348,8 +349,52 @@ export async function archiveTopic(
       options.log?.(`authorization notice was not voided: ${describeError(error)}`)
     }
   }
+  // Archiving invalidates every pending request of this topic: they can no
+  // longer be decided, so each becomes `void` and records its own resolved row.
+  // The index is already committed, so a failure here is a log line only, and
+  // the archived topic is never prompted.
+  await voidTopicRequests(store, topicId, options.now, options.log)
   options.runtime?.kick(options.repoPath)
   return { changed: true, topic: updated, event, noticeRows }
+}
+
+/**
+ * Withdraw every pending request of one archived topic and append one
+ * `request-resolved` activity per withdrawn record. Best-effort by design: the
+ * archive is already durable and must not be rolled back by a storage failure.
+ */
+async function voidTopicRequests(
+  store: TopicWriteStorePort,
+  topicId: string,
+  now: Date,
+  log: ((message: string) => void) | undefined,
+): Promise<void> {
+  const repoPath = repoPathOf(store)
+  if (repoPath === null) return
+  let voided
+  try {
+    voided = await new RequestStore({ repoPath, log }).voidPendingForTopic(topicId, now)
+  } catch (error) {
+    log?.(`pending requests of archived topic ${topicId} were not voided: ${describeError(error)}`)
+    return
+  }
+  for (const record of voided) {
+    try {
+      await store.appendActivity(requestResolvedActivity(record, { action: null }, now))
+    } catch (error) {
+      log?.(`request ${record.requestId} voided, activity not recorded: ${describeError(error)}`)
+    }
+  }
+}
+
+/**
+ * The repository root of a store. `ProjectStore` carries it; a hand-built fake
+ * without one cannot own a request directory, so the void pass is skipped
+ * rather than guessed at a relative path.
+ */
+function repoPathOf(store: TopicWriteStorePort): string | null {
+  const candidate = (store as { repoPath?: unknown }).repoPath
+  return typeof candidate === 'string' && candidate.trim() !== '' ? candidate : null
 }
 
 /** Build the session adapter over the injected host services. */
