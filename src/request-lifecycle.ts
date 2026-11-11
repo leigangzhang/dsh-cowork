@@ -30,7 +30,7 @@ import {
   resolutionPrompt,
 } from './request-schema.js'
 import { RequestStore } from './request-store.js'
-import type { ActivityEvent, ProjectIndexV2, ReadActivityResult, TopicRecordV2 } from './store-schema.js'
+import type { ProjectIndexV2, TopicRecordV2 } from './store-schema.js'
 import { resolveAuthorizationDecision } from './authorization-decision.js'
 import type { AuthorizationDecisionOutcome } from './authorization-decision.js'
 import { PanelServiceError, assertMember, clipText, messageOf } from './request-support.js'
