@@ -4,19 +4,25 @@
  * One request per JSON file under `<repo>/.dsh-cowork/requests/`. The directory
  * is its own module for the same reason `src/notice-store.ts` is: `src/store.ts`
  * sits at the repository's 50 KiB read cap, and the request files are a small,
- * orthogonal document set. Writes take the project writer lock
- * (`<repo>/.dsh-cowork/.write.lock`) and go through `writeFileAtomic`, so a
- * request write can never interleave with an index or ledger writer, and a
- * reader observes either the old or the new complete file. Reads stay
- * lock-free, like every other store read.
+ * orthogonal document set. Writes take the shared project writer lock
+ * (`src/atomic-json.ts`, `<repo>/.dsh-cowork/.write.lock`) and go through
+ * `writeJsonAtomic`, so a request write can never interleave with an index or
+ * ledger writer, and a reader observes either the old or the new complete
+ * file. Reads stay lock-free, like every other store read.
  *
  * A damaged or non-conforming file is skipped with a log line, never a thrown
  * read: one hand-edited request must not take the whole inbox down. Nothing
  * here deletes a request file; resolved and voided records stay as history.
  */
-import { mkdir, open, readFile, readdir } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { mkdir, readdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import {
+  DIR_MODE,
+  LOCK_FILE_NAME,
+  readTextIfPresent,
+  withProjectLock,
+  writeJsonAtomic,
+} from './atomic-json.js'
 import {
   INBOX_MAX_REQUEST_FILES,
 } from './inbox-contract.js'
@@ -31,36 +37,6 @@ import {
   requestRecordProblems,
 } from './request-schema.js'
 import type { ParsedRequestRecord } from './request-schema.js'
-
-/** File mode of one request (owner read/write only). */
-const FILE_MODE = 0o600
-/** Directory mode of the project directory and `requests/`. */
-const DIR_MODE = 0o700
-/** How long a writer waits for the project lock before failing. */
-const LOCK_WAIT_MS = 5000
-/** Name of the writer lock shared with the index, handoffs, and the ledger. */
-const LOCK_FILE_NAME = '.write.lock'
-
-/** Flush a directory entry so a completed rename survives a crash. */
-async function fsyncDirectory(directory: string): Promise<void> {
-  const handle = await open(directory, 'r')
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-/** Read a file as UTF-8 text, or `undefined` when it does not exist. */
-async function readTextIfPresent(filePath: string): Promise<string | undefined> {
-  try {
-    return await readFile(filePath, 'utf8')
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined
-    throw error
-  }
-}
 
 /** What one scan of the request directory found. */
 export interface RequestScan {
@@ -159,7 +135,7 @@ export class RequestStore {
     }
     return this.withLock(async () => {
       await this.ensureRequestsDir()
-      await this.writeJson(join(this.requestsDir, requestFileName(record.requestId)), record)
+      await writeJsonAtomic(join(this.requestsDir, requestFileName(record.requestId)), record)
       return record
     })
   }
@@ -184,7 +160,7 @@ export class RequestStore {
       if (problems.length > 0) {
         throw new Error(`resolved request record is invalid: ${problems.join('; ')}`)
       }
-      await this.writeJson(join(this.requestsDir, requestFileName(requestId)), next)
+      await writeJsonAtomic(join(this.requestsDir, requestFileName(requestId)), next)
       return next
     })
   }
@@ -234,22 +210,12 @@ export class RequestStore {
 
   /** Run `operation` while holding the project writer lock. */
   private async withLock<T>(operation: () => Promise<T>): Promise<T> {
-    await mkdir(this.projectDir, { recursive: true, mode: DIR_MODE })
-    return withFileLock(this.lockFile, operation, { waitMs: LOCK_WAIT_MS })
+    return withProjectLock(this.lockFile, operation)
   }
 
   /** Create `requests/` with the private directory mode. */
   private async ensureRequestsDir(): Promise<void> {
     await mkdir(this.requestsDir, { recursive: true, mode: DIR_MODE })
-  }
-
-  /** Write one request atomically, then flush its directory entry. */
-  private async writeJson(filePath: string, value: RequestRecordV1): Promise<void> {
-    await writeFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`, {
-      mode: FILE_MODE,
-      dirMode: DIR_MODE,
-    })
-    await fsyncDirectory(dirname(filePath))
   }
 
   private log(message: string): void {

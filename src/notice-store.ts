@@ -10,18 +10,13 @@
  * Errors are values with a stable code; `src/store.ts` maps them onto its own
  * `StoreError`, which is what the tool and route layers already understand.
  */
-import { mkdir, open, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import {
+  readTextIfPresent,
+  withProjectLock,
+  writeJsonAtomic,
+} from './atomic-json.js'
 import { emptyNoticeLedger, parseNoticeLedgerText, prepareNoticeLedger } from './notices.js'
 import type { NoticeLedgerV1 } from './notices.js'
-
-/** File mode for the ledger (owner read/write only). */
-const FILE_MODE = 0o600
-/** Directory mode for the project directory. */
-const DIR_MODE = 0o700
-/** How long a writer waits for the project lock before failing. */
-const LOCK_WAIT_MS = 5000
 
 /** A ledger read/write failure carrying a stable code and the offending file. */
 export class NoticeFileError extends Error {
@@ -33,27 +28,6 @@ export class NoticeFileError extends Error {
     this.name = 'NoticeFileError'
     this.code = code
     this.filePath = filePath
-  }
-}
-
-/** Flush a directory entry so a completed rename survives a crash. */
-async function fsyncDirectory(directory: string): Promise<void> {
-  const handle = await open(directory, 'r')
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-/** Read a file as UTF-8 text, or `undefined` when it does not exist. */
-async function readTextIfPresent(filePath: string): Promise<string | undefined> {
-  try {
-    return await readFile(filePath, 'utf8')
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined
-    throw error
   }
 }
 
@@ -109,20 +83,10 @@ export class NoticeLedgerFile {
   }
 
   private async withLock<T>(operation: () => Promise<T>): Promise<T> {
-    await this.ensureProjectDir()
-    return withFileLock(this.lockFile, operation, { waitMs: LOCK_WAIT_MS })
+    return withProjectLock(this.lockFile, operation)
   }
 
   private async persist(ledger: NoticeLedgerV1): Promise<void> {
-    await this.ensureProjectDir()
-    await writeFileAtomic(this.noticesFile, `${JSON.stringify(ledger, null, 2)}\n`, {
-      mode: FILE_MODE,
-      dirMode: DIR_MODE,
-    })
-    await fsyncDirectory(dirname(join(this.noticesFile)))
-  }
-
-  private async ensureProjectDir(): Promise<void> {
-    await mkdir(this.projectDir, { recursive: true, mode: DIR_MODE })
+    await writeJsonAtomic(this.noticesFile, ledger)
   }
 }
