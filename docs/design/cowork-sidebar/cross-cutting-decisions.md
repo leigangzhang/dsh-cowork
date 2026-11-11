@@ -1,6 +1,6 @@
 # 评审、handoff 与收件箱的跨对象设计决策
 
-Status: draft（design approved 2026-11-10；implementation not started）
+Status: draft（design approved 2026-11-10；右侧栏收件箱已实现，评审/工作项页仍待实现）
 
 ## 背景
 

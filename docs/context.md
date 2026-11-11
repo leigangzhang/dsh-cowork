@@ -11,6 +11,7 @@
 | `index.json` | v2 项目索引：master、主题、工作项、路由目标 | [ProjectIndexV2](../src/store-schema.ts#L194) |
 | `activity.jsonl` | 状态、路由、评审、合并、主题上报、决策提案、待授权、归档与错误的事件流（证据，不是状态源） | [ActivityEvent](../src/store-schema.ts#L211) |
 | `inbox.json` | master 必须决定的事；投递后写 `deliveredAt` | [InboxItem](../src/store-schema.ts#L232) |
+| `requests/<requestId>.json` | 用户请求记录：四类请求、左右消息、状态与投递错误 | [RequestRecordV1](../src/inbox-contract.ts#L265) |
 | `handoffs/` | topic 的 handoff 审计文件 | [buildHandoffRecord](../src/handoff.ts#L214) |
 | `proposals/` | topic 的决策记录文件 | [DecisionProposalV1](../src/topic-tools.ts#L443) |
 | `notices.json` | 主题通知账本：每条通知送到哪个会话、是否送达 | [NoticeLedgerV1](../src/notices.ts#L95) |
@@ -27,6 +28,7 @@ flowchart TD
   I["index.json（v2 唯一状态源）"]
   A["activity.jsonl"]
   B["inbox.json"]
+  Q["requests/<requestId>.json"]
   N["notices.json"]
   H["handoffs/*.json"]
   P["proposals/*.json"]
@@ -45,6 +47,8 @@ flowchart TD
   R -->|"读请求"| V
   T -->|"上报 / handoff / 提案 / 待授权"| N
   M -->|"cowork_notices 读取"| N
+  T -->|"创建用户评审 / 提问 / 计划 / 授权请求"| Q
+  M -->|"收件箱读 / 解决（面板路由，唤醒 topic）"| Q
   T -->|"提交与修复"| W
   R -->|"读请求范围、复跑验证"| W
   T -->|"记忆读写"| MEM

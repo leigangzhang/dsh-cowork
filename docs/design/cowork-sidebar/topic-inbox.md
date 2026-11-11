@@ -1,7 +1,7 @@
 # Cowork 右侧栏收件箱设计（请求卡片与通知）
 
-Status: draft（design proposed，2026-11-10；未实现）
-决策提案: [2026-11-10-topic-inbox.md](../../../.agents/notes/proposed/feature/2026-11-10-topic-inbox.md)
+Status: implemented（2026-11-10，delivery 前代码 HEAD `a26e1c5`；实现结果与偏差见 §14）
+决策记录: [2026-11-10-topic-inbox.md](../../../.agents/notes/implemented/feature/2026-11-10-topic-inbox.md)
 交接: [TOPIC_INBOX_HANDOFF.md](../../TOPIC_INBOX_HANDOFF.md)
 
 本方案把右侧栏从单列主题页扩展为“主题栏 + 收件箱”。收件箱承接评审、权限审批、ask-user 提问和 PLAN 待确认四类需要用户行动的请求，以及分配、上报、决策提案、自动评审结果、归档五类只读通知。解决后，请求卡片下方追加一条右侧用户回复。
@@ -508,8 +508,8 @@ sequenceDiagram
 
 ## 12. 风险与未决
 
-- **宿主宽度接口未确认。** 当前契约没有 setter；“自动展开宽侧栏”可能只能以面板内全宽收件箱降级，必须先在探针阶段确认。
-- **文件打开能力依赖桌面宿主。** `openWorkspacePath` 只在原生宿主可用；远端/无桌面时返回错误。
+- **宿主宽度接口（已确认）。** 运行宿主 `ctx.layout` 没有宽度 setter；窄栏按设计降级为面板内全宽收件箱（[KI-42](../../KNOWN_ISSUES.md)），不操作宿主 DOM。
+- **文件打开能力依赖桌面宿主（桌面已验证）。** `openWorkspacePath` 只在原生宿主可用；远端/无桌面时返回 `inbox/open-unsupported`，真实 Chrome 下桌面打开成功。
 - **自动评审结果的边界。** user review request 与 reviewer verdict 是两条线；前者有请求卡和动作，后者只是灰字记录，后续不要把 verdict 做成可操作卡。
 - **四类请求与主题状态的关系。** 只有 authorization 阻塞主题；其他请求 pending 时主题仍可能显示运行中，是否要统一为阻塞需后续决定。
 - **重复通知。** authorization 同时存在主题记录、请求记录和通知账本；实现必须抑制通知流中的重复卡。
@@ -519,7 +519,27 @@ sequenceDiagram
 
 - [主题页设计](topic-page.md)
 - [跨对象决策](cross-cutting-decisions.md)
-- [决策提案](../../../.agents/notes/proposed/feature/2026-11-10-topic-inbox.md)
+- [决策记录](../../../.agents/notes/implemented/feature/2026-11-10-topic-inbox.md)
 - [交接文档](../../TOPIC_INBOX_HANDOFF.md)
 - [术语表](../../glossary.md)
 - [收件箱交互稿](../../discussion/topic-reminder-demo.html)
+
+## 14. 实现结果（2026-11-10）
+
+实现分支 `feat/topic-inbox`，delivery 前最后代码 HEAD `a26e1c5`（在 `2d1bfee` 之上；交付 PR 合并后以实际 main 为准）。四命令全绿：`npm run check`、`npm run typecheck`、`npm run build`、`npm test`（962/962）。
+
+落点：
+
+- 后端：`src/request-schema.ts`、`src/request-store.ts`、`src/request-service.ts`、`src/request-tools.ts`、`src/inbox-contract.ts`、`src/inbox-api.ts`、`src/activity.ts`、`src/store-schema.ts`、`src/topic-tools.ts`、`src/tool-runtime.ts`、`src/tools.ts`、`src/api.ts`、`src/api-contract.ts`、`src/index.ts`。
+- 前端：`src/client/inbox-model.ts`、`src/client/inbox.tsx`、`src/client/api.ts`、`src/client/panel.tsx`、`src/client/list.tsx`、`src/client/styles.ts`。
+- 测试：`tests/request-{schema,store,service,tools}.test.mjs`、`tests/inbox-api.test.mjs`、`tests/inbox-contract.test.mjs`、`tests/inbox-model.test.mjs`、`tests/open-port.test.mjs`，以及既有 `api`/`api-contract`/`activity`/`store-schema`/`dev-gate`/`project-tools`/`source-budget`/`panel-model` 的更新。
+
+真实 GUI 证据（专用 `inboxqa` profile + 隔离 fixture repo + 真实 Chrome）：三档宽度（面板内容宽 630 / 900 / 400）下主题列固定、收件箱独立滚动、窄栏横幅与面板内全宽收件箱；四类请求由真实 cowork 工具创建并逐类解决，右侧回复出现、请求记录 `delivery.promptedAt` 非空、主题会话随后继续；主题卡筛选只过滤收件箱；刷新后左右消息、状态与筛选保留。PLAN「查看全文」在补齐宿主 `openWorkspacePath(request, AbortSignal)` 双参契约后真实桌面打开成功；修复前的 501 已记录在交接的偏差段。
+
+与设计/初稿的偏差与修复：
+
+- 宿主没有右栏宽度 setter → 窄栏按设计降级为面板内全宽收件箱（[KI-42](../../KNOWN_ISSUES.md)）。
+- `openWorkspacePath` 原实现只传 request，真实宿主需要第二个 `AbortSignal`；已在 port 适配函数中传 `AbortSignal.timeout(10s)` 并补测试（GUI 首次验证暴露）。
+- 旧 `POST /api/cowork.authorization.resolve` 决策后原先不更新请求卡；已让它收敛同 `topicId`+`requestId` 的 authorization 请求记录（响应形状不变）。
+- `open` 路由补 master/主题成员校验；question 卡补“每题必答”门槛与未答提示；主题筛选按 `sessionId` 持久化到 sessionStorage；plan 解决后内联修改框收起、authorization 解决后重拉 overview。
+- 未在真实 GUI 覆盖：自动评审 `review-verdict` 灰字（仅单测/API 投影与源码断言，[KI-44](../../KNOWN_ISSUES.md)）；`open` 对未知 id 与已知非成员 id 的 404/403 差异属信息级（[KI-43](../../KNOWN_ISSUES.md)）。

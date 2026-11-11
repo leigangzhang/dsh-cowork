@@ -228,7 +228,7 @@
     {
       "id": "cowork-sidebar-topic-inbox",
       "title": "Cowork 右侧栏收件箱：请求卡片与通知",
-      "status": "design-proposed",
+      "status": "implemented",
       "designVersion": "v1",
       "source": {
         "demo": "topic-reminder-demo.png",
@@ -270,11 +270,58 @@
         "authorization 阻塞/解锁和通知更新与现有语义一致，不重复卡片",
         "不依赖 A2，旧 inbox.json 不被读写；设计、提案、交接、术语表和索引互相链接"
       ],
-      "next": "新会话先做宿主探针和基线，再按设计阶段实现请求存储/API/前端；自动评审 verdict 与主题卡筛选按钮按本轮确认落地；当前只是 design-proposed，不要宣称已实现。",
+      "next": "已实现并验证（2026-11-10）。后续工作：工作项页/评审页、宿主 A2 提醒卡（KI-40）、右栏宽度接口（KI-42）。",
       "design": "docs/design/cowork-sidebar/topic-inbox.md",
-      "proposal": ".agents/notes/proposed/feature/2026-11-10-topic-inbox.md",
+      "proposal": ".agents/notes/implemented/feature/2026-11-10-topic-inbox.md",
       "handoff": "docs/TOPIC_INBOX_HANDOFF.md",
-      "updatedAt": "2026-11-10T00:00:00Z"
+      "updatedAt": "2026-11-10T00:00:00Z",
+      "implementedAt": "2026-11-10",
+      "implementation": {
+        "branch": "feat/topic-inbox",
+        "lastCodeHead": "a26e1c57bef0812885b348bfdda94e4ea0114e01",
+        "backend": [
+          "src/inbox-contract.ts",
+          "src/request-schema.ts",
+          "src/request-store.ts",
+          "src/request-service.ts",
+          "src/request-tools.ts",
+          "src/inbox-api.ts",
+          "src/activity.ts",
+          "src/store-schema.ts",
+          "src/topic-tools.ts",
+          "src/tool-runtime.ts",
+          "src/tools.ts",
+          "src/api.ts",
+          "src/api-contract.ts",
+          "src/index.ts"
+        ],
+        "frontend": [
+          "src/client/inbox-model.ts",
+          "src/client/inbox.tsx",
+          "src/client/api.ts",
+          "src/client/panel.tsx",
+          "src/client/list.tsx",
+          "src/client/styles.ts"
+        ],
+        "tests": [
+          "tests/request-schema.test.mjs",
+          "tests/request-store.test.mjs",
+          "tests/request-service.test.mjs",
+          "tests/request-tools.test.mjs",
+          "tests/inbox-api.test.mjs",
+          "tests/inbox-contract.test.mjs",
+          "tests/inbox-model.test.mjs",
+          "tests/open-port.test.mjs"
+        ],
+        "gate": "check/typecheck/build exit 0; npm test 962/962; GUI evidence in docs/TOPIC_INBOX_HANDOFF.md"
+      },
+      "deviations": [
+        "宿主没有右栏宽度 setter：窄栏降级为面板内全宽收件箱（KI-42）",
+        "openWorkspacePath 需要第二个 AbortSignal：GUI 首次验证暴露 501，已在 port 适配并补测试",
+        "旧 authorization.resolve 决策后不更新请求卡：已收敛请求记录终态（响应形状不变）",
+        "open 补 master/主题成员校验；question 补每题必答门槛与未答提示；筛选持久化、plan 表单收起、authorization 后重拉 overview",
+        "自动评审 review-verdict 灰字未在真实 GUI 覆盖（KI-44）；open 的 requestId 存在性差异为信息级（KI-43）"
+      ]
     }
   ],
   "scopeDecisions": [
