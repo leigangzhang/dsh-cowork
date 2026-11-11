@@ -145,7 +145,7 @@ test('M12_STEP_IDS is the seventeen-step 0.2.0 chain in order', () => {
     'master-merge-decision',
     'handoff-done',
     'merge',
-    'auto-resolve',
+    'archive',
     'no-undo',
     'resolved-no-receive',
     'reopen',
@@ -168,8 +168,8 @@ test('the chain keeps its gate order', () => {
   assert.equal(at('master-merge-decision'), at('review-verdict') + 1)
   assert.equal(at('handoff-done'), at('master-merge-decision') + 1)
   assert.equal(at('merge'), at('handoff-done') + 1)
-  assert.equal(at('auto-resolve'), at('merge') + 1)
-  assert.equal(at('no-undo'), at('auto-resolve') + 1)
+  assert.equal(at('archive'), at('merge') + 1)
+  assert.equal(at('no-undo'), at('archive') + 1)
   assert.equal(at('resolved-no-receive'), at('no-undo') + 1)
   assert.equal(at('reopen'), at('resolved-no-receive') + 1)
   assert.equal(at('activity'), at('reopen') + 1)
@@ -202,6 +202,7 @@ test('the support constants name the frozen M12 surface', () => {
     'review-verdict',
     'work-item-merged',
     'status-changed',
+    'topic-archived',
     'topic-reopened',
   ])
 })

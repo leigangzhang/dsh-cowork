@@ -33,7 +33,7 @@ M4 的插件已经可以在真实宿主上安装运行，但两次真实使用�
 3. **主题会话承载任务。** 一个主题一个 DSH 会话；内部可以有多个执行单元（子代理/AgentTeams）；主题写摘要和证据，自己提交评审请求。
 4. **评审按请求。** 评审单位是一次评审请求定义的改动范围；每次新建 reviewer，用完回收；只看请求范围；不合并、不解决冲突。
 5. **界面按主题组织。** 左侧栏只留 master；主题列表放右侧栏 CoWork tab；打开主题只切换主区；reviewer 不出现在列表。
-6. **已解决可控。** 用户手动或 master 满足条件自动标记；空闲 3 天；不撤销；用户可手动重新打开。
+6. **已解决可控。** 归档只由用户从主题卡 ⋯ 菜单或 resolve 路由发起（无自动 resolved）；空闲从最后一次活动起 24 小时；归档可恢复，恢复不写通知。
 7. **数据可迁移。** v1 索引、旧交接/评审文件保留；旧工具名和旧 preset 名保留一个版本的别名。
 
 ### 1.3 非目标
@@ -105,12 +105,12 @@ M0 已证明宿主 API 风险；M1 完成主从闭环；M2 完成项目记忆与
 6. `reject`：主题置 `blocked`，写入收件箱；master 决定是否重规划。
 7. reviewer 会话在 verdict 后归档；失败则保留并记录。
 
-#### 已解决与重新打开
+#### 归档与重新打开
 
-1. 用户可随时在面板标记已解决；master 也可在条件满足时自动标记。
-2. 自动条件（同时满足）：没有进行中的工作、最后一次交付已确认、主题有摘要、空闲满 3 天、未阻塞。没有撤销。
+1. 归档只由用户在主题卡 ⋯ 菜单或 `cowork_topic_resolve`/`resolve` 路由发起；没有自动 resolved（2026-11-10 修订）。
+2. 归档同时清 block/authorization、写只给主会话的 `topic-archived` 通知，并归档宿主主题会话；重复归档幂等。
 3. 已解决主题不再被自动路由；master 遇到相关新任务时新建主题或提示用户打开旧主题。
-4. 用户点开已解决主题并输入；插件把状态置回 `active`，清空 `resolvedAt/resolvedBy`，写 `topic-reopened` 事件。
+4. 已解决卡同一菜单「恢复」：清 resolved、status=active、unarchive 宿主会话，写 `topic-reopened` 但不产生通知；归档记录保留，失效的待授权不恢复。
 
 #### 并行、隔离与合并
 
@@ -124,28 +124,28 @@ M0 已证明宿主 API 风险；M1 完成主从闭环；M2 完成项目记忆与
 
 ```
 active ⇄ idle
-active|idle → resolved
-resolved → active（用户手动打开并输入）
+active|idle → resolved（菜单归档 / resolve 工具）
+resolved → active（菜单恢复 / reopen）
 ```
 
 | 状态/标记 | 含义 | 进入条件 | 离开条件 |
 |---|---|---|---|
-| `active` | 进行中 | 新建、复用、重开、有新活动 | 空闲阈值到 → `idle`；满足已解决条件 → `resolved` |
-| `idle` | 空闲 | 无活动超过 `idleAfterMs`（默认 2h）且无待评审/阻塞 | 新活动 → `active`；满足已解决条件 → `resolved` |
-| `resolved` | 已解决 | 用户手动，或 master 自动（五条件） | 用户手动打开并输入 → `active` |
-| `awaitingReview` | 待评审标记 | 评审请求被接受 | verdict 记录 |
-| `blocked` | 阻塞标记 | `handoff(blocked)` 或评审 `reject` | `handoff(done)` 或新的评审通过 |
+| `active` | 进行中 | 新建、复用、重开、有新活动 | 空闲阈值到 → `idle`；用户归档 → `resolved` |
+| `idle` | 空闲 | 无活动超过 `idleAfterMs`（默认 24h）且无待评审/阻塞/待授权 | 新活动 → `active`；用户归档 → `resolved` |
+| `resolved` | 已解决/归档 | 用户从 ⋯ 菜单归档或调用 resolve 工具；无自动 resolved | 用户从菜单恢复（reopen）→ `active` 并 unarchive 宿主会话 |
+| `awaitingReview` | 待评审标记 | 评审请求被接受 | verdict 记录；主题页不读 |
+| `blocked` | 阻塞标记 | `blockedReason` 非空：authorization 请求 / `handoff(blocked)` / 评审 `reject` 归一化为 handoff | 解除后按 `blockedFromStatus` 恢复；归档清空 |
 
-`resolved` 不是归档；主题仍在 CoWork 列表中，仍可打开。`idle` 是展示状态，不阻止路由。
+`resolved` 即归档：卡片移入已解决并归档宿主主题会话，仍可在列表恢复。`idle` 是展示状态，不阻止路由。
 
 ### 2.4 界面与会话可见性
 
-- 左侧栏：master 与主题会话都保留可见（M6 决策 (b)：archive 后不能继续对话，宿主也没有会话过滤接口）；reviewer 隐藏。
-- 右侧栏：CoWork 是一个 tab，默认 tab 仍是普通会话；tab 里是主题列表 + 详情 + 活动。
+- 左侧栏：master 保留可见；主题会话在菜单归档时由插件 `archiveSession` 归档、恢复时 unarchive（2026-11-10 主题页 v2 取代 M6 决策 (b)）；reviewer 隐藏。
+- 右侧栏：CoWork 是一个 tab，默认 tab 仍是普通会话；tab 里是单列四组主题列表（无列表/详情分栏、无活动详情）。
 - 主区：同一时间只显示一个会话。打开主题是切换主区，不是浮层，不是新窗口；master 保留在左侧栏，点它或面包屑返回。
-- reviewer 不作为列表行出现；评审结果以评审卡挂在主题详情。
-- 主题操作：打开、标记已解决、重新打开、移动到其他主题、复制路径。
-- 已解决主题仍显示；状态芯片带「用户/自动」来源。
+- reviewer 不作为列表行出现；主题页不再展示评审卡，评审结果由 review 工具与请求文件承载。
+- 主题操作：点卡片打开会话；⋯ 菜单只有归档或恢复（无详情、无改投、无输入框）。
+- 顶部「需要你处理」只统计待授权；已解决组默认折叠，header 不含收件箱 chip。
 
 ---
 
@@ -219,7 +219,7 @@ src/
 ├── tools.ts              # 只做注册编排
 ├── api-contract.ts       # 面板 wire v2
 ├── api.ts                # GET/POST 路由
-└── client/               # 右侧栏 tab（列表/详情/活动/操作）
+└── client/               # 右侧栏 tab（四组列表/两行卡片/菜单/notice 渲染器）
 ```
 
 ### 4.3 数据模型
@@ -292,14 +292,15 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 ### 5.1 主题生命周期与已解决
 
-- `active ↔ idle`：`lastActiveAt` 超过 `idleAfterMs`（默认 2h）且无 `awaitingReview`/`blocked` 时为 `idle`；有新事件回 `active`。在读取和 `turn/end` 时惰性评估。
+- `active ↔ idle`：`lastActiveAt` 超过 `idleAfterMs`（2026-11-10 起默认 24h）且无 `awaitingReview`/`blocked`/`authorization` 时为 `idle`；有新事件回 `active`。在读取和 `turn/end` 时惰性评估。
 - `resolved`：
-  - 用户手动：随时；`resolvedBy='user'`。
-  - master 自动：`awaitingReview=false`、`blocked=false`、没有 `active` 工作项、`lastDeliveryConfirmedAt` 非空、`digest` 非空、`now - lastActiveAt >= resolveAfterMs`（默认 3 天）。全部满足才写；不提供撤销。
-  - 自动评估在 `project_status`、`route`、面板 overview 读取时和 `turn/end` 后执行；不新增后台定时器。写入前在项目锁内重读 `lastActiveAt`，避免与用户新消息竞争。
-  - `resolved` 不再被自动路由；用户手动打开并输入后回到 `active`，清空 `resolvedAt/resolvedBy`。
-- `awaitingReview`：评审请求接受时置位，verdict 时清除。
-- `blocked`：`handoff(blocked)` 或评审 `reject` 置位；`handoff(done)` 或新的评审通过清除。
+  - 只有用户手动归档：主题卡 ⋯ 菜单或 `cowork_topic_resolve`/`resolve` 路由；`resolvedBy='user'`。
+  - 没有 master 自动 resolved；`resolveAfterMs` 保留但弃用并忽略。
+  - 归档同时清 block/authorization、写只给主会话的 `topic-archived` 通知，并归档宿主主题会话；重复归档幂等。
+  - `resolved` 不再被自动路由；用户从菜单恢复（`reopen`）后回到 `active` 并 unarchive，归档记录保留。
+- `awaitingReview`：评审请求接受时置位，verdict 时清除；主题页不读它。
+- `blocked`：由 `blockedReason`（authorization/handoff/conflict）派生；`authorization` 由待授权请求置位，`handoff` 由 `cowork_handoff(blocked)` 或 `cowork_topic_report(blocked)` 置位；解除时按 `blockedFromStatus` 恢复 active/idle。评审 `reject` 仍置 `blocked=true` 并写 review-reject 收件箱，读时归一化为 handoff 阻塞（等待 master 处理）。
+- 待授权：`authorization` 非空即阻塞；`authorization.resolve`（master 或该 topic 会话）或归档会清除它，归档还会把原通知置 void。
 
 ### 5.2 store v2 与迁移
 
@@ -351,20 +352,24 @@ master → 插件：cowork_checkout_merge(workItemId)
 | `cowork_thread_create` | master | 弃用别名 |
 | `cowork_topic_list` | master/topic | 有界列表 |
 | `cowork_thread_list` | master/topic | 弃用别名 |
-| `cowork_handoff` | topic | 只留 `blocked/done`；`done` 写交付确认与摘要 |
+| `cowork_handoff` | topic | 只留 `blocked/done`；`done` 写交付确认与摘要；写 topic-reported 通知，不再走 inbox |
+| `cowork_topic_report` | topic | 上报进度或阻塞；blocked 置 handoff 阻塞；每事件一条通知 |
+| `cowork_decision_propose` | topic | 写决策提案文件并上报；主题页只显示摘要 |
+| `cowork_authorization_request` | topic | 阻塞主题并生成待授权 `requestId` |
+| `cowork_notices` | master | 只读通知账本，默认 20、最多 100，按更新时间倒序 |
 | `cowork_review_request` | topic only | 新 schema；master 调用被拒 |
 | `cowork_review_verdict` | reviewer | 增加 `requestId`；只接受登记的 reviewer |
 | `cowork_work_item_create` | topic/master | 创建隔离目录与分支 |
 | `cowork_checkout_merge` | master | 按 `workItemId` 合并；`threadId` 兼容别名 |
-| `cowork_topic_resolve` | master | 手动标记已解决 |
+| `cowork_topic_resolve` | master | 归档主题（同 resolve 路由：清 block/authorization、归档宿主会话） |
 | `cowork_memory_write/search` | master/topic | 不变 |
 
 角色守卫按会话 id 与索引记录判断；master 调用 `cowork_review_request` 返回明确拒绝；reviewer 只能调用 verdict 与搜索/命令。
 
 ### 5.8 预设与记忆
 
-- `cowork-master`：显示名 `Cowork模式`；persona、agent-instructions、time-context、ask-user、todo；移除 fs/search/bash/jobs/present。persona 明确不做流程编排。
-- `cowork-topic`：替换旧 `cowork-thread`；行与当前 topic 相同；persona 改为「一个主题一个会话，可含多个执行单元，自己提交评审请求，写摘要与证据」。
+- `cowork-master`：显示名 `Cowork模式`；persona、agent-instructions、time-context、ask-user、todo；移除 fs/search/bash/jobs/present。persona 明确不做流程编排；blocked/progress 通过 `cowork_notices` 读取，review verdict 仍以消息投递。
+- `cowork-topic`：替换旧 `cowork-thread`；行与当前 topic 相同；persona 改为「一个主题一个会话，可含多个执行单元，自己提交评审请求，写摘要与证据」；新增 `cowork_topic_report`/`cowork_decision_propose`/`cowork_authorization_request` 的上报与授权指引。
 - `cowork-reviewer`：行不变；persona 增加「只看请求范围，不合并、不解决冲突」。
 - `cowork-thread`：已删除；使用该 preset 的旧会话在升级后无法恢复。
 - `cowork:memory` 段落识别 `cowork-master`、`cowork-topic`；reviewer 不注入。记忆语义与预算不在本方案改动；M5 再做整理/检索。
@@ -374,19 +379,21 @@ master → 插件：cowork_checkout_merge(workItemId)
 - `GET /api/cowork.overview`：v2 主题列表与计数；最多 500。
 - `GET /api/cowork.activity?limit=50`：活动尾部。
 - `GET /api/cowork.topic?id=`：主题详情（工作项、评审请求、活动）。
-- `POST /api/cowork.topic.resolve`、`POST /api/cowork.topic.reopen`、`POST /api/cowork.route.move`：面板写操作；请求体含当前 `sessionId`；只允许该项目 master；沿用 loopback，增加 `Origin`/`Host` 同源与 JSON content-type 检查。
-- 面板：主题列表（状态/标记/摘要/最近活动）、详情（摘要、工作项、评审请求、活动、操作）、操作「打开/标记已解决/重新打开/移动到其他主题」；reviewer 不列出；评审卡挂详情。
-- 打开主题：`uiWorkspace.openSession(topicId)`；主区切换，不新增/移除左侧栏条目（主题本来可见）；master 保留；面包屑返回。会话已被用户归档时先 unarchive 再打开（容错，非常规路径）。
+- `POST /api/cowork.authorization.resolve`：决定一个待授权（`allow|deny`）；master 或该 topic 自己的会话可调用，`requestId` 幂等。
+- `POST /api/cowork.topic.resolve`：归档主题（清 block/authorization、写只给主会话的 `topic-archived`、归档宿主主题会话）；`POST /api/cowork.topic.reopen`：恢复（清 resolved、unarchive）；两者 master-only、幂等。`POST /api/cowork.route.move` 保留。请求体含当前 `sessionId`；沿用 loopback，增加 `Origin`/`Host` 同源与 JSON content-type 检查。
+- 主题页（2026-11-10 v2）：单列四组列表（阻塞 / 运行中 / 空闲 / 已解决）、两行卡片、需要你处理只统计待授权、⋯ 菜单只有归档/恢复；不展示详情、工作项、评审请求和审查状态。reviewer 不列出。设计见 [topic-page.md](design/cowork-sidebar/topic-page.md)。
+- 打开主题：`uiWorkspace.openSession(topicId)`；主区切换，不新增/移除左侧栏条目；master 保留；面包屑返回。会话已被用户归档时先 unarchive 再打开（容错，非常规路径）。
 - 右侧栏默认 tab 仍是普通会话；CoWork 不自动打开；footer 入口保留。
-- 左侧栏策略：主题会话保留左侧栏（2026-11-07 决策 (b)：archive 后无法继续对话，且无会话过滤接口）；插件不用 `archiveSession` 隐藏主题；打开主题不需要 unarchive。
+- 左侧栏与归档：v2 的 menu 归档会 `archiveSession` 主题会话（定稿「归档后主题移入已解决」）；恢复走 unarchive。打开主题仍不需要 unarchive，除已归档会话的容错。
 - reviewer 隐藏：verdict 后归档（M6 探针 4：创建后立即归档会让 turn `blocked`）；失败记录，不假装成功。
+- 历史：M11 交付的「列表 + 详情 + 评审卡」已被 2026-11-10 主题页 v2 取代；M11 当时验收仍见 [M11_RESULT](archived/M11_RESULT.md)。
 
 ### 5.10 配置默认值
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
-| `idleAfterMs` | 2h | 空闲展示阈值 |
-| `resolveAfterMs` | 3d | 已解决自动阈值（用户确认） |
+| `idleAfterMs` | 24h | 最后一次活动后空闲展示阈值（2026-11-10 起） |
+| `resolveAfterMs` | 3d | 弃用并忽略；不再自动 resolved，归档只走菜单/工具 |
 | `routing.enabled` | true | 第三层模型开关 |
 | `routing.provider/model/effort` | 未设 | 未设时用 master 会话路由或跳过第三层 |
 | `routing.timeoutMs` | 2000 | 模型兜底超时 |
@@ -394,7 +401,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 | `isolation.provider` | clone | clone v1；worktree 后置 |
 | `reviewer.reclaim` | after-verdict | M6 探针 4：立即归档会让 turn 变成 blocked |
 
-主题会话可见性不再有配置项：M6 决策 (b) 固定为保留左侧栏、只隐藏 reviewer。
+主题会话可见性不再有配置项：M6 决策 (b) 曾固定为保留左侧栏、只隐藏 reviewer；2026-11-10 主题页 v2 改为菜单归档时同时归档宿主主题会话，恢复时 unarchive（见 §5.9 与 [主题页设计](design/cowork-sidebar/topic-page.md)）。
 
 ---
 
@@ -474,6 +481,8 @@ master → 插件：cowork_checkout_merge(workItemId)
 - 不做：不写面板；不做 worktree 适配器。
 
 ### M11 HTTP API 与面板
+
+> 历史：M11 交付的是「列表 + 详情 + 评审卡」；2026-11-10 主题页 v2 已改为单列四组列表，本节验收只记录当时的里程碑。
 
 - 范围：`src/api-contract.ts` v2、`src/api.ts` 读写路由、`src/client/*` 重写；左侧栏策略（决策 (b)：主题保留可见、reviewer 隐藏）、CoWork tab、打开/已解决/重开/改投。
 - 依赖：M9、M10、M6 探针 5/6。

@@ -1,143 +1,388 @@
 /**
- * The topic list (left column in split mode, the only column in drill mode).
+ * The topic page list: four groups (blocked / running / idle / resolved),
+ * two-line cards and a one-action ⋯ menu.
  *
- * One roving-tabindex listbox: the selected row is the single tab stop, and
- * ArrowUp / ArrowDown / Home / End move the selection and the focus together.
- * Server order is preserved (the host already sorts), the first row is selected
- * by the panel on load, and every row pairs its tone with a Chinese label so
- * state never depends on color alone. Resolved topics stay listed and say who
- * resolved them.
+ * A card is an `<article>` with one primary button (title + summary, opens the
+ * topic session) and a sibling ⋯ button (its own button, never nested). The
+ * menu is fixed-positioned in viewport coordinates so the sidebar's scroll
+ * container cannot clip it; it flips above the ⋯ button near the bottom of the
+ * window. Escape and a pointer outside close it; the item is the only action
+ * its state has (archive, or restore for a resolved card).
+ *
+ * Archive / restore run immediately (no confirmation): the panel owns the
+ * optimistic update, rollback and receipt; the card only guards against a
+ * second submit while the topic is pending.
  */
-import { useRef } from 'react'
-import type { KeyboardEvent, ReactElement } from 'react'
-import type { PanelTopic } from '../api-contract.ts'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import type { KeyboardEvent, ReactElement, RefObject } from 'react'
 import {
+  TOPIC_ACTION_LABELS,
   formatLocalTimestamp,
   formatRelativeTime,
-  isLongList,
-  isLongSubject,
-  topicRow,
+  placeCardMenu,
+  topicCardAction,
+  topicMarkerLabel,
+  type MenuPlacement,
+  type NoticePresentation,
+  type TopicCardView,
+  type TopicGroupView,
 } from './model.ts'
-import { MarkerChips, StatusDot } from './chips.tsx'
 
-export interface TopicListProps {
-  readonly topics: readonly PanelTopic[]
-  readonly selectedId: string | null
-  readonly nowMs: number
-  readonly onSelect: (topicId: string) => void
+export interface TopicStatesProps {
+  readonly state: 'loading' | 'empty' | 'error' | 'default'
+  readonly notice: NoticePresentation
+  readonly onRefresh: () => void
 }
 
-/** Pending title fallback so a row is never blank. */
-const UNTITLED = '（无标题）'
+/** Loading / empty / error surface; the list renders when state is default. */
+export function TopicStates({ state, notice, onRefresh }: TopicStatesProps): ReactElement | null {
+  if (state === 'default') return null
+  if (state === 'loading') {
+    return (
+      <div className="cw-skeleton" role="status" aria-busy="true" aria-label="正在读取 Cowork 项目">
+        <p className="cw-skeleton-label">正在读取 Cowork 项目…</p>
+        <div className="cw-skeleton-bar" />
+        <div className="cw-skeleton-bar" />
+        <div className="cw-skeleton-bar" />
+      </div>
+    )
+  }
+  if (state === 'empty') {
+    return (
+      <div className="cw-notice" data-notice={notice.code ?? 'no-topics'}>
+        <h2 className="cw-notice-title">{notice.title}</h2>
+        {notice.detail.trim() === '' ? null : <p className="cw-notice-detail">{notice.detail}</p>}
+        {notice.hint === null ? null : <code className="cw-notice-hint">{notice.hint}</code>}
+        {notice.retry ? <button type="button" className="cw-button" onClick={onRefresh}>刷新</button> : null}
+      </div>
+    )
+  }
+  return (
+    <div className="cw-notice" role="alert">
+      <h2 className="cw-notice-title">{notice.title}</h2>
+      <p className="cw-notice-detail">{notice.detail}</p>
+      {notice.code === null ? null : (
+        <p className="cw-notice-code">错误码 <code className="cw-code">{notice.code}</code></p>
+      )}
+      {notice.path === null ? null : (
+        <p className="cw-notice-path">路径 <code className="cw-filepath">{notice.path}</code></p>
+      )}
+      <button type="button" className="cw-button" onClick={onRefresh}>重试</button>
+    </div>
+  )
+}
 
-/** Topic list with roving tabindex and keyboard selection. */
-export function TopicList({ topics, selectedId, nowMs, onSelect }: TopicListProps): ReactElement {
-  const optionRefs = useRef(new Map<string, HTMLButtonElement>())
-  const listState = isLongList(topics.length) ? 'long-list' : 'default'
+export interface TopicListProps {
+  readonly groups: readonly TopicGroupView[]
+  readonly nowMs: number
+  /** Topics with an archive/restore request in flight; their menu item is disabled. */
+  readonly pendingTopicIds: ReadonlySet<string>
+  /** Topic just archived by this panel; the resolved group opens and takes focus. */
+  readonly revealTopicId: string | null
+  /** Bumped on every archive so archiving the same topic again re-opens the group. */
+  readonly revealNonce: number
+  readonly onOpenTopic: (topicId: string) => void
+  readonly onArchive: (topicId: string, title: string) => void
+  readonly onRestore: (topicId: string, title: string) => void
+}
 
-  const selectAt = (index: number, focus: boolean): void => {
-    if (topics.length === 0) return
-    const clamped = Math.min(Math.max(index, 0), topics.length - 1)
-    const topic = topics[clamped]
-    if (topic === undefined) return
-    onSelect(topic.topicId)
-    if (focus) optionRefs.current.get(topic.topicId)?.focus()
+/**
+ * The four groups, in fixed order, empty ones omitted. The resolved group starts
+ * collapsed; archiving a topic opens it and moves focus to its toggle so a
+ * keyboard user does not lose the card.
+ */
+export function TopicList({
+  groups,
+  nowMs,
+  pendingTopicIds,
+  revealTopicId,
+  revealNonce,
+  onOpenTopic,
+  onArchive,
+  onRestore,
+}: TopicListProps): ReactElement {
+  const [resolvedOpen, setResolvedOpen] = useState(false)
+  const resolvedToggleRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (revealTopicId === null) return
+    setResolvedOpen(true)
+    resolvedToggleRef.current?.focus()
+  }, [revealTopicId, revealNonce])
+
+  const visible = groups.filter(group => group.count > 0)
+
+  return (
+    <div className="cw-list" aria-label="Cowork 主题列表">
+      {visible.map(group => (
+        <TopicGroup
+          key={group.key}
+          group={group}
+          nowMs={nowMs}
+          collapsed={group.key === 'resolved' && !resolvedOpen}
+          toggleRef={group.key === 'resolved' ? resolvedToggleRef : null}
+          pendingTopicIds={pendingTopicIds}
+          onToggle={() => { setResolvedOpen(open => !open) }}
+          onOpenTopic={onOpenTopic}
+          onArchive={onArchive}
+          onRestore={onRestore}
+        />
+      ))}
+    </div>
+  )
+}
+
+interface TopicGroupProps {
+  readonly group: TopicGroupView
+  readonly nowMs: number
+  readonly collapsed: boolean
+  readonly toggleRef: RefObject<HTMLButtonElement> | null
+  readonly pendingTopicIds: ReadonlySet<string>
+  readonly onToggle: () => void
+  readonly onOpenTopic: (topicId: string) => void
+  readonly onArchive: (topicId: string, title: string) => void
+  readonly onRestore: (topicId: string, title: string) => void
+}
+
+/** One group: a titled header with its count, then its cards. */
+export function TopicGroup({
+  group,
+  nowMs,
+  collapsed,
+  toggleRef,
+  pendingTopicIds,
+  onToggle,
+  onOpenTopic,
+  onArchive,
+  onRestore,
+}: TopicGroupProps): ReactElement {
+  const headingId = useId()
+  const cardsId = useId()
+  const collapsible = group.key === 'resolved'
+  return (
+    <section className="cw-group" data-group={group.key} aria-labelledby={headingId}>
+      <h2 className="cw-group-head" id={headingId}>
+        {collapsible ? (
+          <button
+            ref={toggleRef}
+            type="button"
+            className="cw-group-toggle"
+            aria-expanded={!collapsed}
+            aria-controls={cardsId}
+            onClick={onToggle}
+          >
+            <span className="cw-group-label">{group.label}</span>
+            <span className="cw-group-count">{group.count}</span>
+          </button>
+        ) : (
+          <span className="cw-group-title">
+            <span className="cw-group-label">{group.label}</span>
+            <span className="cw-group-count">{group.count}</span>
+          </span>
+        )}
+      </h2>
+      {collapsed ? null : (
+        <div className="cw-group-cards" id={cardsId}>
+          {group.cards.map(card => (
+            <TopicCard
+              key={card.topicId}
+              card={card}
+              group={group.key}
+              nowMs={nowMs}
+              pending={pendingTopicIds.has(card.topicId)}
+              onOpenTopic={onOpenTopic}
+              onArchive={onArchive}
+              onRestore={onRestore}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+interface TopicCardProps {
+  readonly card: TopicCardView
+  readonly group: string
+  readonly nowMs: number
+  readonly pending: boolean
+  readonly onOpenTopic: (topicId: string) => void
+  readonly onArchive: (topicId: string, title: string) => void
+  readonly onRestore: (topicId: string, title: string) => void
+}
+
+/** One two-line card: title + summary, marker and time right-aligned. */
+export function TopicCard({
+  card,
+  group,
+  nowMs,
+  pending,
+  onOpenTopic,
+  onArchive,
+  onRestore,
+}: TopicCardProps): ReactElement {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [placement, setPlacement] = useState<MenuPlacement | null>(null)
+  const moreRef = useRef<HTMLButtonElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const menuId = useId()
+  const action = topicCardAction(card)
+
+  const place = useCallback((): void => {
+    const node = moreRef.current
+    if (node === null) return
+    const rect = node.getBoundingClientRect()
+    setPlacement(placeCardMenu(
+      { top: rect.top, bottom: rect.bottom, right: rect.right },
+      { width: window.innerWidth, height: window.innerHeight },
+    ))
+  }, [])
+
+  const closeMenu = useCallback((restoreFocus: boolean): void => {
+    setMenuOpen(false)
+    setPlacement(null)
+    if (restoreFocus) moreRef.current?.focus()
+  }, [])
+
+  const openMenu = (): void => {
+    if (pending) return
+    place()
+    setMenuOpen(true)
   }
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    const currentIndex = topics.findIndex(topic => topic.topicId === selectedId)
-    const base = currentIndex < 0 ? 0 : currentIndex
-    switch (event.key) {
-      case 'ArrowDown':
-        event.preventDefault()
-        selectAt(base + 1, true)
-        break
-      case 'ArrowUp':
-        event.preventDefault()
-        selectAt(base - 1, true)
-        break
-      case 'Home':
-        event.preventDefault()
-        selectAt(0, true)
-        break
-      case 'End':
-        event.preventDefault()
-        selectAt(topics.length - 1, true)
-        break
-      default:
-        break
+  // Escape closes and returns focus; a pointer outside closes; a resize or a
+  // scroll of any ancestor re-places the fixed menu instead of letting it drift.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (menuRef.current?.contains(target) === true) return
+      if (moreRef.current?.contains(target) === true) return
+      closeMenu(false)
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      closeMenu(true)
+    }
+    const onViewportChange = (): void => { place() }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', onViewportChange)
+    window.addEventListener('scroll', onViewportChange, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', onViewportChange)
+      window.removeEventListener('scroll', onViewportChange, true)
+    }
+  }, [menuOpen, closeMenu, place])
+
+  // The single menu item takes focus once the menu is painted.
+  useEffect(() => {
+    if (!menuOpen) return
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }, [menuOpen])
+
+  const runAction = (): void => {
+    if (pending) return
+    closeMenu(false)
+    if (action === 'archive') onArchive(card.topicId, card.title)
+    else onRestore(card.topicId, card.title)
+  }
+
+  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Tab') {
+      closeMenu(false)
+      return
+    }
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'),
+    )
+    if (items.length === 0) return
+    const current = items.indexOf(document.activeElement as HTMLElement)
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      items[(current + 1) % items.length]?.focus()
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      items[(current - 1 + items.length) % items.length]?.focus()
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      items[0]?.focus()
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      items[items.length - 1]?.focus()
     }
   }
 
+  const title = card.title.trim().length === 0 ? '（无标题）' : card.title
+  const digest = card.digest.trim().length === 0 ? '（无摘要）' : card.digest
+
   return (
-    <div
-      className="cw-list"
-      role="listbox"
-      aria-label="Cowork 主题列表"
-      aria-orientation="vertical"
-      data-list-state={listState}
-      onKeyDown={handleKeyDown}
+    <article
+      className="cw-card"
+      data-group={group}
+      data-topic-id={card.topicId}
+      data-marker={card.marker ?? 'none'}
+      data-pending={pending ? 'true' : 'false'}
     >
-      {topics.map((topic, index) => {
-        const row = topicRow(topic)
-        const title = topic.title.length > 0 ? topic.title : UNTITLED
-        const selected = topic.topicId === selectedId
-        const tabbable = selected || (selectedId === null && index === 0)
-        return (
+      <button
+        type="button"
+        className="cw-card-open"
+        title={title}
+        onClick={() => { onOpenTopic(card.topicId) }}
+      >
+        <span className="cw-card-line">
+          <span className="cw-card-title">{title}</span>
+          {card.marker === null ? null : (
+            <span className="cw-card-marker" data-marker={card.marker}>{topicMarkerLabel(card.marker)}</span>
+          )}
+        </span>
+        <span className="cw-card-line">
+          <span className="cw-card-digest">{digest}</span>
+          <span className="cw-card-time" title={formatLocalTimestamp(card.updatedAt)}>
+            {formatRelativeTime(card.updatedAt, nowMs)}
+          </span>
+        </span>
+      </button>
+      <button
+        ref={moreRef}
+        type="button"
+        className="cw-card-more"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        aria-controls={menuOpen ? menuId : undefined}
+        aria-label={`主题「${title}」的更多操作`}
+        disabled={pending}
+        onClick={openMenu}
+      >
+        ⋯
+      </button>
+      {menuOpen && placement !== null ? (
+        <div
+          ref={menuRef}
+          id={menuId}
+          className="cw-card-menu"
+          role="menu"
+          aria-label="主题操作"
+          data-flipped={placement.flipped ? 'true' : 'false'}
+          style={{ top: placement.top, left: placement.left }}
+          onKeyDown={onMenuKeyDown}
+        >
           <button
-            key={topic.topicId}
             type="button"
-            role="option"
-            aria-selected={selected}
-            tabIndex={tabbable ? 0 : -1}
-            data-topic-id={topic.topicId}
-            data-status={topic.status}
-            data-subject-state={isLongSubject(title) ? 'long-subject' : 'normal'}
-            data-active-work={row.hasActiveWork ? 'true' : 'false'}
-            className="cw-row"
-            title={title}
-            ref={node => {
-              if (node === null) optionRefs.current.delete(topic.topicId)
-              else optionRefs.current.set(topic.topicId, node)
-            }}
-            onClick={() => onSelect(topic.topicId)}
+            role="menuitem"
+            className="cw-card-menu-item"
+            data-action={action}
+            disabled={pending}
+            onClick={runAction}
           >
-            <span className="cw-row-head">
-              <span className="cw-row-status">
-                <StatusDot tone={row.statusTone} />
-                <span className="cw-status-text">{row.statusLabel}</span>
-                <MarkerChips markers={row.markers} />
-                {row.reviewLabel === null ? null : (
-                  <span
-                    className="cw-review-badge"
-                    data-tone={row.reviewTone ?? 'idle'}
-                    title={row.reviewTitle ?? row.reviewLabel}
-                  >
-                    {row.reviewLabel}
-                  </span>
-                )}
-                {row.hasActiveWork ? (
-                  <span className="cw-work-mark" title="这个主题有正在运行的工作项">
-                    {topic.activeWorkItems} 工作项
-                  </span>
-                ) : null}
-              </span>
-              <span className="cw-row-time" title={formatLocalTimestamp(topic.lastActiveAt)}>
-                {formatRelativeTime(topic.lastActiveAt, nowMs)}
-              </span>
-            </span>
-            <span className="cw-row-body">
-              <span className="cw-row-subject">{title}</span>
-              {row.resolvedByLabel === null ? null : (
-                <span className="cw-resolved-by">解决：{row.resolvedByLabel}</span>
-              )}
-            </span>
-            {row.digest.trim().length === 0 ? null : (
-              <span className="cw-row-digest">{row.digest}</span>
-            )}
+            {pending ? '处理中…' : TOPIC_ACTION_LABELS[action]}
           </button>
-        )
-      })}
-    </div>
+        </div>
+      ) : null}
+    </article>
   )
 }

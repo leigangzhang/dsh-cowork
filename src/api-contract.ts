@@ -27,6 +27,9 @@ export const RESOLVE_PATH = '/api/cowork.topic.resolve'
 /** Write route: reopen one resolved topic (master only). */
 export const REOPEN_PATH = '/api/cowork.topic.reopen'
 
+/** Write route: decide one pending authorization (master or that topic's session). */
+export const AUTHORIZATION_RESOLVE_PATH = '/api/cowork.authorization.resolve'
+
 /** Write route: move work routed to one topic into another (master only). */
 export const ROUTE_MOVE_PATH = '/api/cowork.route.move'
 
@@ -72,6 +75,14 @@ export const MAX_REQUEST_BODY_BYTES = 8192
 /** Lifecycle of one topic as the panel lists it. `resolved` rows stay listed. */
 export type PanelTopicStatus = 'active' | 'idle' | 'resolved'
 
+/** Why a topic is blocked on the topic page, or null when it is not. */
+export type PanelBlockedReason = 'authorization' | 'handoff' | 'conflict'
+
+/** Every blocked reason, in the contract's order. */
+export const PANEL_BLOCKED_REASONS: readonly PanelBlockedReason[] = [
+  'authorization', 'handoff', 'conflict',
+]
+
 /** Lifecycle of one isolated work item. */
 export type PanelWorkItemStatus = 'active' | 'reviewing' | 'merged' | 'abandoned'
 
@@ -116,9 +127,21 @@ export interface PanelTopic {
   readonly topicId: string
   readonly title: string
   readonly status: PanelTopicStatus
-  /** The topic is blocked on the master (derived from its open work, by the host). */
+  /** The topic is blocked (derived: `blockedReason !== null`). */
   readonly blocked: boolean
-  /** A review was requested and has no verdict yet. */
+  /**
+   * Why the topic is blocked, or null. The topic page groups on this, not on
+   * `awaitingReview`. Optional only at the type level so a client built against
+   * an older host keeps compiling; the host always writes it on the wire.
+   */
+  readonly blockedReason?: PanelBlockedReason | null
+  /**
+   * A pending authorization request exists; the top "needs you" count uses
+   * this. Optional at the type level for the same forward-compat reason; the
+   * host always writes it.
+   */
+  readonly awaitingAuthorization?: boolean
+  /** A review was requested and has no verdict yet; the topic page does not read it. */
   readonly awaitingReview: boolean
   /** Review state of the newest review request, or null when never requested. */
   readonly reviewStatus: PanelReviewStatus | null
@@ -213,6 +236,8 @@ export interface PanelCounts {
   readonly idle: number
   readonly resolved: number
   readonly blocked: number
+  /** Pending authorizations; always on the wire, optional for older clients. */
+  readonly awaitingAuthorization?: number
   readonly awaitingReview: number
   readonly pendingReview: number
   readonly workItemActive: number
@@ -261,6 +286,20 @@ export interface ReopenResponse {
   readonly topic: PanelTopic
 }
 
+/** Body of a successful {@link AUTHORIZATION_RESOLVE_PATH} response. */
+export interface AuthorizationResolveResponse {
+  readonly ok: true
+  readonly topic: PanelTopic
+  readonly requestId: string
+  readonly decision: 'allow' | 'deny'
+  /** The `authorization-requested` event id whose notice was updated, or null. */
+  readonly noticeId: string | null
+  /** True when the topic session was prompted to continue after the decision. */
+  readonly prompted: boolean
+  /** False when the same decision was already recorded (idempotent replay). */
+  readonly changed: boolean
+}
+
 /** Body of a successful {@link ROUTE_MOVE_PATH} response. */
 export interface RouteMoveResponse {
   readonly ok: true
@@ -285,6 +324,9 @@ export type PanelErrorCode =
   | 'request/not-master'
   | 'topic/not-found'
   | 'topic/not-resolved'
+  | 'authorization/not-found'
+  | 'authorization/mismatch'
+  | 'authorization/not-allowed'
   | 'route/move-invalid'
   | 'session/unknown'
   | 'session/cwd-unavailable'
@@ -324,6 +366,11 @@ export function isPanelTopicStatus(value: unknown): value is PanelTopicStatus {
   return typeof value === 'string' && (PANEL_TOPIC_STATUS_ORDER as readonly string[]).includes(value)
 }
 
+/** Whether a value is one of the three blocked reasons. */
+export function isPanelBlockedReason(value: unknown): value is PanelBlockedReason {
+  return typeof value === 'string' && (PANEL_BLOCKED_REASONS as readonly string[]).includes(value)
+}
+
 /** Whether a value is one of the four work-item states. */
 export function isPanelWorkItemStatus(value: unknown): value is PanelWorkItemStatus {
   return typeof value === 'string' && (PANEL_WORK_ITEM_STATUSES as readonly string[]).includes(value)
@@ -345,12 +392,20 @@ export function isPanelReviewSeverity(value: unknown): value is PanelReviewSever
 }
 
 /** A copy of {@link PanelCounts} whose fields can be incremented while counting. */
-type MutablePanelCounts = { -readonly [Key in keyof PanelCounts]: PanelCounts[Key] }
+type MutablePanelCounts = { -readonly [Key in keyof PanelCounts]-?: NonNullable<PanelCounts[Key]> }
 
-/** List rank of one topic: the two markers outrank every status. */
-function topicListRank(topic: { readonly blocked: boolean, readonly awaitingReview: boolean, readonly status: PanelTopicStatus }): number {
+/**
+ * List rank of one topic: the two markers the topic page shows outrank every
+ * status. `awaitingReview` is deliberately absent — the topic page does not use
+ * review state, so a review no longer pushes a row to the top.
+ */
+function topicListRank(topic: {
+  readonly blocked: boolean
+  readonly awaitingAuthorization?: boolean
+  readonly status: PanelTopicStatus
+}): number {
   if (topic.blocked) return 0
-  if (topic.awaitingReview) return 1
+  if (topic.awaitingAuthorization) return 1
   switch (topic.status) {
     case 'active': return 2
     case 'idle': return 3
@@ -373,14 +428,20 @@ function compareDescending(left: number, right: number): number {
 }
 
 /**
- * Panel order: `blocked` first, then `awaitingReview`, then the topic states in
+ * Panel order: `blocked` first, then `awaitingAuthorization`, then the topic states in
  * {@link PANEL_TOPIC_STATUS_ORDER}; inside one rank the most recently active
  * topic leads, then the most recently updated, then the input order. Unknown
  * states sort last and unparseable timestamps never throw. The input array is
  * not mutated.
  */
 export function sortTopicsForPanel<
-  T extends { readonly blocked: boolean, readonly awaitingReview: boolean, readonly status: PanelTopicStatus, readonly lastActiveAt: string, readonly updatedAt: string },
+  T extends {
+    readonly blocked: boolean
+    readonly awaitingAuthorization?: boolean
+    readonly status: PanelTopicStatus
+    readonly lastActiveAt: string
+    readonly updatedAt: string
+  },
 >(topics: readonly T[]): T[] {
   return topics
     .map((topic, index) => ({ topic, index }))
@@ -410,6 +471,7 @@ export function countPanel(
     idle: 0,
     resolved: 0,
     blocked: 0,
+    awaitingAuthorization: 0,
     awaitingReview: 0,
     pendingReview: 0,
     workItemActive: 0,
@@ -422,6 +484,7 @@ export function countPanel(
     listed.add(topic.topicId)
     if (isPanelTopicStatus(topic.status)) counts[topic.status] += 1
     if (topic.blocked) counts.blocked += 1
+    if (topic.awaitingAuthorization) counts.awaitingAuthorization += 1
     if (topic.awaitingReview) counts.awaitingReview += 1
     if (topic.reviewStatus === 'pending') counts.pendingReview += 1
   }

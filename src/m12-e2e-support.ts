@@ -83,6 +83,7 @@ export const M12_EXPECTED_ACTIVITY_TYPES = [
   'review-verdict',
   'work-item-merged',
   'status-changed',
+  'topic-archived',
   'topic-reopened',
 ] as const
 
@@ -98,7 +99,7 @@ export const M12_STEP_IDS = [
   'master-merge-decision',
   'handoff-done',
   'merge',
-  'auto-resolve',
+  'archive',
   'no-undo',
   'resolved-no-receive',
   'reopen',
@@ -282,6 +283,15 @@ export interface M12PanelResult {
 export interface M12PanelProbe {
   overview(input: { sessionId: string }): Promise<M12PanelResult>
   reopen(input: { sessionId: string; topicId: string }): Promise<M12PanelResult>
+  /** Archive one topic through the shipped resolve route (the topic-page menu). */
+  resolve(input: { sessionId: string; topicId: string }): Promise<M12PanelResult>
+  /** Decide one pending authorization (topic page action). */
+  authorizationResolve(input: {
+    sessionId: string
+    topicId: string
+    requestId: string
+    decision: 'allow' | 'deny'
+  }): Promise<M12PanelResult>
 }
 
 export interface M12E2EHost {
@@ -444,7 +454,7 @@ export function shortThresholdsProblem(idleAfterMs: number, resolveAfterMs: numb
   return null
 }
 
-/** The throwaway project must live outside the plugin repository, so a run can never write the real project's `.dsh-cowork` index/activity/inbox/reviews. */
+/** The throwaway project must live outside the plugin repository. */
 export function fixturePathProblem(pluginRepoPath: string, fixturePath: string): string | null {
   const repo = resolve(pluginRepoPath)
   const fixture = resolve(fixturePath)
@@ -1206,7 +1216,7 @@ export async function assertActivityAudit(
   recordCheck(step, 'the verdict activity names the request', asRecord(verdict?.details)?.requestId === input.requestId, String(asRecord(verdict?.details)?.requestId))
   const merged = activity.events.find((event) => event.type === 'work-item-merged' && event.topicId === input.topicId)
   recordCheck(step, 'the merge activity names the work item', asRecord(merged?.details)?.workItemId === input.workItemId, String(asRecord(merged?.details)?.workItemId))
-  recordCheck(step, 'the resolution activity exists', activity.events.some((event) => event.type === 'status-changed' && event.topicId === input.topicId && asRecord(event.details)?.to === 'resolved'), 'status-changed to resolved')
+  recordCheck(step, 'the archive activity exists', activity.events.some((event) => event.type === 'topic-archived' && event.topicId === input.topicId), 'topic-archived')
   obs(step, { tail: activity.events.slice(-12).map((event) => ({ type: event.type, topicId: event.topicId, summary: clip(event.summary, 160) })) })
 }
 

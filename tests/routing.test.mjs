@@ -457,7 +457,9 @@ test('the Config schema defaults match PLAN-V0.2 §5.10', () => {
   const parsed = Config({})
   assert.equal(parsed.repoPath, '')
   assert.equal(parsed.enableDevRoutes, false)
-  assert.equal(parsed.idleAfterMs, 7_200_000)
+  assert.equal(parsed.idleAfterMs, 86_400_000, 'the topic page idles after one day')
+  // Deprecated and ignored by the lifecycle, but still accepted by the schema so
+  // an existing profile keeps loading.
   assert.equal(parsed.resolveAfterMs, 259_200_000)
   assert.deepEqual(parsed.routing, {
     enabled: true,
@@ -485,7 +487,7 @@ test('normalizeConfig tolerates a hand-built partial config', () => {
     storeRelativePath: '.dsh-cowork/probe/store.json',
     worktreeRelativePath: '.dsh-cowork/worktrees/probe',
     enableDevRoutes: false,
-    idleAfterMs: 7_200_000,
+    idleAfterMs: 86_400_000,
     resolveAfterMs: 259_200_000,
     routing: {
       enabled: true,

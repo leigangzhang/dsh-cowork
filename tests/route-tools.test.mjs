@@ -187,6 +187,11 @@ test('layer 1 reuses the focus topic and never calls the model', async () => {
     assert.equal(document.lastRouteTopicId, 'session-focus')
     const activity = await store.readActivity()
     assert.ok(activity.events.some((event) => event.type === 'route-reused' && event.topicId === 'session-focus'))
+    // Reuse is not an assignment: the card already exists, so no 1:1 notice is
+    // emitted for the route-reused event.
+    assert.equal(activity.events.some((event) => event.type === 'topic-created'), false)
+    assert.equal(activity.events.some((event) => event.details?.notice !== undefined), false)
+    assert.deepEqual(await store.readNotices(), { version: 1, notices: [] })
   })
 })
 
@@ -249,6 +254,21 @@ test('a no-hit route creates a topic with the cowork-topic preset and both activ
     const types = activity.events.map((event) => event.type)
     assert.ok(types.includes('topic-created'))
     assert.ok(types.includes('route-created'))
+
+    // Assignment is the same 1:1 event `cowork_topic_create` emits: one master
+    // message and one topic card, recorded through the notice ledger.
+    const created = activity.events.find((event) => event.type === 'topic-created')
+    assert.equal(created.details.notice.kind, 'assignment')
+    assert.deepEqual([...created.details.notice.targets], ['master', 'topic'])
+    assert.match(created.details.notice.summary, /写一个全新的部署脚本 alpha/)
+    const ledger = await store.readNotices()
+    assert.deepEqual(
+      ledger.notices.map((row) => row.target).sort(),
+      ['master', 'topic'],
+      'one ledger row per target',
+    )
+    assert.ok(ledger.notices.every((row) => row.noticeId === created.eventId))
+    assert.ok(ledger.notices.every((row) => row.status === 'pending'), 'B mode stays pending')
   })
 })
 
@@ -499,14 +519,14 @@ test('applyRouteCorrectionToStore writes aliases and one route-corrected activit
   })
 })
 
-test('cowork_route settles a three-hour silent focus topic to idle before reuse (A5 read point)', async () => {
+test('cowork_route settles a >24h silent focus topic to idle before reuse (A5 read point)', async () => {
   await withRepo(async (repoPath) => {
     await seedProject(repoPath, [
       topic({
         topicId: 'session-idle',
         title: 'idle focus topic',
         status: 'active',
-        lastActiveAt: new Date(NOW_MS - 3 * HOUR_MS).toISOString(),
+        lastActiveAt: new Date(NOW_MS - 25 * HOUR_MS).toISOString(),
       }),
     ], { masterFocusTopicId: 'session-idle' })
     const deps = fakeDeps()
@@ -537,12 +557,12 @@ test('cowork_route settles a three-hour silent focus topic to idle before reuse 
   })
 })
 
-test('cowork_route resolves a four-day settled topic before force-creating a new one (A5 read point)', async () => {
+test('cowork_route force-creates beside a four-day silent topic and never archives it (A5 read point)', async () => {
   await withRepo(async (repoPath) => {
     const settledAt = new Date(NOW_MS - 4 * DAY_MS).toISOString()
     await seedProject(repoPath, [
       topic({
-        topicId: 'session-resolved',
+        topicId: 'session-stale',
         title: 'finished topic',
         status: 'active',
         lastActiveAt: settledAt,
@@ -559,22 +579,21 @@ test('cowork_route resolves a four-day settled topic before force-creating a new
 
     assert.equal(result.ok, true)
     assert.equal(result.action, 'create')
-    assert.notEqual(result.topicId, 'session-resolved')
+    assert.notEqual(result.topicId, 'session-stale')
 
     const store = new ProjectStore({ repoPath, clock: () => new Date(NOW_ISO) })
     const document = await store.readIndexDocument()
-    const settled = document.topics.find((entry) => entry.topicId === 'session-resolved')
-    assert.ok(settled, 'the settled topic is still in the index')
-    assert.equal(settled.status, 'resolved', 'the read point resolves the topic before the route decides')
-    assert.equal(settled.resolvedBy, 'master')
-    assert.equal(settled.resolvedAt, NOW_ISO)
+    const settled = document.topics.find((entry) => entry.topicId === 'session-stale')
+    assert.ok(settled, 'the stale topic is still in the index')
+    assert.equal(settled.status, 'idle', 'the read point only idles; archiving is a user action')
+    assert.equal(settled.resolvedBy, null)
 
     const activity = await store.readActivity()
     const changed = activity.events.find(
-      (event) => event.type === 'status-changed' && event.topicId === 'session-resolved',
+      (event) => event.type === 'status-changed' && event.topicId === 'session-stale',
     )
     assert.ok(changed, 'the transition records one status-changed event')
-    assert.deepEqual(changed.details, { topicId: 'session-resolved', from: 'active', to: 'resolved' })
+    assert.deepEqual(changed.details, { topicId: 'session-stale', from: 'active', to: 'idle' })
   })
 })
 

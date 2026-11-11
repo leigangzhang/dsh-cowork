@@ -1,6 +1,13 @@
 # Cowork 右侧栏主题页设计（v2）
 
-Status: draft v2（2026-11-10 确认；implementation not started）
+Status: implemented v2（2026-11-10 确认并实现；A2 会话提醒卡按 B 延期）
+
+## 实现状态
+
+- 前端：四组列表、两行卡片、单动作 ⋯ 菜单、needsYou、已解决折叠、381px 省略已落地；列表/详情分栏、工作项/评审请求渲染和改投表单已移除。实现证据见前端决策记录与 `/tmp/topic-page-verify/GUI_EVIDENCE.json`。
+- 后端：`TopicRecordV2` 增加 authorization/blockedReason/blockedFromStatus/blockedAt；idle 24h、无自动 resolved；`.dsh-cowork/notices.json` 1:1 投递账本；`cowork_topic_report`/`cowork_decision_propose`/`cowork_authorization_request`/`cowork_notices`；`authorization.resolve` 路由；resolve=归档（同时归档宿主会话）、reopen=恢复（unarchive）。实现证据见后端决策记录。
+- A2/B：本阶段 B。主题页不渲染会话提醒卡；`TopicNoticePort` 用 Noop，账本保持 pending，`cowork_notices` 是 master 的唯一读取入口。宿主 A2 发布后补端口适配器、客户端 notice seat 注册和真实 GUI 探针。
+- 已收口：header 不再有 v1 收件箱 chip，`刷新` 按钮固定单行（`flex:none`/`white-space:nowrap`，收口提交 `bbb85b3`）。主题页移除工作项/评审入口后，工作项页实现前用户暂无查看入口（[KI-41](../../KNOWN_ISSUES.md)）。
 
 ## 背景
 
@@ -122,7 +129,7 @@ stateDiagram-v2
 
 ## 会话提醒卡
 
-提醒卡通过宿主 A2 的 notice kind 渲染，由 dsh-cowork 客户端插件注册；主题页列表本身不渲染这些卡。主会话和主题会话各一张，状态更新用同一个 noticeId，不新增消息。A2 契约确认和真实 GUI 探针通过前，卡片不进入实现。
+提醒卡通过宿主 A2 的 notice kind 渲染，由 dsh-cowork 客户端插件注册；主题页列表本身不渲染这些卡。主会话和主题会话各一张，状态更新用同一个 noticeId，不新增消息。当前运行宿主没有 A2 能力，本阶段按 B 不注册渲染器；`notice-model.ts`/`notice.tsx` 已实现并测试，宿主 A2 发布后接 seat 即可。
 
 | 类型 | 主会话 | 主题会话 | 操作 |
 |---|---|---|---|
@@ -179,13 +186,12 @@ stateDiagram-v2
 - Artifact 工作室里的决策提案资料。
 - 审查、评审、CI 相关功能。
 - 跨主题冲突的对比和裁决界面。
-- 空闲判定阈值的最终数值。
 
 ## 已确认
 
 - 两行主题卡：主题名 + 一行摘要；标记在主题名右侧，时间在摘要右侧（截图 [topic-card-style.png](../../discussion/topic-card-style.png)）。
 - 边框颜色：阻塞红、运行中绿、空闲黑、已解决灰。
 - 完整交互稿、列表截图和 feature 待办已同步。
-- 前端开发提案与交付阶段见 [topic-page-frontend.md](../../../.agents/notes/proposed/feature/2026-11-10-topic-page-frontend.md)。
-- 后端设计提案（状态、事件通知、会话投递与迁移）见 [topic-page-backend.md](../../../.agents/notes/proposed/feature/2026-11-10-topic-page-backend.md)。
-- 会话提醒卡采用宿主 A2：新增 `notice/message` 事件、`ctx.sessionNotices.append/update` 和客户端 `notice` kind/seat；A1（复用 plugin record）不采用，B（不改宿主）为宿主拒绝 A2 时的备选。A2 契约确认前，会话卡片不进入实现。
+- 前端实现决策与验收见 [topic-page-frontend.md](../../../.agents/notes/implemented/feature/2026-11-10-topic-page-frontend.md)。
+- 后端实现决策（状态、事件通知、会话投递与迁移）见 [topic-page-backend.md](../../../.agents/notes/implemented/feature/2026-11-10-topic-page-backend.md)。
+- 会话提醒卡采用宿主 A2 的设计不适用于当前运行宿主（DSH 0.2.1-rc.2 没有 `notice/message` 事件和 `ctx.sessionNotices`；`appendPluginRecord` 只授权 `packages/experimental/`）。本阶段按 **B** 落地：主题页、状态、菜单、通知账本和 `cowork_notices` 完整，主会话/主题会话的 1:1 提醒卡延期到宿主 A2 发布；偏离记录在 [KNOWN_ISSUES](../../KNOWN_ISSUES.md)。

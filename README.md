@@ -7,9 +7,9 @@ DSH 的项目式主从协作插件。0.2.0 采用**主题会话模型**：master
 ## 它提供什么
 
 - **三个 preset**：`cowork-master`（显示为 `Cowork模式`）、`cowork-topic`、`cowork-reviewer`。新建会话只显示 master；topic/reviewer 由插件内部创建，不出现在选择器。定义与工具面见 [src/presets.ts](src/presets.ts)。
-- **15 个业务工具**：初始化、路由、主题、handoff、工作项、评审、合并、记忆；名称与注册顺序见 [src/tools.ts](src/tools.ts)，参数以各工具模块为准。
-- **右侧栏 CoWork 面板**：主题列表/详情、工作项与评审请求、活动、已解决与重开、改投；六条 `/api/cowork.*` 路由见 [src/api-contract.ts](src/api-contract.ts)。
-- **项目记忆 / 活动流 / master 收件箱**：跨会话保留决定与事实，状态变化可审计，评审与 handoff 的投递有明确归属。
+- **19 个业务工具**：初始化、路由、主题、handoff、上报、决策提案、待授权、通知读取、工作项、评审、合并、记忆；名称与注册顺序见 [src/tools.ts](src/tools.ts)，参数以各工具模块为准。
+- **右侧栏 CoWork 面板**：单列主题列表（阻塞 / 运行中 / 空闲 / 已解决四组）、两行卡片、需要你处理入口、⋯ 归档/恢复菜单；不展示详情、工作项、评审请求和审查状态。七条 `/api/cowork.*` 路由见 [src/api-contract.ts](src/api-contract.ts)。
+- **项目记忆 / 活动流 / 通知账本 / master 收件箱**：跨会话保留决定与事实，状态变化可审计；主题通知写 `.dsh-cowork/notices.json` 账本，master 可用 `cowork_notices` 读取；收件箱只保留合入、评审退回和跨主题冲突等既有事件。
 
 角色边界、状态机与生命周期规则由 [PLAN-V0.2](docs/PLAN-V0.2.md) 拥有；一次需求的完整闭环见 [routing.md](docs/routing.md)，上下文共享与记忆注入见 [context.md](docs/context.md)。
 
@@ -53,16 +53,18 @@ dsh --profile <profile> --port 3091 --no-open
 4. **请求评审**：工作就绪后 topic 调用 `cowork_review_request`；插件校验范围、创建 reviewer、写 pending 请求文件并投递评审说明。
 5. **出 verdict**：reviewer 自己读代码、复跑验证，按 `requestId` 写一次 `cowork_review_verdict`（`pass` / `needs_revision` / `reject`）；verdict 后 reviewer 会话归档。
 6. **合并**：master 收到 `merge-needed` 收件箱后，用 `cowork_checkout_merge` 合并同一 head 已通过评审的工作项；`main`/`master` 不动，冲突保留 clone 由主题解决。
-7. **handoff**：主题结束时调用 `cowork_handoff`。`done` 写摘要与交付确认，`blocked` 置标记并通过收件箱唤醒 master。
-8. **已解决与重开**：满足五条件并静默超过 `resolveAfterMs`（默认 3 天）时自动标记 resolved，用户也可手动标记，没有撤销；打开已解决主题并输入，或用面板“重新打开”，把它置回 active 并清空 `resolvedAt/resolvedBy`。
+7. **handoff / 上报**：主题结束时调用 `cowork_handoff`；`done` 写摘要与交付确认，`blocked` 置 handoff 阻塞。进度/阻塞也可以先用 `cowork_topic_report` 单独上报。这些事件写 activity 与通知账本，不再通过收件箱唤醒 master；master 用 `cowork_notices` 读取。
+8. **已解决与重开**：主题没有自动 resolved；空闲从最后一次活动起 24 小时。用户从主题卡 ⋯ 菜单归档（会同时归档宿主主题会话），已解决卡同一菜单恢复（unarchive，不写通知）。待授权通过 `cowork_authorization_request` 产生，由 master 或该主题会话调用 `authorization.resolve` 决定。
 
-面板提供同一套动作（列表/详情/活动/已解决/重开/改投）。
+主题页提供单列四组列表和 ⋯ 归档/恢复；点卡片或“需要你处理”打开主题会话。决策记录查看、工作项和评审详情不在主题页，留给后续工作项页。
 
-## 主题与 reviewer 的可见性
+## 主题页与 reviewer 的可见性
 
-- **主题保留在左侧栏**：主题是普通 DSH 会话，插件不归档主题；打开主题只切换主区，不新增或移除左侧栏条目。
-- **reviewer 不出现在 CoWork 列表**：面板只列主题，评审结果以评审卡挂在主题详情；verdict 后插件归档 reviewer 会话。
+- **主题页是单列列表**：四组按阻塞 / 运行中 / 空闲 / 已解决排序，已解决默认折叠；卡片两行，标记在主题名右侧、时间在摘要右侧；⋯ 菜单只有归档或恢复。需要你处理只统计待授权。
+- **归档会归档宿主主题会话**：菜单归档通过 resolve 路由清 block/authorization、写只给主会话的 `topic-archived` 通知，并 `archiveSession` 主题会话；恢复走 reopen/unarchive，不产生通知。主题会话不再按 v1 的方式常驻左侧栏。
+- **reviewer 不出现在 CoWork 列表**：面板只列主题，评审结果由 review 工具/请求文件承载；主题页不再展示评审卡。verdict 后插件归档 reviewer 会话。
 - **宿主左侧栏可能看到 reviewer**：插件没有会话过滤接口，这是已接受的上限（[KI-28](docs/KNOWN_ISSUES.md)）；不要理解为 reviewer 已对宿主隐藏。
+- **会话提醒卡按 B 延期**：运行宿主没有 A2 notice 通道，主会话/主题会话不显示分配/上报/提案/待授权提醒；`notices.json` 账本照写并保持 pending，master 用 `cowork_notices` 读取。宿主 A2 发布后补端口适配器与客户端渲染器（[KI-40](docs/KNOWN_ISSUES.md)）。
 
 ## 升级到 0.2.0：迁移与回滚
 

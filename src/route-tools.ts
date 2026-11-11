@@ -15,7 +15,7 @@
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { buildActivityEvent } from './activity.js'
+import { assignmentNotice, buildActivityEvent } from './activity.js'
 import { TOPIC_PRESET_ID } from './presets.js'
 import {
   applyRouteCorrection,
@@ -39,6 +39,7 @@ import {
   mapError,
   nowOf,
   openProject,
+  recordNoticeEvent,
   renderJson,
   toJson,
   topicView,
@@ -169,6 +170,10 @@ function newRouteTopic(input: {
     status: 'active',
     awaitingReview: false,
     blocked: false,
+    blockedReason: null,
+    blockedFromStatus: null,
+    blockedAt: null,
+    authorization: null,
     scope: '',
     ownedPaths: [],
     aliases: [],
@@ -289,6 +294,8 @@ async function route(
       await opened.store.mutateIndexDocument((current) =>
         withRouteTargets(current, { lastRouteTopicId: target.topicId }),
       )
+      // Reusing a topic is not an assignment: the topic card already exists, so
+      // the design's "分配" event does not fire and no notice is written.
       await recordRouteActivity(opened.store, buildActivityEvent({
         type: 'route-reused',
         topicId: target.topicId,
@@ -348,12 +355,17 @@ async function route(
       }))
     }
 
-    await recordRouteActivity(opened.store, buildActivityEvent({
+    // The assignment event is shared with `cowork_topic_create`: one master
+    // message and one topic card, written through the notice ledger.
+    await recordNoticeEvent(opened.store, buildActivityEvent({
       type: 'topic-created',
       topicId: topic.topicId,
       summary: `created topic ${truncateText(title, 80)}`,
-      details: routeDetails(decision, modelUsed, confidence),
-    }, now))
+      details: {
+        ...routeDetails(decision, modelUsed, confidence),
+        notice: assignmentNotice(topic, brief !== '' ? brief : intent),
+      },
+    }, now), now, deps.notices, opened.repoPath)
     await recordRouteActivity(opened.store, buildActivityEvent({
       type: 'route-created',
       topicId: topic.topicId,
