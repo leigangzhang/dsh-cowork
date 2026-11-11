@@ -19,14 +19,20 @@ import {
   REQUEST_ACTION_LABELS,
   TOPIC_COLUMN_WIDTH_PX,
   WIDE_PANEL_MIN_PX,
+  INBOX_FILTER_STORAGE_PREFIX,
   answerCoversQuestion,
   answersComplete,
   applyInboxItemUpdate,
   buildInboxViewModel,
+  inboxFilterStorageKey,
   inboxNeedsYouTitle,
   needsYouBanner,
+  readStoredFilter,
+  shouldShowUnansweredHint,
   unansweredAnswerHint,
   unansweredQuestionCount,
+  clearStoredFilter,
+  writeStoredFilter,
 } from '../src/client/inbox-model.ts'
 import {
   PanelApiError,
@@ -733,4 +739,69 @@ test('the question card blocks partial submits and shows the unanswered hint', a
   assert.match(inbox, /data-testid="cw-inbox-answer-hint"/)
   assert.match(inbox, /unansweredAnswerHint\(unanswered\)/)
   assert.match(inbox, /role="status"/)
+  // The visibility gate is the model's pure function, and the inverted
+  // `!pending` condition that hid the hint forever is gone (t13 F-GUI-2).
+  assert.match(inbox, /shouldShowUnansweredHint\(item\.actions\.length, pending, unanswered\)/)
+  assert.equal(inbox.includes('!pending || unanswered === 0'), false, 'the in-flight flag is not inverted')
+})
+
+test('the unanswered hint is shown only while the card is actionable', () => {
+  // Three states: answering (show), resolving (hide), complete (hide).
+  assert.equal(shouldShowUnansweredHint(2, false, 2), true)
+  assert.equal(shouldShowUnansweredHint(2, true, 2), false, 'hidden while a resolve is in flight')
+  assert.equal(shouldShowUnansweredHint(2, false, 0), false, 'hidden once every question is answered')
+  assert.equal(shouldShowUnansweredHint(0, false, 3), false, 'a terminal card has no actions to gate')
+})
+
+/** A minimal in-memory Storage stand-in. */
+function fakeStorage(initial = {}) {
+  const rows = new Map(Object.entries(initial))
+  return {
+    rows,
+    getItem(key) { return rows.has(key) ? rows.get(key) : null },
+    setItem(key, value) { rows.set(key, String(value)) },
+    removeItem(key) { rows.delete(key) },
+  }
+}
+
+test('the filter persistence round-trips per session and degrades safely', () => {
+  const storage = fakeStorage()
+  const key = inboxFilterStorageKey('session-a')
+  assert.equal(key, `${INBOX_FILTER_STORAGE_PREFIX}session-a`)
+  assert.equal(readStoredFilter(storage, 'session-a'), null, 'nothing stored yet')
+
+  writeStoredFilter(storage, 'session-a', 'topic-1')
+  assert.equal(readStoredFilter(storage, 'session-a'), 'topic-1')
+  assert.equal(readStoredFilter(storage, 'session-b'), null, 'sessions never share a filter')
+  assert.equal(storage.rows.get(key), JSON.stringify('topic-1'))
+
+  // Bad values and broken storage degrade to "no filter" instead of throwing.
+  storage.setItem(key, '{not json')
+  assert.equal(readStoredFilter(storage, 'session-a'), null)
+  storage.setItem(key, JSON.stringify({ topicId: 'topic-1' }))
+  assert.equal(readStoredFilter(storage, 'session-a'), null, 'only a string id is accepted')
+  storage.setItem(key, JSON.stringify(''))
+  assert.equal(readStoredFilter(storage, 'session-a'), null)
+  storage.setItem(key, '')
+  assert.equal(readStoredFilter(storage, 'session-a'), null)
+  assert.equal(readStoredFilter(null, 'session-a'), null)
+  assert.equal(readStoredFilter({
+    getItem() { throw new Error('denied') },
+    setItem() {},
+    removeItem() {},
+  }, 'session-a'), null)
+
+  writeStoredFilter(storage, 'session-a', 'topic-2')
+  clearStoredFilter(storage, 'session-a')
+  assert.equal(readStoredFilter(storage, 'session-a'), null)
+  assert.equal(storage.rows.has(key), false)
+
+  // A storage that refuses writes/removes must not break the panel.
+  const refusing = {
+    getItem() { return null },
+    setItem() { throw new Error('quota') },
+    removeItem() { throw new Error('quota') },
+  }
+  assert.doesNotThrow(() => writeStoredFilter(refusing, 'session-a', 'topic-1'))
+  assert.doesNotThrow(() => clearStoredFilter(refusing, 'session-a'))
 })

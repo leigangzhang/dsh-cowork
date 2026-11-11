@@ -787,5 +787,38 @@ test('the question card gates submit on every answer and renders the unanswered 
   assert.match(inboxSource, /role="status"/)
   assert.match(inboxSource, /aria-live="polite"/)
   // The hint only shows while a submit is possible but blocked.
-  assert.match(inboxSource, /item\.actions\.length === 0 \|\| !pending \|\| unanswered === 0 \? null :/)
+  assert.match(inboxSource, /shouldShowUnansweredHint\(item\.actions\.length, pending, unanswered\)/)
+  assert.equal(inboxSource.includes('!pending || unanswered === 0'), false)
+})
+
+test('the panel persists the topic filter per session and refreshes the overview after a resolve', async () => {
+  const clientUrl = new URL('../src/client/', import.meta.url)
+  const panel = await readFile(new URL('panel.tsx', clientUrl), 'utf8')
+  const inbox = await readFile(new URL('inbox.tsx', clientUrl), 'utf8')
+
+  // Restore on mount and on a session switch; persist/clear on the toggle.
+  assert.match(panel, /useState<string \| null>\s*\(\s*\(\) => readStoredFilter\(browserFilterStorage\(\), sessionId\)/)
+  assert.match(panel, /setSelectedInboxTopicId\(readStoredFilter\(browserFilterStorage\(\), sessionId\)\)/)
+  assert.match(panel, /writeStoredFilter\(browserFilterStorage\(\), sessionId, topicId\)/)
+  assert.match(panel, /clearStoredFilter\(browserFilterStorage\(\), sessionId\)/)
+
+  // A stored filter naming a topic the overview no longer lists is cleared.
+  assert.match(panel, /result\.topics\.some\(topic => topic\.topicId === current\)/)
+
+  // The resolve success path refreshes the overview (topic block marker/counts)
+  // and the refresh sits before the catch, so a failed write cannot fake it.
+  const resolveStart = panel.indexOf('const resolveRequest = useCallback')
+  const depsAt = panel.indexOf('}, [putReceipt, refresh, sessionId])', resolveStart)
+  assert.ok(resolveStart > 0 && depsAt > resolveStart, 'the resolve callback is found')
+  const resolveBody = panel.slice(resolveStart, depsAt + '}, [putReceipt, refresh, sessionId])'.length)
+  const okReceipt = resolveBody.indexOf("text: '已提交'")
+  const refreshCall = resolveBody.indexOf('refresh()')
+  const catchAt = resolveBody.indexOf('} catch (reason) {')
+  assert.ok(okReceipt > 0 && refreshCall > okReceipt, 'the refresh follows the committed resolve')
+  assert.ok(catchAt > refreshCall, 'the refresh is on the success path only')
+  assert.match(resolveBody, /\[putReceipt, refresh, sessionId\]/, 'the callback closes over refresh')
+
+  // The plan card stops rendering its inline revise editor once terminal.
+  assert.match(inbox, /\{revising && item\.pending \? \(/)
+  assert.equal(inbox.includes('{revising ? ('), false, 'the editor is not rendered on a resolved card')
 })
