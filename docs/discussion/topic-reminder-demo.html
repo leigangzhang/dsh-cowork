@@ -77,9 +77,10 @@
   .seg button[aria-pressed="true"] { background: #101828; color: #fff; font-weight: 600; }
 
   .app {
+    position: relative;
     display: flex;
     width: 1444px;
-    height: 1000px;
+    height: 1250px;
     overflow: hidden;
     border: 1px solid #dfe3e8;
     border-radius: 18px;
@@ -553,6 +554,167 @@
   .sidebar[data-width="narrow"] .needs-you { display: flex; }
   .needs-you:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
 
+  .inbox-note {
+    align-self: center;
+    max-width: 92%;
+    margin: 3px 0;
+    color: #98a2b3;
+    font-size: 10px;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .inbox-note span { margin-left: 6px; color: #c0c6d0; }
+  .note-link {
+    margin-left: 5px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--blue);
+    font: inherit;
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .note-link:hover { text-decoration: underline; }
+  .inbox-note[hidden] { display: none; }
+  .reminder-card[data-kind="question"] { border-left: 2px solid #66c6d4; }
+  .reminder-card[data-kind="question"] .type-icon { background: #ecfdff; color: #0e7090; }
+  .reminder-card[data-special="plan"] { border-left-color: #b692f6; }
+  .plan-badge {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--purple-soft);
+    color: var(--purple);
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: .04em;
+  }
+  .card-expand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    margin: 2px 0 0;
+    padding: 3px 0;
+    border: 0;
+    background: transparent;
+    color: var(--blue);
+    font: inherit;
+    font-size: 10.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .card-expand span { color: #667085; font-size: 9.5px; white-space: nowrap; }
+  .card-expand:hover { text-decoration: underline; }
+  .card-detail {
+    margin: 4px 0 2px;
+    padding: 8px 9px;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #475467;
+    font-size: 10.5px;
+    line-height: 1.55;
+  }
+  .card-detail[hidden] { display: none; }
+  .detail-line { display: flex; gap: 8px; }
+  .detail-line + .detail-line { margin-top: 3px; }
+  .detail-line > span:first-child { flex: none; width: 34px; color: #98a2b3; }
+  .review-btn.allow { border: 1px solid var(--green); background: var(--green-soft); color: var(--green); }
+  .review-btn.allow:hover { background: #d1fadf; }
+  .review-btn.deny { border: 1px solid #fda29b; background: var(--red-soft); color: var(--red); }
+  .review-btn.deny:hover { background: #fee4e2; }
+  .question-options { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 2px; }
+  .question-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid #b2ddff;
+    border-radius: 8px;
+    background: #fff;
+    color: #1849a9;
+    font: inherit;
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .question-option:hover { background: #eff8ff; }
+  .question-option em {
+    padding: 1px 5px;
+    border-radius: 99px;
+    background: #e0f2fe;
+    color: #026aa2;
+    font-size: 8.5px;
+    font-style: normal;
+    font-weight: 600;
+  }
+  .plan-actions { display: flex; gap: 8px; margin: 8px 0 4px; }
+  .plan-actions .review-btn { flex: 1 1 0; }
+  .card-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--blue);
+    font: inherit;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .card-link:hover { text-decoration: underline; }
+  .reminder-card.is-done .review-actions,
+  .reminder-card.is-done .question-options,
+  .reminder-card.is-done .plan-actions { display: none; }
+  .plan-drawer {
+    position: absolute;
+    z-index: 20;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 380px;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--line);
+    background: #fff;
+    box-shadow: -14px 0 34px rgba(16,24,40,.12);
+    transform: translateX(100%);
+    transition: transform .22s ease;
+  }
+  .plan-drawer.open { transform: translateX(0); }
+  .plan-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .plan-drawer-body { padding: 14px 16px; overflow: auto; color: #475467; font-size: 11.5px; line-height: 1.6; }
+  .plan-step { display: flex; gap: 8px; margin-bottom: 10px; }
+  .plan-step b { width: 18px; height: 18px; flex: none; display: grid; place-items: center; border-radius: 99px; background: var(--purple-soft); color: var(--purple); font-size: 9px; }
+  .drawer-close { border: 1px solid var(--line); border-radius: 7px; background: #fff; color: #667085; font: inherit; font-size: 12px; padding: 3px 9px; cursor: pointer; }
+  .demo-toast {
+    position: absolute;
+    z-index: 30;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    max-width: 80%;
+    padding: 7px 12px;
+    border-radius: 8px;
+    background: rgba(16,24,40,.9);
+    color: #fff;
+    font-size: 11px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .15s ease;
+  }
+  .demo-toast.on { opacity: 1; }
+
   .footnote {
     margin: 8px 4px 0;
     color: #667085;
@@ -647,10 +809,10 @@
 
       <div class="needs-you" id="needsYou" role="button" tabindex="0" aria-label="展开宽侧栏处理收件箱">
         <div class="needs-you-left">
-          <div class="needs-you-icon" id="needsYouIcon">2</div>
+          <div class="needs-you-icon" id="needsYouIcon">4</div>
           <div>
-            <div class="needs-you-title" id="needsYouTitle">需要你处理 2 项</div>
-            <div class="needs-you-sub" id="needsYouSub">待授权 1 · 待审核 1</div>
+            <div class="needs-you-title" id="needsYouTitle">需要你处理 4 项</div>
+            <div class="needs-you-sub" id="needsYouSub">待授权 2 · 待审核 1 · 待回答 1</div>
           </div>
         </div>
         <div class="needs-you-go" id="needsYouGo">→</div>
@@ -722,7 +884,7 @@
           <div class="section-head">
             <div>
               <span class="section-title" id="reminderTitle">收件箱 · 全部类型</span>
-              <span class="section-count" id="reminderCount">6</span>
+              <span class="section-count" id="reminderCount">8</span>
               <span class="filter-pill" id="filterPill">
                 <span id="filterText">五子棋小游戏</span>
                 <button type="button" id="clearFilter" aria-label="取消筛选">×</button>
@@ -732,62 +894,13 @@
           </div>
 
           <div class="reminder-list" id="reminderList">
-            <article class="reminder-card" data-kind="assignment" data-topic="gomoku" data-topic-name="五子棋小游戏">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v9"/><path d="m5 9 3 3 3-3"/></svg>
-                  </span>
-                  <span class="type-label">分配</span>
-                </div>
-                <span class="reminder-time">14:02</span>
-              </div>
-              <div class="reminder-title">已分配主题「五子棋小游戏」</div>
-              <div class="reminder-summary">把「做一个五子棋小游戏」交给主题会话。</div>
-              <div class="reminder-foot">
-                <span>事件 1 · 已同步主题会话</span>
-                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
-              </div>
-              <span class="card-status">已读</span>
-            </article>
+            <div class="inbox-note" data-topic="gomoku" data-topic-name="五子棋小游戏">分配 · 已分配主题「五子棋小游戏」<span>14:02</span></div>
+            <div class="inbox-note" data-topic="gomoku" data-topic-name="五子棋小游戏">上报 · 初版棋盘完成，可以落子<span>14:05</span></div>
 
-            <article class="reminder-card" data-kind="report" data-topic="gomoku" data-topic-name="五子棋小游戏">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V4"/><path d="m5 7 3-3 3 3"/></svg>
-                  </span>
-                  <span class="type-label">上报</span>
-                </div>
-                <span class="reminder-time">14:05</span>
-              </div>
-              <div class="reminder-title">主题上报：初版棋盘完成</div>
-              <div class="reminder-summary">可以落子，棋盘 15×15。</div>
-              <div class="reminder-foot">
-                <span>事件 2 · 已同步主题会话</span>
-                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
-              </div>
-              <span class="card-status">已读</span>
-            </article>
-
-            <article class="reminder-card" data-kind="proposal" data-topic="gomoku" data-topic-name="五子棋小游戏">
-              <div class="reminder-top">
-                <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m8 2.4 5.6 5.6L8 13.6 2.4 8 8 2.4Z"/></svg>
-                  </span>
-                  <span class="type-label">决策提案</span>
-                </div>
-                <span class="reminder-time">14:12</span>
-              </div>
-              <div class="reminder-title">决策提案已生成并上报</div>
-              <div class="reminder-summary">评审请求挂到工作项详情，等待审阅。</div>
-              <div class="reminder-foot">
-                <span>事件 3 · 已同步主题会话</span>
-                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
-              </div>
-              <span class="card-status">已读</span>
-            </article>
+            <div class="inbox-note" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              提案 · 决策提案：采用 15×15 棋盘<span>14:12</span>
+              <button type="button" class="note-link" data-placeholder="工作项页面尚未实现">查看提案</button>
+            </div>
 
             <article class="reminder-card" data-kind="review" data-topic="bio" data-topic-name="整理个人主页文案" data-actionable="true">
               <div class="reminder-top">
@@ -798,14 +911,18 @@
                 <span class="reminder-time">14:15</span>
               </div>
               <div class="reminder-title">评审待处理：个人主页 Bio</div>
-              <div class="reminder-summary">改动 2 个文件，验证命令已跑过，等待通过或退回。</div>
+              <div class="reminder-summary">首版 Bio 已生成，等待评审后合并。</div>
+              <button type="button" class="card-expand" data-expand="review-details" aria-expanded="false">待审核摘要 <span>展开</span></button>
+              <div class="card-detail" id="review-details" hidden>
+                <div class="detail-line"><span>目的</span><span>个人主页首版 Bio</span></div>
+                <div class="detail-line"><span>改动</span><span>2 个文件 · +48 / −12</span></div>
+                <div class="detail-line"><span>验证</span><span>npm test · 845 passed</span></div>
+              </div>
               <div class="review-actions">
                 <button type="button" class="review-btn pass" data-action="pass">通过</button>
                 <button type="button" class="review-btn return" data-action="return">退回</button>
               </div>
-              <div class="reminder-foot">
-                <span>事件 4 · 等待审核</span>
-              </div>
+              <div class="reminder-foot"><span>事件 4 · 等待审核</span></div>
               <span class="card-status">已通过</span>
             </article>
 
@@ -813,47 +930,100 @@
               <div class="reminder-top">
                 <div class="reminder-type">
                   <span class="type-icon" aria-hidden="true">!</span>
-                  <span class="type-label">待授权</span>
+                  <span class="type-label">授权</span>
                 </div>
                 <span class="reminder-time">14:18</span>
               </div>
-              <div class="reminder-title">待授权：是否允许读取浏览器登录态</div>
+              <div class="reminder-title">待授权：读取浏览器登录态</div>
               <div class="reminder-summary">用于生成个人主页文案。</div>
-              <div class="reminder-foot">
-                <span>事件 5 · 需要你处理</span>
-                <span class="reminder-actions">
-                  <button type="button" class="act allow" data-action="allow">允许</button>
-                  <button type="button" class="act deny" data-action="deny">拒绝</button>
-                </span>
+              <button type="button" class="card-expand" data-expand="auth-details" aria-expanded="false">授权请求内容 <span>展开</span></button>
+              <div class="card-detail" id="auth-details" hidden>
+                读取当前浏览器的登录态，用于抓取个人主页文案草稿。范围仅限本次生成，不会保存或上传登录信息。
               </div>
+              <div class="review-actions">
+                <button type="button" class="review-btn allow" data-action="allow">允许</button>
+                <button type="button" class="review-btn deny" data-action="deny">拒绝</button>
+              </div>
+              <div class="reminder-foot"><span>事件 5 · 需要你处理</span></div>
               <span class="card-status">已允许</span>
             </article>
 
-            <article class="reminder-card" data-kind="archive" data-topic="website" data-topic-name="个人网站结构讨论">
+            <article class="reminder-card" data-kind="question" data-topic="gomoku" data-topic-name="五子棋小游戏" data-actionable="true">
               <div class="reminder-top">
                 <div class="reminder-type">
-                  <span class="type-icon" aria-hidden="true">✓</span>
-                  <span class="type-label">归档</span>
+                  <span class="type-icon" aria-hidden="true">?</span>
+                  <span class="type-label">提问</span>
                 </div>
-                <span class="reminder-time">14:20</span>
+                <span class="reminder-time">14:22</span>
               </div>
-              <div class="reminder-title">主题已归档：个人网站结构讨论</div>
-              <div class="reminder-summary">用户从主题卡菜单归档，已解决。</div>
-              <div class="reminder-foot">
-                <span>事件 6 · 只给主会话</span>
-                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
+              <div class="reminder-title">选择棋盘尺寸</div>
+              <div class="reminder-summary">主题会话在等你回答，选一个尺寸继续。</div>
+              <div class="question-options">
+                <button type="button" class="question-option" data-action="ask-option" data-choice="15×15"><span>15×15</span><em>推荐</em></button>
+                <button type="button" class="question-option" data-action="ask-option" data-choice="19×19"><span>19×19</span><em>更大</em></button>
               </div>
-              <span class="card-status">已读</span>
+              <div class="reminder-foot"><span>事件 6 · 来自主题会话的提问</span></div>
+              <span class="card-status">已回答</span>
             </article>
+
+            <article class="reminder-card" data-kind="authorization" data-special="plan" data-topic="github" data-topic-name="接入 GitHub 主页内容" data-actionable="true">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">!</span>
+                  <span class="type-label">授权</span>
+                  <span class="plan-badge">PLAN</span>
+                </div>
+                <span class="reminder-time">14:24</span>
+              </div>
+              <div class="reminder-title">PLAN 确认：个人主页改版</div>
+              <div class="reminder-summary">计划包含 3 个步骤，等待你确认后执行。</div>
+              <button type="button" class="card-expand" data-expand="plan-details" aria-expanded="false">查看 PLAN 内容 <span>展开</span></button>
+              <div class="card-detail" id="plan-details" hidden>
+                <div class="detail-line"><span>1</span><span>读取现有主页结构与文案</span></div>
+                <div class="detail-line"><span>2</span><span>生成新版 Bio 与项目列表</span></div>
+                <div class="detail-line"><span>3</span><span>在预览中确认后合并</span></div>
+              </div>
+              <div class="plan-actions">
+                <button type="button" class="review-btn pass" data-action="approve-plan">批准计划</button>
+                <button type="button" class="review-btn return" data-action="reject-plan">拒绝</button>
+              </div>
+              <div class="reminder-foot">
+                <span>事件 7 · PLAN 授权</span>
+                <button type="button" class="card-link" id="openPlan">打开 PLAN →</button>
+              </div>
+              <span class="card-status">已批准</span>
+            </article>
+
+            <div class="inbox-note" data-topic="website" data-topic-name="个人网站结构讨论">归档 · 个人网站结构讨论已归档<span>14:20</span></div>
           </div>
           <div class="empty-filter" id="emptyFilter">这个主题暂时没有收件箱消息。</div>
         </section>
       </div>
     </aside>
+
+    <aside class="plan-drawer" id="planDrawer" aria-hidden="true" aria-label="PLAN 详情">
+      <div class="plan-drawer-head">
+        <div>
+          <div class="sidebar-eyebrow">PLAN</div>
+          <div class="sidebar-title">个人主页改版</div>
+          <div class="sidebar-sub">来自主题「接入 GitHub 主页内容」</div>
+        </div>
+        <button type="button" class="drawer-close" id="closePlan" aria-label="关闭 PLAN">×</button>
+      </div>
+      <div class="plan-drawer-body">
+        <p>目标：在不改变主页结构的前提下，更新 Bio 和项目列表。</p>
+        <div class="plan-step"><b>1</b><div>读取现有主页结构与文案。</div></div>
+        <div class="plan-step"><b>2</b><div>生成新版 Bio 与项目列表。</div></div>
+        <div class="plan-step"><b>3</b><div>在预览中确认后合并。</div></div>
+        <p style="color:#98a2b3;font-size:10.5px">这是侧边栏内的 PLAN 详情占位；正式实现会打开同一份 PLAN 文档。</p>
+      </div>
+    </aside>
+
+    <div class="demo-toast" id="demoToast"></div>
   </div>
 
   <p class="footnote">
-    宽侧栏左侧是主题、右侧是收件箱；默认展示主会话全部题型。点击主题只保留该主题的消息，再点一次取消筛选。简单消息用“知道了”收起，评审和授权直接在卡片里操作；窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏。
+    宽侧栏左侧是主题、右侧是收件箱。通知型事件和只需要查看的提案只在收件箱中央打印灰色小字，提案带“查看提案”跳转占位；评审、授权、提问和 PLAN 使用卡片。评审摘要和授权内容默认折叠，点击展开；PLAN 链接在侧边栏内打开详情。窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏。
   </p>
 </div>
 
@@ -861,7 +1031,8 @@
   const sidebar = document.getElementById('sidebar');
   const widthButtons = [...document.querySelectorAll('[data-width]')];
   const topicCards = [...document.querySelectorAll('.topic-card[data-topic-id]')];
-  const reminderCards = [...document.querySelectorAll('.reminder-card')];
+  const inboxItems = [...document.querySelectorAll('.reminder-card, .inbox-note')];
+  const cards = [...document.querySelectorAll('.reminder-card')];
   const reminderTitle = document.getElementById('reminderTitle');
   const reminderCount = document.getElementById('reminderCount');
   const filterPill = document.getElementById('filterPill');
@@ -873,7 +1044,12 @@
   const needsYouSub = document.getElementById('needsYouSub');
   const needsYouIcon = document.getElementById('needsYouIcon');
   const needsYouGo = document.getElementById('needsYouGo');
+  const planDrawer = document.getElementById('planDrawer');
+  const openPlan = document.getElementById('openPlan');
+  const closePlan = document.getElementById('closePlan');
+  const toast = document.getElementById('demoToast');
   let selectedTopic = null;
+  let toastTimer = null;
 
   function setWidth(width) {
     sidebar.dataset.width = width;
@@ -903,10 +1079,11 @@
   }
 
   function updateNeedsYou() {
-    const actionable = reminderCards.filter(card =>
+    const actionable = cards.filter(card =>
       card.dataset.actionable === 'true' && !card.classList.contains('is-done'));
     const auth = actionable.filter(card => card.dataset.kind === 'authorization').length;
     const review = actionable.filter(card => card.dataset.kind === 'review').length;
+    const question = actionable.filter(card => card.dataset.kind === 'question').length;
     if (actionable.length === 0) {
       needsYou.classList.add('is-clear');
       needsYouTitle.textContent = '需要你处理 0 项';
@@ -920,16 +1097,16 @@
     const parts = [];
     if (auth > 0) parts.push(`待授权 ${auth}`);
     if (review > 0) parts.push(`待审核 ${review}`);
+    if (question > 0) parts.push(`待回答 ${question}`);
     needsYouSub.textContent = parts.join(' · ') || '收件箱有更新';
     needsYouIcon.textContent = String(actionable.length);
     needsYouGo.textContent = '→';
   }
 
   function applyFilter() {
-    const matching = reminderCards.filter(card => selectedTopic === null || card.dataset.topic === selectedTopic);
-    for (const card of reminderCards) card.hidden = !matching.includes(card);
-    const pending = matching.filter(card => !card.classList.contains('is-done'));
-    reminderCount.textContent = String(pending.length);
+    const matching = inboxItems.filter(item => selectedTopic === null || item.dataset.topic === selectedTopic);
+    for (const item of inboxItems) item.hidden = !matching.includes(item);
+    reminderCount.textContent = String(matching.length);
     reminderTitle.textContent = selectedTopic === null
       ? '收件箱 · 全部类型'
       : `收件箱 · ${topicName(selectedTopic)}`;
@@ -965,6 +1142,32 @@
     applyFilter();
   });
 
+  for (const expand of document.querySelectorAll('[data-expand]')) {
+    expand.addEventListener('click', () => {
+      const detail = document.getElementById(expand.dataset.expand);
+      if (detail === null) return;
+      const opening = detail.hidden;
+      detail.hidden = !opening;
+      expand.setAttribute('aria-expanded', String(opening));
+      const label = expand.querySelector('span');
+      if (label) label.textContent = opening ? '收起' : '展开';
+    });
+  }
+
+  function showToast(message) {
+    toast.textContent = message;
+    toast.classList.add('on');
+    if (toastTimer !== null) window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+      toast.classList.remove('on');
+      toastTimer = null;
+    }, 1600);
+  }
+
+  for (const placeholder of document.querySelectorAll('[data-placeholder]')) {
+    placeholder.addEventListener('click', () => showToast(placeholder.dataset.placeholder));
+  }
+
   function markDone(card, label) {
     card.classList.add('is-done');
     const status = card.querySelector('.card-status');
@@ -978,14 +1181,24 @@
     button.addEventListener('click', () => {
       const card = button.closest('.reminder-card');
       const action = button.dataset.action;
-      if (action === 'ack') { markDone(card, '已读'); return; }
       if (action === 'pass') { markDone(card, '已通过'); return; }
       if (action === 'return') { markDone(card, '已退回'); return; }
-      if (action === 'allow' || action === 'deny') {
-        markDone(card, action === 'allow' ? '已允许' : '已拒绝');
-      }
+      if (action === 'allow') { markDone(card, '已允许'); return; }
+      if (action === 'deny') { markDone(card, '已拒绝'); return; }
+      if (action === 'approve-plan') { markDone(card, '已批准计划'); return; }
+      if (action === 'reject-plan') { markDone(card, '已拒绝'); return; }
+      if (action === 'ask-option') { markDone(card, `已选择 ${button.dataset.choice}`); }
     });
   }
+
+  openPlan.addEventListener('click', () => {
+    planDrawer.classList.add('open');
+    planDrawer.setAttribute('aria-hidden', 'false');
+  });
+  closePlan.addEventListener('click', () => {
+    planDrawer.classList.remove('open');
+    planDrawer.setAttribute('aria-hidden', 'true');
+  });
 
   const params = new URLSearchParams(location.search);
   const initialTopic = params.get('topic');
@@ -993,6 +1206,22 @@
     selectedTopic = initialTopic;
   }
   if (params.get('width') === 'narrow') setWidth('narrow');
+  if (params.get('expanded') === '1') {
+    document.querySelector('.app').style.height = '1500px';
+    for (const id of ['review-details', 'auth-details', 'plan-details']) {
+      const detail = document.getElementById(id);
+      const toggle = document.querySelector(`[data-expand="${id}"]`);
+      if (detail === null || toggle === null) continue;
+      detail.hidden = false;
+      toggle.setAttribute('aria-expanded', 'true');
+      const label = toggle.querySelector('span');
+      if (label) label.textContent = '收起';
+    }
+  }
+  if (params.get('plan') === '1') {
+    planDrawer.classList.add('open');
+    planDrawer.setAttribute('aria-hidden', 'false');
+  }
   updateNeedsYou();
   applyFilter();
 </script>
