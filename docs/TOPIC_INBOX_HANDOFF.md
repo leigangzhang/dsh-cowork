@@ -1,22 +1,22 @@
 # Cowork 右侧栏收件箱实现交接
 
 - 日期：2026-11-10
-- 状态：设计完成，未实现；本文件只改文档，`src/`、`presets/`、`tests/` 未动
-- 分支：`agent/decision-handoff-doc`
+- 状态：**已实现（2026-11-10）**；代码分支 `feat/topic-inbox`，交付前代码 HEAD `a26e1c5`（文档收口提交在其后），四命令与真实 Chrome 验证见下
+- 分支：`feat/topic-inbox`（从 `origin/main` `2d1bfee` 建立；阶段 0 探针 `a23212a`、契约冻结 `a0331df`）
 - 设计基线：`812666a`（设计文档与交接首次提交）；本轮补充见后续 docs 提交
 - 设计：[topic-inbox.md](design/cowork-sidebar/topic-inbox.md)
-- 提案：[2026-11-10-topic-inbox.md](../.agents/notes/proposed/feature/2026-11-10-topic-inbox.md)
+- 决策记录：[2026-11-10-topic-inbox.md](../.agents/notes/implemented/feature/2026-11-10-topic-inbox.md)
 - 交互稿：[topic-reminder-demo.html](discussion/topic-reminder-demo.html)
 
 ## 先读
 
-1. [右侧栏收件箱设计](design/cowork-sidebar/topic-inbox.md)
-2. [决策提案](../.agents/notes/proposed/feature/2026-11-10-topic-inbox.md)
+1. [右侧栏收件箱设计](design/cowork-sidebar/topic-inbox.md)（§14 是实现结果）
+2. [决策记录](../.agents/notes/implemented/feature/2026-11-10-topic-inbox.md)
 3. [主题页设计](design/cowork-sidebar/topic-page.md)（收件箱是在它之上的扩展）
 4. [跨对象决策](design/cowork-sidebar/cross-cutting-decisions.md)（旧“不新增收件箱”结论已被取代）
 5. 交互稿和截图：默认宽侧栏、确认后右侧回复、PLAN 要求修改、窄侧栏、筛选
 6. [术语表](glossary.md)的 `request inbox` / `user review request` / `plan request`
-7. 本文件
+7. 本文件（先看 §实现结果，前面的探针与契约是实现前冻结的约定）
 
 ## 已定事实（不要重开）
 
@@ -52,7 +52,7 @@
 | 2 | 文件打开 | 已安装 `dsh-api-session-controller/lib/types/index.js:417` 有 `openWorkspacePath`；`lib/index.js` 注册 `canOpenWorkspacePath`/`openWorkspacePath`/`workspacePathApplications`；契约 `SessionOpenWorkspacePathRequest = { action?: 'reveal'; application?: string; path: string }`，Host 先 `verifyDesktopPath`（远端/无桌面路径会被拒绝） | 方法存在且插件 host 已注入 `sessionController`；错误是 `RemoteError('gateway/*')`，不是可读业务码 | 服务端解析仓库内文件后以绝对路径调用；缺方法或无桌面 → `inbox/open-unsupported`。**运行时打开真实文件留到阶段 3/4 在测试 profile 实测** |
 | 3 | 唤醒主题 | 已安装 `SessionPromptRequest` 要求 `requestId` + `mode`（`queue`/`steer`）+ `content`；现有 `src/session-slice.ts` 的 `promptSession` 已按该形状调用，生产路径 `authorization.resolve` 与 M12 E2E 已验证 | 可队列一轮；`accepted: false` 是宿主拒收，不算异常 | resolve 后复用 `promptSession`（queue）唤醒主题；失败只写 `delivery.lastError`，不回滚终态 |
 | 4 | A2 | `grep -rln "sessionNotices\|notice/message" '/Applications/DSH Desktop 2.app/Contents/Resources/app/node_modules/@deepseek-ai'` 无匹配 | 仍无 A2 | 收件箱不依赖 A2；不写 `user/message` 或 tool call |
-| 5 | 右栏宽度实测 | 待阶段 4 | 未实测 | 阶段 4 用真实 Chrome 记录 648/900/400 三档的真实内容宽度与滚动行为；在本轮证据补齐前，UI 不声称宿主侧自动展开 |
+| 5 | 右栏宽度实测 | 真实 Chrome + 隔离 fixture：窗口 1400 → Cowork 根 630（主题列 318 / 收件箱 291.5）；拖 resize handle 到宽档 900（318 / 561.5）；窗口 400 → 窄档，无收件箱列 | 三档均实测；收件箱 scrollTop=400 时主题列 `top` 保持 81.5 不变 | 宽档两列独立滚动、窄档横幅 + 面板内全宽收件箱均按设计工作；无需宿主宽度接口 |
 
 ## 契约冻结（前后端共同）
 
@@ -138,7 +138,7 @@
 - 四类请求全流程：创建 → 收件箱 → 动作 → 右侧回复 → 主题被唤醒
 - PLAN 文件浏览器打开；失败路径
 - `npm run check`、`npm run typecheck`、`npm run build`、`npm test`
-- 更新设计/提案/交接/索引/feature-todos；记录未核实项
+- 更新设计/决策记录/交接/索引/feature-todos；记录未核实项
 
 ## 命令与验收
 
@@ -166,11 +166,36 @@ npm test
 - PLAN/提案文件打开成功，宿主不支持时明确报错；
 - 刷新后左右消息和状态仍在。
 
+## 实现结果（2026-11-10）
+
+**代码落点。** 后端 `src/inbox-contract.ts`、`src/request-schema.ts`、`src/request-store.ts`、`src/request-service.ts`、`src/request-tools.ts`、`src/inbox-api.ts`、`src/activity.ts`、`src/store-schema.ts`、`src/topic-tools.ts`、`src/tool-runtime.ts`、`src/tools.ts`、`src/api.ts`、`src/api-contract.ts`、`src/index.ts`；前端 `src/client/inbox-model.ts`、`src/client/inbox.tsx`、`src/client/api.ts`、`src/client/panel.tsx`、`src/client/list.tsx`、`src/client/styles.ts`。测试新增 `tests/request-{schema,store,service,tools}.test.mjs`、`tests/inbox-api.test.mjs`、`tests/inbox-contract.test.mjs`、`tests/inbox-model.test.mjs`、`tests/open-port.test.mjs`，并更新 `api`/`api-contract`/`activity`/`store-schema`/`dev-gate`/`project-tools`/`source-budget`/`panel-model`。
+
+**提交序列。** 阶段 0 探针 `a23212a` → 契约冻结 `a0331df` → 后端 `811558e` + 前端 `90bb75a` → 集成门禁 `cfe038b` → 审查修复批次 `07e83af`（合并 `1a82918`）→ 注释清理 `75fcbc3` → GUI 修复批次 `f31a341`（合并 `a26e1c5`）→ 收口文档提交在其后。
+
+**门禁。** 集成门禁与修复后 `npm run check` / `npm run typecheck` / `npm run build` 均 exit 0；`npm test` 从基线 946 增至最终 **962/962**（946 + 修复回归测试）。gate artifact 记录在 `/tmp/topic-inbox-verify/GATE*.json`；交付前另有一次针对最终 HEAD 的独立复验。
+
+**真实 GUI 证据（`inboxqa` profile + `/private/tmp/cowork-topic-page-fixture` + 真实 Chrome）。**
+
+- 三档宽度：默认 630（主题列 318 / 收件箱 291.5，窗口 1400）、宽 900（318 / 561.5，拖 handle）、窄 400（无收件箱列，横幅「需要你处理 4 项」+ 副文案正确，点入面板内全宽收件箱并可返回）；收件箱 `scrollTop=400` 时主题列 `top` 仍为 81.5（固定）。
+- 四类请求全流程：真实 master/topic 会话调用四个工具创建 → 4 条请求记录分别 `allowed` / `answered` / `passed` / `revise`，`resolutionMessage` 与 `delivery.promptedAt` 落盘、`pending=0`；右侧「你」的回复可见、按钮消失；主题会话随后继续（重新提交 plan `2f2420d8` 并 `topic_report`）。
+- 定向复验（修复后）：PLAN「查看全文」→ HTTP `200 {ok:true,opened:true}`，Finder 窗口定位到 `docs`（修复前同一路径 501）；未答提示随部分作答显示「还有 N 题未回答」且提交禁用，全答后恢复；主题筛选写入 sessionStorage、刷新后保留、清除恢复全量、无效过滤自动清除；plan 要求修改后内联框消失、authorization 允许后主题卡「待授权」角标与阻塞计数自动消失。
+- 清理：四类请求的测试会话已归档；fixture workspace 记录在测试宿主停止后移除。注意：宿主重启会从 session 目录重建该 `/tmp` fixture 的 workspace 记录（KI-39）——删除会话目录属删除数据，未执行，需要时由用户确认。
+
+**与设计的偏差与修复（均为本阶段内闭环）。**
+
+1. `openWorkspacePath` 真实宿主需要 `(request, signal)` 双参：首次 GUI 已验证 501，修复为 `createOpenWorkspacePathPort` 传 `AbortSignal.timeout(10s)` 并补 `tests/open-port.test.mjs`；复验真实桌面打开成功。
+2. 旧 `POST /api/cowork.authorization.resolve` 决策后不收敛请求卡：已让它把同 `topicId`+`requestId` 的 authorization 记录收敛到终态（仅 pending→终态追加一次 `request-resolved`，响应形状不变）。
+3. `POST /api/cowork.inbox.open` 补 master/主题成员校验（`inbox/not-member`，在解析路径与调用宿主 opener 之前）。
+4. question 卡按“每题必答”启用提交并显示未答数量；主题筛选按 `sessionId` 持久化；plan 解决后收起内联框；authorization 解决后重拉 overview。
+
+**未核实 / 遗留。** 自动评审 `review-verdict` 灰字只在单测/API 投影与源码断言覆盖，未在真实 GUI 跑自动 reviewer（[KI-44](KNOWN_ISSUES.md)）；`open` 的 404/403 存在性差异为信息级（[KI-43](KNOWN_ISSUES.md)）；宿主没有右栏宽度 setter，窄栏只能面板内降级（[KI-42](KNOWN_ISSUES.md)）；A2 提醒卡仍延期（[KI-40](KNOWN_ISSUES.md)）。Finding 之外的两条审查观察（`open-port` 测试名与“hang”不符、适配器忽略宿主返回值）不影响行为，记录在审查报告里，未改代码。
+
 ## 回滚
 
-- 本次交付只有文档，回滚就是回退文档提交。
-- 后续实现新增 `requests/` 文件，不改 index 版本；旧版本忽略该目录。回滚代码不会删除已有 `requests/` 数据。
-- 若 authorization 桥接出问题，保留现有 `authorization.resolve` 路由，不删除旧路径。
+- 回退 `feat/topic-inbox` 上的实现提交（保留文档与探针提交也可单独回退）；重新跑四命令并按 README 的 tarball 安装/卸载流程重装旧包。
+- 新增 `requests/` 文件不改 index 版本；旧版本忽略该目录。回滚代码不会删除已有 `requests/` 数据。
+- 旧 `authorization.resolve` 路由保留且已收敛请求卡；若桥接出问题，可只回退 `src/index.ts` 的 open port 适配，路由仍返回明确错误。
+- 回滚代码不删除 `.dsh-cowork/requests/`、不改变旧 `.dsh-cowork/inbox.json` 语义。
 
 ## 不做
 
@@ -181,27 +206,32 @@ npm test
 - 不做多人权限、跨项目收件箱、移动端专用布局。
 - 不在浏览器里接受任意文件路径；不做侧边 PLAN 抽屉。
 
-## 新会话启动清单
+## 新会话启动清单（2026-11-10 已完成）
 
-- [ ] `git fetch`，确认当前分支和最新 main；本分支只改文档，先合到实现分支。
-- [ ] 跑 `npm run check`、`npm test`，记录基线。
-- [ ] 读设计、提案、主题页、跨对象决策、术语表、本文件。
-- [ ] 跑宿主探针，记录宽度/文件打开/prompt/A2 结果。
-- [ ] 冻结请求记录和 API 契约；阶段 1 的后端测试先红后绿。
-- [ ] 阶段 2 只读 UI 用 fixture 打通；再接真实数据。
-- [ ] 阶段 3 动作和文件打开；阶段 4 真实 GUI 与全量检查。
-- [ ] 收口：更新设计/提案/交接/索引/feature-todos，记录证据和遗留。
-- [ ] 汇报四项：改了什么（路径）、验证命令和结果、回滚方式、未核实项。
+- [x] `git fetch`，从 `origin/main` `2d1bfee` 建 `feat/topic-inbox`，先记基线。
+- [x] `npm run check`、`npm test` 基线（946 pass）。
+- [x] 读设计、决策记录、主题页、跨对象决策、术语表、本文件。
+- [x] 跑宿主探针并记录宽度/文件打开/prompt/A2（见阶段 0 探针结果）。
+- [x] 冻结 `src/inbox-contract.ts` 请求记录与 API 契约；后端测试先红后绿。
+- [x] 阶段 2 只读 UI 用 fixture 模型打通；阶段 3 动作与文件打开。
+- [x] 阶段 4 真实 GUI 三档宽度、四类请求、筛选、文件打开与全量检查。
+- [x] 收口：设计/决策记录/交接/索引/feature-todos/KNOWN_ISSUES 更新，记录证据与遗留。
+- [x] 汇报：改了什么、验证命令与结果、回滚方式、未核实项（见实现结果与本文件收口段）。
 
 ## 已确认与仍需核实
 
-已确认：
+已确认（实现后）：
 
 1. “评审”卡是**用户评审请求**；自动 reviewer 的 verdict 只是普通灰字记录，不做可操作卡。
-2. 主题卡主体点击打开会话；筛选按钮单独放在主题卡上。
+2. 主题卡主体点击打开会话；筛选按钮单独放在主题卡上，只过滤收件箱。
+3. 宿主没有右栏宽度 setter；窄栏按设计降级为面板内全宽收件箱，不操作宿主 DOM。
+4. `openWorkspacePath({ path, action: 'reveal' })` 需要第二个 `AbortSignal` 参数；插件 host 已注入 `sessionController`，桌面打开已验证，远端/无桌面返回 `inbox/open-unsupported`。
+5. `prompt({ mode: 'queue' })` 接受后主题会话继续；`accepted:false` 是宿主拒收，只写 `delivery.lastError`。
+6. A2 仍不可用；收件箱不依赖 `ctx.sessionNotices`。
 
-仍需实现前核实：
+实现后仍未核实 / 遗留：
 
-1. 宿主没有宽度 setter 时，窄栏按钮只做面板内全宽收件箱；真正的自动展开是宿主依赖，不假装已支持。
-2. 当前 `authorization` 请求摘要可能没有 demo 里的 command 字段；实现时给工具增加可选 `command`，不改旧摘要语义。
-3. `review-verdict` 活动的真实 details 形状需按现有 `review-tools` 事件确认，再决定 note 文案。
+1. 自动评审 `review-verdict` 灰字未在真实 GUI 覆盖（[KI-44](KNOWN_ISSUES.md)）；展示层有单测与投影断言，但没有跑一次真实自动 reviewer 流程。
+2. `open` 对未知 id（404）与已知非成员 id（403）存在状态差异，属存在性 oracle；UUID 不可枚举，记录为信息级（[KI-43](KNOWN_ISSUES.md)）。
+3. 宿主重启会从 session 目录重建 `/tmp` fixture workspace 记录（[KI-39](KNOWN_ISSUES.md)）；测试遗留的空会话已归档，删除会话目录需用户确认。
+4. 多标签同时打开时筛选隔离、Finder 是否高亮具体文件而非仅打开目录，未在本次验证中覆盖。
