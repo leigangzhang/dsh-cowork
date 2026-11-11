@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cowork 侧栏提醒卡片 · 宽屏演示</title>
+<style>
+  :root {
+    --ink: #101828;
+    --muted: #667085;
+    --soft: #98a2b3;
+    --line: #e4e7ec;
+    --line-soft: #eef0f3;
+    --canvas: #eef1f5;
+    --card: #ffffff;
+    --blue: #175cd3;
+    --blue-soft: #eff6ff;
+    --red: #b42318;
+    --red-soft: #fef3f2;
+    --amber: #b54708;
+    --amber-soft: #fffaeb;
+    --green: #067647;
+    --green-soft: #ecfdf3;
+    --gray-soft: #f2f4f7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background:
+      radial-gradient(900px 500px at 18% 8%, #ffffff 0%, rgba(255,255,255,0) 70%),
+      radial-gradient(700px 500px at 92% 92%, #e8edf5 0%, rgba(232,237,245,0) 72%),
+      var(--canvas);
+    color: var(--ink);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .page { width: 1500px; margin: 0 auto; padding: 14px 24px 18px; }
+  .demo-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    margin: 0 4px 10px;
+  }
+  .demo-title { font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+  .demo-sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .demo-controls { display: flex; align-items: center; gap: 10px; }
+  .demo-note {
+    color: var(--muted);
+    font-size: 11px;
+    padding: 4px 9px;
+    border: 1px solid #dfe3e8;
+    border-radius: 99px;
+    background: rgba(255,255,255,.7);
+  }
+  .seg {
+    display: flex;
+    padding: 3px;
+    border: 1px solid #dfe3e8;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(16,24,40,.04);
+  }
+  .seg button {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11.5px;
+    padding: 5px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .seg button[aria-pressed="true"] {
+    background: #101828;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .app {
+    display: flex;
+    width: 1444px;
+    height: 860px;
+    overflow: hidden;
+    border: 1px solid #dfe3e8;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 22px 60px rgba(16, 24, 40, .12), 0 2px 8px rgba(16, 24, 40, .06);
+  }
+
+  /* Left: the master conversation stays the user's context. */
+  .main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: #fcfcfd;
+    border-right: 1px solid var(--line);
+  }
+  .main-head {
+    height: 58px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .main-head-left { display: flex; align-items: center; gap: 10px; }
+  .app-mark {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: #0f1115;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .main-title { font-size: 13px; font-weight: 650; }
+  .main-sub { color: var(--soft); font-size: 11px; margin-top: 1px; }
+  .ghost-icon {
+    width: 27px;
+    height: 27px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .main-body {
+    flex: 1;
+    min-height: 0;
+    padding: 26px 28px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow: auto;
+  }
+  .day-label { align-self: center; color: var(--soft); font-size: 10.5px; letter-spacing: .06em; }
+  .row { display: flex; gap: 10px; align-items: flex-start; }
+  .row.user { justify-content: flex-end; }
+  .avatar {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    background: #101828;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .avatar.assistant { background: #e9f1ff; color: var(--blue); }
+  .bubble {
+    max-width: 480px;
+    padding: 10px 13px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    color: #344054;
+    font-size: 12.5px;
+    line-height: 1.6;
+    box-shadow: 0 1px 1px rgba(16, 24, 40, .02);
+  }
+  .row.user .bubble {
+    border-color: #d1e9ff;
+    border-bottom-right-radius: 4px;
+    background: #eff8ff;
+    color: #1849a9;
+  }
+  .skeleton {
+    width: 310px;
+    padding: 11px 13px;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .skeleton-line { height: 7px; border-radius: 99px; background: #f0f2f5; }
+  .skeleton-line:nth-child(2) { width: 82%; }
+  .skeleton-line:nth-child(3) { width: 58%; }
+  .main-foot {
+    margin: 0 20px 18px;
+    padding: 11px 12px 9px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--soft);
+    font-size: 12px;
+  }
+  .main-foot-row { display: flex; align-items: center; justify-content: space-between; }
+  .main-foot-tools { display: flex; gap: 12px; color: var(--soft); font-size: 10.5px; margin-top: 9px; }
+
+  /* Right: the expanded Cowork sidebar. */
+  .sidebar {
+    flex: none;
+    width: 900px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: #f8f9fb;
+    transition: width .22s ease;
+  }
+  .sidebar[data-width="narrow"] { width: 430px; }
+  .sidebar-head {
+    flex: none;
+    height: 58px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(255,255,255,.72);
+  }
+  .sidebar-eyebrow { font-size: 10px; letter-spacing: .08em; color: var(--soft); text-transform: uppercase; }
+  .sidebar-title { font-size: 13px; font-weight: 700; margin-top: 1px; }
+  .sidebar-sub { font-size: 10.5px; color: var(--soft); margin-top: 1px; }
+  .head-actions { display: flex; align-items: center; gap: 6px; }
+  .refresh {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--muted);
+    font: inherit;
+    font-size: 10.5px;
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+  .needs-you {
+    flex: none;
+    margin: 10px 12px 4px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid #fecdca;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #fff7f7 0%, #fef3f2 100%);
+    box-shadow: 0 1px 2px rgba(180,35,24,.04);
+  }
+  .needs-you-left { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .needs-you-icon {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: #fee4e2;
+    color: var(--red);
+    font-weight: 800;
+    font-size: 13px;
+  }
+  .needs-you-title { font-size: 12px; font-weight: 700; color: #912018; }
+  .needs-you-sub { font-size: 10.5px; color: #b42318; margin-top: 1px; }
+  .needs-you-go { color: #b42318; font-size: 15px; }
+
+  .sidebar-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 344px;
+    gap: 12px;
+    padding: 8px 12px 12px;
+  }
+  .sidebar[data-width="narrow"] .sidebar-body { grid-template-columns: minmax(0, 1fr); }
+  .sidebar[data-width="narrow"] .reminder-column { display: none; }
+
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 2px 8px;
+  }
+  .section-title { font-size: 11.5px; font-weight: 700; color: #475467; letter-spacing: .02em; }
+  .section-count {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 99px;
+    background: #eef2f6;
+    color: #667085;
+    font-size: 10px;
+    text-align: center;
+    line-height: 18px;
+  }
+  .section-hint { font-size: 10px; color: var(--soft); }
+
+  .reminder-column, .topic-column {
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .reminder-column::-webkit-scrollbar, .topic-column::-webkit-scrollbar { width: 6px; }
+  .reminder-column::-webkit-scrollbar-thumb, .topic-column::-webkit-scrollbar-thumb {
+    background: #d0d5dd;
+    border-radius: 99px;
+  }
+
+  .reminder-list { display: flex; flex-direction: column; gap: 9px; padding-bottom: 4px; }
+  .reminder-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 11px 12px 9px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(16,24,40,.03);
+  }
+  .reminder-card:hover { border-color: #cfd6e0; box-shadow: 0 3px 10px rgba(16,24,40,.05); }
+  .reminder-card[data-kind="assignment"] { border-left: 2px solid #84adff; }
+  .reminder-card[data-kind="report"] { border-left: 2px solid #75e0a7; }
+  .reminder-card[data-kind="proposal"] { border-left: 2px solid #fdb022; }
+  .reminder-card[data-kind="authorization"] { border-left: 2px solid #fda29b; }
+  .reminder-card[data-kind="archive"] { border-left: 2px solid #d0d5dd; }
+  .reminder-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .reminder-type { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .type-icon {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .type-icon svg { width: 12px; height: 12px; }
+  .reminder-card[data-kind="assignment"] .type-icon { background: var(--blue-soft); color: var(--blue); }
+  .reminder-card[data-kind="report"] .type-icon { background: var(--green-soft); color: var(--green); }
+  .reminder-card[data-kind="proposal"] .type-icon { background: var(--amber-soft); color: var(--amber); }
+  .reminder-card[data-kind="authorization"] .type-icon { background: var(--red-soft); color: var(--red); }
+  .reminder-card[data-kind="archive"] .type-icon { background: var(--gray-soft); color: #475467; }
+  .type-label { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: #475467; }
+  .reminder-time { font-size: 10px; color: var(--soft); white-space: nowrap; }
+  .reminder-title { font-size: 12.5px; font-weight: 650; color: #1d2939; line-height: 1.45; }
+  .reminder-summary { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .reminder-foot {
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--soft);
+    font-size: 10px;
+  }
+  .reminder-link {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--blue);
+    font: inherit;
+    font-size: 10.5px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .reminder-link:hover { text-decoration: underline; }
+  .reminder-link[disabled] { color: #98a2b3; cursor: not-allowed; text-decoration: none; }
+  .sync-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-right: 5px;
+    border-radius: 99px;
+    background: #12b76a;
+    vertical-align: 1px;
+  }
+
+  .topic-list { display: flex; flex-direction: column; gap: 9px; }
+  .topic-group { margin-bottom: 2px; }
+  .group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 2px 6px;
+    color: #667085;
+    font-size: 10.5px;
+  }
+  .group-head strong { font-weight: 600; color: #475467; }
+  .group-count { color: var(--soft); font-variant-numeric: tabular-nums; }
+  .topic-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 11px 9px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(16,24,40,.02);
+  }
+  .topic-card[data-group="blocked"] { border-color: #fda29b; }
+  .topic-card[data-group="running"] { border-color: #75e0a7; }
+  .topic-card[data-group="idle"] { border-color: #d0d5dd; }
+  .topic-card[data-group="resolved"] { border-color: #e4e7ec; background: #fcfcfd; }
+  .topic-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .topic-title { font-size: 12px; font-weight: 650; color: #1d2939; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .topic-marker {
+    flex: none;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: #fffaeb;
+    color: var(--amber);
+    font-size: 9.5px;
+    white-space: nowrap;
+  }
+  .topic-marker.waiting { background: #f2f4f7; color: #475467; }
+  .topic-marker.auth { background: #fef3f2; color: var(--red); }
+  .topic-summary { font-size: 10.5px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .topic-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--soft); font-size: 9.5px; }
+  .more {
+    border: 0;
+    background: transparent;
+    color: #98a2b3;
+    font: inherit;
+    letter-spacing: 2px;
+    cursor: pointer;
+    padding: 0 1px;
+  }
+  .resolved-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    margin-top: 4px;
+    padding: 8px 10px;
+    border: 1px dashed #d0d5dd;
+    border-radius: 10px;
+    background: #fff;
+    color: #667085;
+    font: inherit;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .resolved-toggle .check {
+    width: 16px;
+    height: 16px;
+    display: grid;
+    place-items: center;
+    border-radius: 99px;
+    background: var(--green-soft);
+    color: var(--green);
+    font-size: 10px;
+  }
+
+  .footnote {
+    margin: 8px 4px 0;
+    color: #667085;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .footnote code {
+    padding: 1px 4px;
+    border: 1px solid #e4e7ec;
+    border-radius: 4px;
+    background: #fff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+  }
+  @media (max-width: 1540px) {
+    .page { width: 100%; padding-left: 16px; padding-right: 16px; }
+    .app { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="demo-bar">
+    <div>
+      <div class="demo-title">Cowork 侧栏提醒卡片 · 宽屏演示</div>
+      <div class="demo-sub">宽侧栏用多出来的横向空间放提醒卡片；窄侧栏回到当前的主题列表。静态演示，不接真实数据。</div>
+    </div>
+    <div class="demo-controls">
+      <span class="demo-note">宽 ≥ 620px 显示提醒列</span>
+      <div class="seg" role="group" aria-label="切换侧栏宽度">
+        <button type="button" data-width="wide" aria-pressed="true">宽侧栏 900px</button>
+        <button type="button" data-width="narrow" aria-pressed="false">窄侧栏 430px</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app">
+    <main class="main">
+      <header class="main-head">
+        <div class="main-head-left">
+          <div class="app-mark">C</div>
+          <div>
+            <div class="main-title">主会话</div>
+            <div class="main-sub">给我写一个五子棋的小游戏</div>
+          </div>
+        </div>
+        <div class="head-actions">
+          <div class="ghost-icon">↗</div>
+          <div class="ghost-icon">⋯</div>
+        </div>
+      </header>
+
+      <div class="main-body">
+        <div class="day-label">今天 14:02</div>
+        <div class="row user">
+          <div class="bubble">给我写一个五子棋的小游戏，先做一个能落子的初版。</div>
+        </div>
+        <div class="row">
+          <div class="avatar assistant">C</div>
+          <div class="bubble">收到。我会把这件事交给一个主题会话，进度和待确认的事项会出现在右侧提醒里。</div>
+        </div>
+        <div class="row">
+          <div class="avatar assistant">C</div>
+          <div class="skeleton" aria-label="正在处理">
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="main-foot">
+        <div class="main-foot-row">
+          <span>继续输入，或按 / 选择操作…</span>
+          <span style="color:#98a2b3">↑</span>
+        </div>
+        <div class="main-foot-tools"><span>Markdown</span><span>图片</span><span>文件</span></div>
+      </div>
+    </main>
+
+    <aside class="sidebar" id="sidebar" data-width="wide">
+      <header class="sidebar-head">
+        <div>
+          <div class="sidebar-eyebrow">Cowork</div>
+          <div class="sidebar-title">工作区 · dsh-cowork</div>
+          <div class="sidebar-sub">侧栏展开后，提醒和主题并排显示</div>
+        </div>
+        <div class="head-actions">
+          <button type="button" class="refresh">刷新</button>
+        </div>
+      </header>
+
+      <div class="needs-you">
+        <div class="needs-you-left">
+          <div class="needs-you-icon">!</div>
+          <div>
+            <div class="needs-you-title">需要你处理 1 项</div>
+            <div class="needs-you-sub">待授权 · 五子棋小游戏</div>
+          </div>
+        </div>
+        <div class="needs-you-go">→</div>
+      </div>
+
+      <div class="sidebar-body">
+        <section class="reminder-column" aria-label="提醒">
+          <div class="section-head">
+            <div>
+              <span class="section-title">提醒</span>
+              <span class="section-count">5</span>
+            </div>
+            <span class="section-hint">按时间从新到旧</span>
+          </div>
+
+          <div class="reminder-list">
+            <article class="reminder-card" data-kind="assignment">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v9"/><path d="m5 9 3 3 3-3"/></svg>
+                  </span>
+                  <span class="type-label">分配</span>
+                </div>
+                <span class="reminder-time">14:02</span>
+              </div>
+              <div class="reminder-title">已分配主题「五子棋小游戏」</div>
+              <div class="reminder-summary">把「做一个五子棋小游戏」交给主题会话。</div>
+              <div class="reminder-foot">
+                <span><span class="sync-dot"></span>事件 1 · 已同步主题会话</span>
+                <button type="button" class="reminder-link">打开主题</button>
+              </div>
+            </article>
+
+            <article class="reminder-card" data-kind="report">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V4"/><path d="m5 7 3-3 3 3"/></svg>
+                  </span>
+                  <span class="type-label">上报</span>
+                </div>
+                <span class="reminder-time">14:05</span>
+              </div>
+              <div class="reminder-title">主题上报：初版棋盘完成</div>
+              <div class="reminder-summary">可以落子，棋盘 15×15。</div>
+              <div class="reminder-foot">
+                <span><span class="sync-dot"></span>事件 2 · 已同步主题会话</span>
+                <button type="button" class="reminder-link">打开主题</button>
+              </div>
+            </article>
+
+            <article class="reminder-card" data-kind="report">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V4"/><path d="m5 7 3-3 3 3"/></svg>
+                  </span>
+                  <span class="type-label">上报</span>
+                </div>
+                <span class="reminder-time">14:09</span>
+              </div>
+              <div class="reminder-title">主题上报：等待确认棋盘尺寸</div>
+              <div class="reminder-summary">暂按 15×15，可以调整。</div>
+              <div class="reminder-foot">
+                <span><span class="sync-dot"></span>事件 3 · 已同步主题会话</span>
+                <button type="button" class="reminder-link">打开主题</button>
+              </div>
+            </article>
+
+            <article class="reminder-card" data-kind="proposal">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m8 2.4 5.6 5.6L8 13.6 2.4 8 8 2.4Z"/></svg>
+                  </span>
+                  <span class="type-label">决策提案</span>
+                </div>
+                <span class="reminder-time">14:12</span>
+              </div>
+              <div class="reminder-title">决策提案已生成并上报</div>
+              <div class="reminder-summary">评审请求挂到工作项详情。</div>
+              <div class="reminder-foot">
+                <span><span class="sync-dot"></span>事件 4 · 已同步主题会话</span>
+                <button type="button" class="reminder-link" disabled title="工作项页面尚未实现">去工作项查看</button>
+              </div>
+            </article>
+
+            <article class="reminder-card" data-kind="authorization">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">!</span>
+                  <span class="type-label">待授权</span>
+                </div>
+                <span class="reminder-time">14:18</span>
+              </div>
+              <div class="reminder-title">待授权：是否允许读取浏览器登录态</div>
+              <div class="reminder-summary">用于生成个人主页文案。</div>
+              <div class="reminder-foot">
+                <span><span class="sync-dot"></span>事件 5 · 需要你处理</span>
+                <button type="button" class="reminder-link">去主题会话处理</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="topic-column" aria-label="主题">
+          <div class="section-head">
+            <div>
+              <span class="section-title">主题</span>
+              <span class="section-count">7</span>
+            </div>
+            <span class="section-hint">按状态分组</span>
+          </div>
+
+          <div class="topic-list">
+            <div class="topic-group">
+              <div class="group-head"><strong>阻塞</strong><span class="group-count">2</span></div>
+              <article class="topic-card" data-group="blocked">
+                <div class="topic-title-row">
+                  <span class="topic-title">五子棋小游戏</span>
+                  <span class="topic-marker auth">待授权</span>
+                </div>
+                <div class="topic-summary">等待授权：是否允许读取浏览器登录态。</div>
+                <div class="topic-foot"><span>6 分钟前</span><button type="button" class="more" aria-label="更多">⋯</button></div>
+              </article>
+              <article class="topic-card" data-group="blocked" style="margin-top:8px">
+                <div class="topic-title-row">
+                  <span class="topic-title">接入 GitHub 主页内容</span>
+                  <span class="topic-marker waiting">等待主会话</span>
+                </div>
+                <div class="topic-summary">与「个人网站结构讨论」范围重叠，等待主会话裁决。</div>
+                <div class="topic-foot"><span>2 分钟前</span><button type="button" class="more" aria-label="更多">⋯</button></div>
+              </article>
+            </div>
+
+            <div class="topic-group">
+              <div class="group-head"><strong>运行中</strong><span class="group-count">1</span></div>
+              <article class="topic-card" data-group="running">
+                <div class="topic-title-row">
+                  <span class="topic-title">整理个人主页文案</span>
+                  <button type="button" class="more" aria-label="更多">⋯</button>
+                </div>
+                <div class="topic-summary">首版 Bio 已生成并上报，等待在工作项查看。</div>
+                <div class="topic-foot"><span>8 分钟前</span></div>
+              </article>
+            </div>
+
+            <div class="topic-group">
+              <div class="group-head"><strong>空闲</strong><span class="group-count">1</span></div>
+              <article class="topic-card" data-group="idle">
+                <div class="topic-title-row">
+                  <span class="topic-title">个人网站结构讨论</span>
+                  <button type="button" class="more" aria-label="更多">⋯</button>
+                </div>
+                <div class="topic-summary">等待下一轮讨论，暂无阻塞。</div>
+                <div class="topic-foot"><span>1 小时前</span></div>
+              </article>
+            </div>
+
+            <button type="button" class="resolved-toggle">
+              <span><span class="check">✓</span> 已解决 3 个主题</span>
+              <span>›</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <p class="footnote">
+    提醒列只在宽侧栏出现；窄侧栏回到当前的单列主题列表。卡片字段：类型 / 标题 / 摘要 / 时间 / 事件号；待授权卡片的操作是打开主题会话，不在侧栏直接允许或拒绝。
+  </p>
+</div>
+
+<script>
+  const sidebar = document.getElementById('sidebar');
+  const buttons = [...document.querySelectorAll('[data-width]')];
+  for (const button of buttons) {
+    button.addEventListener('click', () => {
+      const width = button.dataset.width;
+      sidebar.dataset.width = width;
+      for (const other of buttons) other.setAttribute('aria-pressed', String(other === button));
+    });
+  }
+</script>
+</body>
+</html>
