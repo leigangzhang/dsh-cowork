@@ -594,11 +594,19 @@ async function listNotices(args: Record<string, unknown>, exec: unknown, deps: C
     const ledger = await opened.store.readNotices()
     const rows = noticeSummaries(events, ledger)
       .filter((row) => topicId === null || row.topicId === topicId)
-      .map((row) => ({
-        ...row,
-        title: truncateText(row.title, 200),
-        summary: truncateText(row.summary, 200),
-      }))
+      .map((row) => {
+        const proposalPath = row.proposalPath ?? (
+          row.proposalId === undefined
+            ? undefined
+            : join('.dsh-cowork', 'proposals', `${row.proposalId}.json`)
+        )
+        return {
+          ...row,
+          title: truncateText(row.title, 200),
+          summary: truncateText(row.summary, 200),
+          ...(proposalPath === undefined ? {} : { proposalPath }),
+        }
+      })
     return toJson(success({
       total: rows.length,
       truncated: rows.length > limit,
