@@ -157,7 +157,7 @@ sequenceDiagram
 
 - 三态：`active ↔ idle`，`active|idle → resolved`，`resolved → active`（用户重开）。`awaitingReview`、`blocked`、`authorization` 是标记，不是状态。
 - `active ↔ idle`：`lastActiveAt` 超过 `idleAfterMs`（2026-11-10 起默认 24 小时）且没有 `awaitingReview`、`blocked` 或待授权时为 `idle`；有新活动或 `turn/end` 时回到 `active`。评估发生在 `project_status`、`route`、面板 overview 等读取点；没有后台定时器（[topic.ts](../src/topic.ts#L62-L78)、[evaluateProjectLifecycle](../src/tool-runtime.ts#L569)、[topic-events.ts](../src/topic-events.ts#L95-L125)）。
-- 没有自动 resolved：`resolveAfterMs` 保留但弃用并忽略。进入 `resolved` 的唯一路径是用户归档：面板主题卡菜单或 `cowork_topic_resolve` / `resolve` 路由。
+- 没有自动 resolved：`resolveAfterMs` 保留但弃用并忽略。除一次性 v1 迁移把旧的 done/archived 映射为 resolved 外，进入 `resolved` 的唯一路径是用户归档：面板主题卡菜单或 `cowork_topic_resolve` / `resolve` 路由。
 - 归档：清空 block 和待授权，写只给主会话的 `topic-archived` 通知，并归档宿主主题会话；重复归档幂等，`resolvedBy` 记为 `user`（[archiveTopicRecord](../src/topic.ts#L154)、[archiveTopic](../src/tool-runtime.ts#L280)）。
 - 重开：用户打开已解决主题并发送消息（`user/message`），或使用面板 `POST /api/cowork.topic.reopen`；状态置回 `active`，清空 `resolvedAt/resolvedBy`，保留摘要与交付确认，写 `topic-reopened`，不写通知。面板路由同时 unarchive 宿主会话（[reopenResolvedTopic](../src/topic.ts#L181)、[topic-events.ts](../src/topic-events.ts#L126-L168)）。
 - 已解决主题不参与自动路由；新需求会新建主题并返回 `resolvedMatch`，由用户决定是否打开旧主题。
