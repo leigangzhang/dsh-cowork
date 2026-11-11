@@ -25,6 +25,10 @@ import {
   type InboxNoteView,
   type InboxRequestView,
   type InboxViewModel,
+  answersComplete,
+  unansweredAnswerHint,
+  unansweredQuestionCount,
+  type InboxAnswerDraft,
 } from './inbox-model.ts'
 
 /** One per-row receipt: submission/open feedback that never fakes a reply. */
@@ -363,10 +367,8 @@ function AuthorizationCard({ item, pending, onResolve }: AuthorizationCardProps)
   )
 }
 
-interface QuestionAnswers {
-  readonly selected: readonly string[]
-  readonly text: string
-}
+/** The card's per-question draft; the model owns the answered rule. */
+type QuestionAnswers = InboxAnswerDraft
 
 interface QuestionCardProps {
   readonly item: QuestionRequestView
@@ -392,10 +394,11 @@ function QuestionCard({ item, pending, onResolve }: QuestionCardProps): ReactEle
       return { ...previous, [questionId]: { ...base, ...patch } }
     })
   }
-  const hasAnswer = questions.some((question) => {
-    const answer = answers[question.id]
-    return answer !== undefined && (answer.selected.length > 0 || answer.text.trim() !== '')
-  })
+  // The host requires every question to be answered; the card blocks submit
+  // until then and says how many are still open, so a partial submit never
+  // round-trips into an English `inbox/invalid-answer`.
+  const unanswered = unansweredQuestionCount(questions, answers)
+  const allAnswered = answersComplete(questions, answers)
   const submit = (): void => {
     const payload: InboxAnswerInput[] = []
     for (const question of questions) {
@@ -500,11 +503,21 @@ function QuestionCard({ item, pending, onResolve }: QuestionCardProps): ReactEle
           </div>
         </div>
       )}
+      {item.actions.length === 0 || !pending || unanswered === 0 ? null : (
+        <p
+          className="cw-inbox-hint"
+          data-testid="cw-inbox-answer-hint"
+          role="status"
+          aria-live="polite"
+        >
+          {unansweredAnswerHint(unanswered)}
+        </p>
+      )}
       {item.actions.length === 0 ? null : (
         <ActionButtons
           actions={item.actions}
           pending={pending}
-          isDisabled={action => action === 'submit' && !hasAnswer}
+          isDisabled={action => action === 'submit' && !allAnswered}
           onAction={(action) => {
             if (action === 'submit') submit()
             else onResolve(item, action, {})

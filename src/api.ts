@@ -90,7 +90,11 @@ import type {
   TopicRecordV2,
   WorkItemRecordV2,
 } from './store-schema.js'
-import { PanelServiceError, resolveAuthorizationDecision } from './request-service.js'
+import {
+  PanelServiceError,
+  resolveAuthorizationDecision,
+  settleAuthorizationRequestRecord,
+} from './request-service.js'
 import { StoreError } from './store.js'
 import { DEFAULT_IDLE_AFTER_MS, reopenResolvedTopic } from './topic.js'
 import { activeWorkItemCount } from './work-item.js'
@@ -925,6 +929,25 @@ async function handleAuthorizationResolve(request: Request, ports: CoworkApiPort
     kickNotices: ports.kickNotices,
     log: (message: string) => ports.log?.(`panel authorization: ${message}`),
   })
+  // Keep the inbox card in step with the legacy route's decision. A missing
+  // request record (a topic that never used the request tools) is a no-op, and
+  // a settlement failure is logged: the response shape of this route never
+  // changes because the inbox file could not be read or written.
+  try {
+    await settleAuthorizationRequestRecord({
+      store,
+      repoPath,
+      topicId,
+      requestId,
+      decision,
+      now,
+      promptedAt: outcome.prompted ? now.toISOString() : null,
+      promptError: outcome.promptError,
+      log: (message: string) => ports.log?.(`panel authorization: ${message}`),
+    })
+  } catch (error) {
+    ports.log?.(`panel authorization: inbox card not settled: ${messageOf(error)}`)
+  }
   const response: AuthorizationResolveResponse = {
     ok: true,
     topic: toPanelTopic(outcome.document, outcome.topic),

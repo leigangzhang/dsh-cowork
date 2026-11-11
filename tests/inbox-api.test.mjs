@@ -601,6 +601,55 @@ test('open reveals the stored plan file and rejects a path-shaped body', async (
   })
 })
 
+test('open admits only the master or the owning topic', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic(TOPIC, 'Inbox backend'), topic(OTHER_TOPIC, 'Second topic')])
+    await mkdir(join(repoPath, 'docs'), { recursive: true })
+    await writeFile(join(repoPath, 'docs', 'plan.md'), '# plan\n')
+    await seedRequest(repoPath, store, {
+      requestId: 'req-plan',
+      topicId: TOPIC,
+      kind: 'plan',
+      payload: { planPath: 'docs/plan.md' },
+    })
+    const { ports, state } = fakePorts(repoPath)
+    const routes = registerRoutes(ports)
+    const open = async (body) => readResponse(
+      await routes.get(inboxContract.INBOX_OPEN_PATH).fetch(postRequest(inboxContract.INBOX_OPEN_PATH, body)),
+    )
+
+    // A topic session may reveal its own request's file.
+    const own = await open({ sessionId: TOPIC, requestId: 'req-plan' })
+    assert.equal(own.status, 200)
+    assert.equal(state.opened.length, 1)
+
+    // A repository session that owns neither the project nor the topic is
+    // refused, and its call never reaches the host opener.
+    const foreign = await open({ sessionId: STRANGER, requestId: 'req-plan' })
+    assert.equal(foreign.status, 403)
+    assert.equal(foreign.body.error.code, 'inbox/not-member')
+    assert.equal(state.opened.length, 1, 'the host opener is not called for a stranger')
+
+    // The same rule applies to a proposal notice, whose topic comes from its event.
+    await mkdir(join(repoPath, '.dsh-cowork', 'proposals'), { recursive: true })
+    await writeFile(join(repoPath, '.dsh-cowork', 'proposals', 'prop-1.json'), '{}\n')
+    await store.appendActivity(activity.decisionProposedActivity(
+      topic(OTHER_TOPIC, 'Second topic'),
+      { proposalId: 'prop-1', proposalPath: '.dsh-cowork/proposals/prop-1.json', title: 'Proposal', summary: 'decide' },
+      NOW,
+    ))
+    const proposalId = (await store.readActivity()).events
+      .find((event) => event.type === 'decision-proposed').eventId
+    const foreignNotice = await open({ sessionId: TOPIC, noticeId: proposalId })
+    assert.equal(foreignNotice.status, 403)
+    assert.equal(foreignNotice.body.error.code, 'inbox/not-member')
+    assert.equal(state.opened.length, 1)
+    const masterNotice = await open({ sessionId: MASTER, noticeId: proposalId })
+    assert.equal(masterNotice.status, 200)
+    assert.deepEqual(masterNotice.body, { ok: true, opened: true })
+  })
+})
+
 test('open reports an unsupported host and a refused open', async () => {
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [topic(TOPIC, 'Inbox backend')])

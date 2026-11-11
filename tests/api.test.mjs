@@ -26,6 +26,7 @@ const inboxContract = await import('../src/inbox-contract.ts')
 const reviewRequest = await import('../src/review-request.ts')
 const store = await import('../src/store.ts')
 const panelProbe = await import('../src/panel-probe.ts')
+const requestService = await import('../src/request-service.ts')
 
 const CREATED_AT = '2026-01-01T00:00:00.000Z'
 /** A clock ten minutes after the fixture's `lastActiveAt`, so nothing transitions. */
@@ -2106,4 +2107,107 @@ test('overview counts the topics that await an authorization', async () => {
   assert.equal(body.counts.awaitingAuthorization, 1)
   assert.equal(body.counts.blocked, 1)
   assert.equal(body.topics[0].topicId, 'topic-1', 'a blocked topic leads the list')
+})
+
+// ---------------------------------------------------------------------------
+// authorization.resolve ↔ request inbox convergence (repair F1)
+// ---------------------------------------------------------------------------
+
+test('the legacy authorization route settles the inbox card over real files', async (t) => {
+  const repoPath = await mkdtemp(join(tmpdir(), 'cowork-api-auth-card-'))
+  t.after(() => rm(repoPath, { recursive: true, force: true }))
+  const realStore = new store.ProjectStore({ repoPath, clock: () => NOW })
+  await realStore.initIndex(MASTER)
+  await realStore.mutateIndexDocument((document) => ({
+    ...document,
+    topics: [
+      makeTopic({
+        topicId: 'topic-1',
+        status: 'idle',
+        blocked: true,
+        blockedReason: 'authorization',
+        blockedFromStatus: 'idle',
+        blockedAt: NOW.toISOString(),
+        authorization: { requestId: 'req-1', summary: 'may I push?', requestedAt: NOW.toISOString() },
+      }),
+      makeTopic({ topicId: 'topic-2' }),
+    ],
+  }))
+  const document = await realStore.readIndexDocument()
+  const topicOne = document.topics.find((row) => row.topicId === 'topic-1')
+  const topicTwo = document.topics.find((row) => row.topicId === 'topic-2')
+  for (const [requestId, topic] of [['req-1', topicOne], ['req-2', topicTwo]]) {
+    await requestService.createRequest({
+      store: realStore,
+      repoPath,
+      projectId: document.projectId,
+      topic,
+      kind: 'authorization',
+      payload: { summary: 'may I push?' },
+      requestId,
+      now: NOW,
+    })
+  }
+  const prompts = []
+  const { routes } = await registerRoutes({
+    ports: {
+      listSessions: async () => ({ items: [{ sessionId: MASTER, cwd: repoPath }] }),
+      findProjectRoot: async (startPath) => (startPath === repoPath ? repoPath : null),
+      createStore: () => realStore,
+      now: () => NOW,
+      promptSession: async (sessionId, text) => {
+        prompts.push({ sessionId, text })
+        return { accepted: true }
+      },
+      log: () => {},
+    },
+  })
+  const readCard = async (requestId) => JSON.parse(
+    await readFile(join(repoPath, '.dsh-cowork', 'requests', `${requestId}.json`), 'utf8'),
+  )
+  const resolveAuth = async (body) => readResponse(
+    await routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, body),
+    ),
+  )
+
+  const decided = await resolveAuth({
+    sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'allow',
+  })
+  assert.equal(decided.status, 200)
+  assert.equal(decided.body.ok, true)
+  assert.equal(decided.body.changed, true)
+  assert.equal(decided.body.prompted, true)
+  assert.equal(decided.body.requestId, 'req-1')
+  assert.equal(decided.body.decision, 'allow')
+  assert.equal(decided.body.noticeId, null, 'the response shape is unchanged; no notice event existed')
+
+  const card = await readCard('req-1')
+  assert.equal(card.status, 'allowed')
+  assert.match(card.resolutionMessage, /已允许该授权/)
+  assert.equal(card.resolvedAt, NOW.toISOString())
+  assert.equal(card.resolvedBy, 'user')
+  assert.deepEqual(card.delivery, { promptedAt: NOW.toISOString(), lastError: null })
+  assert.equal((await readCard('req-2')).status, 'pending', 'another topic card is untouched')
+  const resolvedRows = (await realStore.readActivity()).events
+    .filter((event) => event.type === 'request-resolved')
+  assert.equal(resolvedRows.length, 1)
+  assert.equal(resolvedRows[0].details.requestId, 'req-1')
+  assert.equal(resolvedRows[0].details.action, 'allow')
+  assert.equal(resolvedRows[0].details.status, 'allowed')
+
+  // The replay of the same decision still answers 200 changed=false, does not
+  // prompt again, and does not rewrite the card or duplicate its activity row.
+  const replay = await resolveAuth({
+    sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'allow',
+  })
+  assert.equal(replay.status, 200)
+  assert.equal(replay.body.changed, false)
+  assert.equal(replay.body.prompted, false)
+  assert.deepEqual(await readCard('req-1'), card)
+  assert.equal(
+    (await realStore.readActivity()).events.filter((event) => event.type === 'request-resolved').length,
+    1,
+  )
+  assert.equal(prompts.length, 1, 'only the committed decision prompts the topic')
 })

@@ -136,6 +136,17 @@ async function readRequest(repoPath, requestId = 'req-1') {
   return new RequestStore({ repoPath }).read(requestId)
 }
 
+/** The index + caller identity one open call needs. */
+function openInput(repoPath, store, overrides = {}) {
+  return {
+    store,
+    repoPath,
+    document: { masterSessionId: MASTER, topics: [topic()] },
+    sessionId: MASTER,
+    ...overrides,
+  }
+}
+
 /** Resolve one request with the shared fake host. */
 function resolveInput(repoPath, store, host, overrides = {}) {
   return {
@@ -412,12 +423,10 @@ test('openRequestTarget reveals a plan file inside the repository', async () => 
     await writeFile(join(repoPath, 'docs', 'plan.md'), '# plan\n')
     await seedRequest(repoPath, store, { kind: 'plan', payload: { planPath: 'docs/plan.md' } })
     const opened = []
-    const path = await service.openRequestTarget({
-      store,
-      repoPath,
+    const path = await service.openRequestTarget(openInput(repoPath, store, {
       requestId: 'req-1',
       openWorkspacePath: async (file) => { opened.push(file) },
-    })
+    }))
     const expected = await realpath(join(repoPath, 'docs', 'plan.md'))
     assert.equal(path, expected)
     assert.deepEqual(opened, [expected])
@@ -453,7 +462,10 @@ test('openRequestTarget guards the stored path', async () => {
           now: NOW,
         })
         await assert.rejects(
-          service.openRequestTarget({ store, repoPath, requestId, openWorkspacePath: async () => {} }),
+          service.openRequestTarget(openInput(repoPath, store, {
+            requestId,
+            openWorkspacePath: async () => {},
+          })),
           (error) => error.code === 'inbox/path-missing',
           requestId,
         )
@@ -464,11 +476,17 @@ test('openRequestTarget guards the stored path', async () => {
     // Non-plan requests carry no openable file, and an unknown id is missing.
     await seedRequest(repoPath, store, { kind: 'user-review', payload: { purpose: 'p' } })
     await assert.rejects(
-      service.openRequestTarget({ store, repoPath, requestId: 'req-1', openWorkspacePath: async () => {} }),
+      service.openRequestTarget(openInput(repoPath, store, {
+        requestId: 'req-1',
+        openWorkspacePath: async () => {},
+      })),
       (error) => error.code === 'inbox/path-missing',
     )
     await assert.rejects(
-      service.openRequestTarget({ store, repoPath, requestId: 'req-unknown', openWorkspacePath: async () => {} }),
+      service.openRequestTarget(openInput(repoPath, store, {
+        requestId: 'req-unknown',
+        openWorkspacePath: async () => {},
+      })),
       (error) => error.code === 'inbox/request-not-found',
     )
   })
@@ -481,20 +499,18 @@ test('openRequestTarget reports an unsupported host instead of faking success', 
     await writeFile(join(repoPath, 'docs', 'plan.md'), '# plan\n')
     await seedRequest(repoPath, store, { kind: 'plan', payload: { planPath: 'docs/plan.md' } })
     await assert.rejects(
-      service.openRequestTarget({ store, repoPath, requestId: 'req-1' }),
+      service.openRequestTarget(openInput(repoPath, store, { requestId: 'req-1' })),
       (error) => error.code === 'inbox/open-unsupported',
     )
     await assert.rejects(
-      service.openRequestTarget({
-        store,
-        repoPath,
+      service.openRequestTarget(openInput(repoPath, store, {
         requestId: 'req-1',
         openWorkspacePath: async () => { throw new Error('no desktop') },
-      }),
+      })),
       (error) => error.code === 'inbox/open-unsupported',
     )
     await assert.rejects(
-      service.openRequestTarget({ store, repoPath, openWorkspacePath: async () => {} }),
+      service.openRequestTarget(openInput(repoPath, store, { openWorkspacePath: async () => {} })),
       (error) => error.code === 'inbox/path-missing',
     )
   })
@@ -514,15 +530,16 @@ test('openRequestTarget reveals a proposal file named by a notice id', async () 
       details: { topicId: TOPIC, proposalId: 'p-1', proposalPath: '.dsh-cowork/proposals/p-1.json' },
     })
     const opened = []
-    await service.openRequestTarget({
-      store,
-      repoPath,
+    await service.openRequestTarget(openInput(repoPath, store, {
       noticeId: 'event-proposal-1',
       openWorkspacePath: async (file) => { opened.push(file) },
-    })
+    }))
     assert.deepEqual(opened, [await realpath(join(repoPath, '.dsh-cowork', 'proposals', 'p-1.json'))])
     await assert.rejects(
-      service.openRequestTarget({ store, repoPath, noticeId: 'event-missing', openWorkspacePath: async () => {} }),
+      service.openRequestTarget(openInput(repoPath, store, {
+        noticeId: 'event-missing',
+        openWorkspacePath: async () => {},
+      })),
       (error) => error.code === 'inbox/path-missing',
     )
   })
@@ -539,5 +556,200 @@ test('the persisted file survives a fresh store instance (refresh path)', async 
     assert.equal(reread.status, 'passed')
     assert.equal(reread.resolutionMessage.includes('ok'), true)
     assert.equal(reread.requestMessage.startsWith('主题「Inbox backend」'), true)
+  })
+})
+
+test('openRequestTarget admits only the master or the owning topic', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic(), topic({ topicId: 'session-other' })])
+    await mkdir(join(repoPath, 'docs'), { recursive: true })
+    await writeFile(join(repoPath, 'docs', 'plan.md'), '# plan\n')
+    await seedRequest(repoPath, store, { kind: 'plan', payload: { planPath: 'docs/plan.md' } })
+
+    // The owning topic session may reveal its own request's file.
+    const owned = []
+    await service.openRequestTarget(openInput(repoPath, store, {
+      requestId: 'req-1',
+      sessionId: TOPIC,
+      openWorkspacePath: async (file) => { owned.push(file) },
+    }))
+    assert.equal(owned.length, 1)
+
+    // A repository session that owns neither the project nor the topic is refused
+    // before the host opener runs, so it cannot even probe the file's existence.
+    const opened = []
+    await assert.rejects(
+      service.openRequestTarget(openInput(repoPath, store, {
+        requestId: 'req-1',
+        sessionId: 'session-stranger',
+        openWorkspacePath: async (file) => { opened.push(file) },
+      })),
+      (error) => error.code === 'inbox/not-member',
+    )
+    assert.deepEqual(opened, [], 'the host opener is never called for a stranger')
+
+    // The same rule covers a proposal notice, whose topic comes from its event.
+    await mkdir(join(repoPath, '.dsh-cowork', 'proposals'), { recursive: true })
+    await writeFile(join(repoPath, '.dsh-cowork', 'proposals', 'p-1.json'), '{}\n')
+    await store.appendActivity({
+      eventId: 'event-proposal-1',
+      time: NOW_ISO,
+      type: 'decision-proposed',
+      topicId: TOPIC,
+      summary: 'proposed decision',
+      details: { topicId: TOPIC, proposalId: 'p-1', proposalPath: '.dsh-cowork/proposals/p-1.json' },
+    })
+    await assert.rejects(
+      service.openRequestTarget(openInput(repoPath, store, {
+        noticeId: 'event-proposal-1',
+        sessionId: 'session-other',
+        openWorkspacePath: async () => {},
+      })),
+      (error) => error.code === 'inbox/not-member',
+    )
+    await service.openRequestTarget(openInput(repoPath, store, {
+      noticeId: 'event-proposal-1',
+      sessionId: TOPIC,
+      openWorkspacePath: async () => {},
+    }))
+
+    // A notice without a topic belongs to the project, so only the master opens it.
+    await store.appendActivity({
+      eventId: 'event-proposal-no-topic',
+      time: NOW_ISO,
+      type: 'decision-proposed',
+      topicId: null,
+      summary: 'project-wide proposal',
+      details: { proposalId: 'p-1', proposalPath: '.dsh-cowork/proposals/p-1.json' },
+    })
+    await assert.rejects(
+      service.openRequestTarget(openInput(repoPath, store, {
+        noticeId: 'event-proposal-no-topic',
+        sessionId: TOPIC,
+        openWorkspacePath: async () => {},
+      })),
+      (error) => error.code === 'inbox/not-member',
+    )
+    await service.openRequestTarget(openInput(repoPath, store, {
+      noticeId: 'event-proposal-no-topic',
+      openWorkspacePath: async () => {},
+    }))
+  })
+})
+
+test('settleAuthorizationRequestRecord mirrors a legacy decision into the card', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic()])
+    await seedRequest(repoPath, store, { kind: 'authorization', payload: { summary: 'may I push?' } })
+    const outcome = await service.settleAuthorizationRequestRecord({
+      store,
+      repoPath,
+      topicId: TOPIC,
+      requestId: 'req-1',
+      decision: 'allow',
+      now: NOW,
+      promptedAt: NOW_ISO,
+      promptError: null,
+    })
+    assert.equal(outcome, 'settled')
+    const record = await readRequest(repoPath)
+    assert.equal(record.status, 'allowed')
+    assert.equal(record.resolvedBy, 'user')
+    assert.equal(record.resolvedAt, NOW_ISO)
+    assert.match(record.resolutionMessage, /已允许该授权/)
+    assert.deepEqual(record.delivery, { promptedAt: NOW_ISO, lastError: null })
+
+    const { events } = await store.readActivity()
+    const resolved = events.filter((event) => event.type === 'request-resolved')
+    assert.equal(resolved.length, 1, 'one settled card records one resolved row')
+    assert.equal(resolved[0].details.requestId, 'req-1')
+    assert.equal(resolved[0].details.action, 'allow')
+    assert.equal(resolved[0].details.status, 'allowed')
+
+    // A replay of the same decision writes nothing new.
+    assert.equal(await service.settleAuthorizationRequestRecord({
+      store,
+      repoPath,
+      topicId: TOPIC,
+      requestId: 'req-1',
+      decision: 'allow',
+      now: new Date('2026-11-10T10:00:00.000Z'),
+      promptedAt: null,
+      promptError: null,
+    }), 'already-resolved')
+    assert.equal((await store.readActivity()).events.filter((event) => event.type === 'request-resolved').length, 1)
+    assert.deepEqual((await readRequest(repoPath)).delivery, { promptedAt: NOW_ISO, lastError: null })
+  })
+})
+
+test('settleAuthorizationRequestRecord keeps a prompt failure on the card', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic()])
+    await seedRequest(repoPath, store, { kind: 'authorization', payload: { summary: 'may I push?' } })
+    const outcome = await service.settleAuthorizationRequestRecord({
+      store,
+      repoPath,
+      topicId: TOPIC,
+      requestId: 'req-1',
+      decision: 'deny',
+      now: NOW,
+      promptedAt: null,
+      promptError: 'host is busy',
+    })
+    assert.equal(outcome, 'settled')
+    const record = await readRequest(repoPath)
+    assert.equal(record.status, 'denied')
+    assert.match(record.resolutionMessage, /已拒绝该授权/)
+    assert.deepEqual(record.delivery, { promptedAt: null, lastError: 'host is busy' })
+  })
+})
+
+test('settleAuthorizationRequestRecord never rewrites a conflicting or foreign card', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic(), topic({ topicId: 'session-other' })])
+    // No record at all: the legacy route keeps its old behaviour.
+    assert.equal(await service.settleAuthorizationRequestRecord({
+      store, repoPath, topicId: TOPIC, requestId: 'req-missing',
+      decision: 'allow', now: NOW, promptedAt: null, promptError: null,
+    }), 'absent')
+    assert.deepEqual((await store.readActivity()).events, [])
+
+    // A record of another topic and one of another kind are both left alone.
+    await service.createRequest({
+      store, repoPath, projectId: 'p', topic: topic(), kind: 'authorization',
+      payload: { summary: 'may I push?' }, requestId: 'req-1', now: NOW,
+    })
+    await service.createRequest({
+      store, repoPath, projectId: 'p', topic: topic({ topicId: 'session-other' }), kind: 'authorization',
+      payload: { summary: 'other topic' }, requestId: 'req-other-topic', now: NOW,
+    })
+    await service.createRequest({
+      store, repoPath, projectId: 'p', topic: topic(), kind: 'user-review',
+      payload: { purpose: 'review' }, requestId: 'req-review', now: NOW,
+    })
+    const activitiesBefore = (await store.readActivity()).events.length
+    assert.equal(await service.settleAuthorizationRequestRecord({
+      store, repoPath, topicId: TOPIC, requestId: 'req-other-topic',
+      decision: 'allow', now: NOW, promptedAt: null, promptError: null,
+    }), 'absent')
+    assert.equal(await service.settleAuthorizationRequestRecord({
+      store, repoPath, topicId: TOPIC, requestId: 'req-review',
+      decision: 'allow', now: NOW, promptedAt: null, promptError: null,
+    }), 'absent')
+    assert.equal((await readRequest(repoPath, 'req-other-topic')).status, 'pending')
+    assert.equal((await readRequest(repoPath, 'req-review')).status, 'pending')
+    assert.equal((await store.readActivity()).events.length, activitiesBefore)
+
+    // An already-denied card is not rewritten by a late allow.
+    await service.settleAuthorizationRequestRecord({
+      store, repoPath, topicId: TOPIC, requestId: 'req-1',
+      decision: 'deny', now: NOW, promptedAt: null, promptError: null,
+    })
+    const beforeConflict = await readRequest(repoPath)
+    assert.equal(await service.settleAuthorizationRequestRecord({
+      store, repoPath, topicId: TOPIC, requestId: 'req-1',
+      decision: 'allow', now: NOW, promptedAt: NOW_ISO, promptError: null,
+    }), 'conflict')
+    assert.deepEqual(await readRequest(repoPath), beforeConflict, 'a settled card is immutable')
   })
 })

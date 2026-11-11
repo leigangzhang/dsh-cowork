@@ -304,7 +304,59 @@ function questionPayloadOf(value: RequestPayload | unknown): QuestionPayload {
   }
 }
 
-/** Normalize a plan payload. */
+/** One question answer as the card holds it before it becomes a wire payload. */
+export interface InboxAnswerDraft {
+  readonly selected: readonly string[]
+  readonly text: string
+}
+
+/**
+ * Whether one answer covers one question, using the host's own rule
+ * (`src/request-schema.ts` `answerProblems`): at least one known selected
+ * option (exactly one in `single` mode) or a non-empty free-text answer the
+ * question allows. A text on a question with `allowText !== true` does not
+ * count, so the card cannot enable a submit the host will refuse.
+ */
+export function answerCoversQuestion(
+  question: QuestionSpec,
+  answer: InboxAnswerDraft | undefined,
+): boolean {
+  if (answer === undefined) return false
+  const selected = Array.isArray(answer.selected) ? answer.selected : []
+  const text = typeof answer.text === 'string' ? answer.text.trim() : ''
+  const textCovers = text !== '' && question.allowText === true
+  if (selected.length === 0) return textCovers
+  const optionIds = new Set((question.options ?? []).map((option) => option.id))
+  if (selected.some((id) => !optionIds.has(id))) return false
+  return question.mode === 'multi' || selected.length === 1
+}
+
+/** How many questions still need an answer; zero enables the submit action. */
+export function unansweredQuestionCount(
+  questions: readonly QuestionSpec[],
+  answers: Readonly<Record<string, InboxAnswerDraft>>,
+): number {
+  let missing = 0
+  for (const question of questions) {
+    if (!answerCoversQuestion(question, answers[question.id])) missing += 1
+  }
+  return missing
+}
+
+/** Whether every question is answered — the submit gate of the question card. */
+export function answersComplete(
+  questions: readonly QuestionSpec[],
+  answers: Readonly<Record<string, InboxAnswerDraft>>,
+): boolean {
+  return questions.length > 0 && unansweredQuestionCount(questions, answers) === 0
+}
+
+/** Visible hint while the submit action is blocked. */
+export function unansweredAnswerHint(count: number): string {
+  return count === 1 ? '还有 1 题未回答' : `还有 ${count} 题未回答`
+}
+
+/** Normalize a plan payload. *//** Normalize a plan payload. */
 function planPayloadOf(value: RequestPayload | unknown): PlanPayload {
   const raw = recordOf(value)
   const planTitle = nonEmpty(raw.planTitle)
