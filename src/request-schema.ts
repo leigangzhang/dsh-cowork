@@ -55,6 +55,7 @@ import type {
   RequestKind,
   RequestPayload,
   RequestRecordV1,
+  RequestResolution,
   RequestStatus,
   ReviewPayload,
   ReviewVerification,
@@ -71,6 +72,13 @@ export const REQUEST_ID_MAX_CHARS = 64
 
 /** Longest prompt failure kept in `delivery.lastError`. */
 export const REQUEST_DELIVERY_ERROR_MAX_CHARS = 300
+
+/**
+ * Longest wake-up prompt rebuilt from a resolution. The comment alone can reach
+ * 2000 characters, so the prompt needs more room than the 200-character reply
+ * while still staying a bounded host queue message.
+ */
+export const RESOLUTION_PROMPT_MAX_CHARS = 4000
 
 /** Why one request document was refused. */
 export class RequestSchemaError extends Error {
@@ -117,6 +125,12 @@ function isIsoDate(value: unknown): value is string {
 /** Code points of a string, its schema length. */
 function lengthOf(value: string): number {
   return Array.from(value).length
+}
+
+/** Cut text to at most `limit` code points, marking the cut. */
+function clipCodePoints(text: string, limit: number): string {
+  const points = Array.from(text)
+  return points.length <= limit ? text : `${points.slice(0, limit - 1).join('')}…`
 }
 
 /** Whether a value is a non-empty string within `limit` code points. */
@@ -402,6 +416,41 @@ export function requestRecordProblems(record: unknown): string[] {
   problems.push(...deliveryProblems(record.delivery))
   if (isRequestStatus(record.status)) {
     problems.push(...resolutionPairProblems(record))
+    problems.push(...resolutionProblems(record))
+  }
+  return problems
+}
+
+/**
+ * Problems of the durable resolution block. It is additive and optional, so a
+ * record written before it existed still parses; when present it must agree
+ * with the status and, for a question, with the payload's own answer rule.
+ */
+function resolutionProblems(record: Record<string, unknown>): string[] {
+  const resolution = record.resolution
+  if (resolution === undefined) return []
+  if (!isRecord(resolution)) return ['request.resolution must be an object']
+  const problems: string[] = []
+  if (!isTerminalStatus(record.status as RequestStatus)) {
+    problems.push('request.resolution is only allowed once the request is resolved')
+  }
+  const comment = resolution.comment
+  if (comment !== undefined && !isBoundedText(comment, REQUEST_COMMENT_MAX_CHARS)) {
+    problems.push(`request.resolution.comment must be a non-empty string of at most ${REQUEST_COMMENT_MAX_CHARS} characters`)
+  }
+  const answers = resolution.answers
+  if (comment === undefined && answers === undefined) {
+    problems.push('request.resolution must carry a comment or answers')
+  }
+  if (answers !== undefined) {
+    if (record.kind !== 'question') {
+      problems.push('request.resolution.answers is only allowed on a question request')
+    } else if (!Array.isArray(answers)) {
+      problems.push('request.resolution.answers must be an array of answers')
+    } else if (payloadProblems('question', record.payload).length === 0) {
+      problems.push(...answerProblems(record.payload as unknown as QuestionPayload, answers)
+        .map((problem) => `request.resolution ${problem}`))
+    }
   }
   return problems
 }
@@ -510,18 +559,91 @@ const RESOLUTION_HEADLINE: Readonly<Record<RequestStatus, string>> = {
   void: '该请求已随主题归档作废。',
 }
 
+/** One answered question as the reply and the prompt spell it out. */
+function answerSummaryOf(payload: QuestionPayload, answers: readonly InboxAnswerInput[]): string {
+  const byQuestion = new Map(answers.map((answer) => [answer.questionId, answer]))
+  const parts: string[] = []
+  payload.questions.forEach((question, index) => {
+    const answer = byQuestion.get(question.id)
+    if (answer === undefined) return
+    const labels = (answer.selected ?? []).map(
+      (id) => question.options?.find((option) => option.id === id)?.label ?? id,
+    )
+    const text = typeof answer.text === 'string' ? answer.text.trim() : ''
+    const pieces = labels.length === 0 ? [] : [labels.join('、')]
+    if (text !== '') pieces.push(text)
+    if (pieces.length > 0) parts.push(`第${index + 1}题：${pieces.join('、')}`)
+  })
+  return parts.join('；')
+}
+
 /**
  * The right-hand user reply persisted when a request is resolved. The browser
- * shows exactly this text; the optional comment is folded into it and the
- * whole reply is bounded to {@link RESOLUTION_MESSAGE_MAX_CHARS}.
+ * shows exactly this text; the answers summary and the optional comment are
+ * folded into it and the whole reply is bounded to
+ * {@link RESOLUTION_MESSAGE_MAX_CHARS}. The full comment and every answer stay
+ * in {@link RequestRecordV1.resolution}, so nothing important survives only as
+ * this truncated display string.
  */
-export function resolutionMessage(status: RequestStatus, comment?: string): string {
+export function resolutionMessage(
+  status: RequestStatus,
+  comment?: string,
+  answersSummary?: string,
+): string {
   if (!isTerminalStatus(status)) {
     throw new RequestSchemaError('a pending request has no resolution message', [`status: ${status}`])
   }
   const headline = RESOLUTION_HEADLINE[status]
+  const extras: string[] = []
+  const summary = typeof answersSummary === 'string' ? answersSummary.trim() : ''
+  if (summary !== '') extras.push(`答案：${summary}`)
   const extra = typeof comment === 'string' ? comment.trim() : ''
-  return truncateSummary(extra === '' ? headline : `${headline}${extra}`, RESOLUTION_MESSAGE_MAX_CHARS)
+  if (extra !== '') extras.push(extra)
+  return truncateSummary(extras.length === 0 ? headline : `${headline}${extras.join('；')}`, RESOLUTION_MESSAGE_MAX_CHARS)
+}
+
+/**
+ * The full wake-up prompt of one terminal request: every question with its
+ * selected option labels and free text, then the complete comment. A record
+ * without a `resolution` block falls back to its stored reply, and a record
+ * without either still yields the status headline.
+ */
+export function resolutionPrompt(record: RequestRecordV1): string {
+  const resolution = record.resolution
+  if (resolution === undefined) {
+    return record.resolutionMessage ?? resolutionMessage(record.status)
+  }
+  const lines = [`主题「${record.title}」${RESOLUTION_HEADLINE[record.status]}`]
+  if (record.kind === 'question' && resolution.answers !== undefined) {
+    const payload = record.payload as QuestionPayload
+    const byQuestion = new Map(resolution.answers.map((answer) => [answer.questionId, answer]))
+    payload.questions.forEach((question, index) => {
+      const answer = byQuestion.get(question.id)
+      if (answer === undefined) return
+      const labels = (answer.selected ?? []).map(
+        (id) => question.options?.find((option) => option.id === id)?.label ?? id,
+      )
+      const text = typeof answer.text === 'string' ? answer.text.trim() : ''
+      lines.push(`第${index + 1}题：${question.prompt}`)
+      lines.push(`答：${[...labels, ...(text === '' ? [] : [text])].join('、')}`)
+    })
+  }
+  if (resolution.comment !== undefined) lines.push(`备注：${resolution.comment}`)
+  return clipCodePoints(lines.join('\n'), RESOLUTION_PROMPT_MAX_CHARS)
+}
+
+/** The durable resolution block of one terminal write, or undefined when empty. */
+function persistedResolution(
+  comment: string | undefined,
+  answers: readonly InboxAnswerInput[] | undefined,
+): RequestResolution | undefined {
+  const trimmed = typeof comment === 'string' ? comment.trim() : ''
+  const hasAnswers = answers !== undefined && answers.length > 0
+  if (trimmed === '' && !hasAnswers) return undefined
+  const resolution: { comment?: string; answers?: readonly InboxAnswerInput[] } = {}
+  if (trimmed !== '') resolution.comment = trimmed
+  if (hasAnswers) resolution.answers = answers
+  return resolution
 }
 
 /** Trimmed comment as the record persists it, or null when absent/blank. */
@@ -585,6 +707,8 @@ export function buildRequestRecord(input: NewRequestInput): RequestRecordV1 {
 export interface ResolutionPatchInput {
   readonly status: RequestStatus
   readonly comment?: string
+  /** The validated answers of a `question` submit; other kinds carry none. */
+  readonly answers?: readonly InboxAnswerInput[]
   readonly resolvedBy: 'user' | 'master'
   readonly now: Date
 }
@@ -594,10 +718,15 @@ export function applyResolution(record: RequestRecordV1, input: ResolutionPatchI
   if (isTerminalStatus(record.status)) {
     throw new RequestSchemaError('only a pending request can be resolved', [`status: ${record.status}`])
   }
+  const answersSummary = record.kind === 'question' && input.answers !== undefined
+    ? answerSummaryOf(record.payload as QuestionPayload, input.answers)
+    : undefined
+  const resolution = persistedResolution(input.comment, input.answers)
   const next: RequestRecordV1 = {
     ...record,
     status: input.status,
-    resolutionMessage: resolutionMessage(input.status, input.comment),
+    resolutionMessage: resolutionMessage(input.status, input.comment, answersSummary),
+    ...(resolution === undefined ? {} : { resolution }),
     resolvedAt: input.now.toISOString(),
     resolvedBy: input.resolvedBy,
     updatedAt: input.now.toISOString(),

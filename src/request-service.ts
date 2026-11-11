@@ -29,6 +29,7 @@ import type {
 import { noticeIdOf, updateAuthorizationNotice } from './notices.js'
 import type { NoticeLedgerV1, NoticeUpdateOutcome, TopicNoticePort } from './notices.js'
 import {
+  REQUEST_DELIVERY_ERROR_MAX_CHARS,
   RequestSchemaError,
   answerProblems,
   applyResolution,
@@ -37,6 +38,7 @@ import {
   kindOffersAction,
   normalizeComment,
   resolutionMessage,
+  resolutionPrompt,
 } from './request-schema.js'
 import { RequestStore } from './request-store.js'
 import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
@@ -47,7 +49,6 @@ import type {
   TopicRecordV2,
 } from './store-schema.js'
 import { unblockTopic } from './topic.js'
-import { REQUEST_DELIVERY_ERROR_MAX_CHARS } from './request-schema.js'
 import type { PanelErrorCode } from './api-contract.js'
 
 /** A failure the panel routes answer with a stable code and status. */
@@ -217,6 +218,7 @@ export async function resolveRequest(input: ResolveRequestInput): Promise<Resolv
       ? applyResolution(current, {
         status,
         comment: comment ?? undefined,
+        ...(record.kind === 'question' && input.answers !== undefined ? { answers: input.answers } : {}),
         resolvedBy: 'user',
         now: input.now,
       })
@@ -238,21 +240,36 @@ export async function resolveRequest(input: ResolveRequestInput): Promise<Resolv
     )
   }
   await appendResolvedActivity(input, next, input.action)
-  const prompted = decision === null
-    ? await promptTopic(input, next)
-    : { prompted: decision.prompted, promptError: decision.promptError }
-  const recorded = prompted.prompted || prompted.promptError !== null
-    ? await store.recordDelivery(next.requestId, {
-      promptedAt: prompted.prompted ? input.now.toISOString() : next.delivery.promptedAt,
-      lastError: prompted.promptError,
-    })
+  // The card is terminal before any prompt is attempted. An authorization
+  // decision was committed with `deferPrompt`, so its wake-up text only fires
+  // here; every other kind rebuilds the text from its persisted resolution.
+  const delivered = await promptRequestTopic({
+    repoPath: input.repoPath,
+    requestId: next.requestId,
+    topicId: next.topicId,
+    sessionId: input.sessionId,
+    text: decision === null ? resolutionPromptOf(next) : decision.promptText,
+    previousPromptedAt: next.delivery.promptedAt,
+    promptSession: input.promptSession,
+    now: input.now,
+    log: input.log,
+  })
+  const recorded = delivered.prompted || delivered.promptError !== null
+    ? await store.read(next.requestId)
     : next
   return {
     record: recorded ?? next,
     changed: true,
-    prompted: prompted.prompted,
-    promptError: prompted.promptError,
+    prompted: delivered.prompted,
+    promptError: delivered.promptError,
   }
+}
+
+/** The wake-up text of one terminal request, from the durable resolution. */
+function resolutionPromptOf(record: RequestRecordV1): string {
+  return record.resolution === undefined
+    ? (record.resolutionMessage ?? resolutionMessage(record.status))
+    : resolutionPrompt(record)
 }
 
 /** Run the shared authorization core, mapping its codes onto the inbox ones. */
@@ -270,6 +287,8 @@ async function decideAuthorization(
       decision,
       sessionId: input.sessionId,
       now: input.now,
+      // The card becomes terminal first; resolveRequest prompts afterwards.
+      deferPrompt: true,
       promptSession: input.promptSession,
       noticePort: input.noticePort,
       kickNotices: input.kickNotices,
@@ -300,27 +319,63 @@ async function appendResolvedActivity(
   }
 }
 
-/** Wake the topic session with the persisted right-hand reply. */
-async function promptTopic(
-  input: ResolveRequestInput,
-  record: RequestRecordV1,
-): Promise<{ prompted: boolean; promptError: string | null }> {
+/** Everything one wake-up prompt needs. */
+export interface PromptRequestTopicInput {
+  readonly repoPath: string
+  readonly requestId: string
+  readonly topicId: string
+  readonly sessionId: string
+  /** Already-rebuilt prompt text, or null when no prompt is due. */
+  readonly text: string | null
+  /** The delivery block's previous `promptedAt`, kept on a refused prompt. */
+  readonly previousPromptedAt: string | null
+  readonly promptSession?: (sessionId: string, text: string) => Promise<{ accepted: boolean }>
+  readonly now: Date
+  readonly log?: (message: string) => void
+}
+
+/** What one wake-up prompt did. */
+export interface PromptRequestTopicOutcome {
+  readonly prompted: boolean
+  readonly promptError: string | null
+}
+
+/**
+ * Wake the topic session with `text` and persist the delivery facts on the
+ * request card. A null text, a caller that is the topic itself and a host
+ * without a prompt port are all deliberate non-prompts. A prompt failure is
+ * recorded in `delivery.lastError` and never rolls the terminal state back; a
+ * failed delivery write is logged rather than thrown, because the decision is
+ * already durable.
+ */
+export async function promptRequestTopic(
+  input: PromptRequestTopicInput,
+): Promise<PromptRequestTopicOutcome> {
   // A caller that is the topic session already has the decision; prompting
   // itself would be a duplicate turn.
-  if (input.sessionId === record.topicId || input.promptSession === undefined) {
+  if (input.text === null || input.sessionId === input.topicId || input.promptSession === undefined) {
     return { prompted: false, promptError: null }
   }
-  const text = record.resolutionMessage ?? resolutionMessage(record.status)
+  let prompted = false
+  let promptError: string | null = null
   try {
-    const result = await input.promptSession(record.topicId, text)
-    return result.accepted
-      ? { prompted: true, promptError: null }
-      : { prompted: false, promptError: 'the host refused the queue prompt' }
+    const result = await input.promptSession(input.topicId, input.text)
+    prompted = result.accepted === true
+    if (!prompted) promptError = 'the host refused the queue prompt'
   } catch (error) {
-    const message = clipText(messageOf(error), REQUEST_DELIVERY_ERROR_MAX_CHARS)
-    input.log?.(`request ${record.requestId}: topic ${record.topicId} was not prompted: ${message}`)
-    return { prompted: false, promptError: message }
+    promptError = clipText(messageOf(error), REQUEST_DELIVERY_ERROR_MAX_CHARS)
+    input.log?.(`request ${input.requestId}: topic ${input.topicId} was not prompted: ${promptError}`)
   }
+  const store = new RequestStore({ repoPath: input.repoPath, log: input.log })
+  try {
+    await store.recordDelivery(input.requestId, {
+      promptedAt: prompted ? input.now.toISOString() : input.previousPromptedAt,
+      lastError: promptError,
+    })
+  } catch (error) {
+    input.log?.(`request ${input.requestId}: delivery was not recorded: ${messageOf(error)}`)
+  }
+  return { prompted, promptError }
 }
 
 /**
@@ -347,6 +402,13 @@ export interface AuthorizationDecisionInput {
   readonly decision: 'allow' | 'deny'
   readonly sessionId: string
   readonly now: Date
+  /**
+   * When true, commit the unlock, the notice patch and the activity, but return
+   * the wake-up text in `promptText` instead of prompting. The caller prompts
+   * after the request card is terminal, so a card write failure can never leave
+   * a prompted topic behind a pending card.
+   */
+  readonly deferPrompt?: boolean
   readonly promptSession?: (sessionId: string, text: string) => Promise<{ accepted: boolean }>
   readonly noticePort?: TopicNoticePort
   readonly kickNotices?: (repoPath: string) => void
@@ -358,6 +420,8 @@ export interface AuthorizationDecisionOutcome {
   readonly changed: boolean
   readonly prompted: boolean
   readonly promptError: string | null
+  /** The wake-up text when a committed decision still owes a prompt, or null. */
+  readonly promptText: string | null
   readonly noticeId: string | null
   readonly document: ProjectIndexV2
   readonly topic: TopicRecordV2
@@ -452,6 +516,7 @@ export async function resolveAuthorizationDecision(
       changed: false,
       prompted: false,
       promptError: null,
+      promptText: null,
       noticeId: recorded.noticeId,
       document: before,
       topic,
@@ -507,6 +572,7 @@ export async function resolveAuthorizationDecision(
       changed: false,
       prompted: false,
       promptError: null,
+      promptText: null,
       noticeId: recorded.noticeId,
       document,
       topic: settled,
@@ -540,12 +606,15 @@ export async function resolveAuthorizationDecision(
     }
     if (update === 'failed') input.log?.(`panel authorization: notice ${noticeId} was not updated`)
   }
+  // The topic continues on its own; the master already knows from the event.
+  const promptText = input.promptSession !== undefined && sessionId !== topicId
+    ? authorizationPrompt(summary, decision)
+    : null
   let prompted = false
   let promptError: string | null = null
-  // The topic continues on its own; the master already knows from the event.
-  if (input.promptSession !== undefined && sessionId !== topicId) {
+  if (promptText !== null && input.deferPrompt !== true) {
     try {
-      const result = await input.promptSession(topicId, authorizationPrompt(summary, decision))
+      const result = await input.promptSession!(topicId, promptText)
       prompted = result.accepted
       if (!prompted) promptError = 'the host refused the queue prompt'
     } catch (error) {
@@ -558,16 +627,28 @@ export async function resolveAuthorizationDecision(
   if (current === undefined) {
     throw new PanelServiceError('internal', `topic disappeared from the index: ${topicId}`)
   }
-  return { changed: true, prompted, promptError, noticeId, document, topic: current, decision }
+  return {
+    changed: true,
+    prompted,
+    promptError,
+    promptText: input.deferPrompt === true ? promptText : null,
+    noticeId,
+    document,
+    topic: current,
+    decision,
+  }
 }
 
 /**
  * Converge the request-inbox record of one authorization decision made through
  * the legacy `authorization.resolve` route.
  *
- * The index, the topic authorization, the notice and the queue prompt are
- * already handled by {@link resolveAuthorizationDecision}; this function keeps
- * the inbox card in step so the two routes cannot show different states. It is
+ * The index, the topic authorization and the notice are already handled by
+ * {@link resolveAuthorizationDecision}; this keeps the inbox card in step so
+ * the two routes cannot show different states. The legacy route calls it with
+ * no delivery facts and patches them after the deferred prompt (see
+ * {@link promptRequestTopic}), so the card is terminal before the topic wakes.
+ * It is
  * deliberately tolerant: the legacy route must keep its response shape, so a
  * missing record (a topic that never used the request tools), a record of
  * another kind or topic, and a record another writer already settled are all

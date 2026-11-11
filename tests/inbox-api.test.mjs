@@ -24,6 +24,7 @@ const activity = await import('../src/activity.ts')
 const { recordNoticesForEvent } = await import('../src/notices.ts')
 const { ProjectStore } = await import('../src/store.ts')
 const service = await import('../src/request-service.ts')
+const { RequestStore } = await import('../src/request-store.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')
 const NOW_ISO = NOW.toISOString()
@@ -505,6 +506,73 @@ test('resolve validates question answers and the comment', async () => {
     assert.equal(answered.body.item.status, 'answered')
     const skip = await resolve({ sessionId: MASTER, requestId: 'req-plan-missing', action: 'skip' })
     assert.equal(skip.status, 404)
+  })
+})
+
+test('a question submit lands every answer on the card before the topic prompt', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic(TOPIC, 'Inbox backend')])
+    await seedRequest(repoPath, store, {
+      requestId: 'req-q',
+      kind: 'question',
+      payload: {
+        questions: [
+          {
+            id: 'q1',
+            prompt: 'ship it?',
+            mode: 'single',
+            options: [{ id: 'o1', label: '现在发布' }, { id: 'o2', label: '再等等' }],
+          },
+          { id: 'q2', prompt: '补充说明？', mode: 'single', allowText: true },
+        ],
+      },
+    })
+    const { ports } = fakePorts(repoPath)
+    const observed = []
+    // The prompt port reads the card the way the topic session will.
+    ports.promptSession = async (sessionId, text) => {
+      observed.push({
+        sessionId,
+        text,
+        record: await new RequestStore({ repoPath }).read('req-q'),
+      })
+      return { accepted: true }
+    }
+    const routes = registerRoutes(ports)
+    const { status, body } = await readResponse(
+      await routes.get(inboxContract.INBOX_RESOLVE_PATH).fetch(postRequest(inboxContract.INBOX_RESOLVE_PATH, {
+        sessionId: MASTER,
+        requestId: 'req-q',
+        action: 'submit',
+        answers: [
+          { questionId: 'q1', selected: ['o1'] },
+          { questionId: 'q2', text: '把文档补上' },
+        ],
+        comment: '先处理文档，再发布',
+      })),
+    )
+    assert.equal(status, 200)
+    assert.equal(body.ok, true)
+    assert.equal(body.item.status, 'answered')
+    assert.equal(observed.length, 1)
+    assert.equal(observed[0].sessionId, TOPIC)
+    assert.equal(observed[0].record.status, 'answered', 'the card is terminal before the prompt')
+    assert.deepEqual(observed[0].record.resolution, {
+      comment: '先处理文档，再发布',
+      answers: [
+        { questionId: 'q1', selected: ['o1'] },
+        { questionId: 'q2', text: '把文档补上' },
+      ],
+    })
+    assert.match(observed[0].text, /ship it\?/)
+    assert.match(observed[0].text, /现在发布/)
+    assert.match(observed[0].text, /把文档补上/)
+    assert.match(observed[0].text, /先处理文档，再发布/)
+    assert.match(body.item.resolutionMessage, /已回答全部问题/)
+    assert.match(body.item.resolutionMessage, /现在发布/)
+    const persisted = await new RequestStore({ repoPath }).read('req-q')
+    assert.equal(persisted.delivery.promptedAt, NOW_ISO)
+    assert.equal(persisted.delivery.lastError, null)
   })
 })
 

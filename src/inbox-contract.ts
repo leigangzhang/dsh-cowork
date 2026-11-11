@@ -257,6 +257,19 @@ export interface RequestDelivery {
 }
 
 /**
+ * The full resolution payload of one terminal request: the bounded comment and,
+ * for a `question` submit, every selected option id and free-text answer.
+ *
+ * `resolutionMessage` stays the short right-hand reply (≤ 200 characters); this
+ * block is the durable fact the topic prompt is rebuilt from, so a long comment
+ * or an option label never survives only as a truncated display string.
+ */
+export interface RequestResolution {
+  readonly comment?: string
+  readonly answers?: readonly InboxAnswerInput[]
+}
+
+/**
  * One request record as persisted at
  * `<repo>/.dsh-cowork/requests/<requestId>.json`. The left message and the
  * right reply are server-generated and persisted here, so a refresh restores
@@ -279,6 +292,11 @@ export interface RequestRecordV1 {
   readonly updatedAt: string
   readonly resolvedAt: string | null
   readonly resolvedBy: 'user' | 'master' | null
+  /**
+   * Full terminal payload; absent on records written before it existed (still
+   * readable, and the prompt falls back to `resolutionMessage`).
+   */
+  readonly resolution?: RequestResolution
   readonly delivery: RequestDelivery
 }
 
