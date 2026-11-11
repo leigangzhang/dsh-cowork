@@ -19,6 +19,7 @@ import {
   REQUEST_COUNT_FIELD,
   REQUEST_PENDING_LABELS,
   REQUEST_STATUS_LABELS,
+  answerCoversQuestion,
   isRequestAction,
   type AuthorizationPayload,
   type InboxCounts,
@@ -31,10 +32,8 @@ import {
   type QuestionSpec,
   type RequestAction,
   type RequestKind,
-  type RequestPayload,
   type RequestStatus,
   type ReviewPayload,
-  type ReviewVerification,
 } from '../inbox-contract.ts'
 import { formatRelativeTime } from './model.ts'
 
@@ -202,13 +201,6 @@ export interface InboxSnapshot {
   readonly counts: InboxCounts
 }
 
-/** One untrusted JSON object, or an empty record. */
-function recordOf(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {}
-}
-
 /** A string from untrusted input, or ''. */
 function textOf(value: unknown): string {
   return typeof value === 'string' ? value : ''
@@ -219,116 +211,10 @@ function nonEmpty(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null
 }
 
-/** A string array from untrusted input; non-string members are dropped. */
-function textArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
-}
-
-/** One verification row from untrusted input, or null. */
-function verificationOf(value: unknown): ReviewVerification | null {
-  const raw = recordOf(value)
-  const command = textOf(raw.command)
-  if (command.trim() === '') return null
-  return {
-    command,
-    exitCode: typeof raw.exitCode === 'number' && Number.isFinite(raw.exitCode) ? Math.trunc(raw.exitCode) : 0,
-    evidence: textOf(raw.evidence),
-  }
-}
-
-/** Normalize a user-review payload; missing fields degrade to empty values. */
-function reviewPayloadOf(value: RequestPayload | unknown): ReviewPayload {
-  const raw = recordOf(value)
-  return {
-    purpose: textOf(raw.purpose),
-    changedPaths: textArray(raw.changedPaths),
-    verification: Array.isArray(raw.verification)
-      ? raw.verification.map(verificationOf).filter((row): row is ReviewVerification => row !== null)
-      : [],
-    reviewRequestId: nonEmpty(raw.reviewRequestId) ?? undefined,
-  }
-}
-
-/** Normalize an authorization payload. */
-function authorizationPayloadOf(value: RequestPayload | unknown): AuthorizationPayload {
-  const raw = recordOf(value)
-  const command = nonEmpty(raw.command)
-  return command === null
-    ? { summary: textOf(raw.summary) }
-    : { summary: textOf(raw.summary), command }
-}
-
-/** One normalized option; the card renders its label and description. */
-interface NormalizedQuestionOption {
-  readonly id: string
-  readonly label: string
-  readonly description?: string
-  readonly recommended: boolean
-}
-
-/** Normalize one option; a missing id drops the option. */
-function questionOptionOf(value: unknown): NormalizedQuestionOption | null {
-  const raw = recordOf(value)
-  const id = nonEmpty(raw.id)
-  if (id === null) return null
-  const description = nonEmpty(raw.description)
-  return description === null
-    ? { id, label: textOf(raw.label), recommended: raw.recommended === true }
-    : { id, label: textOf(raw.label), description, recommended: raw.recommended === true }
-}
-
-/** Normalize one question; a missing id drops the question. */
-function questionOf(value: unknown): QuestionSpec | null {
-  const raw = recordOf(value)
-  const id = nonEmpty(raw.id)
-  if (id === null) return null
-  const options = Array.isArray(raw.options)
-    ? raw.options.map(questionOptionOf).filter((option): option is NormalizedQuestionOption => option !== null)
-    : undefined
-  return {
-    id,
-    prompt: textOf(raw.prompt),
-    mode: raw.mode === 'multi' ? 'multi' : 'single',
-    options,
-    allowText: raw.allowText === true,
-  }
-}
-
-/** Normalize a question payload; a missing list reads as no questions. */
-function questionPayloadOf(value: RequestPayload | unknown): QuestionPayload {
-  const raw = recordOf(value)
-  return {
-    questions: Array.isArray(raw.questions)
-      ? raw.questions.map(questionOf).filter((question): question is QuestionSpec => question !== null)
-      : [],
-  }
-}
-
 /** One question answer as the card holds it before it becomes a wire payload. */
 export interface InboxAnswerDraft {
   readonly selected: readonly string[]
   readonly text: string
-}
-
-/**
- * Whether one answer covers one question, using the host's own rule
- * (`src/request-schema.ts` `answerProblems`): at least one known selected
- * option (exactly one in `single` mode) or a non-empty free-text answer the
- * question allows. A text on a question with `allowText !== true` does not
- * count, so the card cannot enable a submit the host will refuse.
- */
-export function answerCoversQuestion(
-  question: QuestionSpec,
-  answer: InboxAnswerDraft | undefined,
-): boolean {
-  if (answer === undefined) return false
-  const selected = Array.isArray(answer.selected) ? answer.selected : []
-  const text = typeof answer.text === 'string' ? answer.text.trim() : ''
-  const textCovers = text !== '' && question.allowText === true
-  if (selected.length === 0) return textCovers
-  const optionIds = new Set((question.options ?? []).map((option) => option.id))
-  if (selected.some((id) => !optionIds.has(id))) return false
-  return question.mode === 'multi' || selected.length === 1
 }
 
 /** How many questions still need an answer; zero enables the submit action. */
@@ -434,15 +320,6 @@ export function clearStoredFilter(
   }
 }
 
-/** Normalize a plan payload. */
-function planPayloadOf(value: RequestPayload | unknown): PlanPayload {
-  const raw = recordOf(value)
-  const planTitle = nonEmpty(raw.planTitle)
-  return planTitle === null
-    ? { planPath: textOf(raw.planPath) }
-    : { planPath: textOf(raw.planPath), planTitle }
-}
-
 /** The actions a pending request still offers, in the contract's card order. */
 function availableActions(item: InboxRequestItem): readonly RequestAction[] {
   if (item.status !== 'pending') return []
@@ -482,15 +359,18 @@ function requestViewOf(item: InboxRequestItem, nowMs: number): InboxRequestView 
     updatedAt: textOf(item.updatedAt),
     timeLabel: formatRelativeTime(item.updatedAt, nowMs),
   }
+  // `InboxRequestItem` is a discriminated union, so the wire payload is
+  // already the typed payload of this kind: the one parser in `client/api.ts`
+  // is the only place that narrows it.
   switch (item.requestKind) {
     case 'user-review':
-      return { ...base, requestKind: 'user-review', payload: reviewPayloadOf(item.payload) }
+      return { ...base, requestKind: 'user-review', payload: item.payload }
     case 'authorization':
-      return { ...base, requestKind: 'authorization', payload: authorizationPayloadOf(item.payload) }
+      return { ...base, requestKind: 'authorization', payload: item.payload }
     case 'question':
-      return { ...base, requestKind: 'question', payload: questionPayloadOf(item.payload) }
+      return { ...base, requestKind: 'question', payload: item.payload }
     case 'plan':
-      return { ...base, requestKind: 'plan', payload: planPayloadOf(item.payload) }
+      return { ...base, requestKind: 'plan', payload: item.payload }
   }
 }
 

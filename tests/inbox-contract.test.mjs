@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {
+import { readFile } from 'node:fs/promises'
+import './support/ts-hook.mjs'
+
+const {
   AUTHORIZATION_COMMAND_MAX_CHARS,
   INBOX_ERROR_CODES,
   INBOX_MAX_ITEMS,
@@ -47,8 +50,8 @@ import {
   isRequestStatus,
   isTerminalStatus,
   statusForAction,
-} from '../src/inbox-contract.ts'
-import { PANEL_ERROR_STATUS } from '../src/api-contract.ts'
+} = await import('../src/inbox-contract.ts')
+const { PANEL_ERROR_STATUS } = await import('../src/api-contract.ts')
 
 /** The one place the four kinds are restated: this frozen contract test. */
 const KINDS = ['user-review', 'authorization', 'question', 'plan']
@@ -144,7 +147,7 @@ test('the count field maps each kind onto one InboxCounts key', () => {
 
 test('the notification kinds cover the four note events plus the reviewer verdict', () => {
   assert.deepEqual([...INBOX_NOTIFICATION_KINDS], [
-    'assignment', 'report', 'proposal', 'review-verdict', 'archive',
+    'assignment', 'report', 'proposal', 'archive', 'review-verdict',
   ])
   assert.equal(INBOX_NOTIFICATION_KINDS.includes('authorization'), false, 'authorization is a request card')
   for (const kind of INBOX_NOTIFICATION_KINDS) assert.equal(isInboxNotificationKind(kind), true, kind)
@@ -190,6 +193,20 @@ test('every cap is the frozen positive integer', () => {
   assert.equal(OPEN_FILE_MAX_BYTES, 1_048_576)
   assert.ok(RESOLUTION_MESSAGE_MAX_CHARS <= REQUEST_MESSAGE_MAX_CHARS)
   assert.ok(INBOX_MAX_ITEMS <= INBOX_MAX_REQUEST_FILES)
+})
+
+test('the notice kinds have one home in notice-contract.ts and the inbox derives from it', async () => {
+  const noticeContract = await readFile(new URL('../src/notice-contract.ts', import.meta.url), 'utf8')
+  const notices = await readFile(new URL('../src/notices.ts', import.meta.url), 'utf8')
+  const noticeModel = await readFile(new URL('../src/client/notice-model.ts', import.meta.url), 'utf8')
+  const inboxContract = await readFile(new URL('../src/inbox-contract.ts', import.meta.url), 'utf8')
+  assert.equal((noticeContract.match(/export const NOTICE_KINDS =/g) ?? []).length, 1)
+  for (const [name, source] of [['notices.ts', notices], ['client/notice-model.ts', noticeModel]]) {
+    assert.equal(source.includes("= ['assignment'"), false, `${name} must not restate the notice kinds`)
+    assert.match(source, /notice-contract/)
+  }
+  assert.match(inboxContract, /NOTICE_KINDS\.filter\(/)
+  assert.match(inboxContract, /INBOX_NOTIFICATION_KINDS = \[\.\.\.INBOX_NOTICE_KINDS, 'review-verdict'\] as const/)
 })
 
 test('the eight inbox error codes are ordinary panel codes with a decided status', () => {

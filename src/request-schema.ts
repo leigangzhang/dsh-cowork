@@ -38,6 +38,7 @@ import {
   REQUEST_ACTIONS_BY_KIND,
   actionAllowed,
   actionForStatus,
+  answerCoversQuestion,
   isRequestAction,
   isRequestKind,
   isRequestStatus,
@@ -370,9 +371,14 @@ export function answerProblems(
         problems.push(`question ${question.id} does not accept a free-text answer`)
       }
     }
-    const selectedCount = Array.isArray(selected) ? selected.length : 0
-    const hasText = typeof text === 'string' && text.trim() !== ''
-    if (selectedCount === 0 && !hasText) problems.push(`question ${question.id} has no answer`)
+    // The shared rule decides whether the question counts as answered; the
+    // checks above only explain why it does not. Keeping the gate here in one
+    // place is what stops the card and the host from drifting.
+    if (!answerCoversQuestion(question, answer)) {
+      const selectedCount = Array.isArray(selected) ? selected.length : 0
+      const hasText = typeof text === 'string' && text.trim() !== ''
+      if (selectedCount === 0 && !hasText) problems.push(`question ${question.id} has no answer`)
+    }
   }
   return problems
 }

@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, readdir } from 'node:fs/promises'
-import {
+import './support/ts-hook.mjs'
+
+const {
   CARD_MENU_GAP,
   CARD_MENU_HEIGHT,
   CARD_MENU_WIDTH,
@@ -35,9 +37,9 @@ import {
   topicGroupLabel,
   topicMarkerLabel,
   writeFailureMessage,
-} from '../src/client/model.ts'
-import * as api from '../src/client/api.ts'
-import {
+} = await import('../src/client/model.ts')
+const api = await import('../src/client/api.ts')
+const {
   PanelApiError,
   errorMessage,
   loadOverview,
@@ -50,7 +52,7 @@ import {
   reopenTopic,
   resolveTopic,
   toPanelError,
-} from '../src/client/api.ts'
+} = await import('../src/client/api.ts')
 
 /** Fixed clock: every relative-time assertion is independent of the wall clock. */
 const NOW = Date.parse('2026-11-08T12:00:00.000Z')
@@ -770,8 +772,12 @@ test('the question card gates submit on every answer and renders the unanswered 
   const modelSource = await readFile(new URL('inbox-model.ts', clientUrl), 'utf8')
   const model = await import('../src/client/inbox-model.ts')
 
-  // The gate and its copy live in the model (React-free), not in the component.
-  assert.match(modelSource, /export function answerCoversQuestion\(/)
+  // The gate and its copy live in the model (React-free), not in the component;
+  // the decided rule itself is shared with the host in the frozen contract.
+  const contractSource = await readFile(new URL('../src/inbox-contract.ts', import.meta.url), 'utf8')
+  assert.match(contractSource, /export function answerCoversQuestion\(/)
+  assert.match(modelSource, /answerCoversQuestion,/)
+  assert.equal(modelSource.includes('function answerCoversQuestion('), false)
   assert.match(modelSource, /export function unansweredQuestionCount\(/)
   assert.match(modelSource, /export function answersComplete\(/)
   assert.equal(model.answersComplete([{ id: 'q1', prompt: 'p', mode: 'single', options: [{ id: 'o1', label: 'a' }] }], {}), false)

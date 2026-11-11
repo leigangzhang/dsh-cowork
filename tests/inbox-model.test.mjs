@@ -1,13 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import {
+import './support/ts-hook.mjs'
+
+const {
   REQUEST_ACTIONS_BY_KIND,
   REQUEST_PENDING_LABELS,
   REQUEST_STATUS_LABELS,
   REQUEST_STATUSES,
-} from '../src/inbox-contract.ts'
-import {
+  answerCoversQuestion,
+} = await import('../src/inbox-contract.ts')
+const {
   INBOX_ALL_TOPICS_LABEL,
   INBOX_ARCHIVED_TOPIC_LABEL,
   INBOX_EMPTY_LABEL,
@@ -20,7 +23,6 @@ import {
   TOPIC_COLUMN_WIDTH_PX,
   WIDE_PANEL_MIN_PX,
   INBOX_FILTER_STORAGE_PREFIX,
-  answerCoversQuestion,
   answersComplete,
   applyInboxItemUpdate,
   buildInboxViewModel,
@@ -33,8 +35,8 @@ import {
   unansweredQuestionCount,
   clearStoredFilter,
   writeStoredFilter,
-} from '../src/client/inbox-model.ts'
-import {
+} = await import('../src/client/inbox-model.ts')
+const {
   PanelApiError,
   loadInbox,
   openInboxTarget,
@@ -44,7 +46,7 @@ import {
   parseInboxRow,
   parseInboxRequestItem,
   resolveInboxRequest,
-} from '../src/client/api.ts'
+} = await import('../src/client/api.ts')
 
 /** Fixed clock: relative-time labels never depend on the wall clock. */
 const NOW = Date.parse('2026-11-08T12:00:00.000Z')
@@ -601,6 +603,22 @@ test('the geometry constants are the frozen 620 / 280 / 318 values', () => {
   assert.equal(INBOX_COLUMN_MIN_PX, 280)
   assert.equal(TOPIC_COLUMN_WIDTH_PX, 318)
   assert.equal(INBOX_COLUMN_GAP_PX, 12)
+})
+
+test('the answered rule and the wire payload parser each live in one place', async () => {
+  const contractSource = await readFile(new URL('../src/inbox-contract.ts', import.meta.url), 'utf8')
+  const modelSource = await readFile(new URL('../src/client/inbox-model.ts', import.meta.url), 'utf8')
+  const apiSource = await readFile(new URL('../src/client/api.ts', import.meta.url), 'utf8')
+  assert.equal((contractSource.match(/export function answerCoversQuestion\(/g) ?? []).length, 1)
+  assert.equal(modelSource.includes('function answerCoversQuestion('), false)
+  assert.equal(apiSource.includes('function answerCoversQuestion('), false)
+  assert.match(modelSource, /answerCoversQuestion,/)
+  // `client/api.ts` is the only wire parser: the model consumes typed payloads.
+  for (const removed of ['reviewPayloadOf', 'authorizationPayloadOf', 'questionPayloadOf', 'planPayloadOf']) {
+    assert.equal(modelSource.includes(removed), false, `${removed} must not exist in the model`)
+  }
+  assert.match(modelSource, /payload: item\.payload/)
+  assert.match(apiSource, /parseReviewPayload\(value\.payload\)/)
 })
 
 test('inbox-model stays React-free and carries no JSX', async () => {

@@ -5,8 +5,8 @@
  * record model (`src/request-schema.ts`), the browser fetch layer
  * (`src/client/api.ts`) and the browser view model
  * (`src/client/inbox-model.ts`). It carries names, caps and pure guards — no
- * I/O, no clock, no imports from other `src/` modules — so the two halves of
- * the feature can be written in parallel against one frozen vocabulary.
+ * I/O, no clock, and only the pure `notice-contract` dependency — so the two
+ * halves of the feature can be written against one frozen vocabulary.
  *
  * The four request kinds are the ones the design fixes:
  * `user-review`, `authorization`, `question`, `plan`. A "user-review" is the
@@ -18,6 +18,8 @@
  * already exports `PanelInboxItem` for the legacy master inbox rows carried by
  * the overview response, and the two concepts must not be confused.
  */
+
+import { NOTICE_KINDS, type NoticeKind } from './notice-contract.js'
 
 /** Route paths of the request inbox. */
 export const INBOX_PATH = '/api/cowork.inbox'
@@ -181,14 +183,15 @@ export const REQUEST_COUNT_FIELD: Readonly<Record<RequestKind, keyof InboxCounts
   plan: 'plan',
 }
 
-/** The four notification kinds the inbox note stream carries. */
-export const INBOX_NOTIFICATION_KINDS = [
-  'assignment',
-  'report',
-  'proposal',
-  'review-verdict',
-  'archive',
-] as const
+/**
+ * The notification kinds the inbox note stream carries: the shared notice kinds
+ * except `authorization` (it has a request card) plus the automatic reviewer's
+ * `review-verdict`, which is a read-only note and never becomes a request.
+ */
+const INBOX_NOTICE_KINDS = NOTICE_KINDS.filter(
+  (kind): kind is Exclude<NoticeKind, 'authorization'> => kind !== 'authorization',
+)
+export const INBOX_NOTIFICATION_KINDS = [...INBOX_NOTICE_KINDS, 'review-verdict'] as const
 
 /** One read-only notification kind. */
 export type InboxNotificationKind = (typeof INBOX_NOTIFICATION_KINDS)[number]
@@ -301,7 +304,7 @@ export interface RequestRecordV1 {
 }
 
 /** One request card with its persisted conversation pair. */
-export interface InboxRequestItem {
+interface InboxRequestItemBase {
   readonly kind: 'request'
   readonly requestId: string
   readonly requestKind: RequestKind
@@ -315,10 +318,20 @@ export interface InboxRequestItem {
   readonly resolutionMessage: string | null
   /** Actions still offered; empty once the request is terminal. */
   readonly actions: readonly RequestAction[]
-  readonly payload: RequestPayload
   readonly createdAt: string
   readonly updatedAt: string
 }
+
+/**
+ * One request row, discriminated by `requestKind` so `payload` narrows to the
+ * kind's own shape. `client/api.ts` is the one wire parser; every other consumer
+ * reads `item.payload` directly instead of re-normalising it.
+ */
+export type InboxRequestItem =
+  | (InboxRequestItemBase & { readonly requestKind: 'user-review'; readonly payload: ReviewPayload })
+  | (InboxRequestItemBase & { readonly requestKind: 'authorization'; readonly payload: AuthorizationPayload })
+  | (InboxRequestItemBase & { readonly requestKind: 'question'; readonly payload: QuestionPayload })
+  | (InboxRequestItemBase & { readonly requestKind: 'plan'; readonly payload: PlanPayload })
 
 /** One read-only notification note in the inbox stream. */
 export interface InboxNotificationItem {
@@ -402,6 +415,21 @@ export const INBOX_ERROR_CODES = [
 /** One inbox failure code. */
 export type InboxErrorCode = (typeof INBOX_ERROR_CODES)[number]
 
+/**
+ * HTTP status of every inbox failure code. The shared panel error table spreads
+ * this, so a new code cannot ship without its status.
+ */
+export const INBOX_ERROR_STATUS: Readonly<Record<InboxErrorCode, number>> = {
+  'inbox/request-not-found': 404,
+  'inbox/request-resolved': 409,
+  'inbox/action-not-allowed': 400,
+  'inbox/invalid-answer': 400,
+  'inbox/invalid-comment': 400,
+  'inbox/path-missing': 404,
+  'inbox/open-unsupported': 501,
+  'inbox/not-member': 403,
+}
+
 /** Zero counts for an empty inbox. */
 export function emptyInboxCounts(): InboxCounts {
   return { pending: 0, review: 0, authorization: 0, question: 0, plan: 0 }
@@ -452,6 +480,27 @@ export function actionForStatus(status: RequestStatus): RequestAction | null {
     if (REQUEST_ACTION_STATUS[action] === status) return action
   }
   return null
+}
+
+/**
+ * Whether one answer covers one question, using the one rule the host and the
+ * browser share: at least one known selected option (exactly one in `single`
+ * mode) or a non-empty free-text answer the question allows. A text on a
+ * question with `allowText !== true` does not count, so the card cannot enable
+ * a submit the host will refuse.
+ */
+export function answerCoversQuestion(
+  question: QuestionSpec,
+  answer: Pick<InboxAnswerInput, 'selected' | 'text'> | undefined,
+): boolean {
+  if (answer === undefined) return false
+  const selected = Array.isArray(answer.selected) ? answer.selected : []
+  const text = typeof answer.text === 'string' ? answer.text.trim() : ''
+  const textCovers = text !== '' && question.allowText === true
+  if (selected.length === 0) return textCovers
+  const optionIds = new Set((question.options ?? []).map((option) => option.id))
+  if (selected.some((id) => !optionIds.has(id))) return false
+  return question.mode === 'multi' || selected.length === 1
 }
 
 /** Whether one status is terminal (anything but `pending`). */

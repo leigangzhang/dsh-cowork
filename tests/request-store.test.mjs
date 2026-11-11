@@ -1,24 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { register } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
-import { INBOX_MAX_REQUEST_FILES, REQUEST_RECORD_VERSION } from '../src/inbox-contract.ts'
+import './support/ts-hook.mjs'
 
 // `src/request-store.ts` imports its siblings with the build's `.js`
-// specifiers; the hook `tests/api.test.mjs` uses makes them importable here.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
-
+// specifiers; the shared hook makes them importable here.
+const { INBOX_MAX_REQUEST_FILES, REQUEST_RECORD_VERSION } = await import('../src/inbox-contract.ts')
 const { RequestStore } = await import('../src/request-store.ts')
 const { applyResolution, buildRequestRecord } = await import('../src/request-schema.ts')
 

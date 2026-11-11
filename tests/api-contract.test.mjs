@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import {
+import './support/ts-hook.mjs'
+
+const {
   ACTIVITY_DEFAULT_LIMIT,
   ACTIVITY_MAX_LIMIT,
   ACTIVITY_PATH,
@@ -40,12 +42,12 @@ import {
   isPanelWorkItemStatus,
   sortTopicsForPanel,
   truncateSummary,
-} from '../src/api-contract.ts'
-import {
+} = await import('../src/api-contract.ts')
+const {
   INBOX_OPEN_PATH,
   INBOX_PATH,
   INBOX_RESOLVE_PATH,
-} from '../src/inbox-contract.ts'
+} = await import('../src/inbox-contract.ts')
 
 const STORE_SCHEMA_SOURCE = fileURLToPath(new URL('../src/store-schema.ts', import.meta.url))
 const CONTRACT_SOURCE = fileURLToPath(new URL('../src/api-contract.ts', import.meta.url))
@@ -489,7 +491,7 @@ test('defaultSelectedTopicId picks the first row, or null for an empty list', ()
   )
 })
 
-test('the contract carries no v1 vocabulary, no imports and stays inside the size cap', async () => {
+test('the contract carries no v1 vocabulary, only the pure inbox import, and stays inside the size cap', async () => {
   const source = await readFile(CONTRACT_SOURCE, 'utf8')
   for (const symbol of [
     'PanelThread',
@@ -504,7 +506,14 @@ test('the contract carries no v1 vocabulary, no imports and stays inside the siz
   ]) {
     assert.equal(source.includes(symbol), false, `src/api-contract.ts must not mention ${symbol}`)
   }
-  assert.equal(/^\s*import\b/m.test(source), false, 'the shared contract imports nothing')
+  assert.deepEqual(
+    [...source.matchAll(/^import\b[^\n]*$/gm)].map((match) => match[0]),
+    [
+      "import { INBOX_ERROR_STATUS } from './inbox-contract.js'",
+      "import type { InboxErrorCode } from './inbox-contract.js'",
+    ],
+    'the only import is the pure inbox vocabulary',
+  )
   assert.equal(source.includes('node:'), false, 'no node builtin reaches the client bundle')
   assert.ok(Buffer.byteLength(source, 'utf8') < 51_200, 'src/api-contract.ts stays below the 50 KiB read cap')
 })

@@ -20,6 +20,7 @@
  * ledger rows, kick it, and return. A delivery failure is recorded on the row
  * (bounded retries, exponential backoff) and never rolls the topic state back.
  */
+import { isNoticeKind, type NoticeKind } from './notice-contract.js'
 import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
 import type { ActivityEvent, ProjectIndexV2, ReadActivityResult } from './store-schema.js'
 
@@ -31,10 +32,9 @@ export const NOTICE_TARGETS = ['master', 'topic'] as const
 /** One side of the 1:1 delivery: the master session or the topic session. */
 export type NoticeTarget = (typeof NOTICE_TARGETS)[number]
 
-/** The notice kinds the topic page emits. */
-export const NOTICE_KINDS = ['assignment', 'report', 'proposal', 'authorization', 'archive'] as const
-/** One notice kind. */
-export type NoticeKind = (typeof NOTICE_KINDS)[number]
+/** The notice kinds the topic page emits, re-exported from the shared vocabulary. */
+export { NOTICE_KINDS } from './notice-contract.js'
+export type { NoticeKind } from './notice-contract.js'
 
 /** The decision state a notice carries. */
 export const NOTICE_STATUSES = ['pending', 'allowed', 'denied', 'void'] as const
@@ -176,7 +176,7 @@ export function noticeDescriptorOf(event: ActivityEvent): ActivityNoticeDescript
   if (!isRecord(details)) return null
   const raw = details.notice
   if (!isRecord(raw)) return null
-  if (!(NOTICE_KINDS as readonly string[]).includes(raw.kind as string)) return null
+  if (!isNoticeKind(raw.kind)) return null
   if (typeof raw.title !== 'string' || typeof raw.summary !== 'string') return null
   if (!Array.isArray(raw.targets)) return null
   const targets = raw.targets.filter(

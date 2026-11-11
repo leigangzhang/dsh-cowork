@@ -2,8 +2,9 @@
  * Wire contract for the Cowork panel API v2 (`/api/cowork.*`).
  *
  * The host serves these shapes and the browser bundle consumes them, so this
- * module stays dependency-free: it imports nothing at all (no node builtins, no
- * other src module). The status unions are therefore restated here as the wire
+ * module stays browser-safe: no node builtins, and its only import is the pure
+ * inbox vocabulary (`src/inbox-contract.ts`), which owns the inbox error codes
+ * and their HTTP statuses. The status unions are restated here as the wire
  * schema; `tests/api-contract.test.mjs` pins them to the canonical lists in
  * `src/store-schema.ts`, and the host maps index records into these shapes.
  *
@@ -11,6 +12,8 @@
  * whole responses and a hand-edited index must not be able to ship the browser
  * an unbounded payload.
  */
+import { INBOX_ERROR_STATUS } from './inbox-contract.js'
+import type { InboxErrorCode } from './inbox-contract.js'
 
 /** Exact Fetch-route path below the connection `/api` channel: project overview. */
 export const OVERVIEW_PATH = '/api/cowork.overview'
@@ -338,14 +341,7 @@ export type PanelErrorCode =
   | 'session/list-timeout'
   | 'project/not-initialized'
   | 'store/corrupt'
-  | 'inbox/request-not-found'
-  | 'inbox/request-resolved'
-  | 'inbox/action-not-allowed'
-  | 'inbox/invalid-answer'
-  | 'inbox/invalid-comment'
-  | 'inbox/path-missing'
-  | 'inbox/open-unsupported'
-  | 'inbox/not-member'
+  | InboxErrorCode
   | 'internal'
 
 /**
@@ -377,14 +373,7 @@ export const PANEL_ERROR_STATUS: Readonly<Record<PanelErrorCode, number>> = {
   'session/list-timeout': 504,
   'project/not-initialized': 404,
   'store/corrupt': 500,
-  'inbox/request-not-found': 404,
-  'inbox/request-resolved': 409,
-  'inbox/action-not-allowed': 400,
-  'inbox/invalid-answer': 400,
-  'inbox/invalid-comment': 400,
-  'inbox/path-missing': 404,
-  'inbox/open-unsupported': 501,
-  'inbox/not-member': 403,
+  ...INBOX_ERROR_STATUS,
   internal: 500,
 }
 

@@ -15,12 +15,12 @@
  * This module stays React-free so `node --test` can load it through type
  * stripping.
  */
+import { isNoticeKind, type NoticeKind } from '../notice-contract.ts'
 
-/** The five notice kinds the contract defines. */
-export const NOTICE_KINDS = ['assignment', 'report', 'proposal', 'authorization', 'archive'] as const
 
-/** One notice kind. */
-export type NoticeKind = (typeof NOTICE_KINDS)[number]
+/** The five notice kinds, shared with the host through the frozen vocabulary. */
+export { NOTICE_KINDS } from '../notice-contract.ts'
+export type { NoticeKind } from '../notice-contract.ts'
 
 /** The four notice states the contract defines. */
 export const NOTICE_STATUSES = ['pending', 'allowed', 'denied', 'void'] as const
@@ -136,9 +136,7 @@ export interface NoticeCardView {
 }
 
 /** Whether a value is one of the contract's notice kinds. */
-export function isNoticeKind(value: unknown): value is NoticeKind {
-  return NOTICE_KINDS.some(kind => kind === value)
-}
+export { isNoticeKind } from '../notice-contract.ts'
 
 /** Whether a value is one of the contract's notice states. */
 export function isNoticeStatus(value: unknown): value is NoticeStatus {

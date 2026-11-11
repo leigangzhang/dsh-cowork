@@ -1,20 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
 
 // `src/request-schema.ts` imports its siblings with the build's `.js`
-// specifiers, which Node's type stripping does not retry as `.ts`; the same
-// resolve hook `tests/api.test.mjs` uses makes the module importable.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
-import {
+// specifiers, so it is loaded after the shared hook.
+const {
   REQUEST_MESSAGE_MAX_CHARS,
   REQUEST_PAYLOAD_MAX_BYTES,
   REQUEST_RECORD_VERSION,
@@ -25,7 +15,7 @@ import {
   QUESTION_MAX_QUESTIONS,
   PLAN_PATH_MAX_CHARS,
   REVIEW_PURPOSE_MAX_CHARS,
-} from '../src/inbox-contract.ts'
+} = await import('../src/inbox-contract.ts')
 
 // The schema module imports its siblings with the build's `.js` specifiers, so
 // it is loaded after the hook above, not by a static import.
