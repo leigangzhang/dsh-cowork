@@ -80,7 +80,7 @@
     position: relative;
     display: flex;
     width: 1444px;
-    height: 1250px;
+    height: 1150px;
     overflow: hidden;
     border: 1px solid #dfe3e8;
     border-radius: 18px;
@@ -271,6 +271,7 @@
   .sidebar-body {
     flex: 1 1 auto;
     min-height: 0;
+    overflow: hidden;
     display: grid;
     grid-template-columns: 318px minmax(0, 1fr);
     gap: 12px;
@@ -328,8 +329,14 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
     scrollbar-width: thin;
+  }
+  .topic-column { overflow: hidden; }
+  .reminder-column {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding-right: 4px;
   }
   .topic-column::-webkit-scrollbar, .reminder-column::-webkit-scrollbar { width: 6px; }
   .topic-column::-webkit-scrollbar-thumb, .reminder-column::-webkit-scrollbar-thumb {
@@ -432,20 +439,14 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
-    padding: 10px 12px 9px;
+    padding: 12px 14px 10px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: #fff;
-    box-shadow: 0 1px 2px rgba(16,24,40,.03);
+    box-shadow: 0 1px 2px rgba(16,24,40,.04);
     transition: opacity .15s ease, background .15s ease;
   }
   .reminder-card:hover { border-color: #cfd6e0; box-shadow: 0 3px 10px rgba(16,24,40,.05); }
-  .reminder-card[data-kind="assignment"] { border-left: 2px solid #84adff; }
-  .reminder-card[data-kind="report"] { border-left: 2px solid #75e0a7; }
-  .reminder-card[data-kind="proposal"] { border-left: 2px solid #fdb022; }
-  .reminder-card[data-kind="review"] { border-left: 2px solid #b692f6; }
-  .reminder-card[data-kind="authorization"] { border-left: 2px solid #fda29b; }
-  .reminder-card[data-kind="archive"] { border-left: 2px solid #d0d5dd; }
   .reminder-card.is-done { background: #fcfcfd; opacity: .72; }
   .reminder-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .reminder-type { display: flex; align-items: center; gap: 7px; min-width: 0; }
@@ -468,8 +469,8 @@
   .reminder-card[data-kind="archive"] .type-icon { background: var(--gray-soft); color: #475467; }
   .type-label { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: #475467; }
   .reminder-time { font-size: 10px; color: var(--soft); white-space: nowrap; }
-  .reminder-title { font-size: 12.5px; font-weight: 650; color: #1d2939; line-height: 1.45; }
-  .reminder-summary { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .reminder-title { font-size: 13px; font-weight: 650; color: #1d2939; line-height: 1.45; }
+  .reminder-summary { font-size: 12px; color: var(--muted); line-height: 1.55; }
   .review-actions {
     display: flex;
     gap: 8px;
@@ -498,7 +499,9 @@
   .review-btn.return:hover { background: var(--red-soft); }
   .review-btn:disabled { opacity: .5; cursor: not-allowed; }
   .reminder-foot {
-    margin-top: 2px;
+    margin-top: 4px;
+    padding-top: 7px;
+    border-top: 1px solid var(--line-soft);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -576,7 +579,6 @@
   }
   .note-link:hover { text-decoration: underline; }
   .inbox-note[hidden] { display: none; }
-  .reminder-card[data-kind="question"] { border-left: 2px solid #66c6d4; }
   .reminder-card[data-kind="question"] .type-icon { background: #ecfdff; color: #0e7090; }
   .reminder-card[data-special="plan"] { border-left-color: #b692f6; }
   .plan-badge {
@@ -1023,7 +1025,7 @@
   </div>
 
   <p class="footnote">
-    宽侧栏左侧是主题、右侧是收件箱。通知型事件和只需要查看的提案只在收件箱中央打印灰色小字，提案带“查看提案”跳转占位；评审、授权、提问和 PLAN 使用卡片。评审摘要和授权内容默认折叠，点击展开；PLAN 链接在侧边栏内打开详情。窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏。
+    宽侧栏左侧是主题、右侧是收件箱。通知型事件和只需要查看的提案只在收件箱中央打印灰色小字，提案带“查看提案”跳转占位；评审、授权、提问和 PLAN 使用卡片。评审摘要和授权内容默认折叠，点击展开；PLAN 链接在侧边栏内打开详情。窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏；收件箱独立上下滚动，左侧主题栏固定。
   </p>
 </div>
 
