@@ -28,7 +28,7 @@ One isolated execution scope of a topic: a local clone at `<repo>/.dsh-cowork/wo
 
 ### review request
 
-One request defining one review range: `purpose`, `baseCommit`, `headCommit`, `path`, `verification`, optional `workItemId`/`changedPaths`. It is stored as `reviews/<topicId>-<requestId>.json`; the request id binds the reviewer's verdict. Write `review request` (评审请求). Source: [ReviewRequestRecord](../src/review-request.ts#L121-L140).
+One automated review request defining one review range: `purpose`, `baseCommit`, `headCommit`, `path`, `verification`, optional `workItemId`/`changedPaths`. It is stored as `reviews/<topicId>-<requestId>.json`; the request id binds the reviewer's verdict. Write `review request` (评审请求); do not confuse it with the user-facing [user review request](#user-review-request). Source: [ReviewRequestRecord](../src/review-request.ts#L121-L140).
 
 ### reviewer
 
@@ -48,7 +48,27 @@ A DSH agent preset that sets persona, tools, and rules; it does not own session 
 
 ### inbox
 
-The master-only decision queue at `<repo>/.dsh-cowork/inbox.json`. The current review flow writes `merge-needed` and `review-reject`; `blocked` and `cross-topic-conflict` remain legal for older records. Delivery is batched and marked with `deliveredAt`. Write `inbox` (收件箱). Source: [INBOX_KINDS](../src/store-schema.ts#L63), [InboxItem](../src/store-schema.ts#L232), [inbox.ts](../src/inbox.ts#L17-L30).
+The legacy master-only decision queue at `<repo>/.dsh-cowork/inbox.json`. The current review flow writes `merge-needed` and `review-reject`; `blocked` and `cross-topic-conflict` remain legal for older records. Delivery is batched and marked with `deliveredAt`. Write `master inbox` (主收件箱) when the sidebar request inbox is also in scope. Source: [INBOX_KINDS](../src/store-schema.ts#L63), [InboxItem](../src/store-schema.ts#L232), [inbox.ts](../src/inbox.ts#L17-L30).
+
+### request inbox
+
+The Cowork right-column view of actionable requests and notification notes. It is a read view over `.dsh-cowork/requests/` plus the existing notice/activity stream, not a delivery queue; it does not read or write the legacy `inbox.json`. UI label: 收件箱. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+
+### request
+
+One actionable item in the request inbox. Four kinds: `user-review`, `authorization`, `question`, `plan`. Every request has one `requestId`, one status, one persisted left-side topic message and (after resolution) one right-side user reply. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+
+### user review request
+
+A request for the user to pass or return a review. It is distinct from the automated [review request](#review-request): it creates no reviewer session and records no reviewer verdict. UI label: 评审. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+
+### plan request
+
+A request to approve or revise one plan file. It is not the host Plan Mode; “查看全文” on the card opens the plan file through the host file-opener interface. UI label: PLAN 待确认. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+
+### notification note
+
+A non-actionable inbox row for assignment, report, decision proposal or archive. It renders as centered gray text, not a card, and never carries “知道了”. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
 
 ### activity
 

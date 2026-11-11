@@ -18,6 +18,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 决策记录怎么写、为什么写 | [.agents/notes/README.md](../.agents/notes/README.md) |
 | 一个改动欠哪些证据 | [tools/workflow.json](../tools/workflow.json) |
 | 一个需求怎么被路由、新建 topic、经评审与工作项合并 | [routing.md](routing.md) |
+| 右侧栏主题页、收件箱、工作项等设计稿与索引 | [design/cowork-sidebar/README.md](design/cowork-sidebar/README.md) |
 | 主题怎么记录决策、怎么把结果交接给 master | [decision-and-handoff.md](decision-and-handoff.md) |
 | master 与 topic 怎么共享项目上下文、记忆何时注入、handoff/通知账本如何上下行 | [context.md](context.md) |
 
