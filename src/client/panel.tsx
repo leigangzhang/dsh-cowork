@@ -63,7 +63,11 @@ import {
   WIDE_PANEL_MIN_PX,
   applyInboxItemUpdate,
   buildInboxViewModel,
+  clearStoredFilter,
   inboxNeedsYouTitle,
+  readStoredFilter,
+  writeStoredFilter,
+  type InboxFilterStorage,
   type InboxNoteView,
   type InboxRequestView,
 } from './inbox-model.ts'
@@ -133,6 +137,15 @@ type PanelWidthMode = 'wide' | 'narrow'
  * host DOM). The inbox is loaded and failed independently of the overview, and
  * the topic filter survives a width change.
  */
+/** The browser's sessionStorage, or null when the context/private mode denies it. */
+function browserFilterStorage(): InboxFilterStorage | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage
+  } catch {
+    return null
+  }
+}
+
 export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   ensurePanelStyles()
   const services = useClientServices()
@@ -151,7 +164,9 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   const [inbox, setInbox] = useState<InboxResponse | null>(null)
   const [inboxPhase, setInboxPhase] = useState<LoadPhase>('loading')
   const [inboxError, setInboxError] = useState<PanelErrorInfo | null>(null)
-  const [selectedInboxTopicId, setSelectedInboxTopicId] = useState<string | null>(null)
+  const [selectedInboxTopicId, setSelectedInboxTopicId] = useState<string | null>(
+    () => readStoredFilter(browserFilterStorage(), sessionId),
+  )
   const [inboxFocus, setInboxFocus] = useState(false)
   const [pendingRequestIds, setPendingRequestIds] = useState<ReadonlySet<string>>(() => new Set())
   const [inboxReceipts, setInboxReceipts] = useState<ReadonlyMap<string, InboxReceipt>>(() => new Map())
@@ -205,6 +220,12 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     setPhase(current => (current === 'ready' ? 'ready' : 'loading'))
     loadOverview(sessionId, controller.signal).then(result => {
       if (!active) return
+      setSelectedInboxTopicId((current) => {
+        if (current === null) return current
+        if (result.topics.some(topic => topic.topicId === current)) return current
+        clearStoredFilter(browserFilterStorage(), sessionId)
+        return null
+      })
       setOverview(result)
       setPhase('ready')
       setNowMs(Date.now())
@@ -229,7 +250,7 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
       lastInboxSessionId.current = sessionId
       setInbox(null)
       setInboxPhase('loading')
-      setSelectedInboxTopicId(null)
+      setSelectedInboxTopicId(readStoredFilter(browserFilterStorage(), sessionId))
       setInboxReceipts(new Map())
     }
     setInboxError(null)
@@ -367,14 +388,25 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
     })
   }, [])
 
-  /** Toggle the inbox topic filter; the topic session is never opened here. */
+  /**
+   * Toggle the inbox topic filter; the topic session is never opened here. The
+   * selection is remembered per session so a refresh restores it.
+   */
   const toggleInboxFilter = useCallback((topicId: string) => {
-    setSelectedInboxTopicId(current => (current === topicId ? null : topicId))
-  }, [])
+    setSelectedInboxTopicId((current) => {
+      if (current === topicId) {
+        clearStoredFilter(browserFilterStorage(), sessionId)
+        return null
+      }
+      writeStoredFilter(browserFilterStorage(), sessionId, topicId)
+      return topicId
+    })
+  }, [sessionId])
 
   const clearInboxFilter = useCallback(() => {
+    clearStoredFilter(browserFilterStorage(), sessionId)
     setSelectedInboxTopicId(null)
-  }, [])
+  }, [sessionId])
 
   /**
    * Resolve one request: validate the action against the row the user sees,
@@ -413,6 +445,10 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
       } else {
         putReceipt(item.requestId, { kind: 'ok', text: '已提交' })
       }
+      // The inbox row and its counts moved; the topic card still carries the
+      // old `待授权`/blocked marker unless the overview is re-read. A failed
+      // write never reaches this branch, so this cannot fake a success.
+      refresh()
     } catch (reason) {
       const info = toPanelError(reason)
       putReceipt(item.requestId, { kind: 'error', text: `提交失败：${info.message}` })
@@ -420,7 +456,7 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
       pendingRequestRef.current.delete(item.requestId)
       setPendingRequestIds(new Set(pendingRequestRef.current))
     }
-  }, [putReceipt, sessionId])
+  }, [putReceipt, refresh, sessionId])
 
   /** Reveal the PLAN/proposal file behind one row; ids only, never a path. */
   const openInboxItem = useCallback(async (item: InboxRequestView | InboxNoteView) => {

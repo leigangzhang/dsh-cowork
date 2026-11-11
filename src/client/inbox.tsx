@@ -26,6 +26,7 @@ import {
   type InboxRequestView,
   type InboxViewModel,
   answersComplete,
+  shouldShowUnansweredHint,
   unansweredAnswerHint,
   unansweredQuestionCount,
   type InboxAnswerDraft,
@@ -503,7 +504,7 @@ function QuestionCard({ item, pending, onResolve }: QuestionCardProps): ReactEle
           </div>
         </div>
       )}
-      {item.actions.length === 0 || !pending || unanswered === 0 ? null : (
+      {shouldShowUnansweredHint(item.actions.length, pending, unanswered) ? (
         <p
           className="cw-inbox-hint"
           data-testid="cw-inbox-answer-hint"
@@ -512,7 +513,7 @@ function QuestionCard({ item, pending, onResolve }: QuestionCardProps): ReactEle
         >
           {unansweredAnswerHint(unanswered)}
         </p>
-      )}
+      ) : null}
       {item.actions.length === 0 ? null : (
         <ActionButtons
           actions={item.actions}
@@ -564,7 +565,7 @@ function PlanCard({ item, pending, onResolve, onOpen }: PlanCardProps): ReactEle
         )}
         <p className="cw-req-text">{item.summary}</p>
       </div>
-      {revising ? (
+      {revising && item.pending ? (
         <div className="cw-req-revise">
           <label className="cw-req-field" htmlFor={commentId}>
             <span className="cw-req-label">修改要求</span>

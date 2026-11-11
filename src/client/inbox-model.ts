@@ -356,6 +356,84 @@ export function unansweredAnswerHint(count: number): string {
   return count === 1 ? '还有 1 题未回答' : `还有 ${count} 题未回答`
 }
 
+/**
+ * Whether the question card should show the "还有 N 题未回答" hint.
+ *
+ * `pending` is the panel's in-flight flag, so the hint is hidden *while* a
+ * resolve is running and shown whenever the card is actionable but answers are
+ * missing. The previous condition used `!pending` and therefore never rendered
+ * outside an in-flight submit (t13 F-GUI-2).
+ */
+export function shouldShowUnansweredHint(
+  actionCount: number,
+  pending: boolean,
+  unanswered: number,
+): boolean {
+  return actionCount > 0 && !pending && unanswered > 0
+}
+
+/** Prefix of the sessionStorage key that remembers the inbox topic filter. */
+export const INBOX_FILTER_STORAGE_PREFIX = 'cw.inbox.filter.'
+
+/** The minimal `Storage` surface the filter helpers use (injectable for tests). */
+export interface InboxFilterStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+  removeItem(key: string): void
+}
+
+/** The storage key of one session's inbox filter; sessions never share it. */
+export function inboxFilterStorageKey(sessionId: string): string {
+  return `${INBOX_FILTER_STORAGE_PREFIX}${sessionId}`
+}
+
+/**
+ * Read the persisted topic filter of one session. Storage that is absent,
+ * throws, holds a non-string value or unparseable JSON all degrade to `null`
+ * (no filter) instead of breaking the panel.
+ */
+export function readStoredFilter(
+  storage: InboxFilterStorage | null | undefined,
+  sessionId: string,
+): string | null {
+  if (storage === null || storage === undefined) return null
+  try {
+    const raw = storage.getItem(inboxFilterStorageKey(sessionId))
+    if (typeof raw !== 'string' || raw.trim() === '') return null
+    const parsed: unknown = JSON.parse(raw)
+    return typeof parsed === 'string' && parsed.trim() !== '' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/** Persist the topic filter of one session; a storage failure is ignored. */
+export function writeStoredFilter(
+  storage: InboxFilterStorage | null | undefined,
+  sessionId: string,
+  topicId: string,
+): void {
+  if (storage === null || storage === undefined) return
+  try {
+    storage.setItem(inboxFilterStorageKey(sessionId), JSON.stringify(topicId))
+  } catch {
+    // Private mode / quota: the filter stays in memory for this page only.
+  }
+}
+
+/** Forget the persisted topic filter of one session; a failure is ignored. */
+export function clearStoredFilter(
+  storage: InboxFilterStorage | null | undefined,
+  sessionId: string,
+): void {
+  if (storage === null || storage === undefined) return
+  try {
+    storage.removeItem(inboxFilterStorageKey(sessionId))
+  } catch {
+    // Private mode / quota: nothing to forget.
+  }
+}
+
 /** Normalize a plan payload. */
 function planPayloadOf(value: RequestPayload | unknown): PlanPayload {
   const raw = recordOf(value)
