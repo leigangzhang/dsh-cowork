@@ -511,7 +511,7 @@ async function proposeDecision(args: Record<string, unknown>, exec: unknown, dep
     if (updated === null) {
       return toJson(failure(TOPIC_ERROR_CODES.topicNotFound, `topic ${caller.sessionId} changed while proposing`))
     }
-    const event = decisionProposedActivity(updated, { proposalId, title, summary }, now)
+    const event = decisionProposedActivity(updated, { proposalId, proposalPath: relativePath, title, summary }, now)
     const notified = await recordNoticeEvent(opened.opened.store, event, now, deps.notices, opened.opened.repoPath)
     return toJson(success({
       proposal,
@@ -594,11 +594,19 @@ async function listNotices(args: Record<string, unknown>, exec: unknown, deps: C
     const ledger = await opened.store.readNotices()
     const rows = noticeSummaries(events, ledger)
       .filter((row) => topicId === null || row.topicId === topicId)
-      .map((row) => ({
-        ...row,
-        title: truncateText(row.title, 200),
-        summary: truncateText(row.summary, 200),
-      }))
+      .map((row) => {
+        const proposalPath = row.proposalPath ?? (
+          row.proposalId === undefined
+            ? undefined
+            : join('.dsh-cowork', 'proposals', `${row.proposalId}.json`)
+        )
+        return {
+          ...row,
+          title: truncateText(row.title, 200),
+          summary: truncateText(row.summary, 200),
+          ...(proposalPath === undefined ? {} : { proposalPath }),
+        }
+      })
     return toJson(success({
       total: rows.length,
       truncated: rows.length > limit,
@@ -808,7 +816,7 @@ export function registerTopicTools(ctx: unknown, deps: CoworkToolDeps): Array<()
   disposers.push(host.tools.register(defineTool({
     name: 'cowork_notices',
     description:
-      'Read the most recent topic notices (one per event) from the delivery ledger, optionally filtered by topic. Master only; read-only.',
+      'Read the most recent topic notices (one per event) from the delivery ledger, optionally filtered by topic. Proposal notices also carry proposalId and proposalPath. Master only; read-only.',
     parameters: {
       topicId: { type: 'string', description: 'Only return notices of this topic.' },
       limit: { type: 'integer', description: `Most rows to return (default ${TOPIC_NOTICES_DEFAULT_LIMIT}, max ${TOPIC_NOTICES_MAX_LIMIT}).` },

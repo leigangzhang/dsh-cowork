@@ -16,7 +16,7 @@ The project's main session. It routes user requirements, records decisions, deci
 
 ### topic
 
-One project subject with its own DSH session, created by `cowork_route` / `cowork_topic_create` with the `cowork-topic` preset. A topic owns its work items, requests its own reviews, and reports through `cowork_handoff`. The topic id is the session id. Write `topic` (主题会话 only as the reader-facing expansion), never `thread` for the current model. Source: [TopicRecordV2](../src/store-schema.ts#L118-L140).
+One project subject with its own DSH session, created by `cowork_route` / `cowork_topic_create` with the `cowork-topic` preset. A topic owns its work items, requests its own reviews, and reports through `cowork_handoff`. The topic id is the session id. Write `topic` (主题会话 only as the reader-facing expansion), never `thread` for the current model. Source: [TopicRecordV2](../src/store-schema.ts#L148-L178).
 
 ### thread (removed)
 
@@ -24,11 +24,11 @@ The 0.1.0 name for what 0.2.0 calls a [topic](#topic). The `cowork-thread` prese
 
 ### work item
 
-One isolated execution scope of a topic: a local clone at `<repo>/.dsh-cowork/workitems/<workItemId>` on branch `cowork/<workItemId>`. Parallel work items are merged serially by master. Write `work item` (工作项). Source: [WorkItemRecordV2](../src/store-schema.ts#L142-L153), [checkout.ts](../src/checkout.ts#L45-L58).
+One isolated execution scope of a topic: a local clone at `<repo>/.dsh-cowork/workitems/<workItemId>` on branch `cowork/<workItemId>`. Parallel work items are merged serially by master. Write `work item` (工作项). Source: [WorkItemRecordV2](../src/store-schema.ts#L181-L192), [checkout.ts](../src/checkout.ts#L45-L58).
 
 ### review request
 
-One request defining one review range: `purpose`, `baseCommit`, `headCommit`, `path`, `verification`, optional `workItemId`/`changedPaths`. It is stored as `reviews/<topicId>-<requestId>.json`; the request id binds the reviewer's verdict. Write `review request` (评审请求). Source: [ReviewRequestRecord](../src/review-request.ts#L121-L140).
+One automated review request defining one review range: `purpose`, `baseCommit`, `headCommit`, `path`, `verification`, optional `workItemId`/`changedPaths`. It is stored as `reviews/<topicId>-<requestId>.json`; the request id binds the reviewer's verdict. Write `review request` (评审请求); do not confuse it with the user-facing [user review request](#user-review-request). Source: [ReviewRequestRecord](../src/review-request.ts#L121-L140).
 
 ### reviewer
 
@@ -36,7 +36,7 @@ An independent session created per review request with the `cowork-reviewer` pre
 
 ### handoff
 
-The structured report a topic writes when it finishes or blocks. Only `blocked` and `done` are legal in 0.2.0: `done` records the digest and delivery confirmation, `blocked` sets the flag and wakes master through the inbox. Write `handoff`; `交接单` is the plain-language form. Source: [topic-tools.ts](../src/topic-tools.ts#L477), [handoff.ts](../src/handoff.ts#L214).
+The structured report a topic writes when it finishes or blocks. Only `blocked` and `done` are legal in 0.2.0: both write a `handoffs/` audit file and one `topic-reported` event with a notice per target; `done` updates the digest and `lastDeliveryConfirmedAt`, `blocked` sets the block and remembers the status to restore. Neither wakes master through the inbox. Write `handoff`; `交接单` is the plain-language form. Source: [topic-tools.ts](../src/topic-tools.ts#L301), [handoff.ts](../src/handoff.ts#L214).
 
 ### project memory
 
@@ -48,15 +48,35 @@ A DSH agent preset that sets persona, tools, and rules; it does not own session 
 
 ### inbox
 
-The master-only decision queue at `<repo>/.dsh-cowork/inbox.json`. Only `merge-needed`, `blocked`, `review-reject`, and `cross-topic-conflict` enter it; delivery is batched and marked with `deliveredAt`. Write `inbox` (收件箱). Source: [InboxItem](../src/store-schema.ts#L193-L205), [inbox.ts](../src/inbox.ts#L17-L30).
+The legacy master-only decision queue at `<repo>/.dsh-cowork/inbox.json`. The current review flow writes `merge-needed` and `review-reject`; `blocked` and `cross-topic-conflict` remain legal for older records. Delivery is batched and marked with `deliveredAt`. Write `master inbox` (主收件箱) when the sidebar request inbox is also in scope. Source: [INBOX_KINDS](../src/store-schema.ts#L63), [InboxItem](../src/store-schema.ts#L232), [inbox.ts](../src/inbox.ts#L17-L30).
+
+### request inbox
+
+The Cowork right-column view of actionable requests and notification notes. It is a read view over `.dsh-cowork/requests/` plus the existing notice/activity stream, not a delivery queue; it does not read or write the legacy `inbox.json`. UI label: 收件箱. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+
+### request
+
+One actionable item in the request inbox. Four kinds: `user-review`, `authorization`, `question`, `plan`. Every request has one `requestId`, one status, one persisted left-side topic message and (after resolution) one right-side user reply. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+
+### user review request
+
+A request for the user to pass or return a review. It is distinct from the automated [review request](#review-request): it creates no reviewer session and records no reviewer verdict. UI label: 评审. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+
+### plan request
+
+A request to approve or revise one plan file. It is not the host Plan Mode; “查看全文” on the card opens the plan file through the host file-opener interface. UI label: PLAN 待确认. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+
+### notification note
+
+A non-actionable inbox row for assignment, report, decision proposal, automated review verdict or archive. It renders as centered gray text, not a card, never carries “知道了”, and an automated review verdict has no link or action. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
 
 ### activity
 
-The append-only event stream at `<repo>/.dsh-cowork/activity.jsonl`: state changes, routes, reviews, merges, and errors. It is evidence, not a state source; readers take the tail. Write `activity` (活动流). Source: [ActivityEvent](../src/store-schema.ts#L172-L185), [activity.ts](../src/activity.ts#L31).
+The append-only event stream at `<repo>/.dsh-cowork/activity.jsonl`: state changes, routes, reviews, merges, topic reports, decision proposals, authorizations, archives, and errors. It is evidence, not a state source; readers take the tail. Write `activity` (活动流). Source: [ActivityEvent](../src/store-schema.ts#L211), [activity.ts](../src/activity.ts#L31).
 
 ### resolved / reopen
 
-`resolved` is the third topic state: set manually by the user, or automatically when the topic is not awaiting review, not blocked, its latest review is not `needs_revision`, it has no active work item, it has a digest and delivery confirmation, and it has been silent past `resolveAfterMs`. There is no undo. `reopen` is the explicit user action that returns a resolved topic to `active` and clears `resolvedAt` / `resolvedBy`. Source: [topic.ts](../src/topic.ts#L61-L118), [PLAN-V0.2 §5.1](PLAN-V0.2.md#51-主题生命周期与已解决).
+`resolved` is the third topic state, set by the user's archive action (`cowork_topic_resolve` or the topic-page menu); there is no automatic resolution and `resolveAfterMs` is deprecated. Archiving clears any block or pending authorization, records a master-only `topic-archived` notice, and archives the host topic session. `reopen` is the explicit user action that returns a resolved topic to `active`, clears `resolvedAt` / `resolvedBy`, and records `topic-reopened` without a notice; the panel reopen route also unarchives the host session. Source: [topic.ts](../src/topic.ts#L154-L173), [tool-runtime.ts](../src/tool-runtime.ts#L280), [PLAN-V0.2 §5.1](PLAN-V0.2.md#51-主题生命周期与已解决).
 
 ### route correction
 

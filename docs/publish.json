@@ -6,7 +6,8 @@
     "docs/documentation.md",
     "docs/glossary.md",
     "docs/plain-language.md",
-    "docs/testing.md"
+    "docs/testing.md",
+    "docs/decision-and-handoff.md"
   ],
   "internal": [
     {
@@ -52,6 +53,10 @@
     {
       "pattern": "docs/TOPIC_PAGE_HANDOFF.md",
       "reason": "主题页前后端实现交接：定稿设计、前后端提案、宿主 A2 notice 门禁、实现顺序、验收命令和遗留风险；给下一个实现会话读，不是用户指南"
+    },
+    {
+      "pattern": "docs/TOPIC_INBOX_HANDOFF.md",
+      "reason": "右侧栏收件箱实现交接：设计/提案链接、宿主探针、请求契约、实现顺序、验收与遗留风险；本轮只写文档、未实现，给下一个实现会话读"
     }
   ]
 }

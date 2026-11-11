@@ -10,7 +10,7 @@
  master: cowork_route({ intent, topicId?, brief?, forceCreate? })
    │  intent 去空白后为空 → route/intent-required
    ▼
- 生命周期读取点（idle / resolved 结算）
+ 生命周期读取点（idle / active 结算）
    ▼
  ├─ topicId 明确指定
  │    ├─ 不存在 → topic/not-found
@@ -146,27 +146,29 @@ sequenceDiagram
 | `cowork_work_item_create` | 工作项行、clone、`work-item-created` 活动 |
 | `cowork_review_request` | 请求文件（pending）、主题 `awaitingReview/reviewStatus/latestReviewRequestId/reviewerSessionId`、工作项 `reviewing`、`review-requested` 活动 |
 | `cowork_review_verdict` | 请求文件（终态）、主题 `reviewStatus/awaitingReview/reviewerSessionId/blocked`、工作项状态、收件箱、`review-verdict` 活动；归档 reviewer |
-| `cowork_handoff` | handoff 文件、主题 `digest/lastDeliveryConfirmedAt/blocked`；`blocked` 写 `blocked` 收件箱 |
+| `cowork_handoff` | handoff 文件、主题 `digest/lastDeliveryConfirmedAt/blocked`；写 `topic-reported` 活动与通知账本（每个目标一行），不写收件箱 |
 | `cowork_checkout_merge` | 工作项 `merged`、clone/分支清理、`work-item-merged` 活动 |
-| 生命周期读取点 | 主题 `active/idle/resolved`、`resolvedAt/resolvedBy`、`status-changed` 活动 |
+| 生命周期读取点 | 主题 `active/idle`、`status-changed` 活动；不会写 `resolved` |
 | 面板写路由 | `resolve`/`reopen` 清或置 resolved 字段；`route.move` 追加 `aliases` 并写 `route-corrected` |
 
 所有状态写入都尽量落一条活动；活动写失败不回滚状态，只在结果的 `activityError` / `activityErrors` 里报告。
 
 ## 4. 已解决与重开
 
-- 三态：`active ↔ idle`，`active|idle → resolved`，`resolved → active`（用户重开）。`awaitingReview`、`blocked` 是标记，不是状态。
-- 自动 resolved 需要同时满足：不在待评审、未阻塞、最新评审不是 `needs_revision`、没有 `active` 工作项、`lastDeliveryConfirmedAt` 非空、`digest` 非空、静默时间 ≥ `resolveAfterMs`（默认 3 天）。评估发生在 `project_status`、`route`、面板 overview 等读取点；没有后台定时器。`turn/end` 只刷新 `lastActiveAt` 并把 idle 拉回 active，不在 `turn/end` 自动 resolved（[topic.ts](../src/topic.ts#L18-L73)、[evaluateProjectLifecycle](../src/tool-runtime.ts#L417)、[topic-events.ts](../src/topic-events.ts#L116-L135)）。
-- 没有撤销：已解决不会因为时间或后续读取变回 active。用户可手动标记 resolved（`cowork_topic_resolve` 或面板），来源记为 `user`；自动来源记为 `master`。
-- 重开是显式用户动作：用户打开已解决主题并发送消息（topic-events 的 `user/message`），或使用面板 `POST /api/cowork.topic.reopen`；状态置回 `active`，清空 `resolvedAt/resolvedBy`，保留摘要与交付确认，写 `topic-reopened` 活动（[topic-events.ts](../src/topic-events.ts#L137-L168)、[reopenResolvedTopic](../src/topic.ts#L104)）。
+- 三态：`active ↔ idle`，`active|idle → resolved`，`resolved → active`（用户重开）。`awaitingReview`、`blocked`、`authorization` 是标记，不是状态。
+- `active ↔ idle`：`lastActiveAt` 超过 `idleAfterMs`（2026-11-10 起默认 24 小时）且没有 `awaitingReview`、`blocked` 或待授权时为 `idle`；有新活动或 `turn/end` 时回到 `active`。评估发生在 `project_status`、`route`、面板 overview 等读取点；没有后台定时器（[topic.ts](../src/topic.ts#L62-L78)、[evaluateProjectLifecycle](../src/tool-runtime.ts#L569)、[topic-events.ts](../src/topic-events.ts#L95-L125)）。
+- 没有自动 resolved：`resolveAfterMs` 保留但弃用并忽略。除一次性 v1 迁移把旧的 done/archived 映射为 resolved 外，进入 `resolved` 的唯一路径是用户归档：面板主题卡菜单或 `cowork_topic_resolve` / `resolve` 路由。
+- 归档：清空 block 和待授权，写只给主会话的 `topic-archived` 通知，并归档宿主主题会话；重复归档幂等，`resolvedBy` 记为 `user`（[archiveTopicRecord](../src/topic.ts#L154)、[archiveTopic](../src/tool-runtime.ts#L280)）。
+- 重开：用户打开已解决主题并发送消息（`user/message`），或使用面板 `POST /api/cowork.topic.reopen`；状态置回 `active`，清空 `resolvedAt/resolvedBy`，保留摘要与交付确认，写 `topic-reopened`，不写通知。面板路由同时 unarchive 宿主会话（[reopenResolvedTopic](../src/topic.ts#L181)、[topic-events.ts](../src/topic-events.ts#L126-L168)）。
 - 已解决主题不参与自动路由；新需求会新建主题并返回 `resolvedMatch`，由用户决定是否打开旧主题。
 
-## 5. 活动流与收件箱
+## 5. 活动流、收件箱与通知账本
 
-- 所有状态、路由、评审、合并与错误都写 `activity.jsonl`；它是证据流，不是状态源。面板 activity 路由默认读 50 条、最多 200；`cowork_project_status` 只带最近 20 条（超出标 `truncated`）。
-- 只有 master 必须决定的事才进 `inbox.json` 并唤醒 master：`merge-needed`、`blocked`、`review-reject`、`cross-topic-conflict`。多条待办合并成一次投递（≤5 条、每条 ≤200 字）。
+- 所有状态、路由、评审、合并、上报、提案、待授权、归档与错误都写 `activity.jsonl`；它是证据流，不是状态源。面板 activity 路由默认读 50 条、最多 200；`cowork_project_status` 只带最近 20 条（超出标 `truncated`）。
+- 只有 master 必须决定的事才进 `inbox.json` 并唤醒 master：当前评审流程写 `merge-needed` 和 `review-reject`；`blocked` 与 `cross-topic-conflict` 保留为旧记录可读的 kind。多条待办合并成一次投递（≤5 条、每条 ≤200 字）。
 - 投递成功后写 `deliveredAt`；失败保留，下一次 `cowork_project_status` 重放。投递是 at-least-once，崩溃窗口可能重复提示但不会丢事件（[KI-23](KNOWN_ISSUES.md)）。
 - `pass` 的 verdict 本身不直接 prompt master；master 只通过 `merge-needed` 收件箱得知“可以合并”。`needs_revision` 只回主题，不唤醒 master。
+- 主题上报、决策提案、待授权与 handoff 的通知写 `notices.json`，不唤醒 master；读取入口与当前 B 模式的行为见 [decision-and-handoff.md](decision-and-handoff.md)。
 
 ## 6. 改投与重复提交
 

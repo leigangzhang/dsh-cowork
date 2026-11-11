@@ -26,7 +26,7 @@ register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 const { registerCoworkTools } = await import('../src/tools.ts')
 const { ProjectStore } = await import('../src/store.ts')
 const { TOPIC_LIST_LIMIT, TOPIC_PAGE_ERROR_CODES } = await import('../src/topic-tools.ts')
-const { authorizationResolvedActivity } = await import('../src/activity.ts')
+const { authorizationResolvedActivity, decisionProposedActivity } = await import('../src/activity.ts')
 const { ERROR_CODES, TOPIC_ERROR_CODES } = await import('../src/tool-model.ts')
 const { INBOX_SUMMARY_MAX_CHARS } = await import('../src/inbox.ts')
 const { deliverInbox } = await import('../src/tool-runtime.ts')
@@ -616,7 +616,8 @@ test('cowork_decision_propose stores the proposal file and reports one event', a
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
     const deps = fakeDeps()
-    const propose = tools(deps).get('cowork_decision_propose')
+    const registry = tools(deps)
+    const propose = registry.get('cowork_decision_propose')
 
     const result = await propose.execute({
       title: 'choose the schema',
@@ -633,9 +634,27 @@ test('cowork_decision_propose stores the proposal file and reports one event', a
     const activity = await store.readActivity()
     const proposed = activity.events.find((event) => event.type === 'decision-proposed')
     assert.equal(proposed.details.proposalId, result.proposal.proposalId)
+    assert.equal(proposed.details.proposalPath, result.filePath)
     assert.equal(proposed.details.notice.kind, 'proposal')
     const ledger = await store.readNotices()
     assert.equal(ledger.notices.length, 2)
+
+    const listed = await registry.get('cowork_notices').execute({}, fakeExec('session-master', repoPath))
+    const proposalNotice = listed.notices.find((notice) => notice.kind === 'proposal')
+    assert.equal(proposalNotice.proposalId, result.proposal.proposalId)
+    assert.equal(proposalNotice.proposalPath, result.filePath)
+
+    // Events written before proposalPath was added still expose the path,
+    // derived from the proposal id they already carry.
+    const legacy = decisionProposedActivity(
+      (await store.readIndexDocument()).topics[0],
+      { proposalId: 'legacy-proposal', title: 'legacy', summary: 'legacy' },
+      new Date(NOW_MS),
+    )
+    await store.appendActivity(legacy)
+    const legacyListed = await registry.get('cowork_notices').execute({}, fakeExec('session-master', repoPath))
+    const legacyNotice = legacyListed.notices.find((notice) => notice.proposalId === 'legacy-proposal')
+    assert.equal(legacyNotice.proposalPath, '.dsh-cowork/proposals/legacy-proposal.json')
 
     const missingTitle = await propose.execute({ title: '', summary: 'x' }, fakeExec('session-thread', repoPath))
     assert.equal(missingTitle.ok, false)
