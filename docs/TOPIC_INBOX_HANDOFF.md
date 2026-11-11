@@ -42,6 +42,18 @@
 
 探针结果写进实现结果或本文件补充段；未核实项不得在 UI 里假装已支持。
 
+## 阶段 0 探针结果（2026-11-10）
+
+实现分支 `feat/topic-inbox`（基线 `2d1bfee`，已在 origin/main）。以下用**已安装宿主**（DSH Desktop 2 / 运行时 0.2.1-rc.2）读契约，不把源码 checkout 当运行事实。
+
+| # | 探针 | 证据 | 结果 | 结论 |
+|---|---|---|---|---|
+| 1 | 右栏宽度/展开 | 已安装 `dsh-client-ui-layout/README.zh.md:59`：`ctx.layout` 绑定 `selectPanel`、`toggleSidebar`、`openRightbar(track, fullscreen)`、`closeRightbar`；源码 `packages/client/ui-layout/src/client/service.ts` 的 `ILayout` 无宽度 setter；`setRightbar` 只存在于 root store 的拖拽 action | **没有插件可调用的右栏宽度 setter**；`openRightbar` 是右栏占用方（ui-sidebar-right）报告呈现，不是普通 tab 的请求接口 | 窄栏（<620px）按设计降级为**面板内全宽收件箱**；不操作宿主 DOM，不伪造自动展开 |
+| 2 | 文件打开 | 已安装 `dsh-api-session-controller/lib/types/index.js:417` 有 `openWorkspacePath`；`lib/index.js` 注册 `canOpenWorkspacePath`/`openWorkspacePath`/`workspacePathApplications`；契约 `SessionOpenWorkspacePathRequest = { action?: 'reveal'; application?: string; path: string }`，Host 先 `verifyDesktopPath`（远端/无桌面路径会被拒绝） | 方法存在且插件 host 已注入 `sessionController`；错误是 `RemoteError('gateway/*')`，不是可读业务码 | 服务端解析仓库内文件后以绝对路径调用；缺方法或无桌面 → `inbox/open-unsupported`。**运行时打开真实文件留到阶段 3/4 在测试 profile 实测** |
+| 3 | 唤醒主题 | 已安装 `SessionPromptRequest` 要求 `requestId` + `mode`（`queue`/`steer`）+ `content`；现有 `src/session-slice.ts` 的 `promptSession` 已按该形状调用，生产路径 `authorization.resolve` 与 M12 E2E 已验证 | 可队列一轮；`accepted: false` 是宿主拒收，不算异常 | resolve 后复用 `promptSession`（queue）唤醒主题；失败只写 `delivery.lastError`，不回滚终态 |
+| 4 | A2 | `grep -rln "sessionNotices\|notice/message" '/Applications/DSH Desktop 2.app/Contents/Resources/app/node_modules/@deepseek-ai'` 无匹配 | 仍无 A2 | 收件箱不依赖 A2；不写 `user/message` 或 tool call |
+| 5 | 右栏宽度实测 | 待阶段 4 | 未实测 | 阶段 4 用真实 Chrome 记录 648/900/400 三档的真实内容宽度与滚动行为；在本轮证据补齐前，UI 不声称宿主侧自动展开 |
+
 ## 契约冻结（前后端共同）
 
 ### 请求记录
