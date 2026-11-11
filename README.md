@@ -124,7 +124,7 @@ dsh plugin --profile <profile> remove @dsh-external/dsh-cowork
 - **合并冲突不自动解决**：冲突中止主仓合并并保留工作项 clone，由主题或人处理（[KI-4](docs/KNOWN_ISSUES.md)）。
 - **`main`/`master` 不动**：插件拒绝合并到受保护分支，默认分支由人收口。
 - **收件箱是 at-least-once**：投递成功但 `deliveredAt` 未写时可能重复提示，不会丢事件（[KI-23](docs/KNOWN_ISSUES.md)）。
-- **请求收件箱的文件打开依赖桌面宿主**：PLAN/提案的“查看全文”由宿主 `sessionController.openWorkspacePath({ path, action: 'reveal' })` 执行（服务端解析仓库内路径，浏览器只传 id）；宿主没有该能力或拒绝时路由返回 `inbox/open-unsupported`，UI 显示错误，不伪造打开。
+- **请求收件箱的文件打开依赖桌面宿主**：PLAN/提案的“查看全文”由宿主 `sessionController.openWorkspacePath({ path, action: 'reveal' }, signal)` 执行（插件 port 传 `AbortSignal.timeout(10s)`；服务端解析仓库内路径，浏览器只传 id）；宿主没有该能力或拒绝时路由返回 `inbox/open-unsupported`，UI 显示错误，不伪造打开。
 - **右栏宽度由宿主控制**：插件没有宽度 setter；窄侧栏只能降级为面板内全宽收件箱，不操作宿主 DOM（[KI-42](docs/KNOWN_ISSUES.md)）。
 - **工作项 clone 只含已提交文件**：看不到主仓未提交改动与本地依赖，需要自装依赖（[KI-1](docs/KNOWN_ISSUES.md)）；隔离提供方当前只实现 clone（[KI-27](docs/KNOWN_ISSUES.md)）。
 - **文件策略前提是 workspace-write**：隔离目录必须可写（[KI-5](docs/KNOWN_ISSUES.md)）。
