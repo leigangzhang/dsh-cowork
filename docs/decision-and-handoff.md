@@ -344,7 +344,7 @@ flowchart TD
 | 插件装配 | [src/index.ts](../src/index.ts#L890-L907) | 当前使用 `NoopTopicNoticePort` |
 | 测试 | [tests/topic-tools.test.mjs](../tests/topic-tools.test.mjs#L346-L675)、[tests/handoff.test.mjs](../tests/handoff.test.mjs)、[tests/notices.test.mjs](../tests/notices.test.mjs) | 工具、交接格式和通知账本 |
 
-实现记录见 [主题页后端决策](../.agents/notes/implemented/feature/2026-11-10-topic-page-backend.md) 和 [主题页前端决策](../.agents/notes/implemented/feature/2026-11-10-topic-page-frontend.md)。
+更完整的设计取舍记录在仓库内的 `.agents/notes/implemented/feature/2026-11-10-topic-page-backend.md` 和 `2026-11-10-topic-page-frontend.md`，本文不展开。
 
 ## 8. 当前限制
 
