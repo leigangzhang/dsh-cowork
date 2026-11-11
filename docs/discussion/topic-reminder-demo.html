@@ -671,34 +671,6 @@
   .reminder-card.is-done .review-actions,
   .reminder-card.is-done .question-options,
   .reminder-card.is-done .plan-actions { display: none; }
-  .plan-drawer {
-    position: absolute;
-    z-index: 20;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 380px;
-    display: flex;
-    flex-direction: column;
-    border-left: 1px solid var(--line);
-    background: #fff;
-    box-shadow: -14px 0 34px rgba(16,24,40,.12);
-    transform: translateX(100%);
-    transition: transform .22s ease;
-  }
-  .plan-drawer.open { transform: translateX(0); }
-  .plan-drawer-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 16px 16px 12px;
-    border-bottom: 1px solid var(--line-soft);
-  }
-  .plan-drawer-body { padding: 14px 16px; overflow: auto; color: #475467; font-size: 11.5px; line-height: 1.6; }
-  .plan-step { display: flex; gap: 8px; margin-bottom: 10px; }
-  .plan-step b { width: 18px; height: 18px; flex: none; display: grid; place-items: center; border-radius: 99px; background: var(--purple-soft); color: var(--purple); font-size: 9px; }
-  .drawer-close { border: 1px solid var(--line); border-radius: 7px; background: #fff; color: #667085; font: inherit; font-size: 12px; padding: 3px 9px; cursor: pointer; }
   .demo-toast {
     position: absolute;
     z-index: 30;
@@ -991,7 +963,7 @@
               </div>
               <div class="reminder-foot">
                 <span>事件 7 · PLAN 授权</span>
-                <button type="button" class="card-link" id="openPlan">打开 PLAN →</button>
+                <button type="button" class="card-link" data-system-file="PLAN · 个人主页改版">打开 PLAN →</button>
               </div>
               <span class="card-status">已批准</span>
             </article>
@@ -1003,29 +975,11 @@
       </div>
     </aside>
 
-    <aside class="plan-drawer" id="planDrawer" aria-hidden="true" aria-label="PLAN 详情">
-      <div class="plan-drawer-head">
-        <div>
-          <div class="sidebar-eyebrow">PLAN</div>
-          <div class="sidebar-title">个人主页改版</div>
-          <div class="sidebar-sub">来自主题「接入 GitHub 主页内容」</div>
-        </div>
-        <button type="button" class="drawer-close" id="closePlan" aria-label="关闭 PLAN">×</button>
-      </div>
-      <div class="plan-drawer-body">
-        <p>目标：在不改变主页结构的前提下，更新 Bio 和项目列表。</p>
-        <div class="plan-step"><b>1</b><div>读取现有主页结构与文案。</div></div>
-        <div class="plan-step"><b>2</b><div>生成新版 Bio 与项目列表。</div></div>
-        <div class="plan-step"><b>3</b><div>在预览中确认后合并。</div></div>
-        <p style="color:#98a2b3;font-size:10.5px">这是侧边栏内的 PLAN 详情占位；正式实现会打开同一份 PLAN 文档。</p>
-      </div>
-    </aside>
-
     <div class="demo-toast" id="demoToast"></div>
   </div>
 
   <p class="footnote">
-    宽侧栏左侧是主题、右侧是收件箱。通知型事件和只需要查看的提案只在收件箱中央打印灰色小字，提案带“查看提案”跳转占位；评审、授权、提问和 PLAN 使用卡片。评审摘要和授权内容默认折叠，点击展开；PLAN 链接在侧边栏内打开详情。窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏；收件箱独立上下滚动，左侧主题栏固定。
+    宽侧栏左侧是主题、右侧是收件箱。通知型事件和只需要查看的提案只在收件箱中央打印灰色小字，提案带“查看提案”跳转占位；评审、授权、提问和 PLAN 使用卡片。评审摘要和授权内容默认折叠，点击展开；PLAN 链接调用系统文件浏览器打开 PLAN 文件，不在侧边栏内嵌详情。窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏；收件箱独立上下滚动，左侧主题栏固定。
   </p>
 </div>
 
@@ -1046,9 +1000,6 @@
   const needsYouSub = document.getElementById('needsYouSub');
   const needsYouIcon = document.getElementById('needsYouIcon');
   const needsYouGo = document.getElementById('needsYouGo');
-  const planDrawer = document.getElementById('planDrawer');
-  const openPlan = document.getElementById('openPlan');
-  const closePlan = document.getElementById('closePlan');
   const toast = document.getElementById('demoToast');
   let selectedTopic = null;
   let toastTimer = null;
@@ -1193,14 +1144,9 @@
     });
   }
 
-  openPlan.addEventListener('click', () => {
-    planDrawer.classList.add('open');
-    planDrawer.setAttribute('aria-hidden', 'false');
-  });
-  closePlan.addEventListener('click', () => {
-    planDrawer.classList.remove('open');
-    planDrawer.setAttribute('aria-hidden', 'true');
-  });
+  for (const link of document.querySelectorAll('[data-system-file]')) {
+    link.addEventListener('click', () => showToast(`调用系统文件浏览器打开：${link.dataset.systemFile}`));
+  }
 
   const params = new URLSearchParams(location.search);
   const initialTopic = params.get('topic');
@@ -1219,10 +1165,6 @@
       const label = toggle.querySelector('span');
       if (label) label.textContent = '收起';
     }
-  }
-  if (params.get('plan') === '1') {
-    planDrawer.classList.add('open');
-    planDrawer.setAttribute('aria-hidden', 'false');
   }
   updateNeedsYou();
   applyFilter();
