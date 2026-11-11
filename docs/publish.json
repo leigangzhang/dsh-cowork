@@ -6,7 +6,8 @@
     "docs/documentation.md",
     "docs/glossary.md",
     "docs/plain-language.md",
-    "docs/testing.md"
+    "docs/testing.md",
+    "docs/decision-and-handoff.md"
   ],
   "internal": [
     {
