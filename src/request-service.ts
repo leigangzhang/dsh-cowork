@@ -323,12 +323,17 @@ async function promptTopic(
   }
 }
 
-/** Refuse a caller that is neither the project master nor the request's topic. */
-function assertMember(document: ProjectIndexV2, sessionId: string, topicId: string): void {
-  if (sessionId === document.masterSessionId || sessionId === topicId) return
+/**
+ * Refuse a caller that is neither the project master nor the owning topic. A
+ * row without a topic (an activity notice that carries none) is master-only,
+ * because no topic session can own it.
+ */
+function assertMember(document: ProjectIndexV2, sessionId: string, topicId: string | null): void {
+  if (sessionId === document.masterSessionId) return
+  if (topicId !== null && sessionId === topicId) return
   throw new PanelServiceError(
     'inbox/not-member',
-    `session ${sessionId} may not decide a request of topic ${topicId}`,
+    `session ${sessionId} may not act on a request of ${topicId === null ? 'no topic' : `topic ${topicId}`}`,
   )
 }
 
@@ -556,18 +561,128 @@ export async function resolveAuthorizationDecision(
   return { changed: true, prompted, promptError, noticeId, document, topic: current, decision }
 }
 
+/**
+ * Converge the request-inbox record of one authorization decision made through
+ * the legacy `authorization.resolve` route.
+ *
+ * The index, the topic authorization, the notice and the queue prompt are
+ * already handled by {@link resolveAuthorizationDecision}; this function keeps
+ * the inbox card in step so the two routes cannot show different states. It is
+ * deliberately tolerant: the legacy route must keep its response shape, so a
+ * missing record (a topic that never used the request tools), a record of
+ * another kind or topic, and a record another writer already settled are all
+ * quiet outcomes, and a storage/activity failure is logged rather than thrown.
+ *
+ * Only a pending record is written; an already-terminal record is never
+ * overwritten, so an inbox.resolve that settled first keeps its own delivery
+ * facts and its one `request-resolved` activity row.
+ */
+export type SettleAuthorizationOutcome = 'absent' | 'settled' | 'already-resolved' | 'conflict'
+
+/** One legacy authorization decision to mirror into the request inbox. */
+export interface SettleAuthorizationRecordInput {
+  readonly store: Pick<RequestServiceStorePort, 'appendActivity'>
+  readonly repoPath: string
+  readonly topicId: string
+  readonly requestId: string
+  readonly decision: 'allow' | 'deny'
+  readonly now: Date
+  /** When the topic session accepted the queue prompt, or null. */
+  readonly promptedAt: string | null
+  /** Why the queue prompt failed, or null. */
+  readonly promptError: string | null
+  /** The legacy route decides as the user unless told otherwise. */
+  readonly resolvedBy?: 'user' | 'master'
+  readonly log?: (message: string) => void
+}
+
+export async function settleAuthorizationRequestRecord(
+  input: SettleAuthorizationRecordInput,
+): Promise<SettleAuthorizationOutcome> {
+  const store = new RequestStore({ repoPath: input.repoPath, log: input.log })
+  let record: RequestRecordV1 | null
+  try {
+    record = await store.read(input.requestId)
+  } catch (error) {
+    input.log?.(`request ${input.requestId} was not read for settlement: ${messageOf(error)}`)
+    return 'absent'
+  }
+  if (record === null) return 'absent'
+  if (record.kind !== 'authorization' || record.topicId !== input.topicId) return 'absent'
+  const status = input.decision === 'allow' ? 'allowed' : 'denied'
+  if (record.status !== 'pending') {
+    if (record.status === status) return 'already-resolved'
+    input.log?.(
+      `request ${input.requestId} carries ${record.status}, not ${status}; the legacy decision does not rewrite a settled card`,
+    )
+    return 'conflict'
+  }
+  let settled = false
+  let next: RequestRecordV1 | null = null
+  try {
+    next = await store.update(input.requestId, (current) => {
+      if (current.kind !== 'authorization' || current.topicId !== input.topicId) return null
+      if (current.status !== 'pending') return null
+      settled = true
+      const resolved = applyResolution(current, {
+        status,
+        resolvedBy: input.resolvedBy ?? 'user',
+        now: input.now,
+      })
+      return {
+        ...resolved,
+        delivery: {
+          promptedAt: input.promptedAt,
+          lastError: input.promptError === null
+            ? null
+            : clipText(input.promptError, REQUEST_DELIVERY_ERROR_MAX_CHARS),
+        },
+      }
+    })
+  } catch (error) {
+    input.log?.(`request ${input.requestId} was not settled: ${messageOf(error)}`)
+    return 'absent'
+  }
+  if (!settled || next === null) {
+    // A concurrent writer settled the record after the pre-check. Mirroring is
+    // best-effort: report what the file now says instead of rewriting it.
+    return next !== null && next.status === status ? 'already-resolved' : 'conflict'
+  }
+  try {
+    await input.store.appendActivity(
+      requestResolvedActivity(next, { action: input.decision === 'allow' ? 'allow' : 'deny' }, input.now),
+    )
+  } catch (error) {
+    input.log?.(`request ${input.requestId} settled, activity not recorded: ${messageOf(error)}`)
+  }
+  return 'settled'
+}
+
 /** What one open call needs. */
 export interface OpenRequestTargetInput {
   readonly store: Pick<RequestServiceStorePort, 'readActivity'>
   readonly repoPath: string
+  /**
+   * The index the member check reads. The caller is the session that opened the
+   * project, so the same "master or the owning topic" rule as resolve applies:
+   * a repository session may not reveal another topic's file by guessing an id.
+   */
+  readonly document: ProjectIndexV2
+  readonly sessionId: string
   readonly requestId?: string
   readonly noticeId?: string
   /** Host file-browser port; absent means the host cannot open files. */
   readonly openWorkspacePath?: (path: string) => Promise<void>
 }
 
-/** Resolve one request id to its stored plan file. */
-async function planPathOfRequest(repoPath: string, requestId: string): Promise<string> {
+/** The file one open call targets, plus the topic that owns it. */
+interface OpenTarget {
+  readonly topicId: string | null
+  readonly relativePath: string
+}
+
+/** Resolve one request id to its stored plan file and owning topic. */
+async function planTargetOfRequest(repoPath: string, requestId: string): Promise<OpenTarget> {
   const store = new RequestStore({ repoPath })
   const record = await store.read(requestId)
   if (record === null) {
@@ -580,20 +695,20 @@ async function planPathOfRequest(repoPath: string, requestId: string): Promise<s
   if (typeof payload.planPath !== 'string') {
     throw new PanelServiceError('inbox/path-missing', `request ${requestId} carries no planPath`)
   }
-  return payload.planPath
+  return { topicId: record.topicId, relativePath: payload.planPath }
 }
 
-/** Resolve one notice id to the proposal file its event carries. */
-async function proposalPathOfNotice(
+/** Resolve one notice id to the proposal file its event carries, plus its topic. */
+async function proposalTargetOfNotice(
   store: Pick<RequestServiceStorePort, 'readActivity'>,
   noticeId: string,
-): Promise<string> {
+): Promise<OpenTarget> {
   const { events } = await store.readActivity(ACTIVITY_MAX_EVENTS)
   for (const event of events) {
     if (noticeIdOf(event) !== noticeId) continue
     const details = event.details as Record<string, unknown>
     if (typeof details.proposalPath === 'string' && details.proposalPath.trim() !== '') {
-      return details.proposalPath
+      return { topicId: event.topicId, relativePath: details.proposalPath }
     }
   }
   throw new PanelServiceError('inbox/path-missing', `notice ${noticeId} carries no openable file`)
@@ -655,10 +770,13 @@ export async function openRequestTarget(input: OpenRequestTargetInput): Promise<
   if ((input.requestId === undefined) === (input.noticeId === undefined)) {
     throw new PanelServiceError('inbox/path-missing', 'exactly one of requestId and noticeId is required')
   }
-  const relative = input.requestId !== undefined
-    ? await planPathOfRequest(input.repoPath, input.requestId)
-    : await proposalPathOfNotice(input.store, input.noticeId as string)
-  const absolute = await resolveOpenableFile(input.repoPath, relative)
+  const target = input.requestId !== undefined
+    ? await planTargetOfRequest(input.repoPath, input.requestId)
+    : await proposalTargetOfNotice(input.store, input.noticeId as string)
+  // Membership first: a stranger must not learn whether the file exists, and
+  // the host opener is never called for a row the caller does not own.
+  assertMember(input.document, input.sessionId, target.topicId)
+  const absolute = await resolveOpenableFile(input.repoPath, target.relativePath)
   if (input.openWorkspacePath === undefined) {
     throw new PanelServiceError(
       'inbox/open-unsupported',
@@ -670,7 +788,7 @@ export async function openRequestTarget(input: OpenRequestTargetInput): Promise<
   } catch (error) {
     throw new PanelServiceError(
       'inbox/open-unsupported',
-      `the host refused to open ${relative}: ${messageOf(error)}`,
+      `the host refused to open ${target.relativePath}: ${messageOf(error)}`,
     )
   }
   return absolute

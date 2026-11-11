@@ -319,9 +319,15 @@ async function handleInboxOpen(
     )
   }
   const { store, repoPath } = await kit.openProject(sessionId)
+  // The member check needs the index: open is master-or-owning-topic, the same
+  // rule resolve uses, so a repository session cannot reveal another topic's
+  // plan or proposal by guessing an id.
+  const document = await store.readIndexDocument()
   await openRequestTarget({
     store,
     repoPath,
+    document,
+    sessionId,
     ...(requestId === null ? {} : { requestId }),
     ...(noticeId === null ? {} : { noticeId }),
     ...(ports.openWorkspacePath === undefined ? {} : { openWorkspacePath: ports.openWorkspacePath }),

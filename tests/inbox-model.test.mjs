@@ -19,10 +19,14 @@ import {
   REQUEST_ACTION_LABELS,
   TOPIC_COLUMN_WIDTH_PX,
   WIDE_PANEL_MIN_PX,
+  answerCoversQuestion,
+  answersComplete,
   applyInboxItemUpdate,
   buildInboxViewModel,
   inboxNeedsYouTitle,
   needsYouBanner,
+  unansweredAnswerHint,
+  unansweredQuestionCount,
 } from '../src/client/inbox-model.ts'
 import {
   PanelApiError,
@@ -675,4 +679,58 @@ test('the request inbox styles never reuse the topic card class and keep focus v
   assert.match(styles, /\.cw-root :focus-visible \{[\s\S]*?outline: 2px solid/)
   assert.match(styles, /\.cw-card-filter\[data-active="true"\]/)
   assert.equal(styles.includes('.cw-inbox .cw-card'), false, 'the inbox never styles the topic card class')
+})
+
+test('the question submit gate requires every question, exactly like the host', () => {
+  const questions = [
+    { id: 'q1', prompt: 'one?', mode: 'single', options: [{ id: 'o1', label: 'yes' }, { id: 'o2', label: 'no' }] },
+    { id: 'q2', prompt: 'two?', mode: 'multi', options: [{ id: 'a', label: 'a' }, { id: 'b', label: 'b' }] },
+    { id: 'q3', prompt: 'three?', mode: 'single', allowText: true },
+    { id: 'q4', prompt: 'four?', mode: 'single', options: [{ id: 'x', label: 'x' }] },
+  ]
+  const empty = {}
+  assert.equal(unansweredQuestionCount(questions, empty), 4)
+  assert.equal(answersComplete(questions, empty), false)
+  assert.equal(unansweredAnswerHint(4), '还有 4 题未回答')
+  assert.equal(unansweredAnswerHint(1), '还有 1 题未回答')
+
+  // One answer is not enough: this is the bug the review found (`.some`).
+  const partial = { q1: { selected: ['o1'], text: '' } }
+  assert.equal(answerCoversQuestion(questions[0], partial.q1), true)
+  assert.equal(answersComplete(questions, partial), false)
+  assert.equal(unansweredQuestionCount(questions, partial), 3)
+
+  const full = {
+    q1: { selected: ['o1'], text: '' },
+    q2: { selected: ['a', 'b'], text: '' },
+    q3: { selected: [], text: 'free text' },
+    q4: { selected: ['x'], text: '' },
+  }
+  assert.equal(answersComplete(questions, full), true)
+  assert.equal(unansweredQuestionCount(questions, full), 0)
+
+  // The three rules the host enforces: unknown options do not count, a single
+  // question takes exactly one option, and text needs `allowText`.
+  assert.equal(answerCoversQuestion(questions[0], { selected: ['o9'], text: '' }), false)
+  assert.equal(answerCoversQuestion(questions[0], { selected: ['o1', 'o2'], text: '' }), false)
+  assert.equal(answerCoversQuestion(questions[3], { selected: [], text: 'not allowed' }), false)
+  assert.equal(answerCoversQuestion(questions[2], { selected: [], text: 'ok' }), true)
+  assert.equal(answerCoversQuestion(questions[0], undefined), false)
+
+  // A card with no questions can never be submitted.
+  assert.equal(answersComplete([], {}), false)
+})
+
+test('the question card blocks partial submits and shows the unanswered hint', async () => {
+  const inbox = await readFile(new URL('../src/client/inbox.tsx', import.meta.url), 'utf8')
+  const model = await readFile(new URL('../src/client/inbox-model.ts', import.meta.url), 'utf8')
+  assert.match(model, /export function answersComplete\(/)
+  assert.match(model, /export function unansweredQuestionCount\(/)
+  assert.match(inbox, /unansweredQuestionCount\(questions, answers\)/)
+  assert.match(inbox, /answersComplete\(questions, answers\)/)
+  assert.match(inbox, /isDisabled=\{action => action === 'submit' && !allAnswered\}/)
+  assert.equal(inbox.includes('questions.some('), false, 'the submit gate is not "any answer"')
+  assert.match(inbox, /data-testid="cw-inbox-answer-hint"/)
+  assert.match(inbox, /unansweredAnswerHint\(unanswered\)/)
+  assert.match(inbox, /role="status"/)
 })

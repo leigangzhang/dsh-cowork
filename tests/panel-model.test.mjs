@@ -763,3 +763,29 @@ test('the client sources carry no detail/list-split or review vocabulary', async
   assert.match(stylesSource, /\.cw-footer-button \{[\s\S]*?height: 42px/)
   assert.match(stylesSource, /data-wide='false'[\s\S]*?width: 36px/)
 })
+
+test('the question card gates submit on every answer and renders the unanswered hint', async () => {
+  const clientUrl = new URL('../src/client/', import.meta.url)
+  const inboxSource = await readFile(new URL('inbox.tsx', clientUrl), 'utf8')
+  const modelSource = await readFile(new URL('inbox-model.ts', clientUrl), 'utf8')
+  const model = await import('../src/client/inbox-model.ts')
+
+  // The gate and its copy live in the model (React-free), not in the component.
+  assert.match(modelSource, /export function answerCoversQuestion\(/)
+  assert.match(modelSource, /export function unansweredQuestionCount\(/)
+  assert.match(modelSource, /export function answersComplete\(/)
+  assert.equal(model.answersComplete([{ id: 'q1', prompt: 'p', mode: 'single', options: [{ id: 'o1', label: 'a' }] }], {}), false)
+  assert.equal(model.unansweredAnswerHint(2), '还有 2 题未回答')
+
+  // The card uses the model's verdict and never re-derives "any answer".
+  assert.match(inboxSource, /unansweredQuestionCount\(questions, answers\)/)
+  assert.match(inboxSource, /answersComplete\(questions, answers\)/)
+  assert.match(inboxSource, /isDisabled=\{action => action === 'submit' && !allAnswered\}/)
+  assert.equal(inboxSource.includes('questions.some('), false)
+  assert.match(inboxSource, /data-testid="cw-inbox-answer-hint"/)
+  assert.match(inboxSource, /unansweredAnswerHint\(unanswered\)/)
+  assert.match(inboxSource, /role="status"/)
+  assert.match(inboxSource, /aria-live="polite"/)
+  // The hint only shows while a submit is possible but blocked.
+  assert.match(inboxSource, /item\.actions\.length === 0 \|\| !pending \|\| unanswered === 0 \? null :/)
+})
