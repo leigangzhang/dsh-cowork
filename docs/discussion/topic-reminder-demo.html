@@ -521,105 +521,10 @@
   }
   .empty-filter.on { display: block; }
 
-
   .needs-you { display: none; cursor: pointer; }
   .sidebar[data-width="narrow"] .needs-you { display: flex; }
   .needs-you:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
 
-  .inbox-feed { display: flex; flex-direction: column; gap: 10px; padding: 2px 2px 6px; }
-  .inbox-day {
-    align-self: center;
-    color: var(--soft);
-    font-size: 9.5px;
-    letter-spacing: .06em;
-    margin: 2px 0 4px;
-  }
-  .inbox-message {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    min-width: 0;
-  }
-  .inbox-message[data-direction="out"] { flex-direction: row-reverse; }
-  .inbox-message[hidden] { display: none; }
-  .msg-avatar {
-    width: 24px;
-    height: 24px;
-    flex: none;
-    display: grid;
-    place-items: center;
-    border-radius: 8px;
-    background: #e9f1ff;
-    color: var(--blue);
-    font-size: 10px;
-    font-weight: 700;
-  }
-  .inbox-message[data-direction="out"] .msg-avatar { background: #101828; color: #fff; }
-  .msg-main {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    max-width: 82%;
-    min-width: 0;
-  }
-  .inbox-message[data-direction="out"] .msg-main { align-items: flex-end; }
-  .msg-meta {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 5px;
-    color: var(--soft);
-    font-size: 9.5px;
-  }
-  .inbox-message[data-direction="out"] .msg-meta { justify-content: flex-end; }
-  .msg-route { color: #475467; font-weight: 600; }
-  .msg-type { color: var(--blue); font-weight: 600; }
-  .msg-time { color: var(--soft); }
-  .msg-bubble {
-    padding: 9px 11px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: #fff;
-    box-shadow: 0 1px 2px rgba(16,24,40,.02);
-    font-size: 11.5px;
-    line-height: 1.55;
-    color: #344054;
-  }
-  .inbox-message[data-direction="out"] .msg-bubble {
-    border-color: #d1e9ff;
-    border-bottom-right-radius: 4px;
-    background: #eff8ff;
-  }
-  .inbox-message[data-direction="in"] .msg-bubble { border-bottom-left-radius: 4px; }
-  .msg-title { font-size: 12px; font-weight: 650; color: #1d2939; line-height: 1.45; }
-  .msg-summary { color: var(--muted); margin-top: 2px; }
-  .msg-foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    width: 100%;
-    color: var(--soft);
-    font-size: 9.5px;
-  }
-  .msg-actions { display: flex; align-items: center; gap: 5px; }
-  .msg-status {
-    display: none;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 6px;
-    border-radius: 99px;
-    background: var(--gray-soft);
-    color: #475467;
-    font-size: 9.5px;
-    white-space: nowrap;
-  }
-  .inbox-message.is-done { opacity: .72; }
-  .inbox-message.is-done .msg-status { display: inline-flex; }
-  .inbox-message.is-done .msg-actions .act { display: none; }
-  .inbox-message[data-kind="review"] .msg-type { color: var(--purple); }
-  .inbox-message[data-kind="authorization"] .msg-type { color: var(--red); }
-  .inbox-message[data-kind="archive"] .msg-type { color: #475467; }
   .footnote {
     margin: 8px 4px 0;
     color: #667085;
@@ -645,7 +550,7 @@
   <header class="demo-bar">
     <div>
       <div class="demo-title">Cowork 侧栏收件箱 · 宽屏演示</div>
-      <div class="demo-sub">宽侧栏左侧主题、右侧收件箱；默认展示主会话下发和主题上报。点主题筛选该主题的消息，再点一次取消；窄侧栏隐藏收件箱，顶部显示需要你处理。静态演示，不接真实数据。</div>
+      <div class="demo-sub">宽侧栏左侧主题、右侧收件箱；默认展示主会话全部题型。点主题筛选该主题的消息，再点一次取消；窄侧栏隐藏收件箱，顶部显示需要你处理。静态演示，不接真实数据。</div>
     </div>
     <div class="demo-controls">
       <span class="demo-note">宽 ≥ 620px 显示收件箱</span>
@@ -795,136 +700,122 @@
                 <button type="button" id="clearFilter" aria-label="取消筛选">×</button>
               </span>
             </div>
-            <span class="section-hint" id="reminderHint">主会话下发与主题上报</span>
+            <span class="section-hint" id="reminderHint">按时间从新到旧</span>
           </div>
 
-          <div class="inbox-feed" id="reminderList">
-            <div class="inbox-day">今天</div>
-
-            <article class="inbox-message" data-direction="out" data-kind="assignment" data-topic="gomoku" data-topic-name="五子棋小游戏">
-              <div class="msg-avatar">主</div>
-              <div class="msg-main">
-                <div class="msg-meta">
-                  <span class="msg-route">主会话下发</span>
-                  <span class="msg-type">[分配]</span>
-                  <span class="msg-time">14:02</span>
-                </div>
-                <div class="msg-bubble">
-                  <div class="msg-title">已分配主题「五子棋小游戏」</div>
-                  <div class="msg-summary">把「做一个五子棋小游戏」交给主题会话。</div>
-                </div>
-                <div class="msg-foot">
-                  <span>事件 1</span>
-                  <span class="msg-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
-                </div>
-                <span class="msg-status">已读</span>
-              </div>
-            </article>
-
-            <article class="inbox-message" data-direction="in" data-kind="report" data-topic="gomoku" data-topic-name="五子棋小游戏">
-              <div class="msg-avatar">题</div>
-              <div class="msg-main">
-                <div class="msg-meta">
-                  <span class="msg-route">主题会话上报</span>
-                  <span class="msg-type">[上报]</span>
-                  <span class="msg-time">14:05</span>
-                </div>
-                <div class="msg-bubble">
-                  <div class="msg-title">初版棋盘完成</div>
-                  <div class="msg-summary">可以落子，棋盘 15×15。</div>
-                </div>
-                <div class="msg-foot">
-                  <span>事件 2</span>
-                  <span class="msg-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
-                </div>
-                <span class="msg-status">已读</span>
-              </div>
-            </article>
-
-            <article class="inbox-message" data-direction="in" data-kind="proposal" data-topic="gomoku" data-topic-name="五子棋小游戏">
-              <div class="msg-avatar">题</div>
-              <div class="msg-main">
-                <div class="msg-meta">
-                  <span class="msg-route">主题会话上报</span>
-                  <span class="msg-type">[提案]</span>
-                  <span class="msg-time">14:12</span>
-                </div>
-                <div class="msg-bubble">
-                  <div class="msg-title">决策提案已生成并上报</div>
-                  <div class="msg-summary">评审请求挂到工作项详情，等待审阅。</div>
-                </div>
-                <div class="msg-foot">
-                  <span>事件 3</span>
-                  <span class="msg-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
-                </div>
-                <span class="msg-status">已读</span>
-              </div>
-            </article>
-
-            <article class="inbox-message" data-direction="in" data-kind="review" data-topic="bio" data-topic-name="整理个人主页文案" data-actionable="true">
-              <div class="msg-avatar">题</div>
-              <div class="msg-main">
-                <div class="msg-meta">
-                  <span class="msg-route">主题会话上报</span>
-                  <span class="msg-type">[评审]</span>
-                  <span class="msg-time">14:15</span>
-                </div>
-                <div class="msg-bubble">
-                  <div class="msg-title">评审待处理：个人主页 Bio</div>
-                  <div class="msg-summary">改动 2 个文件，验证命令已跑过，等待通过或退回。</div>
-                </div>
-                <div class="msg-foot">
-                  <span>事件 4 · 等待审核</span>
-                  <span class="msg-actions">
-                    <button type="button" class="act allow" data-action="pass">通过</button>
-                    <button type="button" class="act deny" data-action="return">退回</button>
+          <div class="reminder-list" id="reminderList">
+            <article class="reminder-card" data-kind="assignment" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v9"/><path d="m5 9 3 3 3-3"/></svg>
                   </span>
+                  <span class="type-label">分配</span>
                 </div>
-                <span class="msg-status">已通过</span>
+                <span class="reminder-time">14:02</span>
               </div>
+              <div class="reminder-title">已分配主题「五子棋小游戏」</div>
+              <div class="reminder-summary">把「做一个五子棋小游戏」交给主题会话。</div>
+              <div class="reminder-foot">
+                <span>事件 1 · 已同步主题会话</span>
+                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
+              </div>
+              <span class="card-status">已读</span>
             </article>
 
-            <article class="inbox-message" data-direction="in" data-kind="authorization" data-topic="gomoku" data-topic-name="五子棋小游戏" data-actionable="true">
-              <div class="msg-avatar">题</div>
-              <div class="msg-main">
-                <div class="msg-meta">
-                  <span class="msg-route">主题会话上报</span>
-                  <span class="msg-type">[授权]</span>
-                  <span class="msg-time">14:18</span>
-                </div>
-                <div class="msg-bubble">
-                  <div class="msg-title">是否允许读取浏览器登录态</div>
-                  <div class="msg-summary">用于生成个人主页文案。</div>
-                </div>
-                <div class="msg-foot">
-                  <span>事件 5 · 需要你处理</span>
-                  <span class="msg-actions">
-                    <button type="button" class="act allow" data-action="allow">允许</button>
-                    <button type="button" class="act deny" data-action="deny">拒绝</button>
+            <article class="reminder-card" data-kind="report" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V4"/><path d="m5 7 3-3 3 3"/></svg>
                   </span>
+                  <span class="type-label">上报</span>
                 </div>
-                <span class="msg-status">已允许</span>
+                <span class="reminder-time">14:05</span>
               </div>
+              <div class="reminder-title">主题上报：初版棋盘完成</div>
+              <div class="reminder-summary">可以落子，棋盘 15×15。</div>
+              <div class="reminder-foot">
+                <span>事件 2 · 已同步主题会话</span>
+                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
+              </div>
+              <span class="card-status">已读</span>
             </article>
 
-            <article class="inbox-message" data-direction="in" data-kind="archive" data-topic="website" data-topic-name="个人网站结构讨论">
-              <div class="msg-avatar">题</div>
-              <div class="msg-main">
-                <div class="msg-meta">
-                  <span class="msg-route">主题会话上报</span>
-                  <span class="msg-type">[归档]</span>
-                  <span class="msg-time">14:20</span>
+            <article class="reminder-card" data-kind="proposal" data-topic="gomoku" data-topic-name="五子棋小游戏">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="m8 2.4 5.6 5.6L8 13.6 2.4 8 8 2.4Z"/></svg>
+                  </span>
+                  <span class="type-label">决策提案</span>
                 </div>
-                <div class="msg-bubble">
-                  <div class="msg-title">主题已归档：个人网站结构讨论</div>
-                  <div class="msg-summary">用户从主题卡菜单归档，已解决。</div>
-                </div>
-                <div class="msg-foot">
-                  <span>事件 6 · 只给主会话</span>
-                  <span class="msg-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
-                </div>
-                <span class="msg-status">已读</span>
+                <span class="reminder-time">14:12</span>
               </div>
+              <div class="reminder-title">决策提案已生成并上报</div>
+              <div class="reminder-summary">评审请求挂到工作项详情，等待审阅。</div>
+              <div class="reminder-foot">
+                <span>事件 3 · 已同步主题会话</span>
+                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
+              </div>
+              <span class="card-status">已读</span>
+            </article>
+
+            <article class="reminder-card" data-kind="review" data-topic="bio" data-topic-name="整理个人主页文案" data-actionable="true">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">✓</span>
+                  <span class="type-label">评审</span>
+                </div>
+                <span class="reminder-time">14:15</span>
+              </div>
+              <div class="reminder-title">评审待处理：个人主页 Bio</div>
+              <div class="reminder-summary">改动 2 个文件，验证命令已跑过，等待通过或退回。</div>
+              <div class="reminder-foot">
+                <span>事件 4 · 等待审核</span>
+                <span class="reminder-actions">
+                  <button type="button" class="act allow" data-action="pass">通过</button>
+                  <button type="button" class="act deny" data-action="return">退回</button>
+                </span>
+              </div>
+              <span class="card-status">已通过</span>
+            </article>
+
+            <article class="reminder-card" data-kind="authorization" data-topic="gomoku" data-topic-name="五子棋小游戏" data-actionable="true">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">!</span>
+                  <span class="type-label">待授权</span>
+                </div>
+                <span class="reminder-time">14:18</span>
+              </div>
+              <div class="reminder-title">待授权：是否允许读取浏览器登录态</div>
+              <div class="reminder-summary">用于生成个人主页文案。</div>
+              <div class="reminder-foot">
+                <span>事件 5 · 需要你处理</span>
+                <span class="reminder-actions">
+                  <button type="button" class="act allow" data-action="allow">允许</button>
+                  <button type="button" class="act deny" data-action="deny">拒绝</button>
+                </span>
+              </div>
+              <span class="card-status">已允许</span>
+            </article>
+
+            <article class="reminder-card" data-kind="archive" data-topic="website" data-topic-name="个人网站结构讨论">
+              <div class="reminder-top">
+                <div class="reminder-type">
+                  <span class="type-icon" aria-hidden="true">✓</span>
+                  <span class="type-label">归档</span>
+                </div>
+                <span class="reminder-time">14:20</span>
+              </div>
+              <div class="reminder-title">主题已归档：个人网站结构讨论</div>
+              <div class="reminder-summary">用户从主题卡菜单归档，已解决。</div>
+              <div class="reminder-foot">
+                <span>事件 6 · 只给主会话</span>
+                <span class="reminder-actions"><button type="button" class="act" data-action="ack">知道了</button></span>
+              </div>
+              <span class="card-status">已读</span>
             </article>
           </div>
           <div class="empty-filter" id="emptyFilter">这个主题暂时没有收件箱消息。</div>
@@ -934,7 +825,7 @@
   </div>
 
   <p class="footnote">
-    宽侧栏左侧是主题、右侧是收件箱；默认展示主会话下发和主题会话上报的全部事件。点击主题只保留该主题的消息，再点一次取消筛选。简单消息用“知道了”收起，评审和授权直接在收件箱里操作；窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏。
+    宽侧栏左侧是主题、右侧是收件箱；默认展示主会话全部题型。点击主题只保留该主题的消息，再点一次取消筛选。简单消息用“知道了”收起，评审和授权直接在卡片里操作；窄侧栏隐藏收件箱，顶部“需要你处理”可一键展开宽侧栏。
   </p>
 </div>
 
@@ -942,7 +833,7 @@
   const sidebar = document.getElementById('sidebar');
   const widthButtons = [...document.querySelectorAll('[data-width]')];
   const topicCards = [...document.querySelectorAll('.topic-card[data-topic-id]')];
-  const inboxMessages = [...document.querySelectorAll('.inbox-message')];
+  const reminderCards = [...document.querySelectorAll('.reminder-card')];
   const reminderTitle = document.getElementById('reminderTitle');
   const reminderCount = document.getElementById('reminderCount');
   const filterPill = document.getElementById('filterPill');
@@ -984,10 +875,10 @@
   }
 
   function updateNeedsYou() {
-    const actionable = inboxMessages.filter(message =>
-      message.dataset.actionable === 'true' && !message.classList.contains('is-done'));
-    const auth = actionable.filter(message => message.dataset.kind === 'authorization').length;
-    const review = actionable.filter(message => message.dataset.kind === 'review').length;
+    const actionable = reminderCards.filter(card =>
+      card.dataset.actionable === 'true' && !card.classList.contains('is-done'));
+    const auth = actionable.filter(card => card.dataset.kind === 'authorization').length;
+    const review = actionable.filter(card => card.dataset.kind === 'review').length;
     if (actionable.length === 0) {
       needsYou.classList.add('is-clear');
       needsYouTitle.textContent = '需要你处理 0 项';
@@ -1007,10 +898,9 @@
   }
 
   function applyFilter() {
-    const matching = inboxMessages.filter(message =>
-      selectedTopic === null || message.dataset.topic === selectedTopic);
-    for (const message of inboxMessages) message.hidden = !matching.includes(message);
-    const pending = matching.filter(message => !message.classList.contains('is-done'));
+    const matching = reminderCards.filter(card => selectedTopic === null || card.dataset.topic === selectedTopic);
+    for (const card of reminderCards) card.hidden = !matching.includes(card);
+    const pending = matching.filter(card => !card.classList.contains('is-done'));
     reminderCount.textContent = String(pending.length);
     reminderTitle.textContent = selectedTopic === null
       ? '收件箱 · 全部类型'
@@ -1047,24 +937,24 @@
     applyFilter();
   });
 
-  function markDone(message, label) {
-    message.classList.add('is-done');
-    const status = message.querySelector('.msg-status');
+  function markDone(card, label) {
+    card.classList.add('is-done');
+    const status = card.querySelector('.card-status');
     if (status) status.textContent = label;
-    for (const button of message.querySelectorAll('button')) button.disabled = true;
+    for (const button of card.querySelectorAll('button')) button.disabled = true;
     updateNeedsYou();
     applyFilter();
   }
 
   for (const button of document.querySelectorAll('[data-action]')) {
     button.addEventListener('click', () => {
-      const message = button.closest('.inbox-message');
+      const card = button.closest('.reminder-card');
       const action = button.dataset.action;
-      if (action === 'ack') { markDone(message, '已读'); return; }
-      if (action === 'pass') { markDone(message, '已通过'); return; }
-      if (action === 'return') { markDone(message, '已退回'); return; }
+      if (action === 'ack') { markDone(card, '已读'); return; }
+      if (action === 'pass') { markDone(card, '已通过'); return; }
+      if (action === 'return') { markDone(card, '已退回'); return; }
       if (action === 'allow' || action === 'deny') {
-        markDone(message, action === 'allow' ? '已允许' : '已拒绝');
+        markDone(card, action === 'allow' ? '已允许' : '已拒绝');
       }
     });
   }
