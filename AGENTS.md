@@ -7,6 +7,7 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 - Read [docs/PLAN.md](docs/PLAN.md) before touching `src/`, `presets/`, or the data model. It owns the product scope, architecture, and milestones.
 - Read [.agents/notes/README.md](.agents/notes/README.md) before writing a decision record. It owns when to write one and what class to use.
 - Read [docs/documentation.md](docs/documentation.md) before adding, renaming, or reclassifying a document. It owns kinds, one-home-per-fact, budgets, and the publication switch.
+- Load [.agents/skills/write-docs/SKILL.md](.agents/skills/write-docs/SKILL.md) when writing or restructuring documentation, and [trim-prose](.agents/skills/trim-prose/SKILL.md) when prose reads like session narration. The skills own the procedure; documentation.md owns the rules.
 - Read [docs/glossary.md](docs/glossary.md) before naming a new concept. One concept, one word; link the term instead of restating it.
 - Read [tools/workflow.json](tools/workflow.json) before adding a rule, a file kind, or a check. A convention without an executable check is prose, not policy.
 
@@ -38,7 +39,7 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 ## Commands
 
 ```sh
-npm run check              # executable conventions (workflow.json, templates, AGENTS budget)
+npm run check              # executable conventions (workflow, skills, templates, publication, budgets)
 npm run check:self-test    # prove the guards can fail
 npm test                   # contract tests for the repository's own rules
 npm run typecheck          # TypeScript check (requires deps installed)

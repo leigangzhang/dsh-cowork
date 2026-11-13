@@ -1,0 +1,20 @@
+# Skills
+
+Each directory here is one trigger layer: a single `SKILL.md` an agent loads only when its own condition matches. This page is a way in — which one to reach for — and deliberately not a list of when each one loads, because that is each skill's `description`, the text the loader reads.
+
+## Using one
+
+An agent loads a skill by name once its `description` matches the work. Skills are loaded, not read in order, so the table below is a way in rather than a sequence. Every skill carries the same four sections — `## When to use`, `## How`, `## Verification`, `## Anti-patterns` — and `npm run check` proves those sections exist and the description opens with a load trigger. Skills are agent inputs, not reader-facing pages, so they stay in one language.
+
+## Which one to reach for
+
+| The question you have | Skill | What it gives you |
+|---|---|---|
+| How do I write, restructure, budget, or publish a document? | [`write-docs`](write-docs/SKILL.md) | kinds, placement, link/mirror/generate, budgets, and the publication switch |
+| This prose reads like a leaked authoring session | [`trim-prose`](trim-prose/SKILL.md) | what to cut, and which factual clauses have to survive the cut |
+
+## Related
+
+- Every home in this repository, and what each one owns: [docs/README.md](../../docs/README.md).
+- The rules these skills apply: [docs/documentation.md](../../docs/documentation.md).
+- The checks that keep the skill set honest: [tools/workflow.json](../../tools/workflow.json) and [tools/check-invariants.mjs](../../tools/check-invariants.mjs).

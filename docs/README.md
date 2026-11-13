@@ -7,7 +7,8 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 这个插件是什么，装什么，怎么构建 | [README.md](../README.md) |
 | 产品范围、架构、里程碑、验收（V0.1，M0–M4） | [PLAN.md](PLAN.md) |
 | 主题会话模型重构的阶段计划（V0.2，M6–M12） | [PLAN-V0.2.md](PLAN-V0.2.md) |
-| 文档怎么写、放哪里、预算、发布 | [documentation.md](documentation.md) |
+| 文档怎么写、放哪里、预算、发布 | [documentation.md](documentation.md)；执行步骤见 [write-docs](../.agents/skills/write-docs/SKILL.md) |
+| 怎么删掉行文里的会话残留、变更叙述 | [trim-prose](../.agents/skills/trim-prose/SKILL.md) |
 | 这个词在这个仓库里是什么意思 | [glossary.md](glossary.md) |
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |
 | 怎样才算“验证过” | [testing.md](testing.md) |
@@ -31,7 +32,8 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/PLAN.md` | plan | V0.1 产品范围、架构、M0–M4 完成记录 |
 | `docs/PLAN-V0.2.md` | plan | V0.2 主题会话模型重构：M6–M12 阶段、架构与验收 |
 | `docs/testing.md` | guide | 测试分层、证据、flake 政策 |
-| `docs/documentation.md` | guide | 文档种类、单一事实源、发布开关 |
+| `docs/documentation.md` | guide | 文档种类、命名、单一事实源、预算、发布开关与防劣质清单 |
+| `.agents/skills/` | skill | 按 `description` 触发的文档撰写与行文清理流程 |
 | `docs/routing.md` | guide | 三层路由、topic/工作项/评审请求的生命周期、改投与合并 |
 | `docs/decision-and-handoff.md` | guide | 决策记录与会话交接的实现与用法 |
 | `docs/context.md` | guide | 共享磁盘面、记忆注入、handoff/通知账本上下行与四类会话隔离矩阵 |

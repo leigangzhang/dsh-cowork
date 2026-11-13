@@ -31,6 +31,10 @@
       "reason": "decision records and their templates; internal history, not a guide"
     },
     {
+      "pattern": ".agents/skills/*",
+      "reason": "agent-loaded writing procedures and their index; the host injects the catalog, nobody browses these as pages"
+    },
+    {
       "pattern": "docs/KNOWN_ISSUES.md",
       "reason": "deferred and planned-away issue list for contributors: current status, ownership, and re-evaluation triggers; not a user-facing guide"
     },

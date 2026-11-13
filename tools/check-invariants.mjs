@@ -7,6 +7,7 @@
  *  - tools/workflow.json parses, has version 1, and every surface names
  *    non-empty patterns/evidence/why and a unique name.
  *  - the .agents/notes templates carry the sections their lifecycle stage owns.
+ *  - every skill has a trigger-shaped description, four sections, and resolvable links.
  *  - README links the product plan.
  *
  * Usage:
@@ -103,6 +104,40 @@ function noteErrors(rel, doc, declaredSurfaces, { template = false } = {}) {
   return errors
 }
 
+const SKILL_SECTIONS = ['## When to use', '## How', '## Verification', '## Anti-patterns']
+const SKILL_TRIGGER = /^Use (?:when|before|after|during)\b/
+
+function skillErrors(rel, doc) {
+  const errors = []
+  const lines = doc.split('\n')
+  let meta = null
+  if (lines[0]?.trim() === '---') {
+    const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
+    if (end > 0) meta = lines.slice(1, end)
+  }
+  if (meta === null) {
+    errors.push(`${rel}: no '---' front-matter block, so nothing declares when it loads`)
+  } else {
+    const fields = {}
+    for (const line of meta) {
+      const separator = line.indexOf(':')
+      if (separator < 0) continue
+      const key = line.slice(0, separator).trim()
+      if (key === 'name' || key === 'description') fields[key] = line.slice(separator + 1).trim()
+    }
+    if (!fields.name) errors.push(`${rel}: front matter has no name:`)
+    if (!fields.description) errors.push(`${rel}: front matter has no description:, so the skill has no load trigger`)
+    else if (!SKILL_TRIGGER.test(fields.description)) {
+      errors.push(`${rel}: description does not name its load trigger; it must open with 'Use when' / 'Use before' / 'Use after' / 'Use during', not a summary`)
+    }
+  }
+  for (const heading of SKILL_SECTIONS) {
+    if (!doc.includes(heading)) errors.push(`${rel}: missing ${heading}`)
+    else if (!sectionHasBody(doc, heading)) errors.push(`${rel}: section is empty: ${heading}`)
+  }
+  return errors
+}
+
 const IGNORED_DIRS = new Set(['.git', 'node_modules', 'lib', 'dist'])
 
 function listMarkdownFiles(dir) {
@@ -177,7 +212,7 @@ function publicationErrors(rootDir, errors) {
   // documentation index must route to the standing documents
   if (exists('docs/README.md')) {
     const index = read('docs/README.md')
-    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/testing.md', 'docs/publish.json']) {
+    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/testing.md', 'docs/publish.json', '.agents/skills/write-docs/SKILL.md', '.agents/skills/trim-prose/SKILL.md']) {
       if (!index.includes(token)) errors.push(`docs/README.md is missing pointer: ${token}`)
     }
   } else {
@@ -249,6 +284,23 @@ function collect(rootDir) {
     errors.push('tools/workflow.json is missing')
   }
 
+  // Skills: the description is the loader trigger and the body is the procedure.
+  const skillFiles = []
+  const skillsDir = resolve(rootDir, '.agents/skills')
+  if (!existsSync(skillsDir)) {
+    errors.push('.agents/skills is missing')
+  } else {
+    for (const name of readdirSync(skillsDir)) {
+      const full = join(skillsDir, name)
+      if (!statSync(full).isDirectory()) continue
+      const rel = `.agents/skills/${name}/SKILL.md`
+      skillFiles.push(rel)
+      if (!exists(rel)) errors.push(`${rel} is missing for skill directory ${name}`)
+      else errors.push(...skillErrors(rel, read(rel)))
+    }
+    if (skillFiles.length === 0) errors.push('.agents/skills contains no skill directory')
+  }
+
   // Note templates and records: the kit skeleton is the lifecycle contract.
   const declaredSurfaces = new Set((workflow?.surfaces ?? []).map((s) => s?.name).filter(Boolean))
   const noteTemplates = ['.agents/notes/proposed/TEMPLATE.md', '.agents/notes/implemented/TEMPLATE.md']
@@ -268,7 +320,7 @@ function collect(rootDir) {
 
   // kit gates for standing policy homes: docs-policy / testing-policy / notes-readme
   const policyHomes = [
-    ['docs/documentation.md', ['## Document kinds', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist'], 'docs-policy'],
+    ['docs/documentation.md', ['## Document kinds', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits'], 'docs-policy'],
     ['docs/testing.md', ['## Tiers', '## Commands', '## Determinism', '## Blocking and observational lanes', '## Flake policy', '## Evidence per change'], 'testing-policy'],
     ['.agents/notes/README.md', ['## When to write one', '## Classes', '## Flow'], 'notes-readme'],
   ]
@@ -306,7 +358,7 @@ function collect(rootDir) {
   }
 
   // link-target for always-loaded agent inputs
-  for (const rel of ['AGENTS.md', 'README.md', 'docs/README.md']) {
+  for (const rel of ['AGENTS.md', 'README.md', 'docs/README.md', '.agents/skills/README.md', ...skillFiles]) {
     if (!exists(rel)) continue
     const doc = read(rel)
     const base = dirname(resolve(rootDir, rel))
@@ -364,6 +416,20 @@ function selfTest() {
         '# Decision: x\n\nStatus: implemented\nDate: 2026-01-01\nClass: architecture\n\n## Problem\n\np\n\n## Decision\n\nd\n\n## Alternatives considered\n\na\n\n## Consequences\n\nc\n\n## Testing\n\n- [A1] no owner here\n',
         new Set(['source']),
       ).some((error) => error.includes('declared surface')),
+    },
+    {
+      name: 'skill description is a summary, not a load trigger',
+      fail: () => skillErrors(
+        '.agents/skills/example/SKILL.md',
+        '---\nname: example\ndescription: Summarizes the testing policy.\n---\n\n## When to use\n\nx\n\n## How\n\nx\n\n## Verification\n\nx\n\n## Anti-patterns\n\nx\n',
+      ).some((error) => error.includes('load trigger')),
+    },
+    {
+      name: 'skill is missing a required section',
+      fail: () => skillErrors(
+        '.agents/skills/example/SKILL.md',
+        '---\nname: example\ndescription: Use when a document needs a budget.\n---\n\n## When to use\n\nx\n\n## How\n\nx\n\n## Verification\n\nx\n',
+      ).some((error) => error.includes('Anti-patterns')),
     },
     {
       name: 'fixed wait in test',

@@ -56,6 +56,7 @@ test('tools/workflow.json declares unique surfaces with non-empty evidence', () 
     assert.ok(surface.evidence.every((e) => typeof e === 'string' && e.trim()), `${surface.name} has an empty evidence entry`)
     assert.ok(typeof surface.why === 'string' && surface.why.trim(), `${surface.name} needs why`)
   }
+  assert.ok(names.has('agent-skills'), 'workflow must declare the agent-skills surface')
 })
 
 test('AGENTS.md keeps the context budget and the required pointers', () => {
@@ -113,7 +114,7 @@ test('publish.json classifies every Markdown file exactly once', () => {
 
 test('standing policy homes keep their required sections', () => {
   const homes = [
-    ['docs/documentation.md', ['## Document kinds', '## One home per fact', '## Publication']],
+    ['docs/documentation.md', ['## Document kinds', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits']],
     ['docs/testing.md', ['## Tiers', '## Determinism', '## Flake policy']],
     ['.agents/notes/README.md', ['## When to write one', '## Classes', '## Flow']],
   ]
@@ -121,6 +122,26 @@ test('standing policy homes keep their required sections', () => {
     const doc = read(rel)
     for (const section of sections) assert.ok(doc.includes(section), `${rel} missing ${section}`)
   }
+})
+
+test('skills carry a load trigger, four sections, and an index entry', () => {
+  const skillsDir = resolve(root, '.agents/skills')
+  const skills = readdirSync(skillsDir).filter((name) => statSync(join(skillsDir, name)).isDirectory())
+  assert.ok(skills.includes('write-docs'), 'write-docs skill is missing')
+  assert.ok(skills.includes('trim-prose'), 'trim-prose skill is missing')
+  for (const name of skills) {
+    const rel = join('.agents/skills', name, 'SKILL.md')
+    const doc = read(rel)
+    assert.match(doc, /^---\n/, `${rel} has no front matter`)
+    const description = doc.match(/^description:\s*(.+)$/m)?.[1] ?? ''
+    assert.match(description, /^Use (?:when|before|after|during)\b/, `${rel} description is not a load trigger`)
+    for (const heading of ['## When to use', '## How', '## Verification', '## Anti-patterns']) {
+      assert.ok(sectionHasBody(doc, heading), `${rel} ${heading} is empty`)
+    }
+  }
+  const index = read('docs/README.md')
+  assert.ok(index.includes('.agents/skills/write-docs/SKILL.md'), 'docs index does not route to write-docs')
+  assert.ok(index.includes('.agents/skills/trim-prose/SKILL.md'), 'docs index does not route to trim-prose')
 })
 
 test('record templates trace each criterion to a declared surface', () => {

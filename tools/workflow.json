@@ -35,6 +35,18 @@
       "why": "A decision without what it rejected invites re-litigation."
     },
     {
+      "name": "agent-skills",
+      "patterns": [
+        ".agents/skills/**/*"
+      ],
+      "evidence": [
+        "npm run check",
+        "npm run check:self-test",
+        "read the skill description as the loader: does it name when the skill applies, not what it contains?"
+      ],
+      "why": "A skill is loaded by its description and carries the writing procedure. Without its four sections, trigger-shaped description, and resolvable links, the procedure is an article nobody can reach or trust."
+    },
+    {
       "name": "source",
       "patterns": [
         "src/**/*.ts",
