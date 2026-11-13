@@ -4,8 +4,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * M8.3 contract tests for the master inbox (A6): enqueue validates before it
  * writes, delivery merges at most 5 summaries per message, success stamps
@@ -13,15 +12,6 @@ import { register } from 'node:module'
  * 50-item cap keeps the newest items. Cases run against a real ProjectStore
  * under os.tmpdir(); only the prompt port is a fake.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { ProjectStore } = await import('../src/store.ts')
 const { Inbox, INBOX_MAX_BATCH, INBOX_MARK_ATTEMPTS, INBOX_SUMMARY_MAX_CHARS, InboxMarkError } =

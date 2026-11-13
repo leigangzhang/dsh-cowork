@@ -1,30 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 // `src/index.ts` imports its siblings with the build's `.js` specifiers, and
 // its transitively loaded runners use TypeScript parameter properties, which
 // strip-only mode rejects. The hook is the one `tests/dev-gate.test.mjs` uses:
 // resolve `.js` siblings as `.ts` and transform (not strip) the source.
-const HOOK_SOURCE = [
-  "import { readFileSync } from 'node:fs'",
-  "import { stripTypeScriptTypes } from 'node:module'",
-  "import { fileURLToPath } from 'node:url'",
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-  'export async function load(url, context, nextLoad) {',
-  "  if (url.startsWith('file:') && url.endsWith('.ts')) {",
-  "    const source = readFileSync(fileURLToPath(url), 'utf8')",
-  "    return { format: 'module', shortCircuit: true, source: stripTypeScriptTypes(source, { mode: 'transform' }) }",
-  '  }',
-  '  return nextLoad(url, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { createOpenWorkspacePathPort, OPEN_WORKSPACE_PATH_TIMEOUT_MS } = await import('../src/index.ts')
 

@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * Contract tests for the v1 → v2 index migration and the v1 compatibility view
  * the unchanged v1 tools keep using (PLAN-V0.2 §5.2, A1).
@@ -10,15 +9,6 @@ import { register } from 'node:module'
  * installs the same resolve hook tests/review-verdict.test.mjs uses. Every
  * fixture is an in-memory object: nothing here touches `.dsh-cowork/`.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { MigrationError, applyLegacyView, isLegacyIndexDocument, legacyViewOf, migrateV1ToV2 } =
   await import('../src/store-migration.ts')

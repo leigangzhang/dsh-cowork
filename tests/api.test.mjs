@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
+import { PANEL_ROUTES } from './support/public-surface.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,15 +11,6 @@ import { join } from 'node:path'
 // tested modules avoid runtime imports entirely; this route module cannot, so
 // the test installs a resolve hook that only retries relative `.js` specifiers
 // as `.ts` (and falls back to the real `.js` when there is no source sibling).
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const api = await import('../src/api.ts')
 const contract = await import('../src/api-contract.ts')
@@ -504,18 +496,6 @@ test('toErrorResponse keeps the store path for corruption and degrades the rest'
 // route registration
 // ---------------------------------------------------------------------------
 
-const ROUTES = [
-  [contract.OVERVIEW_PATH, 'GET'],
-  [contract.ACTIVITY_PATH, 'GET'],
-  [contract.TOPIC_PATH, 'GET'],
-  [contract.RESOLVE_PATH, 'POST'],
-  [contract.REOPEN_PATH, 'POST'],
-  [contract.ROUTE_MOVE_PATH, 'POST'],
-  [contract.AUTHORIZATION_RESOLVE_PATH, 'POST'],
-  [inboxContract.INBOX_PATH, 'GET'],
-  [inboxContract.INBOX_RESOLVE_PATH, 'POST'],
-  [inboxContract.INBOX_OPEN_PATH, 'POST'],
-]
 
 test('registerCoworkApi registers the ten v2 routes and disposes them', async () => {
   const portBag = fakePorts()
@@ -523,10 +503,10 @@ test('registerCoworkApi registers the ten v2 routes and disposes them', async ()
   const { host, effects } = fakeHost(fake.connection)
   api.registerCoworkApi(host, portBag.ports)
   assert.equal(effects.length, 10, 'one fiber effect per route')
-  assert.deepEqual(effects.map((effect) => effect.label), ROUTES.map(
+  assert.deepEqual(effects.map((effect) => effect.label), PANEL_ROUTES.map(
     ([path]) => `dsh-cowork: panel route ${path}`,
   ))
-  assert.deepEqual(fake.registered.map((route) => [route.path, route.methods.join(',')]), ROUTES)
+  assert.deepEqual(fake.registered.map((route) => [route.path, route.methods.join(',')]), PANEL_ROUTES)
   for (const route of fake.registered) {
     assert.equal(route.requestBody, 'buffered')
     assert.equal(typeof route.fetch, 'function')
@@ -2149,6 +2129,10 @@ test('the legacy authorization route settles the inbox card over real files', as
     })
   }
   const prompts = []
+  const promptedCards = []
+  const readCard = async (requestId) => JSON.parse(
+    await readFile(join(repoPath, '.dsh-cowork', 'requests', `${requestId}.json`), 'utf8'),
+  )
   const { routes } = await registerRoutes({
     ports: {
       listSessions: async () => ({ items: [{ sessionId: MASTER, cwd: repoPath }] }),
@@ -2157,14 +2141,13 @@ test('the legacy authorization route settles the inbox card over real files', as
       now: () => NOW,
       promptSession: async (sessionId, text) => {
         prompts.push({ sessionId, text })
+        // The topic is woken only after the card it continues from is durable.
+        promptedCards.push(await readCard('req-1'))
         return { accepted: true }
       },
       log: () => {},
     },
   })
-  const readCard = async (requestId) => JSON.parse(
-    await readFile(join(repoPath, '.dsh-cowork', 'requests', `${requestId}.json`), 'utf8'),
-  )
   const resolveAuth = async (body) => readResponse(
     await routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
       postRequest(contract.AUTHORIZATION_RESOLVE_PATH, body),
@@ -2210,4 +2193,80 @@ test('the legacy authorization route settles the inbox card over real files', as
     1,
   )
   assert.equal(prompts.length, 1, 'only the committed decision prompts the topic')
+  assert.equal(promptedCards.length, 1)
+  assert.equal(promptedCards[0].status, 'allowed', 'the legacy route settles the card before prompting')
+  assert.equal(promptedCards[0].delivery.promptedAt, null, 'the delivery facts are patched after the prompt')
+})
+
+test('a failed prompt on the legacy route is recorded on the card without re-prompting', async (t) => {
+  const repoPath = await mkdtemp(join(tmpdir(), 'cowork-api-auth-prompt-'))
+  t.after(() => rm(repoPath, { recursive: true, force: true }))
+  const realStore = new store.ProjectStore({ repoPath, clock: () => NOW })
+  await realStore.initIndex(MASTER)
+  await realStore.mutateIndexDocument((document) => ({
+    ...document,
+    topics: [
+      makeTopic({
+        topicId: 'topic-1',
+        status: 'idle',
+        blocked: true,
+        blockedReason: 'authorization',
+        blockedFromStatus: 'idle',
+        blockedAt: NOW.toISOString(),
+        authorization: { requestId: 'req-1', summary: 'may I push?', requestedAt: NOW.toISOString() },
+      }),
+    ],
+  }))
+  const document = await realStore.readIndexDocument()
+  await requestService.createRequest({
+    store: realStore,
+    repoPath,
+    projectId: document.projectId,
+    topic: document.topics[0],
+    kind: 'authorization',
+    payload: { summary: 'may I push?' },
+    requestId: 'req-1',
+    now: NOW,
+  })
+  let attempts = 0
+  const { routes } = await registerRoutes({
+    ports: {
+      listSessions: async () => ({ items: [{ sessionId: MASTER, cwd: repoPath }] }),
+      findProjectRoot: async (startPath) => (startPath === repoPath ? repoPath : null),
+      createStore: () => realStore,
+      now: () => NOW,
+      promptSession: async () => {
+        attempts += 1
+        throw new Error('host is busy')
+      },
+      log: () => {},
+    },
+  })
+  const readCard = async () => JSON.parse(
+    await readFile(join(repoPath, '.dsh-cowork', 'requests', 'req-1.json'), 'utf8'),
+  )
+  const decide = async () => readResponse(
+    await routes.get(contract.AUTHORIZATION_RESOLVE_PATH).fetch(
+      postRequest(contract.AUTHORIZATION_RESOLVE_PATH, {
+        sessionId: MASTER, topicId: 'topic-1', requestId: 'req-1', decision: 'allow',
+      }),
+    ),
+  )
+
+  const first = await decide()
+  assert.equal(first.status, 200)
+  assert.equal(first.body.changed, true)
+  assert.equal(first.body.prompted, false)
+  assert.equal('promptError' in first.body, false, 'the legacy response shape is unchanged')
+  const card = await readCard()
+  assert.equal(card.status, 'allowed', 'the card is terminal even when the prompt fails')
+  assert.equal(card.delivery.promptedAt, null)
+  assert.match(card.delivery.lastError, /host is busy/)
+
+  const replay = await decide()
+  assert.equal(replay.status, 200)
+  assert.equal(replay.body.changed, false)
+  assert.equal(replay.body.prompted, false)
+  assert.equal(attempts, 1, 'a replay never prompts twice')
+  assert.match((await readCard()).delivery.lastError, /host is busy/, 'a replay leaves the recorded failure alone')
 })

@@ -6,23 +6,13 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * `src/store.ts` value-imports `./store-schema.js` and `./store-migration.js`
  * (the v2 index schema and the v1→v2 migration), and Node's type stripping does
  * not retry a `.js` sibling as `.ts`. This is the same resolve hook
  * tests/review-verdict.test.mjs uses.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const {
   ProjectStore,

@@ -4,20 +4,10 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 // `src/work-item.ts` imports the shared vocabularies with the build's `.js`
 // specifiers, which Node's type stripping does not retry as `.ts`; this test
 // installs the same small resolve hook tests/presets.test.mjs uses.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const {
   MERGEABLE_WORK_ITEM_STATUSES,

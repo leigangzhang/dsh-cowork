@@ -1,21 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import { register } from 'node:module'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-
-// `src/api.ts` / `src/inbox-api.ts` import their siblings with the build's
-// `.js` specifiers; the hook `tests/api.test.mjs` uses makes them importable.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import {
+  makeSeedProject,
+  makeSeedRequest,
+  makeTopicFixture,
+  withRepo,
+} from './support/inbox-fixtures.mjs'
 
 const api = await import('../src/api.ts')
 const inbox = await import('../src/inbox-api.ts')
@@ -24,6 +16,7 @@ const activity = await import('../src/activity.ts')
 const { recordNoticesForEvent } = await import('../src/notices.ts')
 const { ProjectStore } = await import('../src/store.ts')
 const service = await import('../src/request-service.ts')
+const { RequestStore } = await import('../src/request-store.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')
 const NOW_ISO = NOW.toISOString()
@@ -33,58 +26,11 @@ const TOPIC = 'session-topic'
 const OTHER_TOPIC = 'session-other-topic'
 const STRANGER = 'session-stranger'
 
-/** One v2 topic with every field the schema requires. */
-function topic(topicId, title, overrides = {}) {
-  return {
-    topicId,
-    title,
-    status: 'active',
-    awaitingReview: false,
-    blocked: false,
-    blockedReason: null,
-    blockedFromStatus: null,
-    blockedAt: null,
-    authorization: null,
-    scope: 'scope',
-    ownedPaths: [],
-    aliases: [],
-    digest: 'working',
-    cwd: '/repo',
-    legacyCheckoutPath: null,
-    createdAt: '2026-11-01T00:00:00.000Z',
-    updatedAt: '2026-11-01T00:00:00.000Z',
-    lastActiveAt: '2026-11-01T00:00:00.000Z',
-    lastDeliveryConfirmedAt: null,
-    resolvedAt: null,
-    resolvedBy: null,
-    latestReviewRequestId: null,
-    reviewStatus: null,
-    reviewerSessionId: null,
-    ...overrides,
-  }
-}
+/** The suite's v2 topic fixture, bound to one record template. */
+const topicRecord = makeTopicFixture({ scope: 'scope' })
+const topic = (topicId, title, overrides = {}) => topicRecord({ topicId, title, ...overrides })
 
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-inbox-api-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
-
-/** Seed the project index with the given topics. */
-async function seedProject(repoPath, topics) {
-  const store = new ProjectStore({ repoPath, clock: () => NOW, projectId: 'p' })
-  await store.initIndex(MASTER)
-  if (topics.length > 0) {
-    await store.mutateIndexDocument((document) => ({
-      ...document,
-      topics: topics.map((entry) => ({ ...entry, cwd: repoPath })),
-    }))
-  }
-  return store
-}
+const seedProject = makeSeedProject({ clock: () => NOW })
 
 /** A supported host notice port that records every patch. */
 function fakeNoticePort(state) {
@@ -191,19 +137,10 @@ async function readResponse(response) {
 }
 
 /** Create one request through the service of the seeded store. */
-async function seedRequest(repoPath, store, input) {
-  return service.createRequest({
-    store,
-    repoPath,
-    projectId: 'p',
-    topic: topic(input.topicId ?? TOPIC, 'Inbox backend'),
-    now: NOW,
-    requestId: input.requestId,
-    kind: input.kind,
-    payload: input.payload,
-    summary: input.summary,
-  })
-}
+const seedRequest = makeSeedRequest({
+  now: NOW,
+  topic: (input) => topic(input.topicId ?? TOPIC, 'Inbox backend'),
+})
 
 /** Seed the four request kinds plus the notification tail the read merges. */
 async function seedInbox(repoPath, store) {
@@ -505,6 +442,73 @@ test('resolve validates question answers and the comment', async () => {
     assert.equal(answered.body.item.status, 'answered')
     const skip = await resolve({ sessionId: MASTER, requestId: 'req-plan-missing', action: 'skip' })
     assert.equal(skip.status, 404)
+  })
+})
+
+test('a question submit lands every answer on the card before the topic prompt', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic(TOPIC, 'Inbox backend')])
+    await seedRequest(repoPath, store, {
+      requestId: 'req-q',
+      kind: 'question',
+      payload: {
+        questions: [
+          {
+            id: 'q1',
+            prompt: 'ship it?',
+            mode: 'single',
+            options: [{ id: 'o1', label: '现在发布' }, { id: 'o2', label: '再等等' }],
+          },
+          { id: 'q2', prompt: '补充说明？', mode: 'single', allowText: true },
+        ],
+      },
+    })
+    const { ports } = fakePorts(repoPath)
+    const observed = []
+    // The prompt port reads the card the way the topic session will.
+    ports.promptSession = async (sessionId, text) => {
+      observed.push({
+        sessionId,
+        text,
+        record: await new RequestStore({ repoPath }).read('req-q'),
+      })
+      return { accepted: true }
+    }
+    const routes = registerRoutes(ports)
+    const { status, body } = await readResponse(
+      await routes.get(inboxContract.INBOX_RESOLVE_PATH).fetch(postRequest(inboxContract.INBOX_RESOLVE_PATH, {
+        sessionId: MASTER,
+        requestId: 'req-q',
+        action: 'submit',
+        answers: [
+          { questionId: 'q1', selected: ['o1'] },
+          { questionId: 'q2', text: '把文档补上' },
+        ],
+        comment: '先处理文档，再发布',
+      })),
+    )
+    assert.equal(status, 200)
+    assert.equal(body.ok, true)
+    assert.equal(body.item.status, 'answered')
+    assert.equal(observed.length, 1)
+    assert.equal(observed[0].sessionId, TOPIC)
+    assert.equal(observed[0].record.status, 'answered', 'the card is terminal before the prompt')
+    assert.deepEqual(observed[0].record.resolution, {
+      comment: '先处理文档，再发布',
+      answers: [
+        { questionId: 'q1', selected: ['o1'] },
+        { questionId: 'q2', text: '把文档补上' },
+      ],
+    })
+    assert.match(observed[0].text, /ship it\?/)
+    assert.match(observed[0].text, /现在发布/)
+    assert.match(observed[0].text, /把文档补上/)
+    assert.match(observed[0].text, /先处理文档，再发布/)
+    assert.match(body.item.resolutionMessage, /已回答全部问题/)
+    assert.match(body.item.resolutionMessage, /现在发布/)
+    const persisted = await new RequestStore({ repoPath }).read('req-q')
+    assert.equal(persisted.delivery.promptedAt, NOW_ISO)
+    assert.equal(persisted.delivery.lastError, null)
   })
 })
 

@@ -3,8 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 /**
  * Contract tests for the topic notice model: the pure 1:1 copy, the delivery
  * ledger, the B-mode ports, and the per-project dispatcher (order, retry,
@@ -14,15 +13,7 @@ import { register } from 'node:module'
  * small resolve hook is installed. The dispatcher runs against a real
  * `ProjectStore` in a throwaway directory; only the host port is a fake.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import { makeTopicFixture, withRepo } from './support/inbox-fixtures.mjs'
 
 const notices = await import('../src/notices.ts')
 const { ProjectStore } = await import('../src/store.ts')
@@ -40,32 +31,12 @@ const NOW = new Date('2026-11-10T10:00:00.000Z')
 const NOW_ISO = NOW.toISOString()
 const CREATED_AT = '2026-11-10T09:00:00.000Z'
 
-const topic = (overrides = {}) => ({
+const topic = makeTopicFixture({
   topicId: 'session-topic',
   title: 'wire the notices',
-  status: 'active',
-  awaitingReview: false,
-  blocked: false,
-  blockedReason: null,
-  blockedFromStatus: null,
-  blockedAt: null,
-  authorization: null,
-  scope: '',
-  ownedPaths: [],
-  aliases: [],
-  digest: '',
-  cwd: '/repo',
-  legacyCheckoutPath: null,
   createdAt: CREATED_AT,
   updatedAt: CREATED_AT,
   lastActiveAt: CREATED_AT,
-  lastDeliveryConfirmedAt: null,
-  resolvedAt: null,
-  resolvedBy: null,
-  latestReviewRequestId: null,
-  reviewStatus: null,
-  reviewerSessionId: null,
-  ...overrides,
 })
 
 /** A recording port that can be told to fail the first N appends. */
@@ -92,14 +63,6 @@ function fakePort({ supported = true, failTimes = 0, failAlways = false } = {}) 
   }
 }
 
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-notices-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
 
 /** A store for one throwaway project with an initialised index. */
 async function openStore(repoPath) {

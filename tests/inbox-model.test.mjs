@@ -1,40 +1,38 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import {
+import './support/ts-hook.mjs'
+
+const {
   REQUEST_ACTIONS_BY_KIND,
   REQUEST_PENDING_LABELS,
   REQUEST_STATUS_LABELS,
   REQUEST_STATUSES,
-} from '../src/inbox-contract.ts'
-import {
+  answerCoversQuestion,
+} = await import('../src/inbox-contract.ts')
+const {
   INBOX_ALL_TOPICS_LABEL,
   INBOX_ARCHIVED_TOPIC_LABEL,
   INBOX_EMPTY_LABEL,
   INBOX_NOTE_LABELS,
-  INBOX_COLUMN_GAP_PX,
-  INBOX_COLUMN_MIN_PX,
   NEEDS_YOU_DETAIL_LABELS,
   NEEDS_YOU_DETAIL_ORDER,
   REQUEST_ACTION_LABELS,
-  TOPIC_COLUMN_WIDTH_PX,
   WIDE_PANEL_MIN_PX,
   INBOX_FILTER_STORAGE_PREFIX,
-  answerCoversQuestion,
   answersComplete,
   applyInboxItemUpdate,
   buildInboxViewModel,
   inboxFilterStorageKey,
   inboxNeedsYouTitle,
-  needsYouBanner,
   readStoredFilter,
   shouldShowUnansweredHint,
   unansweredAnswerHint,
   unansweredQuestionCount,
   clearStoredFilter,
   writeStoredFilter,
-} from '../src/client/inbox-model.ts'
-import {
+} = await import('../src/client/inbox-model.ts')
+const {
   PanelApiError,
   loadInbox,
   openInboxTarget,
@@ -44,7 +42,12 @@ import {
   parseInboxRow,
   parseInboxRequestItem,
   resolveInboxRequest,
-} from '../src/client/api.ts'
+} = await import('../src/client/api.ts')
+const {
+  INBOX_COLUMN_GAP_PX,
+  INBOX_COLUMN_MIN_PX,
+  TOPIC_COLUMN_WIDTH_PX,
+} = await import('../src/client/inbox-layout.ts')
 
 /** Fixed clock: relative-time labels never depend on the wall clock. */
 const NOW = Date.parse('2026-11-08T12:00:00.000Z')
@@ -238,10 +241,6 @@ test('server counts become the fixed-order, non-zero narrow banner copy', () => 
   })
   assert.deepEqual(view.needsYou, { count: 5, detail: '待授权 2 · 待审核 1 · 待确认 2' })
   assert.equal(inboxNeedsYouTitle(view.needsYou.count), '需要你处理 5 项')
-  assert.deepEqual(needsYouBanner(view), {
-    title: '需要你处理 5 项',
-    detail: '待授权 2 · 待审核 1 · 待确认 2',
-  })
 
   const zero = viewOf([], { counts: { pending: 0 } })
   assert.deepEqual(zero.needsYou, { count: 0, detail: '' })
@@ -596,11 +595,40 @@ test('openInboxTarget sends ids only and refuses a target without one', async ()
   assert.deepEqual(JSON.parse(calls[1].init.body), { sessionId: 'session-master', noticeId: 'notice-proposal' })
 })
 
-test('the geometry constants are the frozen 620 / 280 / 318 values', () => {
+test('the frozen geometry constants are consumed by the stylesheet, not just asserted', async () => {
   assert.equal(WIDE_PANEL_MIN_PX, 620)
   assert.equal(INBOX_COLUMN_MIN_PX, 280)
   assert.equal(TOPIC_COLUMN_WIDTH_PX, 318)
   assert.equal(INBOX_COLUMN_GAP_PX, 12)
+  const styles = await readFile(new URL('../src/client/styles.ts', import.meta.url), 'utf8')
+  assert.match(
+    styles,
+    /grid-template-columns: \$\{TOPIC_COLUMN_WIDTH_PX\}px minmax\(\$\{INBOX_COLUMN_MIN_PX\}px, 1fr\)/,
+  )
+  assert.match(styles, /gap: \$\{INBOX_COLUMN_GAP_PX\}px/)
+  const { PANEL_CSS } = await import('../src/client/styles.ts')
+  assert.match(PANEL_CSS, /grid-template-columns: 318px minmax\(280px, 1fr\)/)
+  assert.match(PANEL_CSS, /gap: 12px/)
+  // The model no longer owns or forwards the layout constants.
+  const modelSource = await readFile(new URL('../src/client/inbox-model.ts', import.meta.url), 'utf8')
+  assert.equal(modelSource.includes('INBOX_COLUMN_MIN_PX'), false)
+  assert.equal(modelSource.includes('export function needsYouBanner('), false)
+})
+
+test('the answered rule and the wire payload parser each live in one place', async () => {
+  const contractSource = await readFile(new URL('../src/inbox-contract.ts', import.meta.url), 'utf8')
+  const modelSource = await readFile(new URL('../src/client/inbox-model.ts', import.meta.url), 'utf8')
+  const apiSource = await readFile(new URL('../src/client/api.ts', import.meta.url), 'utf8')
+  assert.equal((contractSource.match(/export function answerCoversQuestion\(/g) ?? []).length, 1)
+  assert.equal(modelSource.includes('function answerCoversQuestion('), false)
+  assert.equal(apiSource.includes('function answerCoversQuestion('), false)
+  assert.match(modelSource, /answerCoversQuestion,/)
+  // `client/api.ts` is the only wire parser: the model consumes typed payloads.
+  for (const removed of ['reviewPayloadOf', 'authorizationPayloadOf', 'questionPayloadOf', 'planPayloadOf']) {
+    assert.equal(modelSource.includes(removed), false, `${removed} must not exist in the model`)
+  }
+  assert.match(modelSource, /payload: item\.payload/)
+  assert.match(apiSource, /parseReviewPayload\(value\.payload\)/)
 })
 
 test('inbox-model stays React-free and carries no JSX', async () => {
@@ -677,8 +705,11 @@ test('the topic filter button is a sibling of the open button and never opens th
 test('the request inbox styles never reuse the topic card class and keep focus visible', async () => {
   const styles = await readFile(new URL('../src/client/styles.ts', import.meta.url), 'utf8')
   assert.match(styles, /\.cw-req-card \{/)
-  assert.match(styles, /\.cw-columns \{[\s\S]*?grid-template-columns: 318px minmax\(280px, 1fr\)/)
-  assert.match(styles, /\.cw-columns \{[\s\S]*?gap: 12px/)
+  assert.match(
+    styles,
+    /\.cw-columns \{[\s\S]*?grid-template-columns: \$\{TOPIC_COLUMN_WIDTH_PX\}px minmax\(\$\{INBOX_COLUMN_MIN_PX\}px, 1fr\)/,
+  )
+  assert.match(styles, /\.cw-columns \{[\s\S]*?gap: \$\{INBOX_COLUMN_GAP_PX\}px/)
   assert.match(styles, /\.cw-topic-column \{[\s\S]*?overflow-y: auto/)
   assert.match(styles, /\.cw-inbox-list \{[\s\S]*?overflow-y: auto/)
   assert.match(styles, /\.cw-inbox-note \{[\s\S]*?text-align: center/)

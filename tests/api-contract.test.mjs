@@ -2,11 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import {
+import './support/ts-hook.mjs'
+import { PANEL_PATHS } from './support/public-surface.mjs'
+
+const {
   ACTIVITY_DEFAULT_LIMIT,
   ACTIVITY_MAX_LIMIT,
-  ACTIVITY_PATH,
-  AUTHORIZATION_RESOLVE_PATH,
   MAX_INBOX_ITEMS,
   MAX_PANEL_TOPICS,
   MAX_REQUEST_BODY_BYTES,
@@ -17,18 +18,13 @@ import {
   MAX_TOPIC_OWNED_PATHS,
   MAX_TOPIC_REVIEW_REQUESTS,
   MAX_TOPIC_WORK_ITEMS,
-  OVERVIEW_PATH,
   PANEL_REVIEW_SEVERITIES,
   PANEL_REVIEW_STATUSES,
   PANEL_BLOCKED_REASONS,
   PANEL_REVIEW_VERDICTS,
   PANEL_TOPIC_STATUS_ORDER,
   PANEL_WORK_ITEM_STATUSES,
-  REOPEN_PATH,
-  RESOLVE_PATH,
-  ROUTE_MOVE_PATH,
   TOPIC_ACTIVITY_LIMIT,
-  TOPIC_PATH,
   countPanel,
   defaultSelectedTopicId,
   isPanelBlockedReason,
@@ -40,12 +36,9 @@ import {
   isPanelWorkItemStatus,
   sortTopicsForPanel,
   truncateSummary,
-} from '../src/api-contract.ts'
-import {
-  INBOX_OPEN_PATH,
-  INBOX_PATH,
-  INBOX_RESOLVE_PATH,
-} from '../src/inbox-contract.ts'
+} = await import('../src/api-contract.ts')
+const {
+} = await import('../src/inbox-contract.ts')
 
 const STORE_SCHEMA_SOURCE = fileURLToPath(new URL('../src/store-schema.ts', import.meta.url))
 const CONTRACT_SOURCE = fileURLToPath(new URL('../src/api-contract.ts', import.meta.url))
@@ -395,18 +388,7 @@ test('the exported bounds keep the documented values and their relations', () =>
 })
 
 test('the ten route paths are unique, absolute and stable', () => {
-  const paths = [
-    OVERVIEW_PATH,
-    ACTIVITY_PATH,
-    TOPIC_PATH,
-    RESOLVE_PATH,
-    REOPEN_PATH,
-    ROUTE_MOVE_PATH,
-    AUTHORIZATION_RESOLVE_PATH,
-    INBOX_PATH,
-    INBOX_RESOLVE_PATH,
-    INBOX_OPEN_PATH,
-  ]
+  const paths = [...PANEL_PATHS]
   assert.deepEqual(paths, [
     '/api/cowork.overview',
     '/api/cowork.activity',
@@ -422,9 +404,11 @@ test('the ten route paths are unique, absolute and stable', () => {
   assert.equal(new Set(paths).size, paths.length, 'every route has its own path')
   for (const path of paths) assert.equal(path.startsWith('/api/'), true, `${path} stays below /api`)
   assert.equal(paths.includes('/api/cowork.handoff'), false, 'the legacy route is gone')
-  // The inbox half owns its three paths in `src/inbox-contract.ts`; this module
-  // re-states them in no list, so the test imports them from their one home.
-  assert.equal(new Set([...paths, INBOX_PATH, INBOX_RESOLVE_PATH, INBOX_OPEN_PATH]).size, 10)
+  // The inbox half owns its three paths in `src/inbox-contract.ts`; the shared
+  // registration list above is their one home in the suite.
+  for (const path of ['/api/cowork.inbox', '/api/cowork.inbox.resolve', '/api/cowork.inbox.open']) {
+    assert.equal(paths.includes(path), true, `the inbox path ${path} is registered`)
+  }
 })
 
 test('isPanelError recognizes the shared error envelope only', () => {
@@ -489,7 +473,7 @@ test('defaultSelectedTopicId picks the first row, or null for an empty list', ()
   )
 })
 
-test('the contract carries no v1 vocabulary, no imports and stays inside the size cap', async () => {
+test('the contract carries no v1 vocabulary, only the pure inbox import, and stays inside the size cap', async () => {
   const source = await readFile(CONTRACT_SOURCE, 'utf8')
   for (const symbol of [
     'PanelThread',
@@ -504,7 +488,14 @@ test('the contract carries no v1 vocabulary, no imports and stays inside the siz
   ]) {
     assert.equal(source.includes(symbol), false, `src/api-contract.ts must not mention ${symbol}`)
   }
-  assert.equal(/^\s*import\b/m.test(source), false, 'the shared contract imports nothing')
+  assert.deepEqual(
+    [...source.matchAll(/^import\b[^\n]*$/gm)].map((match) => match[0]),
+    [
+      "import { INBOX_ERROR_STATUS } from './inbox-contract.js'",
+      "import type { InboxErrorCode } from './inbox-contract.js'",
+    ],
+    'the only import is the pure inbox vocabulary',
+  )
   assert.equal(source.includes('node:'), false, 'no node builtin reaches the client bundle')
   assert.ok(Buffer.byteLength(source, 'utf8') < 51_200, 'src/api-contract.ts stays below the 50 KiB read cap')
 })

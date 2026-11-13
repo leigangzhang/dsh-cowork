@@ -63,7 +63,8 @@
 - `kind`：`user-review` / `authorization` / `question` / `plan`
 - `status`：`pending | passed | returned | allowed | denied | answered | skipped | approved | revise | void`
 - 必填：`requestId`、`projectId`、`topicId`、`title`、`summary`、`requestMessage`、`payload`、时间戳
-- `resolutionMessage` 解决后写入；`delivery` 记录 prompt 成功/失败
+- `resolutionMessage` 解决后写入（≤200 字符展示摘要）；`resolution` 保存完整 comment 与 question answers（additive optional，旧记录仍可读）；`delivery` 记录 prompt 成功/失败
+- 卡片先进入终态、再 prompt 主题；question 的 prompt 携带选项 label、自由文本和完整 comment
 - 同 requestId 同动作幂等，不同动作冲突
 - 不改 `ProjectIndexV2` 版本；authorization 仍写主题 `authorization`
 

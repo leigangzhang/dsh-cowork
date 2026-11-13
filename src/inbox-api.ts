@@ -27,6 +27,7 @@ import {
 } from './inbox-contract.js'
 import { truncateSummary } from './api-contract.js'
 import type {
+  AuthorizationPayload,
   InboxCounts,
   InboxItem,
   InboxNotificationItem,
@@ -34,11 +35,15 @@ import type {
   InboxRequestItem,
   InboxResolveResponse,
   InboxResponse,
+  PlanPayload,
+  QuestionPayload,
   RequestRecordV1,
+  ReviewPayload,
 } from './inbox-contract.js'
 import type { PanelErrorCode } from './api-contract.js'
 import { emptyNoticeLedger, noticeSummaries } from './notices.js'
 import type { NoticeLedgerV1, NoticeSummary } from './notices.js'
+import type { NoticeKind } from './notice-contract.js'
 import { PanelServiceError, openRequestTarget, resolveRequest } from './request-service.js'
 import { RequestStore } from './request-store.js'
 import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
@@ -102,12 +107,15 @@ function topicTitleOf(titles: ReadonlyMap<string, string>, topicId: string): str
   return titles.get(topicId) ?? INBOX_ARCHIVED_TOPIC_TITLE
 }
 
-/** One persisted request as the inbox row the browser renders. */
-export function toInboxRequestItem(record: RequestRecordV1, topicTitle: string): InboxRequestItem {
-  return {
-    kind: 'request',
+/**
+ * One persisted request as the inbox row the browser renders. The record schema
+ * already validated `payload` against `kind`, so the cast only restores the
+ * discriminated-union narrowing TypeScript cannot infer from a flat record.
+ */
+function toInboxRequestItem(record: RequestRecordV1, topicTitle: string): InboxRequestItem {
+  const base = {
+    kind: 'request' as const,
     requestId: record.requestId,
-    requestKind: record.kind,
     topicId: record.topicId,
     topicTitle,
     status: record.status,
@@ -116,15 +124,24 @@ export function toInboxRequestItem(record: RequestRecordV1, topicTitle: string):
     requestMessage: record.requestMessage,
     resolutionMessage: record.resolutionMessage,
     actions: isTerminalStatus(record.status) ? [] : actionsForKind(record.kind),
-    payload: record.payload,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+  }
+  switch (record.kind) {
+    case 'user-review':
+      return { ...base, requestKind: 'user-review', payload: record.payload as ReviewPayload }
+    case 'authorization':
+      return { ...base, requestKind: 'authorization', payload: record.payload as AuthorizationPayload }
+    case 'question':
+      return { ...base, requestKind: 'question', payload: record.payload as QuestionPayload }
+    case 'plan':
+      return { ...base, requestKind: 'plan', payload: record.payload as PlanPayload }
   }
 }
 
 /** One notice row as a read-only inbox note; the openable file is a proposal's. */
 function toNotificationItem(
-  row: NoticeSummary,
+  row: InboxNoteSummary,
   titles: ReadonlyMap<string, string>,
 ): InboxNotificationItem {
   const proposalPath = row.kind === 'proposal' ? row.proposalPath : undefined
@@ -142,7 +159,7 @@ function toNotificationItem(
   } = {
     kind: 'notification',
     noticeId: row.noticeId,
-    noticeKind: row.kind as InboxNotificationItem['noticeKind'],
+    noticeKind: row.kind,
     topicId: row.topicId,
     topicTitle: topicTitleOf(titles, row.topicId),
     summary: truncateSummary(row.summary),
@@ -154,10 +171,13 @@ function toNotificationItem(
   return item
 }
 
+/** A notice row the inbox carries: authorization has a card, never a note. */
+type InboxNoteSummary = NoticeSummary & { readonly kind: Exclude<NoticeKind, 'authorization'> }
+
 /** The notice kinds the inbox note stream carries; authorization has a card. */
-function noteRows(events: readonly ActivityEvent[], ledger: NoticeLedgerV1): NoticeSummary[] {
+function noteRows(events: readonly ActivityEvent[], ledger: NoticeLedgerV1): InboxNoteSummary[] {
   return noticeSummaries(events, ledger, { target: 'master' })
-    .filter((row) => row.kind !== 'authorization')
+    .filter((row): row is InboxNoteSummary => row.kind !== 'authorization')
 }
 
 /**

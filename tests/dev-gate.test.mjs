@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
+import { BUSINESS_TOOLS, BUSINESS_TOOL_ORDER, PANEL_PATHS } from './support/public-surface.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -13,106 +14,12 @@ import { join } from 'node:path'
 //      strip-only mode rejects — transform mode is required.
 // Everything else (dsh-tools, schemastery) resolves from the links that
 // `npm run build` creates, like tests/api.test.mjs already relies on.
-const HOOK_SOURCE = [
-  "import { readFileSync } from 'node:fs'",
-  "import { stripTypeScriptTypes } from 'node:module'",
-  "import { fileURLToPath } from 'node:url'",
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-  'export async function load(url, context, nextLoad) {',
-  "  if (url.startsWith('file:') && url.endsWith('.ts')) {",
-  "    const source = readFileSync(fileURLToPath(url), 'utf8')",
-  "    return { format: 'module', shortCircuit: true, source: stripTypeScriptTypes(source, { mode: 'transform' }) }",
-  '  }',
-  '  return nextLoad(url, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { apply, Config, normalizeConfig, panelRoutePathname } = await import('../src/index.ts')
 const { panelProbeRequest } = await import('../src/panel-probe.ts')
 const { DEFAULT_ISOLATION_PROVIDER } = await import('../src/tool-runtime.ts')
 const { CLONE_ISOLATION_PROVIDER } = await import('../src/checkout.ts')
-const {
-  ACTIVITY_PATH,
-  AUTHORIZATION_RESOLVE_PATH,
-  OVERVIEW_PATH,
-  REOPEN_PATH,
-  RESOLVE_PATH,
-  ROUTE_MOVE_PATH,
-  TOPIC_PATH,
-} = await import('../src/api-contract.ts')
-const {
-  INBOX_OPEN_PATH,
-  INBOX_PATH,
-  INBOX_RESOLVE_PATH,
-} = await import('../src/inbox-contract.ts')
-
-/** The ten panel routes: four reads, then the six writes. */
-const PANEL_PATHS = [
-  OVERVIEW_PATH, ACTIVITY_PATH, TOPIC_PATH, INBOX_PATH,
-  RESOLVE_PATH, REOPEN_PATH, ROUTE_MOVE_PATH, AUTHORIZATION_RESOLVE_PATH,
-  INBOX_RESOLVE_PATH, INBOX_OPEN_PATH,
-]
-
-/** The twenty-two business tools — stable public names, pinned here on purpose. */
-const BUSINESS_TOOLS = [
-  'cowork_checkout_merge',
-  'cowork_handoff',
-  'cowork_memory_search',
-  'cowork_memory_write',
-  'cowork_project_init',
-  'cowork_project_status',
-  'cowork_review_request',
-  'cowork_review_verdict',
-  'cowork_route',
-  'cowork_thread_create',
-  'cowork_thread_list',
-  'cowork_topic_create',
-  'cowork_topic_list',
-  'cowork_topic_report',
-  'cowork_topic_resolve',
-  'cowork_authorization_request',
-  'cowork_decision_propose',
-  'cowork_notices',
-  'cowork_user_review_request',
-  'cowork_request_question',
-  'cowork_request_plan',
-  'cowork_work_item_create',
-]
-
-/**
- * The registration order is the public surface (PLAN-V0.2 §5.7), pinned by name
- * so a reorder is a red test, not a silent change.
- */
-const BUSINESS_TOOL_ORDER = [
-  'cowork_project_init',
-  'cowork_project_status',
-  'cowork_route',
-  'cowork_topic_create',
-  'cowork_thread_create',
-  'cowork_topic_list',
-  'cowork_thread_list',
-  'cowork_handoff',
-  'cowork_topic_resolve',
-  'cowork_topic_report',
-  'cowork_decision_propose',
-  'cowork_authorization_request',
-  'cowork_notices',
-  'cowork_user_review_request',
-  'cowork_request_question',
-  'cowork_request_plan',
-  'cowork_work_item_create',
-  'cowork_review_request',
-  'cowork_review_verdict',
-  'cowork_memory_write',
-  'cowork_memory_search',
-  'cowork_checkout_merge',
-]
+const { OVERVIEW_PATH } = await import('../src/api-contract.ts')
 
 /** The three runtime presets every mode registers. */
 const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-topic']

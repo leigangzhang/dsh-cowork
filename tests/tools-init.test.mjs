@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,15 +14,7 @@ import { join } from 'node:path'
  * registry and the session/workspace ports are recording fakes, and the only
  * real collaborator is the project store on a throwaway repository.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import { withRepo } from './support/inbox-fixtures.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
 const { ProjectStore } = await import('../src/store.ts')
@@ -81,14 +73,6 @@ function fakeDeps(overrides = {}) {
   }
 }
 
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-init-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
 
 test('cowork_project_init keeps a different session fail-closed until takeOver is explicit', async () => {
   await withRepo(async (repoPath) => {

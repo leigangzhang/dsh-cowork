@@ -1,21 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
-import { register } from 'node:module'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-
-// `src/request-service.ts` imports its siblings with the build's `.js`
-// specifiers, so the test loads it after the resolve hook.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import {
+  fakeHost,
+  makeSeedProject,
+  makeSeedRequest,
+  makeTopicFixture,
+  withRepo,
+} from './support/inbox-fixtures.mjs'
 
 const { ProjectStore } = await import('../src/store.ts')
 const service = await import('../src/request-service.ts')
@@ -28,36 +21,13 @@ const NOW_ISO = NOW.toISOString()
 const MASTER = 'session-master'
 const TOPIC = 'session-topic'
 
-/** One v2 topic with every field the schema requires. */
-function topic(overrides = {}) {
-  return {
-    topicId: TOPIC,
-    title: 'Inbox backend',
-    status: 'active',
-    awaitingReview: false,
-    blocked: false,
-    blockedReason: null,
-    blockedFromStatus: null,
-    blockedAt: null,
-    authorization: null,
-    scope: 'inbox',
-    ownedPaths: [],
-    aliases: [],
-    digest: 'working',
-    cwd: '/repo',
-    legacyCheckoutPath: null,
-    createdAt: '2026-11-01T00:00:00.000Z',
-    updatedAt: '2026-11-01T00:00:00.000Z',
-    lastActiveAt: '2026-11-01T00:00:00.000Z',
-    lastDeliveryConfirmedAt: null,
-    resolvedAt: null,
-    resolvedBy: null,
-    latestReviewRequestId: null,
-    reviewStatus: null,
-    reviewerSessionId: null,
-    ...overrides,
-  }
-}
+/** One v2 topic with the suite's identity and every required field. */
+const topic = makeTopicFixture({
+  topicId: TOPIC,
+  title: 'Inbox backend',
+  scope: 'inbox',
+  digest: 'working',
+})
 
 /** A topic blocked on one pending authorization. */
 function pendingAuthorization(overrides = {}) {
@@ -72,64 +42,10 @@ function pendingAuthorization(overrides = {}) {
   })
 }
 
-/** Fake host ports: the queue prompt and the notice channel. */
-function fakeHost({ accepted = true, promptError = null, noticePort = undefined } = {}) {
-  const prompts = []
-  const updates = []
-  const port = noticePort ?? {
-    capabilities: () => ({ supported: true, actions: true, updates: true }),
-    append: async () => 'delivered',
-    update: async (sessionId, noticeId, patch) => {
-      updates.push({ sessionId, noticeId, patch })
-      if (noticePort === undefined) return 'delivered'
-      return 'delivered'
-    },
-  }
-  return {
-    prompts,
-    updates,
-    port,
-    promptSession: async (sessionId, text) => {
-      prompts.push({ sessionId, text })
-      if (promptError !== null) throw new Error(promptError)
-      return { accepted }
-    },
-  }
-}
-
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-request-service-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
-
-async function seedProject(repoPath, topics) {
-  const store = new ProjectStore({ repoPath, clock: () => NOW, projectId: 'p' })
-  await store.initIndex(MASTER)
-  if (topics.length > 0) {
-    await store.mutateIndexDocument((document) => ({
-      ...document,
-      topics: topics.map((entry) => ({ ...entry, cwd: repoPath })),
-    }))
-  }
-  return store
-}
+const seedProject = makeSeedProject({ clock: () => NOW })
 
 /** Create one request for the seeded topic through the service. */
-async function seedRequest(repoPath, store, input) {
-  return service.createRequest({
-    store,
-    repoPath,
-    projectId: 'p',
-    topic: topic(),
-    now: NOW,
-    requestId: 'req-1',
-    ...input,
-  })
-}
+const seedRequest = makeSeedRequest({ now: NOW, topic: () => topic() })
 
 /** The persisted request of the repo. */
 async function readRequest(repoPath, requestId = 'req-1') {
@@ -212,13 +128,92 @@ test('resolveRequest writes the terminal state, the reply, the activity and the 
     assert.match(outcome.record.resolutionMessage, /looks right/)
     assert.equal(outcome.record.delivery.promptedAt, NOW_ISO)
     assert.equal(outcome.record.delivery.lastError, null)
-    assert.deepEqual(host.prompts, [{ sessionId: TOPIC, text: outcome.record.resolutionMessage }])
+    // The prompt restates the full comment, not only the truncated reply.
+    assert.deepEqual(host.prompts, [{ sessionId: TOPIC, text: '主题「Inbox backend」已通过评审。\n备注：looks right' }])
     const { events } = await store.readActivity()
     const resolved = events.find((event) => event.type === 'request-resolved')
     assert.equal(resolved.details.requestId, 'req-1')
     assert.equal(resolved.details.action, 'pass')
     assert.equal(resolved.details.status, 'passed')
     assert.equal(resolved.details.kind, 'user-review')
+  })
+})
+
+test('a question submit persists every answer and the full comment, and the prompt carries them', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic()])
+    await seedRequest(repoPath, store, {
+      kind: 'question',
+      payload: {
+        questions: [
+          {
+            id: 'q1',
+            prompt: 'ship it?',
+            mode: 'single',
+            options: [{ id: 'o1', label: '现在发布' }, { id: 'o2', label: '再等等' }],
+          },
+          { id: 'q2', prompt: '还有别的吗？', mode: 'single', allowText: true },
+        ],
+      },
+    })
+    const host = fakeHost()
+    const observed = []
+    const outcome = await service.resolveRequest(resolveInput(repoPath, store, host, {
+      action: 'submit',
+      answers: [
+        { questionId: 'q1', selected: ['o1'] },
+        { questionId: 'q2', text: '把文档补上' },
+      ],
+      comment: '先处理文档，再发布',
+      promptSession: async (sessionId, text) => {
+        // The prompt port reads the card as the topic would: it must be terminal
+        // and already carry every answer.
+        observed.push(await readRequest(repoPath))
+        return host.promptSession(sessionId, text)
+      },
+    }))
+    assert.equal(outcome.record.status, 'answered')
+    assert.deepEqual(outcome.record.resolution, {
+      comment: '先处理文档，再发布',
+      answers: [
+        { questionId: 'q1', selected: ['o1'] },
+        { questionId: 'q2', text: '把文档补上' },
+      ],
+    })
+    assert.match(outcome.record.resolutionMessage, /已回答全部问题/)
+    assert.match(outcome.record.resolutionMessage, /现在发布/)
+    assert.match(outcome.record.resolutionMessage, /把文档补上/)
+    assert.ok(Array.from(outcome.record.resolutionMessage).length <= 200)
+    assert.equal(observed.length, 1)
+    assert.equal(observed[0].status, 'answered', 'the card is terminal before the topic is woken')
+    assert.deepEqual(observed[0].resolution, outcome.record.resolution)
+    assert.equal(host.prompts.length, 1)
+    const prompt = host.prompts[0].text
+    assert.match(prompt, /ship it\?/)
+    assert.match(prompt, /现在发布/)
+    assert.match(prompt, /把文档补上/)
+    assert.match(prompt, /先处理文档，再发布/)
+  })
+})
+
+test('an authorization topic is prompted only after its card is terminal', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [pendingAuthorization()])
+    await seedRequest(repoPath, store, { kind: 'authorization', payload: { summary: 'may I push?' } })
+    const host = fakeHost()
+    const observed = []
+    const outcome = await service.resolveRequest(resolveInput(repoPath, store, host, {
+      action: 'allow',
+      promptSession: async (sessionId, text) => {
+        observed.push(await readRequest(repoPath))
+        return host.promptSession(sessionId, text)
+      },
+    }))
+    assert.equal(outcome.prompted, true)
+    assert.equal(observed.length, 1)
+    assert.equal(observed[0].status, 'allowed', 'the card is terminal before the topic is woken')
+    assert.deepEqual(host.prompts, [{ sessionId: TOPIC, text: '授权请求已允许：may I push?。请继续。' }])
+    assert.equal((await readRequest(repoPath)).delivery.promptedAt, NOW_ISO)
   })
 })
 

@@ -3,12 +3,12 @@
  * every handoff file under `<repo>/.dsh-cowork/handoffs/`, and of every review
  * file under `<repo>/.dsh-cowork/reviews/`.
  *
- * Writers serialize through `withFileLock` on `.dsh-cowork/.write.lock`; each
- * replacement is `writeFileAtomic` (exclusive-create random-suffix sibling +
- * rename, mode 0600) followed by an explicit parent-directory fsync, because
- * the host helper documents crash durability as out of scope. Readers stay
- * lock-free: the rename commits complete content, so a read sees the old or
- * the new document, never a half-written one.
+ * Writers serialize through the shared project lock in `src/atomic-json.ts`;
+ * each JSON replacement goes through `writeJsonAtomic` (exclusive-create
+ * random-suffix sibling + rename, mode 0600, then an explicit parent-directory
+ * fsync, because the host helper documents crash durability as out of scope).
+ * Readers stay lock-free: the rename commits complete content, so a read sees
+ * the old or the new document, never a half-written one.
  *
  * Reads validate the whole document. A missing index raises
  * `store/not-found`; damaged JSON or a schema mismatch raises `store/corrupt`
@@ -18,10 +18,10 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
-import { mkdir, open, readFile, readdir, realpath, stat } from 'node:fs/promises'
+import { mkdir, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import {
   ACTIVITY_MAX_BYTES,
   ACTIVITY_MAX_EVENTS,
@@ -40,6 +40,16 @@ import {
   threadV1Problems,
   trimActivityEvents,
 } from './store-schema.js'
+import {
+  DIR_MODE,
+  FILE_MODE,
+  LOCK_FILE_NAME,
+  fsyncDirectory,
+  readTextIfPresent,
+  withProjectLock,
+  writeJsonAtomic,
+  writeTextAtomic as writeAtomicText,
+} from './atomic-json.js'
 import { MigrationError, applyLegacyView, legacyViewOf, migrateV1ToV2 } from './store-migration.js'
 import { NoticeFileError, NoticeLedgerFile } from './notice-store.js'
 import type { NoticeLedgerV1 } from './notices.js'
@@ -77,18 +87,10 @@ const NOTICES_FILE_NAME = 'notices.json'
 const HANDOFFS_DIR_NAME = 'handoffs'
 /** Review directory name inside the project directory. */
 const REVIEWS_DIR_NAME = 'reviews'
-/** The one writer lock every index, handoff, and review write takes. */
-const LOCK_FILE_NAME = '.write.lock'
 /** Handoff file suffix. */
 const HANDOFF_SUFFIX = '.json'
 /** Review file suffix. */
 const REVIEW_SUFFIX = '.json'
-/** How long a writer waits for the project lock before failing. */
-const LOCK_WAIT_MS = 5000
-/** File mode for every file this store writes. */
-const FILE_MODE = 0o600
-/** Directory mode for every directory this store creates. */
-const DIR_MODE = 0o700
 /** Length of the repository-path project id fallback. */
 const PROJECT_ID_HASH_LENGTH = 12
 /** How many activity events a read returns when the caller does not say. */
@@ -247,27 +249,6 @@ function isIsoDate(value: unknown): value is string {
 /** The error message body for a set of schema problems. */
 function problemMessage(prefix: string, filePath: string, problems: string[]): string {
   return `${prefix} (${filePath}): ${problems.join('; ')}`
-}
-
-/** Flush a directory entry so a completed rename survives a crash. */
-async function fsyncDirectory(directory: string): Promise<void> {
-  const handle = await open(directory, 'r')
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-/** Read a file as UTF-8 text, or `undefined` when it does not exist. */
-async function readTextIfPresent(filePath: string): Promise<string | undefined> {
-  try {
-    return await readFile(filePath, 'utf8')
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined
-    throw error
-  }
 }
 
 /**
@@ -485,7 +466,7 @@ export class ProjectStore {
         topics: [],
         workItems: [],
       }
-      await this.writeJson(this.indexFile, document)
+      await writeJsonAtomic(this.indexFile, document)
       return { index: legacyViewOf(document), created: true }
     })
   }
@@ -510,7 +491,7 @@ export class ProjectStore {
       const current = await this.readIndexForWrite()
       if (current.masterSessionId === masterSessionId) return legacyViewOf(current)
       const next: ProjectIndexV2 = { ...current, masterSessionId }
-      await this.writeJson(this.indexFile, next)
+      await writeJsonAtomic(this.indexFile, next)
       return legacyViewOf(next)
     })
   }
@@ -554,7 +535,7 @@ export class ProjectStore {
           this.indexFile,
         )
       }
-      await this.writeJson(this.indexFile, document)
+      await writeJsonAtomic(this.indexFile, document)
       return document
     })
   }
@@ -713,7 +694,7 @@ export class ProjectStore {
     const kept = items.slice(-INBOX_MAX_ITEMS)
     await this.ensureProjectDir()
     return this.withLock(async () => {
-      await this.writeJson(this.inboxFile, kept)
+      await writeJsonAtomic(this.inboxFile, kept)
       return kept
     })
   }
@@ -772,9 +753,7 @@ export class ProjectStore {
    * this method never takes the lock itself, so nesting cannot deadlock.
    */
   async writeTextAtomic(absPath: string, content: string): Promise<void> {
-    await mkdir(dirname(absPath), { recursive: true, mode: DIR_MODE })
-    await writeFileAtomic(absPath, content, { mode: FILE_MODE, dirMode: DIR_MODE })
-    await fsyncDirectory(dirname(absPath))
+    await writeAtomicText(absPath, content)
   }
 
   /**
@@ -858,7 +837,7 @@ export class ProjectStore {
       if ((await readTextIfPresent(filePath)) !== undefined) {
         throw new StoreError('store/handoff-exists', `handoff file already exists: ${filePath}`, filePath)
       }
-      await this.writeJson(filePath, record)
+      await writeJsonAtomic(filePath, record)
       return { filePath, fileName: name, record }
     })
   }
@@ -873,7 +852,7 @@ export class ProjectStore {
     return this.withLock(async () => {
       const record = await this.readHandoff(absolute)
       const next: HandoffRecord = { ...record, deliveredAt }
-      await this.writeJson(absolute, next)
+      await writeJsonAtomic(absolute, next)
       return { filePath: absolute, fileName: basename(absolute), record: next }
     })
   }
@@ -984,7 +963,7 @@ export class ProjectStore {
       if ((await readTextIfPresent(filePath)) !== undefined) {
         throw new StoreError('store/review-exists', `review file already exists: ${filePath}`, filePath)
       }
-      await this.writeJson(filePath, record)
+      await writeJsonAtomic(filePath, record)
       return { filePath, fileName: name, record }
     })
   }
@@ -996,14 +975,7 @@ export class ProjectStore {
 
   /** Run `operation` while holding the project write lock. */
   private async withLock<T>(operation: () => Promise<T>): Promise<T> {
-    return withFileLock(this.lockFile, operation, { waitMs: LOCK_WAIT_MS })
-  }
-
-  /** Write one JSON document atomically, then flush its directory entry. */
-  private async writeJson(filePath: string, value: unknown): Promise<void> {
-    const content = `${JSON.stringify(value, null, 2)}\n`
-    await writeFileAtomic(filePath, content, { mode: FILE_MODE, dirMode: DIR_MODE })
-    await fsyncDirectory(dirname(filePath))
+    return withProjectLock(this.lockFile, operation)
   }
 
   /** Parse one index document, reporting damaged JSON with its path. */
@@ -1066,7 +1038,7 @@ export class ProjectStore {
       migrated.report.archiveFailures = await this.archivePendingReviewers(
         migrated.report.pendingReviewerArchives,
       )
-      await this.writeJson(this.indexFile, migrated.document)
+      await writeJsonAtomic(this.indexFile, migrated.document)
     } catch (error) {
       // The backup and the original v1 document are both still on disk: report
       // the failure instead of retrying into a silently rebuilt index.

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,15 +13,7 @@ import { join } from 'node:path'
  * the real one under `os.tmpdir()`. The deprecated aliases must share the same
  * `execute` function and parameter schema, so the two names cannot drift.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import { makeSeedProject, makeTopicFixture, withRepo } from './support/inbox-fixtures.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
 const { ProjectStore } = await import('../src/store.ts')
@@ -100,50 +92,16 @@ const fakeDepsClock = {
   },
 }
 
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-topic-tools-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
 
-const topic = (overrides = {}) => ({
+const topic = makeTopicFixture({
   topicId: 'session-thread',
   title: 'thread topic',
-  status: 'active',
-  awaitingReview: false,
-  blocked: false,
-  scope: '',
-  ownedPaths: [],
-  aliases: [],
-  digest: '',
-  cwd: '/repo',
-  legacyCheckoutPath: null,
   createdAt: NOW_ISO,
   updatedAt: NOW_ISO,
   lastActiveAt: NOW_ISO,
-  lastDeliveryConfirmedAt: null,
-  resolvedAt: null,
-  resolvedBy: null,
-  latestReviewRequestId: null,
-  reviewStatus: null,
-  reviewerSessionId: null,
-  ...overrides,
 })
 
-async function seedProject(repoPath, topics) {
-  const store = new ProjectStore({ repoPath, clock: () => new Date(NOW_ISO), projectId: 'p' })
-  await store.initIndex('session-master')
-  if (topics.length > 0) {
-    await store.mutateIndexDocument((document) => ({
-      ...document,
-      topics: topics.map((entry) => ({ ...entry, cwd: repoPath })),
-    }))
-  }
-  return store
-}
+const seedProject = makeSeedProject({ clock: () => new Date(NOW_ISO) })
 
 function tools(deps) {
   const host = fakeHost()

@@ -4,20 +4,11 @@ import { readFileSync } from 'node:fs'
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 // `src/review-request.ts` imports its siblings with the build's `.js`
 // specifiers, which Node's type stripping does not retry as `.ts`; this test
 // installs the same small resolve hook tests/presets.test.mjs uses.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import { withRepo } from './support/inbox-fixtures.mjs'
 
 const {
   REVIEW_BRIEF_MAX_CHARS,
@@ -824,7 +815,7 @@ function workItemFixture(repoPath, overrides = {}) {
 }
 
 /** Seed the canonical index with one topic and an optional work item. */
-async function seedProject(store, repoPath, options = {}) {
+async function seedReviewProject(store, repoPath, options = {}) {
   const topic = topicFixture(repoPath, options.topicOverrides ?? {})
   await store.initIndex('session-master')
   await store.mutateIndexDocument((document) => ({
@@ -851,19 +842,11 @@ function toolRequest(repoPath, overrides = {}) {
 }
 
 /** Run one request against a fresh repository and clean up afterwards. */
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'cowork-review-request-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
 
 test('a shared-tree request writes the pending file, the index, and the brief', async () => {
   await withRepo(async (repoPath) => {
     const { store, slice, request } = setup(repoPath)
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
 
     const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
 
@@ -921,7 +904,7 @@ test('a work-item request points at the checkout and marks the item reviewing', 
   await withRepo(async (repoPath) => {
     const item = workItemFixture(repoPath)
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath, { workItem: item })
+    await seedReviewProject(store, repoPath, { workItem: item })
 
     const result = await request.execute(
       toolRequest(repoPath, { path: item.path, workItemId: 'wi-1' }),
@@ -940,7 +923,7 @@ test('a work-item request points at the checkout and marks the item reviewing', 
 test('the master cannot request a review', async () => {
   await withRepo(async (repoPath) => {
     const { store, slice, request } = setup(repoPath)
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
 
     const result = await request.execute(toolRequest(repoPath), fakeExec('session-master', repoPath))
 
@@ -967,7 +950,7 @@ test('every failed pre-check leaves no reviewer, no file, and no index change', 
       const git = options.git ?? fakeGit()
       const slice = fakeSlice()
       const { store, request } = setup(repoPath, { git, slice })
-      await seedProject(store, repoPath)
+      await seedReviewProject(store, repoPath)
       const scoped = { ...input, path: repoPath }
 
       const result = await request.execute(scoped, fakeExec('session-topic', repoPath))
@@ -988,7 +971,7 @@ test('a path outside the work-item checkout is refused', async () => {
   await withRepo(async (repoPath) => {
     const item = workItemFixture(repoPath)
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath, { workItem: item })
+    await seedReviewProject(store, repoPath, { workItem: item })
 
     const result = await request.execute(
       toolRequest(repoPath, { path: repoPath, workItemId: 'wi-1' }),
@@ -1010,7 +993,7 @@ test('a path outside the work-item checkout is refused', async () => {
 test('a work item must exist, belong to the topic, and be reviewable', async () => {
   await withRepo(async (repoPath) => {
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
     const missing = await request.execute(
       toolRequest(repoPath, { workItemId: 'wi-404' }),
       fakeExec('session-topic', repoPath),
@@ -1021,7 +1004,7 @@ test('a work item must exist, belong to the topic, and be reviewable', async () 
   await withRepo(async (repoPath) => {
     const item = workItemFixture(repoPath, { status: 'merged' })
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath, { workItem: item })
+    await seedReviewProject(store, repoPath, { workItem: item })
     const merged = await request.execute(
       toolRequest(repoPath, { path: item.path, workItemId: 'wi-1' }),
       fakeExec('session-topic', repoPath),
@@ -1032,7 +1015,7 @@ test('a work item must exist, belong to the topic, and be reviewable', async () 
   await withRepo(async (repoPath) => {
     const item = workItemFixture(repoPath, { topicId: 'session-other' })
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath, { workItem: item })
+    await seedReviewProject(store, repoPath, { workItem: item })
     const foreign = await request.execute(
       toolRequest(repoPath, { path: item.path, workItemId: 'wi-1' }),
       fakeExec('session-topic', repoPath),
@@ -1045,7 +1028,7 @@ test('a work item must exist, belong to the topic, and be reviewable', async () 
 test('a second pending request for the same topic and work item is refused', async () => {
   await withRepo(async (repoPath) => {
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
 
     const first = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
     assert.equal(first.ok, true)
@@ -1060,7 +1043,7 @@ test('a second pending request for the same topic and work item is refused', asy
 test('a legacy verdict-only file never counts as a pending request', async () => {
   await withRepo(async (repoPath) => {
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
     const reviewsDir = join(repoPath, '.dsh-cowork', 'reviews')
     await import('node:fs/promises').then((fs) => fs.mkdir(reviewsDir, { recursive: true }))
     await writeFile(join(reviewsDir, 'session-topic-20261107T090000000Z.json'), JSON.stringify({
@@ -1085,7 +1068,7 @@ test('a legacy verdict-only file never counts as a pending request', async () =>
 test('the previous request must exist, belong to the same chain, and be answered', async () => {
   await withRepo(async (repoPath) => {
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
 
     const missing = await request.execute(
       toolRequest(repoPath, { previousRequestId: 'req-404' }),
@@ -1096,7 +1079,7 @@ test('the previous request must exist, belong to the same chain, and be answered
   })
   await withRepo(async (repoPath) => {
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
     const first = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
     assert.equal(first.ok, true)
 
@@ -1112,7 +1095,7 @@ test('the previous request must exist, belong to the same chain, and be answered
   // A terminal predecessor is accepted and bound into the new request.
   await withRepo(async (repoPath) => {
     const { store, request } = setup(repoPath)
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
     const first = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
     assert.equal(first.ok, true)
     const filePath = first.filePath
@@ -1139,7 +1122,7 @@ test('a brief failure rolls the request back in order and records it', async () 
   await withRepo(async (repoPath) => {
     const slice = fakeSlice({ rejectFor: 'session-reviewer' })
     const { store, request } = setup(repoPath, { slice })
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
 
     const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
 
@@ -1165,7 +1148,7 @@ test('a brief failure rolls the request back in order and records it', async () 
 test('an index write failure archives the reviewer and removes the file', async () => {
   await withRepo(async (repoPath) => {
     const { store, slice, request } = setup(repoPath)
-    await seedProject(store, repoPath)
+    await seedReviewProject(store, repoPath)
     const broken = Object.create(store)
     broken.mutateIndexDocument = async () => {
       throw new Error('index write refused')

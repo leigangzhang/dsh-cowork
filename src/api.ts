@@ -92,6 +92,7 @@ import type {
 } from './store-schema.js'
 import {
   PanelServiceError,
+  promptRequestTopic,
   resolveAuthorizationDecision,
   settleAuthorizationRequestRecord,
 } from './request-service.js'
@@ -924,6 +925,10 @@ async function handleAuthorizationResolve(request: Request, ports: CoworkApiPort
     decision,
     sessionId,
     now,
+    // The card is settled before the topic is woken: deferring the prompt keeps
+    // the user-visible order "card terminal, then topic continues" on both
+    // routes, and a failed card write never leaves a prompted topic behind.
+    deferPrompt: true,
     promptSession: ports.promptSession,
     noticePort: ports.noticePort,
     kickNotices: ports.kickNotices,
@@ -933,20 +938,41 @@ async function handleAuthorizationResolve(request: Request, ports: CoworkApiPort
   // request record (a topic that never used the request tools) is a no-op, and
   // a settlement failure is logged: the response shape of this route never
   // changes because the inbox file could not be read or written.
+  let settled: 'absent' | 'settled' | 'already-resolved' | 'conflict' = 'absent'
   try {
-    await settleAuthorizationRequestRecord({
+    settled = await settleAuthorizationRequestRecord({
       store,
       repoPath,
       topicId,
       requestId,
       decision,
       now,
-      promptedAt: outcome.prompted ? now.toISOString() : null,
-      promptError: outcome.promptError,
+      promptedAt: null,
+      promptError: null,
       log: (message: string) => ports.log?.(`panel authorization: ${message}`),
     })
   } catch (error) {
     ports.log?.(`panel authorization: inbox card not settled: ${messageOf(error)}`)
+  }
+  // A card another writer already settled (same or different status) owns its
+  // own prompt: replaying it here would wake the topic twice.
+  const ownsPrompt = settled === 'settled' || settled === 'absent'
+  let prompted = false
+  let promptError: string | null = null
+  if (outcome.changed && ownsPrompt && outcome.promptText !== null) {
+    const delivered = await promptRequestTopic({
+      repoPath,
+      requestId,
+      topicId,
+      sessionId,
+      text: outcome.promptText,
+      previousPromptedAt: null,
+      promptSession: ports.promptSession,
+      now,
+      log: (message: string) => ports.log?.(`panel authorization: ${message}`),
+    })
+    prompted = delivered.prompted
+    promptError = delivered.promptError
   }
   const response: AuthorizationResolveResponse = {
     ok: true,
@@ -954,7 +980,7 @@ async function handleAuthorizationResolve(request: Request, ports: CoworkApiPort
     requestId,
     decision,
     noticeId: outcome.noticeId,
-    prompted: outcome.prompted,
+    prompted,
     changed: outcome.changed,
   }
   return jsonResponse(200, response)

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,15 +15,7 @@ import { join } from 'node:path'
  * installs the same resolve hook tests/presets.test.mjs uses. The tool is driven
  * through a fake host registry with a real ProjectStore in a temp repo.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import { withRepo } from './support/inbox-fixtures.mjs'
 
 const { registerReviewTools } = await import('../src/review-tools.ts')
 const { ProjectStore } = await import('../src/store.ts')
@@ -221,14 +213,6 @@ function finding(overrides = {}) {
 }
 
 /** Run one case against a fresh repository and clean up afterwards. */
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'cowork-review-verdict-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
 
 /** Read the request file back as the JSON the tool wrote. */
 const storedRequest = (filePath) => readFile(filePath, 'utf8').then((text) => JSON.parse(text))

@@ -272,6 +272,11 @@ interface RequestRecordV1 {
   updatedAt: string
   resolvedAt: string | null
   resolvedBy: 'user' | 'master' | null
+  // 解决后的完整载荷；旧记录没有该字段仍可读
+  resolution?: {
+    comment?: string
+    answers?: { questionId: string; selected?: string[]; text?: string }[]
+  }
   delivery: { promptedAt: string | null; lastError: string | null }
 }
 ```
@@ -309,7 +314,8 @@ interface PlanPayload {
 
 - `title`、`summary`、`requestMessage` 有长度上限；`resolutionMessage` ≤200。
 - `status` 与 kind 的组合由 schema 校验；只在 pending 接受动作。
-- `requestMessage` 在创建时生成，格式“主题「<topicTitle>」<kind 特定句>”；`resolutionMessage` 在解决时生成。
+- `requestMessage` 在创建时生成，格式“主题「<topicTitle>」<kind 特定句>”；`resolutionMessage` 在解决时生成，是答案摘要 + 评论的展示文本。
+- `resolution` 是解决时的完整载荷：question 的每个选项 id、自由文本和完整 comment；`resolutionMessage` 只是 ≤200 字符的展示摘要，不承担持久化事实。旧记录缺少 `resolution` 时仍可解析，主题 prompt 回退到 `resolutionMessage`。
 
 ### 7.3 工具
 
@@ -328,15 +334,15 @@ interface PlanPayload {
 
 ### 7.4 解决服务
 
-新增 `src/request-service.ts`，API 路由和授权路由共享：
+`src/request-service.ts` 是入口，实现按职责拆在 `src/request-lifecycle.ts`（创建/解决/唤醒/授权桥）、`src/authorization-decision.ts`（授权决策与旧路由结算）、`src/request-open.ts`（文件打开）和 `src/request-support.ts`（共享错误与成员守卫）。API 路由和授权路由共享同一套入口：
 
 1. 读取请求文件，校验 `pending`。
 2. 校验 caller 是 master 或该 topic 会话。
-3. 按 kind 校验 action/answers/comment。
-4. 写请求终态和 `resolutionMessage`、`resolvedAt`、`resolvedBy`。
-5. 写 `request-resolved` activity；authorization 同时写 `authorization-resolved` 并更新通知。
-6. `sessionController.prompt({ mode:'queue' })` 唤醒主题会话，内容包含 `resolutionMessage`。
-7. prompt 失败只写 `delivery.lastError`，不回滚终态。
+3. 按 kind 校验 action/answers/comment；`answerCoversQuestion` 是服务端与前端共用的“是否已答”判定。
+4. 写请求终态、`resolutionMessage`、`resolution`、`resolvedAt`、`resolvedBy`。
+5. 写 `request-resolved` activity；authorization 的解锁、通知与 `authorization-resolved` 活动在卡片写入之前的共享决策核心里完成（`deferPrompt`）。
+6. 卡片进入终态之后，`sessionController.prompt({ mode:'queue' })` 才唤醒主题会话；question 的 prompt 用 `resolutionPrompt` 携带题目、选项 label、自由文本和完整 comment。
+7. prompt 失败只写 `delivery.lastError`，不回滚终态；重放同一动作不会重复 prompt。
 
 - 幂等：相同 requestId + 相同动作返回当前记录；不同动作返回 `inbox/request-resolved`。
 - 并发：用请求文件锁或 compare-and-swap；两个请求同时解决，后者冲突。

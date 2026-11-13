@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
 import { readFileSync } from 'node:fs'
 import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -19,15 +19,8 @@ import { join } from 'node:path'
  * changed, inbox delivery is replayed once, and a non-master/non-thread session
  * is refused.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import { makeSeedProject, makeTopicFixture, withRepo } from './support/inbox-fixtures.mjs'
+import { BUSINESS_TOOL_ORDER } from './support/public-surface.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
 const { ProjectStore } = await import('../src/store.ts')
@@ -88,38 +81,14 @@ function fakeDeps() {
   }
 }
 
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-project-tools-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
 
 /** One valid v2 topic; `cwd` is filled by `seedProject`. */
-const topic = (overrides = {}) => ({
+const topic = makeTopicFixture({
   topicId: 'topic-a',
   title: 'topic a',
-  status: 'active',
-  awaitingReview: false,
-  blocked: false,
-  scope: '',
-  ownedPaths: [],
-  aliases: [],
-  digest: '',
-  cwd: '/repo',
-  legacyCheckoutPath: null,
   createdAt: NOW_ISO,
   updatedAt: NOW_ISO,
   lastActiveAt: NOW_ISO,
-  lastDeliveryConfirmedAt: null,
-  resolvedAt: null,
-  resolvedBy: null,
-  latestReviewRequestId: null,
-  reviewStatus: null,
-  reviewerSessionId: null,
-  ...overrides,
 })
 
 /** One v2 work-item record belonging to `topicId`. */
@@ -136,18 +105,7 @@ const workItem = (workItemId, topicId, status) => ({
 })
 
 /** A real project store with the given v2 topics/work items and `session-master` as master. */
-async function seedProject(repoPath, topics, workItems = []) {
-  const store = new ProjectStore({ repoPath, clock: () => new Date(NOW_ISO), projectId: 'p' })
-  await store.initIndex('session-master')
-  if (topics.length > 0 || workItems.length > 0) {
-    await store.mutateIndexDocument((document) => ({
-      ...document,
-      topics: topics.map((entry) => ({ ...entry, cwd: repoPath })),
-      workItems: [...document.workItems, ...workItems],
-    }))
-  }
-  return store
-}
+const seedProject = makeSeedProject({ clock: () => new Date(NOW_ISO) })
 
 /** Register the assembly and return the status tool. */
 function statusTool(deps) {
@@ -189,30 +147,7 @@ const inboxEvents = (count) =>
 test('the assembly registers the twenty-two tools in the documented order', () => {
   const host = fakeHost()
   registerCoworkTools(host, fakeDeps())
-  assert.deepEqual([...host.registry.keys()], [
-    'cowork_project_init',
-    'cowork_project_status',
-    'cowork_route',
-    'cowork_topic_create',
-    'cowork_thread_create',
-    'cowork_topic_list',
-    'cowork_thread_list',
-    'cowork_handoff',
-    'cowork_topic_resolve',
-    'cowork_topic_report',
-    'cowork_decision_propose',
-    'cowork_authorization_request',
-    'cowork_notices',
-    'cowork_user_review_request',
-    'cowork_request_question',
-    'cowork_request_plan',
-    'cowork_work_item_create',
-    'cowork_review_request',
-    'cowork_review_verdict',
-    'cowork_memory_write',
-    'cowork_memory_search',
-    'cowork_checkout_merge',
-  ])
+  assert.deepEqual([...host.registry.keys()], BUSINESS_TOOL_ORDER)
 })
 
 test('project_status bounds 60 topics, counts flags, and truncates a long digest', async () => {
@@ -378,12 +313,14 @@ test('project_status reports work-item and review counts and no handoff replay',
           reviewerSessionId: 'reviewer-1',
         }),
       ],
-      [
-        workItem('wi-1', 'topic-a', 'active'),
-        workItem('wi-2', 'topic-a', 'reviewing'),
-        workItem('wi-3', 'topic-b', 'merged'),
-        workItem('wi-4', 'topic-b', 'abandoned'),
-      ],
+      {
+        workItems: [
+          workItem('wi-1', 'topic-a', 'active'),
+          workItem('wi-2', 'topic-a', 'reviewing'),
+          workItem('wi-3', 'topic-b', 'merged'),
+          workItem('wi-4', 'topic-b', 'abandoned'),
+        ],
+      },
     )
 
     const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
@@ -414,7 +351,7 @@ test('project_status keeps a topic with active or reviewing work items from reso
             digest: 'delivered work',
           }),
         ],
-        [workItem('wi-busy', 'topic-busy', status)],
+        { workItems: [workItem('wi-busy', 'topic-busy', status)] },
       )
 
       const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))

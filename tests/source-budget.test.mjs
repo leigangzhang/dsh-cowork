@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { TOOL_DOMAINS } from './support/public-surface.mjs'
 
 /**
  * The DSH read tool stops at 50 KiB per file, so a source file at or above this
@@ -107,30 +108,7 @@ test('the two review tools register from src/review-tools.ts, not src/tools.ts',
 test('the tool split owns every tool name and keeps tools.ts orchestration-only', () => {
   const source = (file) => readFileSync(resolve(root, file), 'utf8')
   const toolsSource = source('src/tools.ts')
-  const domains = [
-    ['src/project-tools.ts', source('src/project-tools.ts'), ['cowork_project_init', 'cowork_project_status']],
-    ['src/topic-tools.ts', source('src/topic-tools.ts'), [
-      'cowork_topic_create',
-      'cowork_thread_create',
-      'cowork_topic_list',
-      'cowork_thread_list',
-      'cowork_handoff',
-      'cowork_topic_resolve',
-      'cowork_topic_report',
-      'cowork_decision_propose',
-      'cowork_authorization_request',
-      'cowork_notices',
-    ]],
-    ['src/route-tools.ts', source('src/route-tools.ts'), ['cowork_route']],
-    ['src/request-tools.ts', source('src/request-tools.ts'), [
-      'cowork_user_review_request',
-      'cowork_request_question',
-      'cowork_request_plan',
-    ]],
-    ['src/memory-tools.ts', source('src/memory-tools.ts'), ['cowork_memory_write', 'cowork_memory_search']],
-    ['src/checkout-tools.ts', source('src/checkout-tools.ts'), ['cowork_work_item_create', 'cowork_checkout_merge']],
-    ['src/review-tools.ts', source('src/review-tools.ts'), ['cowork_review_request', 'cowork_review_verdict']],
-  ]
+  const domains = TOOL_DOMAINS.map(([file, names]) => [file, source(file), names])
   for (const [file, domainSource, names] of domains) {
     for (const name of names) {
       assert.ok(domainSource.includes(`name: '${name}'`), `${file} must register ${name}`)
@@ -166,6 +144,27 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
     console.log(`# ${file}: ${bytes} B / ${limit} B`)
     assert.ok(bytes <= limit, `${file} is ${bytes} B, over the ${limit} B budget`)
   }
+})
+
+test('the request-service split keeps its entry point a thin re-export', () => {
+  const entry = readFileSync(resolve(root, 'src/request-service.ts'), 'utf8')
+  assert.ok(
+    Buffer.byteLength(entry, 'utf8') <= 30 * 1024,
+    `src/request-service.ts is ${Buffer.byteLength(entry, 'utf8')} B; the split target is 30 KiB`,
+  )
+  const lifecycle = readFileSync(resolve(root, 'src/request-lifecycle.ts'), 'utf8')
+  const open = readFileSync(resolve(root, 'src/request-open.ts'), 'utf8')
+  const decision = readFileSync(resolve(root, 'src/authorization-decision.ts'), 'utf8')
+  assert.match(lifecycle, /export async function createRequest\(/)
+  assert.match(lifecycle, /export async function resolveRequest\(/)
+  assert.match(decision, /export async function resolveAuthorizationDecision\(/)
+  assert.match(decision, /export async function settleAuthorizationRequestRecord\(/)
+  assert.match(open, /export async function openRequestTarget\(/)
+  // The entry point only re-exports: no implementation lives there any more.
+  assert.equal(/\basync function |\bfunction /m.test(entry), false, 'src/request-service.ts holds no implementation')
+  assert.match(entry, /export \{ createRequest, promptRequestTopic, resolveRequest \}/)
+  assert.match(entry, /export \{ openRequestTarget \}/)
+  assert.match(entry, /export \{\s*\n  resolveAuthorizationDecision,\s*\n  settleAuthorizationRequestRecord,/)
 })
 
 test('the legacy keyword router is gone and nothing imports it', () => {

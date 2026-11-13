@@ -1,20 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
 
 // `src/request-schema.ts` imports its siblings with the build's `.js`
-// specifiers, which Node's type stripping does not retry as `.ts`; the same
-// resolve hook `tests/api.test.mjs` uses makes the module importable.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
-import {
+// specifiers, so it is loaded after the shared hook.
+const {
   REQUEST_MESSAGE_MAX_CHARS,
   REQUEST_PAYLOAD_MAX_BYTES,
   REQUEST_RECORD_VERSION,
@@ -25,7 +15,7 @@ import {
   QUESTION_MAX_QUESTIONS,
   PLAN_PATH_MAX_CHARS,
   REVIEW_PURPOSE_MAX_CHARS,
-} from '../src/inbox-contract.ts'
+} = await import('../src/inbox-contract.ts')
 
 // The schema module imports its siblings with the build's `.js` specifiers, so
 // it is loaded after the hook above, not by a static import.
@@ -47,6 +37,7 @@ const {
   requestMessage,
   requestRecordProblems,
   resolutionMessage,
+  resolutionPrompt,
 } = await import('../src/request-schema.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')
@@ -237,6 +228,92 @@ test('applyResolution writes the reply, the resolver and the timestamps', () => 
     () => applyResolution(resolved, { status: 'passed', resolvedBy: 'user', now: NOW }),
     RequestSchemaError,
   )
+})
+
+test('a question resolution persists every answer and the full comment', () => {
+  const pending = buildRequestRecord({
+    requestId: 'req-q',
+    projectId: 'example.com/acme/repo',
+    topicId: 'topic-1',
+    kind: 'question',
+    title: 'Inbox backend',
+    payload: questionPayload(),
+    now: NOW,
+  })
+  const answers = [{ questionId: 'q1', selected: ['o1'] }]
+  const resolved = applyResolution(pending, {
+    status: 'answered',
+    answers,
+    comment: '  note to the topic  ',
+    resolvedBy: 'user',
+    now: NOW,
+  })
+  assert.deepEqual(resolved.resolution, { comment: 'note to the topic', answers })
+  assert.deepEqual(requestRecordProblems(resolved), [])
+  assert.match(resolved.resolutionMessage, /已回答全部问题/)
+  assert.match(resolved.resolutionMessage, /yes/, 'the reply carries the chosen option label')
+  assert.ok(Array.from(resolved.resolutionMessage).length <= RESOLUTION_MESSAGE_MAX_CHARS)
+  const prompt = resolutionPrompt(resolved)
+  assert.match(prompt, /Ship it\?/)
+  assert.match(prompt, /答：yes/)
+  assert.match(prompt, /备注：note to the topic/)
+})
+
+test('an old record without a resolution block still parses and prompts from its reply', () => {
+  const resolved = applyResolution(record(), {
+    status: 'returned',
+    comment: 'legacy comment',
+    resolvedBy: 'user',
+    now: NOW,
+  })
+  const legacy = { ...resolved }
+  delete legacy.resolution
+  assert.deepEqual(requestRecordProblems(legacy), [])
+  const parsed = parseRequestRecordText(JSON.stringify(legacy))
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.record.resolution, undefined)
+  assert.equal(resolutionPrompt(parsed.record), legacy.resolutionMessage)
+})
+
+test('a malformed resolution block is refused', () => {
+  const resolved = applyResolution(record(), {
+    status: 'passed',
+    comment: 'ok',
+    resolvedBy: 'user',
+    now: NOW,
+  })
+  assert.match(requestRecordProblems({ ...resolved, resolution: 'nope' }).join(';'), /resolution must be an object/)
+  assert.match(requestRecordProblems({ ...resolved, resolution: {} }).join(';'), /comment or answers/)
+  assert.match(
+    requestRecordProblems({ ...resolved, resolution: { comment: 'x'.repeat(2001) } }).join(';'),
+    /at most 2000/,
+  )
+  assert.match(
+    requestRecordProblems({ ...resolved, resolution: { answers: [{ questionId: 'q1', selected: ['o1'] }] } }).join(';'),
+    /only allowed on a question request/,
+  )
+  const pending = record()
+  assert.match(
+    requestRecordProblems({ ...pending, resolution: { comment: 'too early' } }).join(';'),
+    /only allowed once the request is resolved/,
+  )
+  const pendingQuestion = buildRequestRecord({
+    requestId: 'req-q',
+    projectId: 'example.com/acme/repo',
+    topicId: 'topic-1',
+    kind: 'question',
+    title: 'Question',
+    payload: questionPayload(),
+    now: NOW,
+  })
+  const answered = applyResolution(pendingQuestion, {
+    status: 'answered',
+    answers: [{ questionId: 'q1', selected: ['o1'] }],
+    resolvedBy: 'user',
+    now: NOW,
+  })
+  const tampered = { ...answered, resolution: { answers: [{ questionId: 'q1', selected: ['o9'] }] } }
+  assert.match(requestRecordProblems(tampered).join(';'), /unknown option/)
 })
 
 test('answerProblems validates questions, options, single mode and free text', () => {

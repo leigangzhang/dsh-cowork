@@ -1,19 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
-
+import './support/ts-hook.mjs'
 // `src/preset-visibility.ts` imports `./presets.js` with the build's extension.
 // Node's type stripping does not retry `.js` as `.ts`, so use the same tiny
 // resolve hook as the other source-level tests.
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const {
   HIDDEN_PRESET_IDS,

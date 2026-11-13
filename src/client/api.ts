@@ -53,8 +53,6 @@ import {
   type QuestionPayload,
   type QuestionSpec,
   type RequestAction,
-  type RequestPayload,
-  type RequestKind,
   type ReviewPayload,
   type ReviewVerification,
 } from '../inbox-contract.ts'
@@ -284,7 +282,7 @@ function parseVerification(value: unknown): ReviewVerification | null {
 }
 
 /** Narrow the payload of a `user-review` request; missing fields degrade. */
-export function parseReviewPayload(value: unknown): ReviewPayload {
+function parseReviewPayload(value: unknown): ReviewPayload {
   const record = isRecord(value) ? value : {}
   const reviewRequestId = optionalText(record.reviewRequestId)
   const payload: ReviewPayload = {
@@ -298,7 +296,7 @@ export function parseReviewPayload(value: unknown): ReviewPayload {
 }
 
 /** Narrow the payload of an `authorization` request. */
-export function parseAuthorizationPayload(value: unknown): AuthorizationPayload {
+function parseAuthorizationPayload(value: unknown): AuthorizationPayload {
   const record = isRecord(value) ? value : {}
   const command = optionalText(record.command)
   const summary = text(record.summary)
@@ -337,7 +335,7 @@ function parseQuestion(value: unknown): QuestionSpec | null {
 }
 
 /** Narrow the payload of a `question` request; a missing list reads as none. */
-export function parseQuestionPayload(value: unknown): QuestionPayload {
+function parseQuestionPayload(value: unknown): QuestionPayload {
   const record = isRecord(value) ? value : {}
   return {
     questions: Array.isArray(record.questions)
@@ -347,21 +345,11 @@ export function parseQuestionPayload(value: unknown): QuestionPayload {
 }
 
 /** Narrow the payload of a `plan` request. */
-export function parsePlanPayload(value: unknown): PlanPayload {
+function parsePlanPayload(value: unknown): PlanPayload {
   const record = isRecord(value) ? value : {}
   const planTitle = optionalText(record.planTitle)
   const planPath = text(record.planPath)
   return planTitle === null ? { planPath } : { planPath, planTitle }
-}
-
-/** Narrow one payload by the request kind it belongs to. */
-export function parseRequestPayload(kind: RequestKind, value: unknown): RequestPayload {
-  switch (kind) {
-    case 'user-review': return parseReviewPayload(value)
-    case 'authorization': return parseAuthorizationPayload(value)
-    case 'question': return parseQuestionPayload(value)
-    case 'plan': return parsePlanPayload(value)
-  }
 }
 
 /**
@@ -382,10 +370,9 @@ export function parseInboxRequestItem(value: unknown): InboxRequestItem | null {
     ? value.actions.filter((action): action is RequestAction =>
         isRequestAction(action) && actionAllowed(requestKind, action))
     : []
-  return {
-    kind: 'request',
+  const base = {
+    kind: 'request' as const,
     requestId,
-    requestKind,
     topicId,
     topicTitle: optionalText(value.topicTitle) ?? '已归档主题',
     status: value.status,
@@ -394,9 +381,20 @@ export function parseInboxRequestItem(value: unknown): InboxRequestItem | null {
     requestMessage: text(value.requestMessage),
     resolutionMessage: optionalText(value.resolutionMessage),
     actions: value.status === 'pending' ? actions : [],
-    payload: parseRequestPayload(requestKind, value.payload),
     createdAt: text(value.createdAt),
     updatedAt: text(value.updatedAt),
+  }
+  // The row is the one place a wire payload becomes a typed payload; the union
+  // then narrows it for every consumer, so nothing re-parses it later.
+  switch (requestKind) {
+    case 'user-review':
+      return { ...base, requestKind: 'user-review', payload: parseReviewPayload(value.payload) }
+    case 'authorization':
+      return { ...base, requestKind: 'authorization', payload: parseAuthorizationPayload(value.payload) }
+    case 'question':
+      return { ...base, requestKind: 'question', payload: parseQuestionPayload(value.payload) }
+    case 'plan':
+      return { ...base, requestKind: 'plan', payload: parsePlanPayload(value.payload) }
   }
 }
 

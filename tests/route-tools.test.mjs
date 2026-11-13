@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
+import './support/ts-hook.mjs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,15 +15,7 @@ import { join } from 'node:path'
  * `tests/routing.test.mjs` and the model module by `tests/router-model.test.mjs`;
  * these cases prove the wiring between them.
  */
-const HOOK_SOURCE = [
-  'export async function resolve(specifier, context, nextResolve) {',
-  "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
-  "    try { return await nextResolve(specifier.slice(0, -3) + '.ts', context) } catch {}",
-  '  }',
-  '  return nextResolve(specifier, context)',
-  '}',
-].join('\n')
-register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
+import { makeSeedProject, makeTopicFixture, withRepo } from './support/inbox-fixtures.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
 const { ProjectStore } = await import('../src/store.ts')
@@ -110,49 +102,16 @@ function llmPort(handler) {
   }
 }
 
-async function withRepo(run) {
-  const repoPath = await mkdtemp(join(tmpdir(), 'dsh-cowork-route-tools-'))
-  try {
-    return await run(repoPath)
-  } finally {
-    await rm(repoPath, { recursive: true, force: true })
-  }
-}
 
-const topic = (overrides = {}) => ({
+const topic = makeTopicFixture({
   topicId: 'session-a',
   title: 'topic a',
-  status: 'active',
-  awaitingReview: false,
-  blocked: false,
-  scope: '',
-  ownedPaths: [],
-  aliases: [],
-  digest: '',
-  cwd: '/repo',
-  legacyCheckoutPath: null,
   createdAt: STALE_ISO,
   updatedAt: STALE_ISO,
   lastActiveAt: NOW_ISO,
-  lastDeliveryConfirmedAt: null,
-  resolvedAt: null,
-  resolvedBy: null,
-  latestReviewRequestId: null,
-  reviewStatus: null,
-  reviewerSessionId: null,
-  ...overrides,
 })
 
-async function seedProject(repoPath, topics, overrides = {}) {
-  const store = new ProjectStore({ repoPath, clock: () => new Date(NOW_ISO), projectId: 'p' })
-  await store.initIndex('session-master')
-  await store.mutateIndexDocument((document) => ({
-    ...document,
-    ...overrides,
-    topics: topics.map((entry) => ({ ...entry, cwd: repoPath })),
-  }))
-  return store
-}
+const seedProject = makeSeedProject({ clock: () => new Date(NOW_ISO) })
 
 function routeTool(deps) {
   const host = fakeHost()
@@ -168,7 +127,7 @@ test('layer 1 reuses the focus topic and never calls the model', async () => {
   await withRepo(async (repoPath) => {
     const port = llmPort(() => '{"topicId":null,"confidence":0.1}')
     await seedProject(repoPath, [topic({ topicId: 'session-focus', title: 'focus topic' })], {
-      masterFocusTopicId: 'session-focus',
+      overrides: { masterFocusTopicId: 'session-focus' },
     })
     const deps = fakeDeps({ llmRoutingPort: port })
     const result = await routeTool(deps).execute({ intent: '继续' }, fakeExec('session-master', repoPath))
@@ -199,7 +158,7 @@ test('layer 1 falls back to the last route target and appends a brief to the pro
   await withRepo(async (repoPath) => {
     const port = llmPort(() => '{"topicId":null,"confidence":0.1}')
     await seedProject(repoPath, [topic({ topicId: 'session-last', title: 'last topic' })], {
-      lastRouteTopicId: 'session-last',
+      overrides: { lastRouteTopicId: 'session-last' },
     })
     const deps = fakeDeps({ llmRoutingPort: port })
     const result = await routeTool(deps).execute({ intent: '继续', brief: '加个边界测试' }, fakeExec('session-master', repoPath))
@@ -448,7 +407,7 @@ test('route activity details are bounded and never contain the intent', async ()
   await withRepo(async (repoPath) => {
     const secretIntent = 'very secret intent that must not be stored'
     await seedProject(repoPath, [topic({ topicId: 'session-a', title: 'secret work' })], {
-      masterFocusTopicId: 'session-a',
+      overrides: { masterFocusTopicId: 'session-a' },
     })
     const deps = fakeDeps()
     await routeTool(deps).execute({ intent: secretIntent }, fakeExec('session-master', repoPath))
@@ -469,7 +428,7 @@ test('route activity details are bounded and never contain the intent', async ()
 test('forceCreate skips the locality layers', async () => {
   await withRepo(async (repoPath) => {
     await seedProject(repoPath, [topic({ topicId: 'session-a', title: 'alpha beta' })], {
-      masterFocusTopicId: 'session-a',
+      overrides: { masterFocusTopicId: 'session-a' },
     })
     const deps = fakeDeps()
     const result = await routeTool(deps).execute({
@@ -528,7 +487,7 @@ test('cowork_route settles a >24h silent focus topic to idle before reuse (A5 re
         status: 'active',
         lastActiveAt: new Date(NOW_MS - 25 * HOUR_MS).toISOString(),
       }),
-    ], { masterFocusTopicId: 'session-idle' })
+    ], { overrides: { masterFocusTopicId: 'session-idle' } })
     const deps = fakeDeps()
 
     const result = await routeTool(deps).execute({ intent: '继续这个主题' }, fakeExec('session-master', repoPath))
