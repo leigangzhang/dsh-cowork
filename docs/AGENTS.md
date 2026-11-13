@@ -1,6 +1,6 @@
 # Documentation standard
 
-The documentation rules for this repository. They are adapted from the agent-workflow-kit documentation harness and cut to this repository's one-tier shape. Every command named here runs in this repository.
+The documentation rules for this repository. They are adapted from the agent-workflow-kit documentation harness and cut to this repository's one-tier shape. Every command named here runs.
 
 A **skill** is the one kind whose reader is a model: its `description` is a load condition (`Use when …`), not a summary; its body carries the decision logic; and its `## Verification` section names the gate to run. No validation logic lives in a skill. The host owns the loader, and the skill guard in `npm run check` proves only that the description still reads as a trigger, never that the skill was loaded. The writing procedures live in [write-docs](../.agents/skills/write-docs/SKILL.md), [prose-standard](../.agents/skills/prose-standard/SKILL.md), and [trim-cot-leakage](../.agents/skills/trim-cot-leakage/SKILL.md).
 
@@ -87,7 +87,7 @@ A standing document is a budget, not a warehouse. Over budget, in this order:
 2. **condense**: it does belong here, but it can be shorter;
 3. **raise the number**: only when the words genuinely need the space, and say why in the commit.
 
-The executable unit is lines. A whitespace word count badly undercounts Chinese prose, so every budget in [tools/check-invariants.mjs](../tools/check-invariants.mjs) is `maxLines`. `AGENTS.md` is capped at 80 lines, this file at 200, [testing.md](testing.md) at 160, [glossary.md](glossary.md) at 220, and [plain-language.md](plain-language.md) at 200. Other standing documents stay short by review; a new hard budget needs a check in the same change. A ceiling is a guardrail, not a reduction target: within 5% of it, relocate or condense rather than adding words.
+The checks count lines (`maxLines`) or whitespace-separated words (`maxWords`). Chinese pages use line ceilings because a word count undercounts them; English pages use word ceilings. `AGENTS.md` is capped at 120 lines; this file at 1850 words, [testing.md](testing.md) at 1900, and [glossary.md](glossary.md) and [plain-language.md](plain-language.md) at 1500 each. Other standing documents stay short by review; a new hard budget needs a check in the same change. Within 5% of a ceiling, relocate or condense rather than adding words.
 
 ## Publication
 
@@ -116,7 +116,8 @@ What a machine can decide is pinned as a check; what it cannot is left to review
 ## Known limits
 
 - `publish-manifest` guarantees only that every file is classified once, that `public` names real files one by one, and that `internal` states a reason. Whether a site build really picks those files up is the build command on the `docs` surface, not this gate.
-- The line budget measures length, not density: a short file can still carry two rules in one paragraph or a restatement of another home.
-- The checks here are path- and shape-shaped; semantic quality stays in review.
+- The budget measures length, not density: a short file can still carry two rules or a restatement of another home.
+- Checks are declared in [tools/workflow.json](../tools/workflow.json) and run by [tools/doc-gate-engine.mjs](../tools/doc-gate-engine.mjs); every kind has an invalid/valid self-test.
+- Checks are path- and shape-shaped; semantic quality stays in review.
 - There is no generated-page freshness check while there is no generated page. The first generated page must arrive with its `--check` command and a workflow surface that runs it.
 - `npm run check` proves a skill has front matter, a trigger-shaped `description`, and its four sections. It cannot prove the host loaded the skill when the work happened.

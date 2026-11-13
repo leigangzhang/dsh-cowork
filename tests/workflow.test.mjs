@@ -57,11 +57,23 @@ test('tools/workflow.json declares unique surfaces with non-empty evidence', () 
     assert.ok(typeof surface.why === 'string' && surface.why.trim(), `${surface.name} needs why`)
   }
   assert.ok(names.has('agent-skills'), 'workflow must declare the agent-skills surface')
+  assert.ok(Array.isArray(workflow.checks) && workflow.checks.length > 0, 'workflow must declare document checks')
+  const checkIds = new Set()
+  for (const check of workflow.checks) {
+    assert.ok(check.id, 'document check must have an id')
+    assert.ok(!checkIds.has(check.id), `duplicate document check id: ${check.id}`)
+    checkIds.add(check.id)
+    assert.ok(check.kind, `${check.id} needs a kind`)
+    assert.ok(Array.isArray(check.patterns) && check.patterns.length > 0, `${check.id} needs patterns`)
+  }
 })
 
 test('AGENTS.md keeps the context budget and the required pointers', () => {
   const agents = read('AGENTS.md')
-  assert.ok(agents.split('\n').length <= 80, 'AGENTS.md exceeds 80 lines')
+  const workflow = JSON.parse(read('tools/workflow.json'))
+  const budget = workflow.checks.find((check) => check.id === 'context-budget')?.maxLines
+  assert.equal(budget, 120, 'context-budget must match the reference ceiling')
+  assert.ok(agents.split('\n').length <= budget, `AGENTS.md exceeds ${budget} lines`)
   for (const token of ['## Read first', '## Commands', 'docs/PLAN.md', 'tools/workflow.json']) {
     assert.ok(agents.includes(token), `AGENTS.md missing ${token}`)
   }

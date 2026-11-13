@@ -10,6 +10,8 @@ Class: process
 
 `docs/` 的物理结构与语义类型也不一致：当前实现交接散在根目录，`docs/archived/` 把实施交接、交付/探针结果和侦察记录平铺在一起；`prose-standard` 还带着 vendor、Cordis、postmortem、cookbook、双语与生成物等本仓库不使用的通用规则。
 
+文档检查此前硬编码在 `check-invariants.mjs`：加一条规则要改代码，空语料不单独报错，自测只覆盖部分谓词而非每个 check kind 的正反 fixture。参考项目的 `checks[] + runner + empty-corpus + per-kind self-test` 逻辑没有完整落地。
+
 ## Decision
 
 - [docs/AGENTS.md](../../../../docs/AGENTS.md) 是文档规则的唯一 home：kind、命名、one-home-per-fact、tutorial/reference 二分、link/mirror/generate、预算、发布开关、防劣质清单与已知边界都在这里。结构按参考仓库还原，路径、命令和“暂无生成页/镜像登记表”的项目事实就地改写。
@@ -18,6 +20,8 @@ Class: process
 - [docs/AGENTS.md](../../../../docs/AGENTS.md) 增加 `## Directory layout`：`docs/` 根只放索引、通用规则、项目级计划/指南/参考和独立文件；同语义记录进入 `docs/design/<feature>/`、`docs/handoffs/` 和 `docs/archived/{handoffs,results,recon}/`，不按 `guide/reference/plan` 这种 kind 拆目录。
 - 当前交接移动到 `docs/handoffs/`，历史交接/结果/侦察移动到 `docs/archived/handoffs|results|recon/`；所有 tracked Markdown、JSON、源码注释和测试中的路径引用同步重写，`docs/publish.json` 改为按 `docs/handoffs/*` 分类。
 - `docs/README.md` 和 `AGENTS.md` 只增加指针，不复制规则。`.agents/skills/` 作为 agent 输入在 [docs/publish.json](../../../../docs/publish.json) 中统一登记为 `internal`。
+- [tools/workflow.json](../../../../tools/workflow.json) 的 `checks[]` 承载文档规则，[tools/doc-gate-engine.mjs](../../../../tools/doc-gate-engine.mjs) 为每个 kind 提供一个 runner：`budget`、`required-sections`、`forbidden-regex`、`link-target`、`publish-manifest`、`skill-trigger`、`docs-layout`。`tools/check-invariants.mjs` 只保留 notes 生命周期、指针和 skill 目录完整性等项目规则。
+- 引擎拒绝零匹配的 check，`npm run check:self-test` 用临时 fixture 证明每个 kind 的 invalid 输入变红、valid 输入变绿，并额外覆盖 empty corpus、word budget 和 publish 的四种失败方向；`--list` 与 `--changed BASE [--worktree-only]` 提供按改动面选择 check 的迭代模式。
 - [tools/workflow.json](../../../../tools/workflow.json) 增加 `agent-skills` surface；`npm run check` 校验 skill 的 front matter、触发词、四段式正文和相对链接，`docs-layout` 拒绝根目录散落的 handoff/result/recon 或归档根目录散落的记录，负例由 `npm run check:self-test` 证明会变红。
 - 存量文档不重写正文；新文档、被重构的文档、skill 与本次移动后的路径从本决策起受同一门禁约束。生成页与镜像仍不启用，首次引入时必须同时带来生成器/登记表和对应 `--check`。
 
@@ -37,12 +41,15 @@ Class: process
 
 **保留 `prose-standard` 中所有源技能规则。** 否决：vendor、Cordis、postmortem、cookbook、双语和生成物规则在本仓库没有对应对象，保留会制造无法执行的义务，并让 agent 在错误的前提上判断。
 
+**继续把 check 硬编码在 `check-invariants.mjs`。** 否决：规则无法从配置看出，新增 kind 没有 runner 覆盖，自测也无法证明每个 kind 都能失败；参考实现的配置驱动、空语料拒绝和 per-kind fixture 才是可维护的闸门。
+
 **顺手重写全部存量文档。** 否决：用户要求整理目录与规则，不是改写历史内容；全量重写会制造无关 diff，并破坏已发布页面的证据语义。
 
 ## Consequences
 
 - 新 Markdown 必须命中 `docs/publish.json` 恰好一次，新 skill 必须通过 front matter、触发词、四段式和链接检查。
-- 写作流程成为三个可加载的 agent 输入；`prose-standard` 保留完整源技能与示例，`trim-cot-leakage` 只处理推理/会话泄漏。`npm run check` 只证明结构、命名和触发词，不证明 host 在具体任务中真的加载了它；内容质量仍由 review 判定。
+- 文档检查现在由 `tools/workflow.json#checks` 配置驱动；新增 kind 必须同时提供 runner、配置和 invalid/valid 自测，否则 `npm run check:self-test` 的 kind-coverage 会变红。
+- 写作流程成为三个可加载的 agent 输入；`prose-standard` 保留完整源技能与示例，`trim-cot-leakage` 只处理推理/会话泄漏。`npm run check` 只证明结构、命名、触发词和路径形状，不证明 host 在具体任务中真的加载了它；内容质量仍由 review 判定。
 - 当前没有生成页、镜像登记表或双语配对，标准只写接入条件，不假装这些机制已经存在。
 - 存量文档正文保持原状；它们的 kind 由内容决定，目录位置按语义族迁移。
 - 移动后的旧外部链接不再解析到旧路径；仓库内 tracked 引用已同步到新路径。
@@ -56,3 +63,5 @@ Class: process
 - [A5] `prose-standard` 保留完整命题、按位置覆盖、workflow、borderline decisions 和适用示例，且不含 vendor、Cordis、postmortem、cookbook、双语或生成物规则 — `agent-skills`
 - [A6] `docs/` 根只保留通用规则、项目文档与独立文件；当前交接在 `docs/handoffs/`，历史交接/结果/侦察在 `docs/archived/{handoffs,results,recon}/`，并由 `docs-layout` 负例证明会变红 — `plan-docs`
 - [A7] 移动文件后的所有 tracked Markdown 相对链接可解析，发布清单仍对每个文件恰好分类一次 — `publication`
+- [A8] 文档 check 由 `tools/workflow.json#checks` 声明，7 个类各自有 runner；零匹配 check 被拒绝 — `workflow`
+- [A9] `npm run check:self-test` 对每个 kind 的 invalid fixture 变红、valid fixture 变绿，并覆盖 empty corpus、word budget 和 publish 四种失败方向 — `workflow`

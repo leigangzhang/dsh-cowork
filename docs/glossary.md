@@ -6,7 +6,10 @@ One concept, one word. This table is normative for new prose: it says what each 
 
 - Read it before naming a new concept, a new check, or a new document kind.
 - Link a term by its anchor instead of restating its definition.
-- A term earns an entry when a second document needs the same concept, when two words compete for one meaning, or when one word carries two meanings.
+
+## How to add a term
+
+A term earns an entry when a second document needs the same concept, when two words compete for one meaning, or when one word carries two meanings. Add the entry in the same change that introduces the term.
 
 ## Product terms
 

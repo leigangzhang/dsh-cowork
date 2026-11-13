@@ -105,9 +105,11 @@
       "patterns": [
         "tools/workflow.json",
         "tools/check-invariants.mjs",
+        "tools/doc-gate-engine.mjs",
         ".gitignore"
       ],
       "evidence": [
+        "npm run check",
         "npm run check:self-test"
       ],
       "why": "A guard is only real if a violation makes it red; the workflow surface proves the guards can fail."
@@ -122,6 +124,257 @@
         "node --test tests/m12-migration-drill.test.mjs"
       ],
       "why": "The v1-to-v2 migration drill is the only executable proof of backup byte equality, second-write idempotence and backup rollback; changing the drill changes that evidence."
+    }
+  ],
+  "checks": [
+    {
+      "id": "context-budget",
+      "kind": "budget",
+      "patterns": [
+        "AGENTS.md"
+      ],
+      "maxLines": 120,
+      "why": "Always-loaded context is a budget, not a dumping ground. This root file is capped at 120 lines; directory-bound rules move into that directory's own AGENTS.md."
+    },
+    {
+      "id": "docs-policy",
+      "kind": "required-sections",
+      "patterns": [
+        "docs/AGENTS.md"
+      ],
+      "sections": [
+        "## Document kinds",
+        "## Directory layout",
+        "## One home per fact",
+        "## Tutorial or reference",
+        "## Generated, mirrored, or linked",
+        "## Budgets",
+        "## Publication",
+        "## The slop checklist",
+        "## Known limits"
+      ],
+      "minBodyLines": 1,
+      "why": "The documentation standard needs one home, and that home needs a shape. Without kinds, placement, tutorial/reference, link/mirror/generate, budgets, publication, the slop checklist, and known limits, a page has no rule to be held to."
+    },
+    {
+      "id": "docs-budget",
+      "kind": "budget",
+      "patterns": [
+        "docs/AGENTS.md"
+      ],
+      "maxWords": 1850,
+      "why": "The documentation standard is standing context, so it is a word budget. Relocate, then condense, then raise the number and say why."
+    },
+    {
+      "id": "testing-policy",
+      "kind": "required-sections",
+      "patterns": [
+        "docs/testing.md"
+      ],
+      "sections": [
+        "## Tiers",
+        "## Commands",
+        "## Determinism",
+        "## Blocking and observational lanes",
+        "## Flake policy",
+        "## Evidence per change"
+      ],
+      "minBodyLines": 1,
+      "why": "The testing strategy needs one home, and that home needs tiers, commands, determinism, lane severity, flake disposition, and the evidence map."
+    },
+    {
+      "id": "testing-budget",
+      "kind": "budget",
+      "patterns": [
+        "docs/testing.md"
+      ],
+      "maxWords": 1900,
+      "why": "The testing policy is standing context on every test change, so it carries a ceiling."
+    },
+    {
+      "id": "notes-readme",
+      "kind": "required-sections",
+      "patterns": [
+        ".agents/notes/README.md"
+      ],
+      "sections": [
+        "## When to write one",
+        "## Classes",
+        "## Flow"
+      ],
+      "minBodyLines": 1,
+      "why": "A record home without when-to-write, the class set, and the lifecycle flow cannot route a new decision."
+    },
+    {
+      "id": "notes-readme-budget",
+      "kind": "budget",
+      "patterns": [
+        ".agents/notes/README.md"
+      ],
+      "maxWords": 2320,
+      "why": "The record rules are standing context for every decision record, so they carry a ceiling."
+    },
+    {
+      "id": "glossary-sections",
+      "kind": "required-sections",
+      "patterns": [
+        "docs/glossary.md"
+      ],
+      "sections": [
+        "## How to use this glossary",
+        "## How to add a term"
+      ],
+      "minBodyLines": 1,
+      "why": "The glossary is the vocabulary home, so how to read it and what earns a term must stay stated."
+    },
+    {
+      "id": "plain-language-sections",
+      "kind": "required-sections",
+      "patterns": [
+        "docs/plain-language.md"
+      ],
+      "sections": [
+        "## How to use this table",
+        "## When to expand"
+      ],
+      "minBodyLines": 1,
+      "why": "The human-facing half of the vocabulary layer must keep both the lookup rule and the expansion rule."
+    },
+    {
+      "id": "reference-budget",
+      "kind": "budget",
+      "patterns": [
+        "docs/glossary.md",
+        "docs/plain-language.md"
+      ],
+      "maxWords": 1500,
+      "why": "Reference pages are looked up, not read whole, so each carries a ceiling."
+    },
+    {
+      "id": "term-headings-ascii",
+      "kind": "forbidden-regex",
+      "patterns": [
+        "docs/glossary.md",
+        "docs/plain-language.md"
+      ],
+      "regex": [
+        "^### .*[^\\x00-\\x7F]"
+      ],
+      "why": "A term heading is an identifier; a translated heading would break anchor-based links into the entry."
+    },
+    {
+      "id": "skill-record",
+      "kind": "required-sections",
+      "patterns": [
+        ".agents/skills/*/SKILL.md"
+      ],
+      "sections": [
+        "## When to use",
+        "## How",
+        "## Verification",
+        "## Anti-patterns"
+      ],
+      "minBodyLines": 1,
+      "why": "A skill with no trigger, rule, verification step, or named failure mode is an article nobody opens."
+    },
+    {
+      "id": "skill-trigger",
+      "kind": "skill-trigger",
+      "patterns": [
+        ".agents/skills/*/SKILL.md"
+      ],
+      "why": "A skill is loaded by its description, so the description must open with a load trigger rather than a summary of the skill's contents."
+    },
+    {
+      "id": "publish-manifest",
+      "kind": "publish-manifest",
+      "patterns": [
+        "*.md"
+      ],
+      "manifest": "docs/publish.json",
+      "why": "Every document is deliberately public or internal; an unclassified file is a silent omission, and a public entry with no file behind it is a broken promise."
+    },
+    {
+      "id": "agent-input-links",
+      "kind": "link-target",
+      "patterns": [
+        "AGENTS.md",
+        "*/AGENTS.md",
+        ".agents/skills/*/SKILL.md",
+        ".agents/notes/*/TEMPLATE.md",
+        "README.md",
+        "docs/README.md"
+      ],
+      "why": "Agent-loaded files and entry indexes must not cite files that do not exist; a reader follows a broken pointer and finds nothing."
+    },
+    {
+      "id": "no-proposal-era-headings",
+      "kind": "forbidden-regex",
+      "patterns": [
+        ".agents/notes/implemented/*.md"
+      ],
+      "regex": [
+        "^## (?:Proposal|Plan|Migration plan|Acceptance criteria)\\b"
+      ],
+      "why": "A moved record that keeps proposal-era headings reads as an active plan; the skeleton must be rewritten, not appended to."
+    },
+    {
+      "id": "no-conflict-markers",
+      "kind": "forbidden-regex",
+      "patterns": [
+        "*"
+      ],
+      "regex": [
+        "^(?:<<<<<<<|=======|>>>>>>>)"
+      ],
+      "why": "Committed conflict markers are unresolved merge residue."
+    },
+    {
+      "id": "no-secrets",
+      "kind": "forbidden-regex",
+      "patterns": [
+        "*"
+      ],
+      "regex": [
+        "sk-[A-Za-z0-9]{20,}",
+        "-----BEGIN [A-Z ]*PRIVATE KEY-----"
+      ],
+      "why": "A repository file must not carry an obvious credential or private key."
+    },
+    {
+      "id": "no-time-based-test-sync",
+      "kind": "forbidden-regex",
+      "patterns": [
+        "*.md"
+      ],
+      "regex": [
+        "^\\s*(?:setTimeout|sleep|waitForTimeout)\\s*\\("
+      ],
+      "why": "Documented tests and examples must not prescribe fixed sleeps as readiness."
+    },
+    {
+      "id": "banned-spellings",
+      "kind": "forbidden-regex",
+      "patterns": [
+        "README.md",
+        "AGENTS.md",
+        "docs/*.md",
+        ".agents/notes/*.md",
+        ".agents/skills/*.md",
+        "tools/*.md"
+      ],
+      "regex": [
+        "散文"
+      ],
+      "why": "A retronym list: each entry is a spelling this repository has stopped using, and a ban is added only after the corpus is clean."
+    },
+    {
+      "id": "docs-layout",
+      "kind": "docs-layout",
+      "patterns": [
+        "docs/*.md"
+      ],
+      "why": "Record families live under docs/handoffs/ or docs/archived/{handoffs,results,recon}/; root docs hold rules, project documents, and standalone files."
     }
   ]
 }

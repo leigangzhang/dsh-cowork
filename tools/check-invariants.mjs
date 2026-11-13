@@ -2,32 +2,40 @@
 /**
  * dsh-cowork executable conventions runner.
  *
- * Checks (non-exhaustive, zero dependencies):
- *  - AGENTS.md stays under the context budget and keeps the required pointers.
- *  - tools/workflow.json parses, has version 1, and every surface names
- *    non-empty patterns/evidence/why and a unique name.
- *  - the .agents/notes templates carry the sections their lifecycle stage owns.
- *  - every skill has a trigger-shaped description, four sections, and resolvable links.
- *  - README links the product plan.
+ * Document checks are declared in tools/workflow.json and executed by
+ * tools/doc-gate-engine.mjs. This file adds the project-specific rules that do not
+ * fit a generic document kind: decision-record lifecycle, skill directories, and the
+ * standing entry-point pointers.
  *
  * Usage:
- *   node tools/check-invariants.mjs            run the guards
- *   node tools/check-invariants.mjs --self-test  prove the guards can fail
+ *   node tools/check-invariants.mjs                 run every declared check
+ *   node tools/check-invariants.mjs --self-test     prove every check kind can fail
+ *   node tools/check-invariants.mjs --list          list declared document checks
+ *   node tools/check-invariants.mjs --changed BASE  run only checks reading changed paths
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { resolve, dirname, join, relative } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  changedPaths,
+  iterFiles,
+  listChecks,
+  loadConfig,
+  runChecks,
+  selectChecks,
+  selfTest as engineSelfTest,
+} from './doc-gate-engine.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
-
+const configPath = resolve(root, 'tools/workflow.json')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
 const exists = (rel) => existsSync(resolve(root, rel))
 
 function sectionBodyLines(doc, heading) {
   const lines = doc.split('\n')
-  const start = lines.findIndex((l) => l.trim() === heading)
+  const start = lines.findIndex((line) => line.trim() === heading)
   if (start < 0) return null
   const body = []
   for (let i = start + 1; i < lines.length; i += 1) {
@@ -104,250 +112,33 @@ function noteErrors(rel, doc, declaredSurfaces, { template = false } = {}) {
   return errors
 }
 
-const SKILL_SECTIONS = ['## When to use', '## How', '## Verification', '## Anti-patterns']
-const SKILL_TRIGGER = /^Use (?:when|before|after|during)\b/
-
-function skillErrors(rel, doc) {
+function projectRuleErrors(config) {
   const errors = []
-  const lines = doc.split('\n')
-  let meta = null
-  if (lines[0]?.trim() === '---') {
-    const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
-    if (end > 0) meta = lines.slice(1, end)
+  const agents = read('AGENTS.md')
+  for (const token of ['## Read first', '## Commands', 'docs/PLAN.md', 'tools/workflow.json']) {
+    if (!agents.includes(token)) errors.push(`AGENTS.md is missing pointer: ${token}`)
   }
-  if (meta === null) {
-    errors.push(`${rel}: no '---' front-matter block, so nothing declares when it loads`)
-  } else {
-    const fields = {}
-    for (const line of meta) {
-      const separator = line.indexOf(':')
-      if (separator < 0) continue
-      const key = line.slice(0, separator).trim()
-      if (key === 'name' || key === 'description') fields[key] = line.slice(separator + 1).trim()
-    }
-    if (!fields.name) errors.push(`${rel}: front matter has no name:`)
-    else if (fields.name !== rel.split('/')[2]) errors.push(`${rel}: front matter name '${fields.name}' disagrees with its directory`)
-    if (!fields.description) errors.push(`${rel}: front matter has no description:, so the skill has no load trigger`)
-    else if (!SKILL_TRIGGER.test(fields.description)) {
-      errors.push(`${rel}: description does not name its load trigger; it must open with 'Use when' / 'Use before' / 'Use after' / 'Use during', not a summary`)
-    }
+  const readme = read('README.md')
+  for (const token of ['docs/PLAN.md', 'docs/AGENTS.md', 'docs/README.md']) {
+    if (!readme.includes(token)) errors.push(`README.md is missing pointer: ${token}`)
   }
-  for (const heading of SKILL_SECTIONS) {
-    if (!doc.includes(heading)) errors.push(`${rel}: missing ${heading}`)
-    else if (!sectionHasBody(doc, heading)) errors.push(`${rel}: section is empty: ${heading}`)
-  }
-  return errors
-}
-
-const ARCHIVED_FAMILIES = new Set(['handoffs', 'results', 'recon'])
-
-function docsLayoutViolations(files) {
-  const errors = []
-  for (const rel of files) {
-    if (/^docs\/[^/]+_(?:HANDOFF|RESULT|RECON)\.md$/.test(rel)) {
-      errors.push(`docs-layout: ${rel} belongs in a record family subdirectory`)
-    }
-    if (/^docs\/archived\/[^/]+\.md$/.test(rel) && rel !== 'docs/archived/README.md') {
-      errors.push(`docs-layout: ${rel} must be filed under docs/archived/{handoffs,results,recon}/`)
-    }
-    if (rel.startsWith('docs/handoffs/') && rel !== 'docs/handoffs/README.md' && !rel.endsWith('_HANDOFF.md')) {
-      errors.push(`docs-layout: ${rel} is not a handoff record`)
-    }
-    if (rel.startsWith('docs/archived/handoffs/') && !rel.endsWith('_HANDOFF.md')) {
-      errors.push(`docs-layout: ${rel} is not a handoff record`)
-    }
-    if (rel.startsWith('docs/archived/results/') && !rel.endsWith('_RESULT.md')) {
-      errors.push(`docs-layout: ${rel} is not a result record`)
-    }
-    if (rel.startsWith('docs/archived/recon/') && !rel.endsWith('_RECON.md')) {
-      errors.push(`docs-layout: ${rel} is not a reconnaissance record`)
-    }
-    if (rel.startsWith('docs/archived/')) {
-      const parts = rel.split('/')
-      if (parts.length > 3 && !ARCHIVED_FAMILIES.has(parts[2])) {
-        errors.push(`docs-layout: ${rel} uses an unknown archive family '${parts[2]}'`)
-      }
-    }
-  }
-  return errors
-}
-
-function docsLayoutErrors(rootDir, errors) {
-  const docsDir = resolve(rootDir, 'docs')
-  if (!existsSync(docsDir)) {
-    errors.push('docs/ is missing')
-    return
-  }
-  const files = listMarkdownFiles(docsDir).map((f) => relative(rootDir, f))
-  errors.push(...docsLayoutViolations(files))
-}
-
-const IGNORED_DIRS = new Set(['.git', 'node_modules', 'lib', 'dist'])
-
-function listMarkdownFiles(dir) {
-  const out = []
-  for (const name of readdirSync(dir)) {
-    if (IGNORED_DIRS.has(name)) continue
-    const full = join(dir, name)
-    if (statSync(full).isDirectory()) out.push(...listMarkdownFiles(full))
-    else if (name.endsWith('.md')) out.push(full)
-  }
-  return out
-}
-
-function globToRegex(pattern) {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
-  return new RegExp(`^${escaped}$`)
-}
-
-function patternMatches(pattern, rel) {
-  return globToRegex(pattern).test(rel)
-}
-
-function publicationErrors(rootDir, errors) {
-  const manifestPath = 'docs/publish.json'
-  if (!exists(manifestPath)) {
-    errors.push('docs/publish.json is missing')
-    return
-  }
-  let manifest
-  try {
-    manifest = JSON.parse(read(manifestPath))
-  } catch (e) {
-    errors.push(`docs/publish.json is not valid JSON: ${e.message}`)
-    return
-  }
-  if (!Array.isArray(manifest.public)) errors.push('docs/publish.json must have a public array')
-  if (!Array.isArray(manifest.internal)) errors.push('docs/publish.json must have an internal array')
-
-  const publicEntries = Array.isArray(manifest.public) ? manifest.public : []
-  const internalEntries = Array.isArray(manifest.internal) ? manifest.internal : []
-
-  // public promises must name real files
-  for (const entry of publicEntries) {
-    if (typeof entry !== 'string' || !entry.trim()) {
-      errors.push('docs/publish.json public entry must be a non-empty file path')
-      continue
-    }
-    if (entry.includes('*')) errors.push(`docs/publish.json public entry may not use a glob: ${entry}`)
-    else if (!exists(entry)) errors.push(`docs/publish.json public entry has no file behind it: ${entry}`)
+  const index = read('docs/README.md')
+  for (const token of ['docs/PLAN.md', 'docs/AGENTS.md', 'docs/testing.md', 'docs/publish.json', 'docs/handoffs/README.md', '.agents/skills/write-docs/SKILL.md', '.agents/skills/prose-standard/SKILL.md', '.agents/skills/trim-cot-leakage/SKILL.md']) {
+    if (!index.includes(token)) errors.push(`docs/README.md is missing pointer: ${token}`)
   }
 
-  // internal entries must state a reason
-  for (const entry of internalEntries) {
-    if (typeof entry?.pattern !== 'string' || !entry.pattern.trim()) {
-      errors.push('docs/publish.json internal entry must have a pattern')
-    }
-    if (typeof entry?.reason !== 'string' || !entry.reason.trim()) {
-      errors.push(`docs/publish.json internal entry has no reason: ${entry?.pattern ?? '(unnamed)'}`)
-    }
-  }
-
-  // every Markdown file must match exactly one declaration
-  const files = listMarkdownFiles(rootDir).map((f) => relative(rootDir, f))
-  for (const rel of files) {
-    let matches = 0
-    for (const entry of publicEntries) if (typeof entry === 'string' && patternMatches(entry, rel)) matches += 1
-    for (const entry of internalEntries) if (typeof entry?.pattern === 'string' && patternMatches(entry.pattern, rel)) matches += 1
-    if (matches === 0) errors.push(`publish-manifest: ${rel} is not classified in docs/publish.json`)
-    else if (matches > 1) errors.push(`publish-manifest: ${rel} matches ${matches} declarations`)
-  }
-
-  // documentation index must route to the standing documents
-  if (exists('docs/README.md')) {
-    const index = read('docs/README.md')
-    for (const token of ['docs/PLAN.md', 'docs/AGENTS.md', 'docs/testing.md', 'docs/publish.json', 'docs/handoffs/README.md', '.agents/skills/write-docs/SKILL.md', '.agents/skills/prose-standard/SKILL.md', '.agents/skills/trim-cot-leakage/SKILL.md']) {
-      if (!index.includes(token)) errors.push(`docs/README.md is missing pointer: ${token}`)
-    }
-  } else {
-    errors.push('docs/README.md is missing')
-  }
-}
-
-function collect(rootDir) {
-  const errors = []
-
-  // AGENTS.md budget and pointers
-  if (exists('AGENTS.md')) {
-    const agents = read('AGENTS.md')
-    const lines = agents.split('\n').length
-    if (lines > 80) errors.push(`AGENTS.md is ${lines} lines; budget is 80`)
-    for (const token of ['## Read first', '## Commands', 'docs/PLAN.md', 'tools/workflow.json']) {
-      if (!agents.includes(token)) errors.push(`AGENTS.md is missing pointer: ${token}`)
-    }
-  } else {
-    errors.push('AGENTS.md is missing')
-  }
-
-  // README must point at the plan and the documentation standard
-  if (exists('README.md')) {
-    const readme = read('README.md')
-    for (const token of ['docs/PLAN.md', 'docs/AGENTS.md', 'docs/README.md']) {
-      if (!readme.includes(token)) errors.push(`README.md is missing pointer: ${token}`)
-    }
-  } else {
-    errors.push('README.md is missing')
-  }
-
-  publicationErrors(rootDir, errors)
-  docsLayoutErrors(rootDir, errors)
-
-  // workflow.json shape
-  let workflow = null
-  if (exists('tools/workflow.json')) {
-    try {
-      workflow = JSON.parse(read('tools/workflow.json'))
-    } catch (e) {
-      errors.push(`tools/workflow.json is not valid JSON: ${e.message}`)
-    }
-    if (workflow) {
-      if (workflow.version !== 1) errors.push(`tools/workflow.json version must be 1, got ${workflow.version}`)
-      if (!Array.isArray(workflow.surfaces) || workflow.surfaces.length === 0) {
-        errors.push('tools/workflow.json must declare at least one surface')
-      } else {
-        const seen = new Set()
-        for (const surface of workflow.surfaces) {
-          const name = String(surface?.name ?? '').trim()
-          if (!name) errors.push('workflow surface with empty name')
-          else if (seen.has(name)) errors.push(`duplicate workflow surface name: ${name}`)
-          else seen.add(name)
-          if (!Array.isArray(surface?.patterns) || surface.patterns.length === 0) {
-            errors.push(`surface ${name || '(unnamed)'} has no patterns`)
-          }
-          if (!Array.isArray(surface?.evidence) || surface.evidence.length === 0) {
-            errors.push(`surface ${name || '(unnamed)'} has no evidence`)
-          } else if (surface.evidence.some((e) => typeof e !== 'string' || e.trim() === '')) {
-            errors.push(`surface ${name || '(unnamed)'} has an empty evidence entry`)
-          }
-          if (typeof surface?.why !== 'string' || surface.why.trim() === '') {
-            errors.push(`surface ${name || '(unnamed)'} has no why`)
-          }
-        }
-      }
-    }
-  } else {
-    errors.push('tools/workflow.json is missing')
-  }
-
-  // Skills: the description is the loader trigger and the body is the procedure.
-  const skillFiles = []
-  const skillsDir = resolve(rootDir, '.agents/skills')
+  const skillsDir = resolve(root, '.agents/skills')
   if (!existsSync(skillsDir)) {
     errors.push('.agents/skills is missing')
   } else {
-    for (const name of readdirSync(skillsDir)) {
-      const full = join(skillsDir, name)
-      if (!statSync(full).isDirectory()) continue
-      const rel = `.agents/skills/${name}/SKILL.md`
-      skillFiles.push(rel)
-      if (!exists(rel)) errors.push(`${rel} is missing for skill directory ${name}`)
-      else errors.push(...skillErrors(rel, read(rel)))
+    const skillNames = readdirSync(skillsDir).filter((name) => statSync(join(skillsDir, name)).isDirectory())
+    if (skillNames.length === 0) errors.push('.agents/skills contains no skill directory')
+    for (const name of skillNames) {
+      if (!exists(`.agents/skills/${name}/SKILL.md`)) errors.push(`.agents/skills/${name}/SKILL.md is missing`)
     }
-    if (skillFiles.length === 0) errors.push('.agents/skills contains no skill directory')
   }
 
-  // Note templates and records: the kit skeleton is the lifecycle contract.
-  const declaredSurfaces = new Set((workflow?.surfaces ?? []).map((s) => s?.name).filter(Boolean))
+  const declaredSurfaces = new Set((config.surfaces ?? []).map((surface) => surface?.name).filter(Boolean))
   const noteTemplates = ['.agents/notes/proposed/TEMPLATE.md', '.agents/notes/implemented/TEMPLATE.md']
   for (const rel of noteTemplates) {
     if (!exists(rel)) {
@@ -356,88 +147,17 @@ function collect(rootDir) {
     }
     errors.push(...noteErrors(rel, read(rel), declaredSurfaces, { template: true }))
   }
-  const noteRecords = listMarkdownFiles(rootDir)
-    .map((f) => relative(rootDir, f))
+  const noteRecords = iterFiles(root, ['.agents/notes/*'])
+    .map(([rel]) => rel)
     .filter((rel) => /^\.agents\/notes\/(proposed|implemented)\//.test(rel) && !rel.endsWith('/TEMPLATE.md'))
   for (const rel of noteRecords) {
     errors.push(...noteErrors(rel, read(rel), declaredSurfaces))
   }
-
-  // kit gates for standing policy homes: docs-policy / testing-policy / notes-readme
-  const policyHomes = [
-    ['docs/AGENTS.md', ['## Document kinds', '## Directory layout', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits'], 'docs-policy'],
-    ['docs/testing.md', ['## Tiers', '## Commands', '## Determinism', '## Blocking and observational lanes', '## Flake policy', '## Evidence per change'], 'testing-policy'],
-    ['.agents/notes/README.md', ['## When to write one', '## Classes', '## Flow'], 'notes-readme'],
-  ]
-  for (const [rel, sections, gate] of policyHomes) {
-    if (!exists(rel)) {
-      errors.push(`${gate}: ${rel} is missing`)
-      continue
-    }
-    const doc = read(rel)
-    for (const heading of sections) {
-      if (!doc.includes(heading)) errors.push(`${gate}: ${rel} missing ${heading}`)
-      else if (!sectionHasBody(doc, heading) && !['docs/AGENTS.md', 'docs/testing.md', '.agents/notes/README.md'].includes(rel)) errors.push(`${gate}: ${rel} section is empty: ${heading}`)
-    }
-  }
-
-  // kit budgets: standing docs are budgets, not warehouses
-  const budgets = [
-    ['docs/AGENTS.md', 200, 'docs-budget'],
-    ['docs/testing.md', 160, 'testing-budget'],
-    ['docs/glossary.md', 220, 'reference-budget'],
-    ['docs/plain-language.md', 200, 'reference-budget'],
-  ]
-  for (const [rel, max, gate] of budgets) {
-    if (!exists(rel)) continue
-    const lines = read(rel).split('\n').length
-    if (lines > max) errors.push(`${gate}: ${rel} is ${lines} lines; budget is ${max}`)
-  }
-
-  // forbidden patterns: fixed waits, conflict markers, obvious secrets
-  for (const rel of listMarkdownFiles(rootDir).map((f) => relative(rootDir, f))) {
-    const doc = read(rel)
-    if (/^\s*(setTimeout|sleep|waitForTimeout)\s*\(/m.test(doc)) errors.push(`no-time-based-test-sync: ${rel}`)
-    if (/^<<<<<<<|^=======|^>>>>>>>/m.test(doc)) errors.push(`no-conflict-markers: ${rel}`)
-    if (/sk-[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/m.test(doc)) errors.push(`no-secrets: ${rel}`)
-  }
-
-  // link-target for always-loaded agent inputs
-  for (const rel of ['AGENTS.md', 'README.md', 'docs/README.md', '.agents/skills/README.md', ...skillFiles]) {
-    if (!exists(rel)) continue
-    const doc = read(rel)
-    const base = dirname(resolve(rootDir, rel))
-    for (const m of doc.matchAll(/\]\(([^)]+)\)/g)) {
-      const target = m[1].split('#')[0].split('?')[0]
-      if (!target || /^https?:/i.test(target)) continue
-      const abs = resolve(base, target)
-      if (!existsSync(abs)) errors.push(`link-target: ${rel} links missing file ${target}`)
-    }
-  }
-
   return errors
 }
 
-function selfTest() {
+function projectSelfTest() {
   const cases = [
-    {
-      name: 'bad workflow surface',
-      fail: () => {
-        const w = { version: 1, surfaces: [{ patterns: [], evidence: [], why: '' }] }
-        for (const s of w.surfaces) {
-          if (s.patterns.length === 0 || s.evidence.length === 0 || !s.why.trim()) return true
-        }
-        return false
-      },
-    },
-    {
-      name: 'wrong workflow version',
-      fail: () => ({ version: 2, surfaces: [] }).version !== 1,
-    },
-    {
-      name: 'budget over line ceiling',
-      fail: () => 4 > 2,
-    },
     {
       name: 'implemented record without alternatives',
       fail: () => noteErrors(
@@ -462,63 +182,116 @@ function selfTest() {
         new Set(['source']),
       ).some((error) => error.includes('declared surface')),
     },
-    {
-      name: 'skill description is a summary, not a load trigger',
-      fail: () => skillErrors(
-        '.agents/skills/example/SKILL.md',
-        '---\nname: example\ndescription: Summarizes the testing policy.\n---\n\n## When to use\n\nx\n\n## How\n\nx\n\n## Verification\n\nx\n\n## Anti-patterns\n\nx\n',
-      ).some((error) => error.includes('load trigger')),
-    },
-    {
-      name: 'skill is missing a required section',
-      fail: () => skillErrors(
-        '.agents/skills/example/SKILL.md',
-        '---\nname: example\ndescription: Use when a document needs a budget.\n---\n\n## When to use\n\nx\n\n## How\n\nx\n\n## Verification\n\nx\n',
-      ).some((error) => error.includes('Anti-patterns')),
-    },
-    {
-      name: 'skill name disagrees with its directory',
-      fail: () => skillErrors(
-        '.agents/skills/example/SKILL.md',
-        '---\nname: other-name\ndescription: Use when a skill was renamed.\n---\n\n## When to use\n\nx\n\n## How\n\nx\n\n## Verification\n\nx\n\n## Anti-patterns\n\nx\n',
-      ).some((error) => error.includes('disagrees with its directory')),
-    },
-    {
-      name: 'record file kept at docs root',
-      fail: () => docsLayoutViolations(['docs/TOPIC_EXAMPLE_HANDOFF.md']).length > 0,
-    },
-    {
-      name: 'archived record kept outside a family directory',
-      fail: () => docsLayoutViolations(['docs/archived/M1_RESULT.md']).length > 0,
-    },
-    {
-      name: 'fixed wait in test',
-      fail: () => /^\s*setTimeout\s*\(/m.test('  setTimeout(() => {}, 1000)'),
-    },
-    {
-      name: 'secret in repository',
-      fail: () => /sk-[A-Za-z0-9]{20,}/.test('token = sk-' + 'a'.repeat(20)),
-    },
   ]
   let failed = 0
-  for (const c of cases) {
-    const wentRed = c.fail()
-    if (!wentRed) {
-      console.error(`self-test failed: case "${c.name}" did not go red`)
+  for (const testCase of cases) {
+    if (!testCase.fail()) {
+      console.error(`self-test failed: project rule "${testCase.name}" did not go red`)
       failed += 1
     }
   }
-  if (failed > 0) process.exit(1)
-  console.log(`self-test ok: ${cases.length} synthetic violations went red`)
+  if (failed > 0) return false
+  console.log(`PASS project-rules: ${cases.length} negative controls`)
+  return true
+}
+
+function usage() {
+  console.log(`Usage:
+  node tools/check-invariants.mjs
+  node tools/check-invariants.mjs --self-test
+  node tools/check-invariants.mjs --list
+  node tools/check-invariants.mjs --changed BASE [--worktree-only]`)
+}
+
+function parseArgs(argv) {
+  const args = { selfTest: false, list: false, changed: null, worktreeOnly: false, help: false }
+  for (let i = 0; i < argv.length; i += 1) {
+    const value = argv[i]
+    if (value === '--self-test') args.selfTest = true
+    else if (value === '--list') args.list = true
+    else if (value === '--worktree-only') args.worktreeOnly = true
+    else if (value === '--help' || value === '-h') args.help = true
+    else if (value === '--changed') {
+      args.changed = argv[i + 1]
+      if (!args.changed) throw new Error('--changed requires a base revision')
+      i += 1
+    } else {
+      throw new Error(`unknown argument: ${value}`)
+    }
+  }
+  if (args.worktreeOnly && !args.changed) throw new Error('--worktree-only requires --changed BASE')
+  return args
+}
+
+let args
+try {
+  args = parseArgs(process.argv.slice(2))
+} catch (error) {
+  console.error(`check-invariants: ${error.message}`)
+  usage()
+  process.exit(2)
+}
+
+if (args.help) {
+  usage()
   process.exit(0)
 }
 
-if (process.argv.includes('--self-test')) selfTest()
+if (args.selfTest) {
+  const engineOk = engineSelfTest()
+  const projectOk = projectSelfTest()
+  process.exit(engineOk && projectOk ? 0 : 1)
+}
 
-const errors = collect(root)
-if (errors.length > 0) {
-  for (const e of errors) console.error(`- ${e}`)
-  console.error(`check-invariants: ${errors.length} violation(s)`)
+let config
+try {
+  config = loadConfig(configPath)
+} catch (error) {
+  console.error(`check-invariants: ${error.message}`)
+  process.exit(2)
+}
+
+let checks = config.checks
+if (args.changed) {
+  try {
+    const paths = changedPaths(root, args.changed, args.worktreeOnly)
+    checks = selectChecks(config, paths)
+    console.log(`check-invariants: ${paths.length} changed path(s); ${checks.length} of ${config.checks.length} declared check(s) read them`)
+  } catch (error) {
+    console.error(`check-invariants: ${error.message}`)
+    process.exit(2)
+  }
+}
+
+if (args.list) {
+  listChecks(checks)
+  process.exit(0)
+}
+
+let violations = 0
+for (const [id, problems] of runChecks(root, checks)) {
+  if (problems.length === 0) {
+    console.log(`PASS ${id}`)
+    continue
+  }
+  console.log(`FAIL ${id}`)
+  for (const problem of problems) console.log(`  ${problem}`)
+  violations += problems.length
+}
+
+if (!args.changed) {
+  const projectErrors = projectRuleErrors(config)
+  if (projectErrors.length > 0) {
+    console.log('FAIL project-rules')
+    for (const error of projectErrors) console.log(`  ${error}`)
+    violations += projectErrors.length
+  } else {
+    console.log('PASS project-rules')
+  }
+}
+
+if (violations > 0) {
+  console.error(`check-invariants: ${violations} violation(s)`)
   process.exit(1)
 }
 console.log('check-invariants: ok')
