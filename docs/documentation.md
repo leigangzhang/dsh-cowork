@@ -2,7 +2,7 @@
 
 The documentation rules for this repository. They are adapted from the agent-workflow-kit documentation harness and cut to this repository's one-tier shape. Every command named here runs in this repository.
 
-A **skill** is the one kind whose reader is a model: its `description` is a load condition (`Use when …`), not a summary; its body carries the decision logic; and its `## Verification` section names the gate to run. No validation logic lives in a skill. The host owns the loader, and the skill guard in `npm run check` proves only that the description still reads as a trigger, never that the skill was loaded. The two writing procedures live in [.agents/skills/write-docs/SKILL.md](../.agents/skills/write-docs/SKILL.md) and [.agents/skills/trim-prose/SKILL.md](../.agents/skills/trim-prose/SKILL.md).
+A **skill** is the one kind whose reader is a model: its `description` is a load condition (`Use when …`), not a summary; its body carries the decision logic; and its `## Verification` section names the gate to run. No validation logic lives in a skill. The host owns the loader, and the skill guard in `npm run check` proves only that the description still reads as a trigger, never that the skill was loaded. The writing procedures live in [write-docs](../.agents/skills/write-docs/SKILL.md), [prose-standard](../.agents/skills/prose-standard/SKILL.md), and [trim-cot-leakage](../.agents/skills/trim-cot-leakage/SKILL.md).
 
 ## Document kinds
 

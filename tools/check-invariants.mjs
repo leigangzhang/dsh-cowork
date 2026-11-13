@@ -126,6 +126,7 @@ function skillErrors(rel, doc) {
       if (key === 'name' || key === 'description') fields[key] = line.slice(separator + 1).trim()
     }
     if (!fields.name) errors.push(`${rel}: front matter has no name:`)
+    else if (fields.name !== rel.split('/')[2]) errors.push(`${rel}: front matter name '${fields.name}' disagrees with its directory`)
     if (!fields.description) errors.push(`${rel}: front matter has no description:, so the skill has no load trigger`)
     else if (!SKILL_TRIGGER.test(fields.description)) {
       errors.push(`${rel}: description does not name its load trigger; it must open with 'Use when' / 'Use before' / 'Use after' / 'Use during', not a summary`)
@@ -212,7 +213,7 @@ function publicationErrors(rootDir, errors) {
   // documentation index must route to the standing documents
   if (exists('docs/README.md')) {
     const index = read('docs/README.md')
-    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/testing.md', 'docs/publish.json', '.agents/skills/write-docs/SKILL.md', '.agents/skills/trim-prose/SKILL.md']) {
+    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/testing.md', 'docs/publish.json', '.agents/skills/write-docs/SKILL.md', '.agents/skills/prose-standard/SKILL.md', '.agents/skills/trim-cot-leakage/SKILL.md']) {
       if (!index.includes(token)) errors.push(`docs/README.md is missing pointer: ${token}`)
     }
   } else {
@@ -430,6 +431,13 @@ function selfTest() {
         '.agents/skills/example/SKILL.md',
         '---\nname: example\ndescription: Use when a document needs a budget.\n---\n\n## When to use\n\nx\n\n## How\n\nx\n\n## Verification\n\nx\n',
       ).some((error) => error.includes('Anti-patterns')),
+    },
+    {
+      name: 'skill name disagrees with its directory',
+      fail: () => skillErrors(
+        '.agents/skills/example/SKILL.md',
+        '---\nname: other-name\ndescription: Use when a skill was renamed.\n---\n\n## When to use\n\nx\n\n## How\n\nx\n\n## Verification\n\nx\n\n## Anti-patterns\n\nx\n',
+      ).some((error) => error.includes('disagrees with its directory')),
     },
     {
       name: 'fixed wait in test',

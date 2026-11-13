@@ -1,5 +1,5 @@
 ---
-name: trim-prose
+name: trim-cot-leakage
 description: Use when auditing or fixing prose that reads like a leaked reasoning transcript — dead session citations, change narration such as "used to", stack or review vantage, reviewer-addressed justifications, control-flow narration, or hedges left over from planning.
 ---
 

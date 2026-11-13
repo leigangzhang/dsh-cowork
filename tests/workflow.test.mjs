@@ -128,7 +128,10 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   const skillsDir = resolve(root, '.agents/skills')
   const skills = readdirSync(skillsDir).filter((name) => statSync(join(skillsDir, name)).isDirectory())
   assert.ok(skills.includes('write-docs'), 'write-docs skill is missing')
-  assert.ok(skills.includes('trim-prose'), 'trim-prose skill is missing')
+  assert.ok(skills.includes('prose-standard'), 'prose-standard skill is missing')
+  assert.ok(skills.includes('trim-cot-leakage'), 'trim-cot-leakage skill is missing')
+  assert.ok(!skills.includes('trim-prose'), 'trim-prose must be renamed, not duplicated')
+  assert.ok(existsSync(resolve(skillsDir, 'prose-standard', 'references', 'examples.md')), 'prose-standard examples are missing')
   for (const name of skills) {
     const rel = join('.agents/skills', name, 'SKILL.md')
     const doc = read(rel)
@@ -141,7 +144,8 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   }
   const index = read('docs/README.md')
   assert.ok(index.includes('.agents/skills/write-docs/SKILL.md'), 'docs index does not route to write-docs')
-  assert.ok(index.includes('.agents/skills/trim-prose/SKILL.md'), 'docs index does not route to trim-prose')
+  assert.ok(index.includes('.agents/skills/prose-standard/SKILL.md'), 'docs index does not route to prose-standard')
+  assert.ok(index.includes('.agents/skills/trim-cot-leakage/SKILL.md'), 'docs index does not route to trim-cot-leakage')
 })
 
 test('record templates trace each criterion to a declared surface', () => {
