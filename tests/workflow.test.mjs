@@ -181,7 +181,10 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(skills.includes('write-docs'), 'write-docs skill is missing')
   assert.ok(skills.includes('prose-standard'), 'prose-standard skill is missing')
   assert.ok(skills.includes('trim-cot-leakage'), 'trim-cot-leakage skill is missing')
-  assert.ok(skills.includes('dsh-cowork-review'), 'dsh-cowork-review skill is missing')
+  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'merging-stacked-prs', 'find-simplifications']) {
+    assert.ok(skills.includes(name), `${name} skill is missing`)
+  }
+  assert.equal(skills.some((name) => name.startsWith('dsh-')), false, 'skill directories must not use a dsh- prefix')
   assert.ok(!skills.includes('trim-prose'), 'trim-prose must be renamed, not duplicated')
   assert.ok(existsSync(resolve(skillsDir, 'prose-standard', 'references', 'examples.md')), 'prose-standard examples are missing')
   for (const name of skills) {
@@ -198,7 +201,13 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(index.includes('.agents/skills/write-docs/SKILL.md'), 'docs index does not route to write-docs')
   assert.ok(index.includes('.agents/skills/prose-standard/SKILL.md'), 'docs index does not route to prose-standard')
   assert.ok(index.includes('.agents/skills/trim-cot-leakage/SKILL.md'), 'docs index does not route to trim-cot-leakage')
-  assert.ok(index.includes('.agents/skills/dsh-cowork-review/SKILL.md'), 'docs index does not route to dsh-cowork-review')
+  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'merging-stacked-prs', 'find-simplifications']) {
+    assert.ok(index.includes(`.agents/skills/${name}/SKILL.md`), `docs index does not route to ${name}`)
+  }
+  const skillsIndex = read('.agents/skills/README.md')
+  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'merging-stacked-prs', 'find-simplifications']) {
+    assert.ok(skillsIndex.includes(`(${name}/SKILL.md)`), `skills index does not route to ${name}`)
+  }
 })
 
 test('handoff records are flat and design records are grouped by feature', () => {

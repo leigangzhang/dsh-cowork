@@ -1,9 +1,9 @@
 ---
-name: dsh-cowork-review
+name: code-review
 description: Use when reviewing a dsh-cowork change, preparing a PR, selecting pre-push evidence, or judging whether review findings are fixed
 ---
 
-# Review a dsh-cowork change
+# Code review for dsh-cowork
 
 Review against the owning requirements and evidence, not against memory of the rules. One substantiated blocker is more useful than a list of style nits.
 

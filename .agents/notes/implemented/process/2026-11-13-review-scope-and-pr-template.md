@@ -18,7 +18,7 @@ Class: process
 
 **1. `change-scope` 是审查的固定入口。** [scripts/change-scope.mjs](../../../../scripts/change-scope.mjs) 接收已验证的 `--base <ref>` 和可选 `--head <ref>`，解析 base/head/merge-base，输出 `formatVersion: 1` 的 JSON，包含 committed、staged、unstaged、untracked 四组路径。路径用 NUL 分隔解析，base 不可解析或 merge-base 不唯一时非零退出。`npm run change-scope -- --base <verified-base>` 已加入 [AGENTS.md](../../../../AGENTS.md)、[README.md](../../../../README.md) 和 [docs/testing.md](../../../../docs/testing.md)。
 
-**2. 项目 review skill 拥有审查过程。** [.agents/skills/dsh-cowork-review/SKILL.md](../../../../.agents/skills/dsh-cowork-review/SKILL.md) 固定“固定范围 → 读需求 → 按优先级审查 → 验证证据 → 报告 finding → 独立 verdict”的流程。Finding 必须带 `path:line`、影响、证据和 required fix；blocker 与 suggestion 分开；实现者不得给自己的实现最终 verdict。[docs/agent-teams.md](../../../../docs/agent-teams.md) 只保留 DAG/verdict 所有权，并指向该 skill。
+**2. 项目 review skill 拥有审查过程。** [.agents/skills/code-review/SKILL.md](../../../../.agents/skills/code-review/SKILL.md) 固定“固定范围 → 读需求 → 按优先级审查 → 验证证据 → 报告 finding → 独立 verdict”的流程。Finding 必须带 `path:line`、影响、证据和 required fix；blocker 与 suggestion 分开；实现者不得给自己的实现最终 verdict。[docs/agent-teams.md](../../../../docs/agent-teams.md) 只保留 DAG/verdict 所有权，并指向该 skill。
 
 **3. PR 模板固定四个事实段落。** [.github/pull_request_template.md](../../../../.github/pull_request_template.md) 包含 `## Motivation`、`## Changes`、`## Testing`、`## Evidence`；Changes 区分 interface/behavior，Testing 先写 test design 再列实际运行的 test entries 和未运行项，Evidence 只放可复核的命令、计数、artifact identity、截图或外部状态。`docs/kinds.json` 将它归为 `template`，`docs/publish.json` 将 `.github/*` 归为 internal。
 
