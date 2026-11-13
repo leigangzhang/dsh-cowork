@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
@@ -79,31 +80,41 @@ test('cordis.patch.yml has one insert row: id dsh-cowork under the installed nam
 })
 
 test('npm pack ships only the runtime files, never sources, tests, docs or artifacts', () => {
-  const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
-    cwd: root,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  const manifest = JSON.parse(raw)[0]
-  const paths = manifest.files.map((file) => file.path)
+  // npm writes to its cache even for a dry run. Keep that cache inside the
+  // test so a root-owned or otherwise broken user cache cannot decide this
+  // repository's packaging result.
+  const cache = mkdtempSync(join(tmpdir(), 'cowork-npm-cache-'))
+  try {
+    const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60_000,
+      env: { ...process.env, npm_config_cache: cache },
+    })
+    const manifest = JSON.parse(raw)[0]
+    const paths = manifest.files.map((file) => file.path)
 
-  assert.ok(paths.length > 0, 'npm pack reported no files')
-  assert.ok(paths.includes('package.json'), 'npm always packs package.json')
+    assert.ok(paths.length > 0, 'npm pack reported no files')
+    assert.ok(paths.includes('package.json'), 'npm always packs package.json')
 
-  const unexpected = paths.filter(
-    (path) =>
-      !(path === 'package.json' || path === 'cordis.patch.yml' || path === 'README.md' || path === 'LICENSE' || path.startsWith('lib/')),
-  )
-  assert.deepEqual(unexpected, [], `npm pack included files outside the contract: ${unexpected.join(', ')}`)
+    const unexpected = paths.filter(
+      (path) =>
+        !(path === 'package.json' || path === 'cordis.patch.yml' || path === 'README.md' || path === 'LICENSE' || path.startsWith('lib/')),
+    )
+    assert.deepEqual(unexpected, [], `npm pack included files outside the contract: ${unexpected.join(', ')}`)
 
-  const forbidden = paths.filter(
-    (path) =>
-      FORBIDDEN_PACK_PREFIXES.some((prefix) => path.startsWith(prefix)) ||
-      FORBIDDEN_PACK_EXTENSIONS.some((extension) => path.endsWith(extension)),
-  )
-  assert.deepEqual(forbidden, [], `npm pack included development paths: ${forbidden.join(', ')}`)
+    const forbidden = paths.filter(
+      (path) =>
+        FORBIDDEN_PACK_PREFIXES.some((prefix) => path.startsWith(prefix)) ||
+        FORBIDDEN_PACK_EXTENSIONS.some((extension) => path.endsWith(extension)),
+    )
+    assert.deepEqual(forbidden, [], `npm pack included development paths: ${forbidden.join(', ')}`)
 
-  for (const entry of manifest.files) {
-    assert.ok(entry.size > 0, `${entry.path} must not be empty in the tarball`)
+    for (const entry of manifest.files) {
+      assert.ok(entry.size > 0, `${entry.path} must not be empty in the tarball`)
+    }
+  } finally {
+    rmSync(cache, { recursive: true, force: true })
   }
 })

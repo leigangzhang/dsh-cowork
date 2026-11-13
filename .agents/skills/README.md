@@ -13,6 +13,10 @@ An agent loads a skill by name once its `description` matches the work. Skills a
 | How do I write, restructure, budget, or publish a document? | [`write-docs`](write-docs/SKILL.md) | kinds, placement, link/mirror/generate, budgets, and the publication switch |
 | Which contracts must this prose keep, and where does each kind belong? | [`prose-standard`](prose-standard/SKILL.md) | complete-proposition editing, required coverage by location, and borderline decisions |
 | This prose reads like a leaked authoring session | [`trim-cot-leakage`](trim-cot-leakage/SKILL.md) | what to cut, and which factual clauses have to survive the cut |
+| I need to review a change or judge whether findings are fixed | [`code-review`](code-review/SKILL.md) | scope report, evidence selection, review priorities, and finding format |
+| Which checks should I run before pushing? | [`pre-push-checks`](pre-push-checks/SKILL.md) | smallest owning evidence, lib sync, safe push, and verification |
+| How do I write a PR description with real evidence? | [`pr-description`](pr-description/SKILL.md) | motivation, interface/behavior changes, test design, entries, and proof |
+| What can we safely simplify or remove? | [`find-simplifications`](find-simplifications/SKILL.md) | producer/consumer evidence, maintenance cost, and capability-loss review |
 
 ## Related
 

@@ -74,6 +74,40 @@ test('tools/workflow.json declares unique surfaces with non-empty evidence', () 
   assert.ok(Array.isArray(kinds.assignments) && kinds.assignments.length > 0, 'docs/kinds.json needs assignments')
 })
 
+test('pr-description owns the PR structure and no separate template exists', () => {
+  const skill = read('.agents/skills/pr-description/SKILL.md')
+  for (const heading of ['## Motivation', '## Changes', '## Testing', '## Evidence']) {
+    assert.ok(skill.includes(`${heading}\n`), `pr-description is missing ${heading}`)
+  }
+  assert.match(skill, /### Not run/)
+  assert.match(skill, /npm run change-scope -- --base/)
+  assert.equal(existsSync(resolve(root, '.github/pull_request_template.md')), false, 'the PR template must live in the skill, not a separate file')
+})
+
+test('executable test lanes are wired to scripts, workflow evidence, and the testing guide', () => {
+  const pkg = JSON.parse(read('package.json'))
+  const workflow = JSON.parse(read('tools/workflow.json'))
+  const testing = read('docs/testing.md')
+  for (const script of ['test', 'test:coverage', 'test:host-smoke', 'change-scope', 'typecheck', 'build']) {
+    assert.equal(typeof pkg.scripts?.[script], 'string', `package.json is missing script ${script}`)
+  }
+  const source = workflow.surfaces.find((surface) => surface.name === 'source')
+  assert.ok(source, 'workflow must declare the source surface')
+  for (const command of ['npm run test:coverage', 'npm run typecheck', 'npm run build', 'npm run test:host-smoke']) {
+    assert.ok(source.evidence.includes(command), `source evidence is missing: ${command}`)
+  }
+  const packaging = workflow.surfaces.find((surface) => surface.name === 'packaging')
+  assert.ok(packaging, 'workflow must declare the packaging surface')
+  for (const command of ['npm test', 'npm run build', 'npm run test:host-smoke']) {
+    assert.ok(packaging.evidence.includes(command), `packaging evidence is missing: ${command}`)
+  }
+  assert.ok(packaging.patterns.includes('cordis.patch.yml'), 'packaging must own the bundle patch')
+  assert.equal(packaging.patterns.includes('lib/**'), false, 'lib is local build output, not a tracked packaging input')
+  for (const command of ['npm run test:coverage', 'npm run test:host-smoke']) {
+    assert.ok(testing.includes(command), `docs/testing.md is missing: ${command}`)
+  }
+})
+
 test('AGENTS.md keeps the context budget and the required pointers', () => {
   const agents = read('AGENTS.md')
   const workflow = JSON.parse(read('tools/workflow.json'))
@@ -148,6 +182,11 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(skills.includes('write-docs'), 'write-docs skill is missing')
   assert.ok(skills.includes('prose-standard'), 'prose-standard skill is missing')
   assert.ok(skills.includes('trim-cot-leakage'), 'trim-cot-leakage skill is missing')
+  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'find-simplifications']) {
+    assert.ok(skills.includes(name), `${name} skill is missing`)
+  }
+  assert.ok(!skills.includes('merging-stacked-prs'), 'stacked PR automation is manual; the skill must stay removed')
+  assert.equal(skills.some((name) => name.startsWith('dsh-')), false, 'skill directories must not use a dsh- prefix')
   assert.ok(!skills.includes('trim-prose'), 'trim-prose must be renamed, not duplicated')
   assert.ok(existsSync(resolve(skillsDir, 'prose-standard', 'references', 'examples.md')), 'prose-standard examples are missing')
   for (const name of skills) {
@@ -164,6 +203,13 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(index.includes('.agents/skills/write-docs/SKILL.md'), 'docs index does not route to write-docs')
   assert.ok(index.includes('.agents/skills/prose-standard/SKILL.md'), 'docs index does not route to prose-standard')
   assert.ok(index.includes('.agents/skills/trim-cot-leakage/SKILL.md'), 'docs index does not route to trim-cot-leakage')
+  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'find-simplifications']) {
+    assert.ok(index.includes(`.agents/skills/${name}/SKILL.md`), `docs index does not route to ${name}`)
+  }
+  const skillsIndex = read('.agents/skills/README.md')
+  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'find-simplifications']) {
+    assert.ok(skillsIndex.includes(`(${name}/SKILL.md)`), `skills index does not route to ${name}`)
+  }
 })
 
 test('handoff records are flat and design records are grouped by feature', () => {

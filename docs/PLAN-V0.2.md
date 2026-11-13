@@ -516,7 +516,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 - 单元/契约：store 迁移、主题状态、活动/收件箱、路由/模型、评审请求、工作项/合并、工具/预设、API/面板模型。
 - 真实 E2E：M12 全链路；配置短阈值（`idleAfterMs=500`、`resolveAfterMs=1000`）；模型路由在 E2E 中关闭，另做观测性探针。
 - 面板：真实 Chrome；先修宿主健康与 overview API，再驱动 UI；复用浏览器会话；fixture 隔离。
-- 检查：`npm run check`、`npm run check:self-test`、`npm test`、`npm run typecheck`、`npm run build`。
+- 检查：命令与改动应欠的证据以 [testing.md](testing.md) 的 Commands 与 Evidence per change 为准。
 - 证据：`docs/handoff/M6_PROBE_RESULT.md`、`docs/handoff/M12_RESULT.md`、`docs/handoff/M12_HANDOFF.md`、`.dsh-cowork/e2e/M12_E2E.json`、面板截图。
 - source budget：`src/tools.ts` ≤ 49,152 B；所有 `src/**/*.ts` < 51,200 B；拆分为 §4.2 的模块。
 

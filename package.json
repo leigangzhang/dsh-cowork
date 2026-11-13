@@ -33,7 +33,10 @@
     "typecheck": "bash scripts/build.sh --no-emit",
     "check": "node tools/check-invariants.mjs",
     "check:self-test": "node tools/check-invariants.mjs --self-test",
-    "test": "node --test tests/*.mjs"
+    "change-scope": "node scripts/change-scope.mjs",
+    "test": "node --test tests/*.mjs",
+    "test:coverage": "node scripts/test-coverage.mjs",
+    "test:host-smoke": "node scripts/host-smoke.mjs"
   },
   "exports": {
     ".": {

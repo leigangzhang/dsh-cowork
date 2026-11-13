@@ -1,17 +1,17 @@
 # Decision records
 
-dsh-cowork keeps one short record per non-trivial decision, borrowed in spirit from the agent-workflow-kit lifecycle but scoped down to the project.
+dsh-cowork keeps one short record per authorized workflow-level decision, borrowed in spirit from the agent-workflow-kit lifecycle but scoped down to the project.
 
 ## When to write one
 
-Write a proposal when a change answers at least one of:
+Write a proposal only when the user explicitly asks for a decision record, or when a substantial change answers at least one of:
 
 - it introduces a public tool, a stored format, or a preset contract;
 - it changes the thread lifecycle or the handoff schema;
 - it chooses one architecture over another (e.g. `sessionController` vs subagent);
 - it changes what the next agent may or may not do.
 
-Do not write a record for a routine bug fix or a documentation wording fix.
+Do not create records for routine fixes, wording changes, individual commits, review rounds, or subtasks. One workflow gets at most one record; consolidate related decisions instead of creating a family of fine-grained records.
 
 ## Classes
 

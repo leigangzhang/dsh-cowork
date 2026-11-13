@@ -54,10 +54,12 @@
         "scripts/**/*"
       ],
       "evidence": [
+        "npm run test:coverage",
         "npm run typecheck",
-        "npm run build"
+        "npm run build",
+        "npm run test:host-smoke"
       ],
-      "why": "Behaviour changes need the narrowest owning check; for dsh-cowork that is typecheck plus build until the M0 probe establishes real E2E lanes."
+      "why": "Behaviour changes need tests and the real artifact path: coverage protects the host modules, build proves the package compiles, and host-smoke proves the packed bundle loads in a real DSH profile."
     },
     {
       "name": "tests",
@@ -68,14 +70,16 @@
       ],
       "evidence": [
         "npm test",
+        "npm run test:coverage",
         "watch the owning test fail for the regression it pins"
       ],
-      "why": "A test is evidence only when its command and its failure mode are named."
+      "why": "A test is evidence only when its command, its coverage effect, and its failure mode are named."
     },
     {
       "name": "packaging",
       "patterns": [
         "package.json",
+        "cordis.patch.yml",
         "tsconfig.json",
         "tsdown.config.ts",
         "package-lock.json",
@@ -83,9 +87,12 @@
       ],
       "evidence": [
         "npm run check",
-        "npm run typecheck"
+        "npm run typecheck",
+        "npm test",
+        "npm run build",
+        "npm run test:host-smoke"
       ],
-      "why": "Manifests and lockfiles change the shipped artifact, not just the source."
+      "why": "Manifests and lockfiles change the shipped tarball; it must pass the packaging contract and boot in a temporary DSH profile."
     },
     {
       "name": "publication",

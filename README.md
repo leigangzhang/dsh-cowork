@@ -136,10 +136,17 @@ dsh plugin --profile <profile> remove @dsh-external/dsh-cowork
 ```bash
 npm run check              # 可执行约定（AGENTS 预算 / workflow.json / 模板 / 发布清单）
 npm run check:self-test    # 证明上述守卫能变红
-npm test                   # 仓库自身的契约测试
+npm test                   # 契约与行为测试
+npm run test:coverage      # host TypeScript 覆盖率下限
+npm run test:host-smoke    # 打包当前 lib/，在临时 DSH profile 启动并检查健康路由
+npm run change-scope -- --base <verified-base>  # 列出 committed/staged/unstaged/untracked 路径
 npm run typecheck          # TypeScript 检查（依赖同构建前提）
 npm run build              # host + client 构建
 ```
+
+`test:host-smoke` 使用临时 `DSH_HOME` 和临时 npm 缓存，不读写用户的真实 profile。`lib/` 是本地构建产物，不入 git；源码变更后先运行 `npm run build`，再运行 host smoke。
+
+审查与交付流程见 [.agents/skills/README.md](.agents/skills/README.md)（`code-review` / `pre-push-checks` / `pr-description` / `find-simplifications`）；PR 结构由 [pr-description](.agents/skills/pr-description/SKILL.md) 声明，合并保持人工执行，不再维护独立的 `.github` 模板文件。
 
 ## 文档与规则
 
