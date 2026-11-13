@@ -63,6 +63,7 @@ For panel fixtures:
 
 ## Review, repair, final integration, and delivery (R10)
 
+- Reviewer method: load [dsh-cowork-review](../.agents/skills/dsh-cowork-review/SKILL.md) before opening the diff; it owns `change-scope`, evidence selection, review priorities, and finding format. This section owns the DAG and verdict only.
 - Review and requirements tasks complete only with `verdict=pass`. `needs_revision` and `reject` fail with findings. Each finding names a relative path and line and the required fix.
 - Batch all review findings into one repair task. Do not derive a repair task from each low-risk comment, and do not trigger a full re-review for each finding.
 - If the repair batch changes behavior, restart at `integration-ready`, then repeat verification and review. If it changes only comments or documentation, run `npm run check`, the owning targeted tests, and a delta review.

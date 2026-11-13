@@ -10,6 +10,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 文档怎么写、放哪里、预算、发布 | [AGENTS.md](AGENTS.md)；执行步骤见 [write-docs](../.agents/skills/write-docs/SKILL.md) |
 | 行文里哪些契约/覆盖要保留，哪些叙述该删 | [prose-standard](../.agents/skills/prose-standard/SKILL.md) |
 | 怎么删掉行文里的 CoT/会话残留、变更叙述 | [trim-cot-leakage](../.agents/skills/trim-cot-leakage/SKILL.md) |
+| 怎么审查改动、准备 PR、判断 review finding 是否修好 | [dsh-cowork-review](../.agents/skills/dsh-cowork-review/SKILL.md) |
 | 这个词在这个仓库里是什么意思 | [glossary.md](glossary.md) |
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |
 | 怎样才算“验证过” | [testing.md](testing.md) |

@@ -120,7 +120,8 @@
     {
       "kind": "template",
       "patterns": [
-        ".agents/notes/*/TEMPLATE.md"
+        ".agents/notes/*/TEMPLATE.md",
+        ".github/pull_request_template.md"
       ]
     }
   ]

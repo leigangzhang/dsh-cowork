@@ -51,7 +51,7 @@ A flaky test is not fixed by a longer timeout, a retry, or a weaker assertion. F
 
 ## Evidence per change
 
-Decide the owning surface from `tools/workflow.json`:
+First run `npm run change-scope -- --base <verified-base>` and account for committed, staged, unstaged, and untracked paths. Then decide the owning surface from `tools/workflow.json`:
 
 - `src/*`, `presets/*`, `scripts/*` → `npm run test:coverage` + typecheck + build + `check:lib-sync` + host smoke.
 - `tests/*` → `npm test` + `npm run test:coverage`, and watch the new test fail for the regression it pins.

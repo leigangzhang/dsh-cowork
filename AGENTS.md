@@ -8,6 +8,7 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 - Read [.agents/notes/README.md](.agents/notes/README.md) before writing a decision record. It owns when to write one and what class to use.
 - Read [docs/AGENTS.md](docs/AGENTS.md) before adding, renaming, or reclassifying a document. It owns kinds, one-home-per-fact, budgets, and the publication switch.
 - Load [write-docs](.agents/skills/write-docs/SKILL.md), [prose-standard](.agents/skills/prose-standard/SKILL.md), or [trim-cot-leakage](.agents/skills/trim-cot-leakage/SKILL.md) when writing, judging, or cleaning prose. The skills own the procedure; docs/AGENTS.md owns the rules.
+- Load [dsh-cowork-review](.agents/skills/dsh-cowork-review/SKILL.md) when reviewing a change, preparing a PR, or judging review findings; it owns the scope/evidence/finding procedure.
 - Read [docs/glossary.md](docs/glossary.md) before naming a new concept. One concept, one word; link the term instead of restating it.
 - Read [tools/workflow.json](tools/workflow.json) before adding a rule, a file kind, or a check. A convention without an executable check is prose, not policy.
 
@@ -45,6 +46,7 @@ npm test                   # contract and behavior tests
 npm run test:coverage      # node:test coverage floors for host TypeScript
 npm run test:host-smoke    # pack current lib/ and boot a temporary DSH profile
 npm run check:lib-sync     # fail when src changed without rebuilding tracked lib/
+npm run change-scope -- --base <verified-base>  # committed/staged/unstaged/untracked review scope
 npm run typecheck          # TypeScript check (requires deps installed)
 npm run build              # host build (auto-detects a DSH source checkout for types and the installed app for runtime)
 ```

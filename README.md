@@ -153,11 +153,14 @@ npm test                   # 契约与行为测试
 npm run test:coverage      # host TypeScript 覆盖率下限
 npm run test:host-smoke    # 打包当前 lib/，在临时 DSH profile 启动并检查健康路由
 npm run check:lib-sync     # 检查 src 与已提交 lib/ 的构建摘要是否一致
+npm run change-scope -- --base <verified-base>  # 列出 committed/staged/unstaged/untracked 路径
 npm run typecheck          # TypeScript 检查（依赖同构建前提）
 npm run build              # host + client 构建
 ```
 
 `test:host-smoke` 使用临时 `DSH_HOME` 和临时 npm 缓存，不读写用户的真实 profile。`lib/` 已跟踪到 git；源码变更后运行 `npm run build`，并把对应的 `lib/` 变更一起提交。`npm test` 会运行同一个 `lib/build-info.json` 校验，源码改了而 `lib/` 没重建会直接变红。
+
+审查步骤见 [dsh-cowork-review](.agents/skills/dsh-cowork-review/SKILL.md)，PR 描述使用 [pull_request_template.md](.github/pull_request_template.md)。
 
 ## 文档与规则
 

@@ -74,11 +74,20 @@ test('tools/workflow.json declares unique surfaces with non-empty evidence', () 
   assert.ok(Array.isArray(kinds.assignments) && kinds.assignments.length > 0, 'docs/kinds.json needs assignments')
 })
 
+test('the PR template carries the review and evidence sections', () => {
+  const template = read('.github/pull_request_template.md')
+  for (const heading of ['## Motivation', '## Changes', '## Testing', '## Evidence']) {
+    assert.ok(template.includes(`${heading}\n`), `PR template is missing ${heading}`)
+  }
+  assert.match(template, /npm run change-scope -- --base/)
+  assert.match(template, /### Not run/)
+})
+
 test('executable test lanes are wired to scripts, workflow evidence, and the testing guide', () => {
   const pkg = JSON.parse(read('package.json'))
   const workflow = JSON.parse(read('tools/workflow.json'))
   const testing = read('docs/testing.md')
-  for (const script of ['test', 'test:coverage', 'test:host-smoke', 'check:lib-sync', 'typecheck', 'build']) {
+  for (const script of ['test', 'test:coverage', 'test:host-smoke', 'check:lib-sync', 'change-scope', 'typecheck', 'build']) {
     assert.equal(typeof pkg.scripts?.[script], 'string', `package.json is missing script ${script}`)
   }
   const source = workflow.surfaces.find((surface) => surface.name === 'source')
@@ -172,6 +181,7 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(skills.includes('write-docs'), 'write-docs skill is missing')
   assert.ok(skills.includes('prose-standard'), 'prose-standard skill is missing')
   assert.ok(skills.includes('trim-cot-leakage'), 'trim-cot-leakage skill is missing')
+  assert.ok(skills.includes('dsh-cowork-review'), 'dsh-cowork-review skill is missing')
   assert.ok(!skills.includes('trim-prose'), 'trim-prose must be renamed, not duplicated')
   assert.ok(existsSync(resolve(skillsDir, 'prose-standard', 'references', 'examples.md')), 'prose-standard examples are missing')
   for (const name of skills) {
@@ -188,6 +198,7 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(index.includes('.agents/skills/write-docs/SKILL.md'), 'docs index does not route to write-docs')
   assert.ok(index.includes('.agents/skills/prose-standard/SKILL.md'), 'docs index does not route to prose-standard')
   assert.ok(index.includes('.agents/skills/trim-cot-leakage/SKILL.md'), 'docs index does not route to trim-cot-leakage')
+  assert.ok(index.includes('.agents/skills/dsh-cowork-review/SKILL.md'), 'docs index does not route to dsh-cowork-review')
 })
 
 test('handoff records are flat and design records are grouped by feature', () => {

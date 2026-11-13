@@ -13,6 +13,7 @@ An agent loads a skill by name once its `description` matches the work. Skills a
 | How do I write, restructure, budget, or publish a document? | [`write-docs`](write-docs/SKILL.md) | kinds, placement, link/mirror/generate, budgets, and the publication switch |
 | Which contracts must this prose keep, and where does each kind belong? | [`prose-standard`](prose-standard/SKILL.md) | complete-proposition editing, required coverage by location, and borderline decisions |
 | This prose reads like a leaked authoring session | [`trim-cot-leakage`](trim-cot-leakage/SKILL.md) | what to cut, and which factual clauses have to survive the cut |
+| I need to review a change, prepare a PR, or judge whether findings are fixed | [`dsh-cowork-review`](dsh-cowork-review/SKILL.md) | scope report, evidence selection, review priorities, and finding format |
 
 ## Related
 
