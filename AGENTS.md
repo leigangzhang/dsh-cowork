@@ -48,4 +48,4 @@ npm run typecheck          # TypeScript check (requires deps installed)
 npm run build              # host build (auto-detects a DSH source checkout for types and the installed app for runtime)
 ```
 
-Build note: `npm run build` runs now that M0 landed. Types come from a DSH source checkout and runtime links from the installed app, both auto-detected; the client half is removed for M0 and returns in M3.
+Build note: `npm run build` types come from a DSH source checkout and runtime links from the installed app, both auto-detected. `lib/` is tracked because tarball install and `test:host-smoke` consume it; after changing `src/`, rebuild and commit the matching `lib/` files.

@@ -79,6 +79,7 @@
       "name": "packaging",
       "patterns": [
         "package.json",
+        "lib/**",
         "cordis.patch.yml",
         "tsconfig.json",
         "tsdown.config.ts",
@@ -92,7 +93,7 @@
         "npm run build",
         "npm run test:host-smoke"
       ],
-      "why": "Manifests and lockfiles change the shipped artifact; the tarball must pass the packaging contract and then boot in a temporary DSH profile."
+      "why": "Manifests, the tracked lib artifact, and lockfiles change the shipped tarball; it must pass the packaging contract and boot in a temporary DSH profile."
     },
     {
       "name": "publication",

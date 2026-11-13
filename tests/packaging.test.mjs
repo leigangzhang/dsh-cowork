@@ -66,6 +66,14 @@ test('the published file list is exactly lib/, the patch, README and LICENSE', (
   }
 })
 
+test('the built lib artifact is present and not ignored', () => {
+  const ignoreLines = readFileSync(resolve(root, '.gitignore'), 'utf8').split(/\r?\n/)
+  assert.equal(ignoreLines.includes('lib/'), false, '.gitignore must not ignore the committed lib artifact')
+  for (const rel of ['lib/index.js', 'lib/client.js', 'lib/types/index.d.ts']) {
+    assert.ok(existsSync(resolve(root, rel)), `${rel} must be committed for tarball and host-smoke use`)
+  }
+})
+
 test('cordis.patch.yml has one insert row: id dsh-cowork under the installed name', () => {
   const insertLines = patchText.split('\n').filter((line) => /^\s*-\s*insert:\s*$/.test(line))
   assert.equal(insertLines.length, 1, 'the bundle patch must declare exactly one insert block')
@@ -97,6 +105,7 @@ test('npm pack ships only the runtime files, never sources, tests, docs or artif
 
     assert.ok(paths.length > 0, 'npm pack reported no files')
     assert.ok(paths.includes('package.json'), 'npm always packs package.json')
+    assert.ok(paths.some((path) => path.startsWith('lib/')), 'npm pack must include the tracked lib artifact')
 
     const unexpected = paths.filter(
       (path) =>

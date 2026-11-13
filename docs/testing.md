@@ -29,7 +29,9 @@ npm run build              # host build (types from a DSH source checkout, runti
 
 `test:coverage` counts `src/**/*.ts`, excludes the dev-only probe/E2E drivers named in [scripts/test-coverage.mjs](../scripts/test-coverage.mjs), and does not count the React TSX components. Those need a browser lane rather than a fake Node number. The floors live beside the exclusions; raise them only after the report moves above the new floor.
 
-`test:host-smoke` consumes the current `lib/`, so run `npm run build` first when source changed. It uses a temporary `DSH_HOME`, a temporary npm cache, and a random port; it never starts or writes the user's real profile. It is keyless and does not call a model. Missing `dsh` prints a skip; set `DSH_HOST_SMOKE_STRICT=1` when a missing host must fail the run.
+`lib/` is a tracked build artifact so a fresh clone can `npm pack` and run `test:host-smoke` without first rebuilding. After changing `src/`, run `npm run build` and commit the matching `lib/` files; `test:host-smoke` consumes whatever is currently committed.
+
+`test:host-smoke` uses a temporary `DSH_HOME`, a temporary npm cache, and a random port; it never starts or writes the user's real profile. It is keyless and does not call a model. Missing `dsh` prints a skip; set `DSH_HOST_SMOKE_STRICT=1` when a missing host must fail the run.
 
 ## Determinism
 

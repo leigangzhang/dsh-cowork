@@ -18,16 +18,18 @@ DSH 的项目式主从协作插件。0.2.0 采用**主题会话模型**：master
 前提：
 
 - Node.js >= 22.19（见 `package.json` 的 `engines`）。
-- 本机已安装 DSH app；构建还需要一份装好依赖的 DSH 源码 checkout。`scripts/build.sh` 自动探测常见位置，非默认布局用 `DSH_CHECKOUT` / `DSH_APP_NODE_MODULES` 指定。
+- 本机已安装 DSH app。
+- 只有修改 `src/` 或生成新的 client bundle 时，才需要一份装好依赖的 DSH 源码 checkout。`scripts/build.sh` 自动探测常见位置，非默认布局用 `DSH_CHECKOUT` / `DSH_APP_NODE_MODULES` 指定。
 
-构建并打包：
+### 从 tarball 安装（无需先构建）
+
+仓库跟踪构建后的 `lib/`，因此新机器 clone 后可以直接打包，不要求先跑 `npm run build`：
 
 ```bash
-npm run build     # 编译 host 到 lib/，并打包浏览器半边 lib/client.js
 npm pack          # 产出 dsh-external-dsh-cowork-0.2.0.tgz
 ```
 
-tarball 只含 `lib/`、`cordis.patch.yml`、`README.md`、`LICENSE` 与 `package.json`。装进**专用 profile**，不要装进正在使用的 `web`/`desktop`：
+也可以直接使用发布者提供的同名 tarball。tarball 只含 `lib/`、`cordis.patch.yml`、`README.md`、`LICENSE` 与 `package.json`。装进**专用 profile**，不要装进正在使用的 `web`/`desktop`：
 
 ```bash
 dsh --profile <profile> --from-default-profile web --dump-config   # 新建 profile
@@ -38,11 +40,22 @@ dsh --profile <profile> --port 3091 --no-open
 
 启动日志会打印带 token 的已认证 URL；用浏览器打开**这条 URL**（不带 token 时 `/api` 返回 401）。新建会话选 `Cowork模式`（preset id 仍是 `cowork-master`），在目标仓库目录调用一次 `cowork_project_init` 完成初始化。
 
+### 修改源码后重新打包
+
+修改 `src/` 后运行：
+
+```bash
+npm run build     # 编译 host 到 lib/，并打包浏览器半边 lib/client.js
+npm pack          # 产出新的 tarball
+```
+
+`lib/` 是提交产物，构建后要连同源码改动一起提交；`*.tgz` 仍是本地产物，不进入 git。
+
 安装注意：
 
 - `--from-default-profile` 只用于新建 profile（目标必须尚不存在）；已有 profile 去掉该参数。
 - 安装、升级、卸载后都要重启 profile 进程，旧进程不会热加载新 bundle。
-- 只承诺 tarball 安装：包是 `private: true`，未发布 npm；也不要用 git 地址安装（源码没有预构建的 `lib/`）。
+- 只承诺 tarball 安装：包是 `private: true`，未发布 npm；不要直接把 git 地址当作安装源。
 - `--dump-config` 看不到 cowork 层时，检查 profile 补丁里是否有 `disabled: true` 的 `dsh-cowork` 条目压住了 bundle 行。
 
 ## 一次需求的闭环
@@ -143,7 +156,7 @@ npm run typecheck          # TypeScript 检查（依赖同构建前提）
 npm run build              # host + client 构建
 ```
 
-`test:host-smoke` 使用临时 `DSH_HOME` 和临时 npm 缓存，不读写用户的真实 profile；它消费当前 `lib/`，源码变更后先跑 `npm run build`。
+`test:host-smoke` 使用临时 `DSH_HOME` 和临时 npm 缓存，不读写用户的真实 profile。`lib/` 已跟踪到 git；源码变更后运行 `npm run build`，并把对应的 `lib/` 变更一起提交。
 
 ## 文档与规则
 

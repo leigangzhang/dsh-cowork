@@ -92,6 +92,7 @@ test('executable test lanes are wired to scripts, workflow evidence, and the tes
     assert.ok(packaging.evidence.includes(command), `packaging evidence is missing: ${command}`)
   }
   assert.ok(packaging.patterns.includes('cordis.patch.yml'), 'packaging must own the bundle patch')
+  assert.ok(packaging.patterns.includes('lib/**'), 'packaging must own the tracked lib artifact')
   for (const command of ['npm run test:coverage', 'npm run test:host-smoke']) {
     assert.ok(testing.includes(command), `docs/testing.md is missing: ${command}`)
   }
