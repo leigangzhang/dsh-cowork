@@ -10,7 +10,7 @@ Every document gets one kind first, and the kind fixes its skeleton, its budget,
 
 | kind | It answers | Not its job |
 |---|---|---|
-| guide ([README.md](../README.md), this file, [testing.md](testing.md), [routing.md](routing.md), [context.md](context.md), [decision-and-handoff.md](decision-and-handoff.md), [AGENTTEAM.md](AGENTTEAM.md)) | One learning path, or one current rule | Restating what the homes it links to already say |
+| guide ([README.md](../README.md), this file, [testing.md](testing.md), [routing.md](routing.md), [context.md](context.md), [decision-and-handoff.md](decision-and-handoff.md), [agent-teams.md](agent-teams.md)) | One learning path, or one current rule | Restating what the homes it links to already say |
 | standing-rules ([AGENTS.md](../AGENTS.md)) | The rules an agent must obey in every task | Explanations and examples |
 | index ([docs/README.md](README.md), [docs/archived/README.md](archived/README.md), [docs/handoffs/README.md](handoffs/README.md), [design index](design/cowork-sidebar/README.md), [skills README](../.agents/skills/README.md)) | Where to find what | Any rule or fact of its own |
 | plan ([PLAN.md](PLAN.md), [PLAN-V0.2.md](PLAN-V0.2.md)) | Product scope, architecture, milestones, acceptance | Implementation steps as prose |

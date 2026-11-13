@@ -95,5 +95,5 @@
 - M11 决策记录（implemented）：[2026-11-08-m11-http-api-panel.md](../../../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md)。
 - 面板交互与可见性（implemented）：[2026-11-07-panel-and-session-visibility.md](../../../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md)、[2026-11-07-topic-visibility-fallback.md](../../../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)。
 - M11 启动交接（历史）：[M11_HANDOFF.md](../handoffs/M11_HANDOFF.md)；M10 交付结果：[M10_RESULT.md](M10_RESULT.md)。
-- 需求与验收：[PLAN-V0.2](../../PLAN-V0.2.md) §2.4/§5.9/§6 M11；流程与证据：[AGENTTEAM](../../AGENTTEAM.md)、[testing](../../testing.md)。
+- 需求与验收：[PLAN-V0.2](../../PLAN-V0.2.md) §2.4/§5.9/§6 M11；流程与证据：[agent-teams](../../agent-teams.md)、[testing](../../testing.md)。
 - 真实 Chrome 证据（gitignored）：`.dsh-cowork/e2e/m11/panel-run.json`、6 张 `*.jpg`、`INTEGRATION_READY.json`、`pre-fixture.json`。

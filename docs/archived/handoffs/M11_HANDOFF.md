@@ -6,7 +6,7 @@
 
 - 状态：**M11 启动文档（2026-11-08，历史）**。M10 已交付（[M10 交付结果](../results/M10_RESULT.md)）；本文件写给下一个会话，用于启动 V0.2 M11（HTTP API v2 与 CoWork 面板）。不重新论证 M10 的决定，也不重抄 M11 需求全文。
 - 适用：接手 M11 的 agent 或人。范围：M10 交付后的代码基线、M11 的启动方式、实施顺序与证据、影响面、陷阱、完成定义、回滚与未验证清单。
-- 事实源：[PLAN-V0.2](../../PLAN-V0.2.md) §2.2/§2.3/§2.4/§4.2/§5.3/§5.6/§5.9/§5.10/§6 M11 拥有需求与验收；[M11 决策记录](../../../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md) 拥有执行层决定与备选；[面板与会话可见性](../../../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md) 与 [可见性降级决策](../../../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md) 拥有交互与决策 (b)；交付事实见 [M11_RESULT.md](../results/M11_RESULT.md)；[KNOWN_ISSUES](../../KNOWN_ISSUES.md) 拥有遗留归属；[AGENTTEAM](../../AGENTTEAM.md) 与 [testing](../../testing.md) 拥有流程与证据规则；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
+- 事实源：[PLAN-V0.2](../../PLAN-V0.2.md) §2.2/§2.3/§2.4/§4.2/§5.3/§5.6/§5.9/§5.10/§6 M11 拥有需求与验收；[M11 决策记录](../../../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md) 拥有执行层决定与备选；[面板与会话可见性](../../../.agents/notes/implemented/feature/2026-11-07-panel-and-session-visibility.md) 与 [可见性降级决策](../../../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md) 拥有交互与决策 (b)；交付事实见 [M11_RESULT.md](../results/M11_RESULT.md)；[KNOWN_ISSUES](../../KNOWN_ISSUES.md) 拥有遗留归属；[agent-teams](../../agent-teams.md) 与 [testing](../../testing.md) 拥有流程与证据规则；本文件只拥有「从哪继续、先验证什么、怎样算完成」。
 
 ## M10 交付后的状态（2026-11-08）
 
@@ -19,7 +19,7 @@
 
 ## 先读什么
 
-1. [AGENTS.md](../../../AGENTS.md) 与 [docs/AGENTTEAM.md](../../AGENTTEAM.md)：纪律、R8 浏览器验证、R9 面板 fixture、DAG/artifact/交付规则。
+1. [AGENTS.md](../../../AGENTS.md) 与 [docs/agent-teams.md](../../agent-teams.md)：纪律、R8 浏览器验证、R9 面板 fixture、DAG/artifact/交付规则。
 2. [PLAN-V0.2](../../PLAN-V0.2.md) §2.4（界面与会话可见性）、§5.9（HTTP API 与面板）、§6 M11（范围/完成标准/证据/不做）、§7（测试与验收总则）。
 3. [M11 决策记录](../../../.agents/notes/implemented/architecture/2026-11-08-m11-http-api-panel.md)：wire v2 字段、读/写路由、client 结构、备选与后果。
 4. [M10 交付结果](../results/M10_RESULT.md)：「偏差与未验证」与「审查与修复」两节；不要复制它的证据。
@@ -34,7 +34,7 @@
 2. 确定基线：**如果 M10 PR 已合并**，用 `origin/main` 的 merge sha；**未合并**时用 `origin/feat/m10-review-request-workitems` 的 HEAD（若远端还没有该分支，用本地该分支 HEAD 并记录）。不要猜测 sha。
 3. 新建 `feat/m11-http-api-panel`（不在 M10 分支上继续开发，不 rebase/force）。
 4. 先跑基线四命令：`npm test`（期望 **701/701**）、`npm run typecheck`、`npm run build`、`npm run check`，全部 exit 0 才改代码；任何红先停下报告。
-5. 建团队前读 [docs/AGENTTEAM.md](../../AGENTTEAM.md)，用已配置 profile；先派 **impact-scan** 任务：`grep -rn "latestReviewPath\|listReviews\|latestReviews\|writeReview\|HANDOFF_PATH\|OVERVIEW_PATH\|PanelThread\|PanelHandoff" src tests`、`wc -c src/api-contract.ts src/api.ts src/client/*.ts src/client/*.tsx`、核对 `tests/api.test.mjs`/`tests/api-contract.test.mjs`/`tests/panel-model.test.mjs` 的既有断言；把必须同改的测试写进 inScope。
+5. 建团队前读 [docs/agent-teams.md](../../agent-teams.md)，用已配置 profile；先派 **impact-scan** 任务：`grep -rn "latestReviewPath\|listReviews\|latestReviews\|writeReview\|HANDOFF_PATH\|OVERVIEW_PATH\|PanelThread\|PanelHandoff" src tests`、`wc -c src/api-contract.ts src/api.ts src/client/*.ts src/client/*.tsx`、核对 `tests/api.test.mjs`/`tests/api-contract.test.mjs`/`tests/panel-model.test.mjs` 的既有断言；把必须同改的测试写进 inScope。
 6. 并行的 client/API 写任务必须用 `worktree_create` 隔离并把 `worktreePath` 写进任务；合并由队长独占；reviewer 必须能执行只读命令（M10 的 verify-only 做法）。
 7. **真实 Chrome 前置（R8/R9）不是最后一步再补**：开始面板工作前确认宿主 health 200、`/api/cowork.overview` 200、BrowserSkill connected；准备隔离 fixture（独立 repo/DSH_HOME/port 或先停宿主），apply/restore 各 ≤5s 且真实 index hash/主题数可恢复。
 

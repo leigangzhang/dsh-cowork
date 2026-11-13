@@ -573,7 +573,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 - DSH 核心包：`/Applications/DSH Desktop 2.app/Contents/Resources/app/node_modules/@deepseek-ai/`（`dsh-api-session-controller`、`dsh-api-workspace-controller`、`dsh-llm`、`dsh-client-ui-workspace`）。
 - `dsh-plugin-worktrees@0.1.2`：目录隔离与串行合并语义；本机文档 `~/dsh-playgroud/dsh-config/worktree-task-contract.md`、`~/dsh-playgroud/dsh-config/agent-teams.runbook.md` §9。
-- AgentTeams：只借语义，不引入运行时；`docs/AGENTTEAM.md`。
+- AgentTeams：只借语义，不引入运行时；`docs/agent-teams.md`。
 - 本插件 MIT。借鉴第三方代码时必须保留原许可声明。
 
 ---

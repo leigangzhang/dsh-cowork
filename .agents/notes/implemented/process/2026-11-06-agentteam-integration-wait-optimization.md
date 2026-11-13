@@ -20,7 +20,7 @@ M3 的主会话 + 5 个 AgentTeams 子会话里，verifier 有 **1,080.3s** 在�
 
 项目现在把集成与 E2E 的等待流程写成可执行的规则，而不是依赖队长临场判断：
 
-- 新增 [AgentTeams 集成与 E2E 规则](../../../../docs/AGENTTEAM.md)（项目级，Class 文档分类为 internal），包含 R1–R7、DAG 模板、反模式与指标目标。
+- 新增 [AgentTeams 集成与 E2E 规则](../../../../docs/agent-teams.md)（项目级，Class 文档分类为 internal），包含 R1–R7、DAG 模板、反模式与指标目标。
 - [AGENTS.md](../../../../AGENTS.md) 的 `## AgentTeams` 段要求在创建计划前读该规则，并明确：`verification` 依赖 `integration-ready` 工作/构建门禁任务（merge → build → inject/health → marker → 通知），禁止 10s marker 轮询；一份集成变更只跑一次全量四命令；真机 E2E 前先跑快速契约测试；docs-only 不跑 E2E。
 - 规则把 `integration-ready` 与质量模式里的 `integration` 质量任务区分开：前者是验证前的构建就绪门禁，后者仍是 review 之后的最终集成质量任务。
 - 规则要求 `verification` / `review` 的 `dependencies` 显式包含 `integration-ready`；若必须轮询 marker，单次 ≤60s 并记录原因。

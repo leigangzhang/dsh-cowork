@@ -42,7 +42,7 @@
       "kind": "guide",
       "patterns": [
         "README.md",
-        "docs/AGENTTEAM.md",
+        "docs/agent-teams.md",
         "docs/context.md",
         "docs/routing.md",
         "docs/decision-and-handoff.md"

@@ -15,7 +15,7 @@ M3 主会话里，浏览器操作 **797.1s / 103 次调用**、面板 fixture **
 
 ## Decision
 
-项目现在把浏览器与面板 fixture 的验证流程写成规则，作为 [AgentTeams 集成与 E2E 规则](../../../../docs/AGENTTEAM.md) 的 R8/R9，并在 [AGENTS.md](../../../../AGENTS.md) 的 `## AgentTeams` 段要求队长/验证者遵守：
+项目现在把浏览器与面板 fixture 的验证流程写成规则，作为 [AgentTeams 集成与 E2E 规则](../../../../docs/agent-teams.md) 的 R8/R9，并在 [AGENTS.md](../../../../AGENTS.md) 的 `## AgentTeams` 段要求队长/验证者遵守：
 
 - **R8 浏览器验证**：开始前 health 200、`/api/cowork.overview` 200、BrowserSkill 扩展 connected；不满足先修宿主/clean inject，不用重启浏览器掩盖后端故障。每次验证复用一个长生命周期 session/tab，不每步 stop/start；reload/extension 失败最多重开一次。使用专用小 profile/会话/测试 repo，避免加载 1.2MB session 列表和长 transcript；选择器优先 `data-testid`/稳定 CSS；目标移动时 sync 一次再点，不盲目重试；截图是证据，结束主动 stop。
 - **R9 面板 fixture**：不在宿主服务 panel 请求时直接改真实 `.dsh-cowork`；优先 fixture repo/独立 DSH_HOME/profile/port，或先停宿主。fixture 脚本只写 fixture 数据目录，直接 fs 写入，不调用 host API、不等待 project lock；apply 前备份、restore 幂等；数据目录不写 Markdown（KI-13）。302.9s/220.7s 的离群值是宿主 event loop/结果投递延迟，不是 fixture I/O；先修 health/API 再测 apply/restore。

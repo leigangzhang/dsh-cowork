@@ -21,7 +21,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 决策记录怎么写、为什么写 | [.agents/notes/README.md](../.agents/notes/README.md) |
 | 一个改动欠哪些证据 | [tools/workflow.json](../tools/workflow.json) |
 | 一个需求怎么被路由、新建 topic、经评审与工作项合并 | [routing.md](routing.md) |
-| AgentTeams 的 DAG、门禁、worktree 与交付规则 | [AGENTTEAM.md](AGENTTEAM.md) |
+| AgentTeams 的 DAG、门禁、worktree 与交付规则 | [agent-teams.md](agent-teams.md) |
 | 右侧栏主题页、收件箱、工作项等设计稿与索引 | [design/cowork-sidebar/README.md](design/cowork-sidebar/README.md) |
 | 主题怎么记录决策、怎么把结果交接给 master | [decision-and-handoff.md](decision-and-handoff.md) |
 | master 与 topic 怎么共享项目上下文、记忆何时注入、handoff/通知账本如何上下行 | [context.md](context.md) |
@@ -36,7 +36,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/PLAN-V0.2.md` | plan | V0.2 主题会话模型重构：M6–M12 阶段、架构与验收 |
 | `docs/testing.md` | guide | 测试分层、证据、flake 政策 |
 | `docs/AGENTS.md` | guide | 文档种类、命名、目录架构、单一事实源、预算、发布开关与防劣质清单 |
-| `docs/AGENTTEAM.md` | guide | 项目级 AgentTeams DAG、影响扫描、门禁、worktree、审查与交付规则 |
+| `docs/agent-teams.md` | guide | 项目级 AgentTeams DAG、影响扫描、门禁、worktree、审查与交付规则 |
 | `.agents/skills/` | skill | 按 `description` 触发的文档撰写与行文清理流程 |
 | `docs/routing.md` | guide | 三层路由、topic/工作项/评审请求的生命周期、改投与合并 |
 | `docs/decision-and-handoff.md` | guide | 决策记录与会话交接的实现与用法 |
