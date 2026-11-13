@@ -20,7 +20,7 @@
     },
     {
       "pattern": "docs/archived/*",
-      "reason": "completed V0.1 (M0–M4) and V0.2 (M6–M12) development records, handoffs, and delivery results: environment- and version-bound historical evidence kept for audit, not current user guidance"
+      "reason": "completed V0.1 (M0–M4) and V0.2 (M6–M12) development records grouped by family under handoffs/, results/, and recon/: environment- and version-bound historical evidence kept for audit, not current user guidance"
     },
     {
       "pattern": "docs/PLAN-V0.2.md",
@@ -55,12 +55,8 @@
       "reason": "Cowork sidebar design docs and index: internal design drafts with background, design-process decisions, and demos; not user-facing until implementation lands"
     },
     {
-      "pattern": "docs/TOPIC_PAGE_HANDOFF.md",
-      "reason": "主题页前后端实现交接：定稿设计、前后端提案、宿主 A2 notice 门禁、实现顺序、验收命令和遗留风险；给下一个实现会话读，不是用户指南"
-    },
-    {
-      "pattern": "docs/TOPIC_INBOX_HANDOFF.md",
-      "reason": "右侧栏收件箱实现交接：设计/决策链接、宿主探针结果、请求契约、实现顺序、验收命令、真实 GUI 证据与遗留风险；已实现，保留实现与回滚证据供后续会话审计"
+      "pattern": "docs/handoffs/*",
+      "reason": "current theme-page and inbox implementation handoffs plus their index: design/decision links, host probe results, request contracts, implementation order, acceptance commands, GUI evidence, and open risks; internal implementation evidence, not a user guide"
     }
   ]
 }

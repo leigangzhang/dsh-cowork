@@ -79,6 +79,6 @@ Cowork 右栏原本只有主题列表。需要用户行动的事件分散在主�
 ## Links
 
 - [设计](../../../../docs/design/cowork-sidebar/topic-inbox.md)
-- [交接](../../../../docs/TOPIC_INBOX_HANDOFF.md)
+- [交接](../../../../docs/handoffs/TOPIC_INBOX_HANDOFF.md)
 - [主题页](../../../../docs/design/cowork-sidebar/topic-page.md)
 - [收件箱交互稿](../../../../docs/discussion/topic-reminder-demo.html)

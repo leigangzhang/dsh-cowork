@@ -15,7 +15,7 @@
       "name": "plan-docs",
       "patterns": [
         "README.md",
-        "docs/*.md"
+        "docs/**/*.md"
       ],
       "evidence": [
         "npm run check",
@@ -91,7 +91,7 @@
       "name": "publication",
       "patterns": [
         "docs/publish.json",
-        "docs/*.md",
+        "docs/**/*.md",
         "README.md"
       ],
       "evidence": [

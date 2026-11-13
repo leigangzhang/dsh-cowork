@@ -6,12 +6,12 @@ Class: feature
 
 ## Problem
 
-M1 只交付主从闭环：项目索引、路由、handoff、六个工具、两个运行时 preset（[M1 结果](../../../../docs/archived/M1_RESULT.md)）。它没有解决 PLAN M2 的两个问题：
+M1 只交付主从闭环：项目索引、路由、handoff、六个工具、两个运行时 preset（[M1 结果](../../../../docs/archived/results/M1_RESULT.md)）。它没有解决 PLAN M2 的两个问题：
 
 1. **知识不沉淀。** 每个 thread 都从零开始。用户纠正过的约束、master 确认过的决策、项目事实（口径、精确数字、外部约定）只存在于某次对话里，新 thread 读不到；thread 之间也没有共享渠道。
 2. **实现不隔离。** 所有 thread 共用同一个工作区。两个 thread 同时改代码会互相覆盖，master 也没有可审查的“一个 thread 的完整改动集”；合并动作没有边界，无法回答“这个 thread 到底改了什么、有没有污染主工作区”。
 
-PLAN §5.5/§5.6 与 §6 M2 给出了目标验收。M1 留下两个事实：会话 `create` 必须传 `workspaceId` 才挂 workspace（[M0 结果](../../../../docs/archived/M0_PROBE_RESULT.md)）；preset 是运行时注册、重启即消失。M2-P0 又证实第三个事实：会话 cwd 创建后不能重绑，沙箱只允许写会话 cwd 与临时目录（[M2-P0 结果](../../../../docs/archived/M2_PROBE_RESULT.md) §1、§4）。
+PLAN §5.5/§5.6 与 §6 M2 给出了目标验收。M1 留下两个事实：会话 `create` 必须传 `workspaceId` 才挂 workspace（[M0 结果](../../../../docs/archived/results/M0_PROBE_RESULT.md)）；preset 是运行时注册、重启即消失。M2-P0 又证实第三个事实：会话 cwd 创建后不能重绑，沙箱只允许写会话 cwd 与临时目录（[M2-P0 结果](../../../../docs/archived/results/M2_PROBE_RESULT.md) §1、§4）。
 
 ## Decision
 
@@ -64,9 +64,9 @@ M2 仍是 host-only：新增项目记忆与 thread checkout 两个能力，工�
 
 **为什么不是 `git worktree`**
 
-- P0 实测：linked worktree 的 git 元数据在 `<repo>/.git/worktrees/<id>`，而 thread 会话的沙箱根是它自己的 cwd；在 workspace-write 策略下 `git add/commit` 被拒（`Unable to create '…/.git/worktrees/…/index.lock': Operation not permitted`，exitCode 128）。thread 能改文件但不能提交（[M2-P0 §4](../../../../docs/archived/M2_PROBE_RESULT.md)）。
+- P0 实测：linked worktree 的 git 元数据在 `<repo>/.git/worktrees/<id>`，而 thread 会话的沙箱根是它自己的 cwd；在 workspace-write 策略下 `git add/commit` 被拒（`Unable to create '…/.git/worktrees/…/index.lock': Operation not permitted`，exitCode 128）。thread 能改文件但不能提交（[M2-P0 §4](../../../../docs/archived/results/M2_PROBE_RESULT.md)）。
 - 另一个可选路径是「thread 保持仓库 cwd、按绝对路径操作 worktree」，它能提交，但隔离退化为行为约定，且同一会话仍可写主工作区。
-- clone 的 `.git` 在会话 cwd 内，thread 自己能提交；master 用 `fetch` + `merge --no-ff` 合并，冲突与重试语义与 worktree 流程相同（[M2-P0 §5](../../../../docs/archived/M2_PROBE_RESULT.md)）。workspace-write 是插件必须支持的最小权限，F 在该前提下成立，不依赖全权限。
+- clone 的 `.git` 在会话 cwd 内，thread 自己能提交；master 用 `fetch` + `merge --no-ff` 合并，冲突与重试语义与 worktree 流程相同（[M2-P0 §5](../../../../docs/archived/results/M2_PROBE_RESULT.md)）。workspace-write 是插件必须支持的最小权限，F 在该前提下成立，不依赖全权限。
 
 ## Alternatives considered
 
@@ -88,7 +88,7 @@ M2 仍是 host-only：新增项目记忆与 thread checkout 两个能力，工�
 
 **B 方案（F 的对比项）：thread 保持仓库 cwd，按绝对路径在 worktree 中工作。** 保留为备选（P0 证明可以提交、`git -C` 可操作），但否决：隔离只是行为约定，同一会话能写主工作区，且与 PLAN “thread 落到独立目录”的承诺不符。
 
-**F 方案：每 thread 一个本地 clone（采用）。** 经用户确认。代价是 clone 成本、thread 读不到主工作区、依赖要自己装；换来 workspace-write 下的强制隔离与 thread 自主提交（[M2-P0 §5](../../../../docs/archived/M2_PROBE_RESULT.md)、[E2E 证据](../../../../docs/archived/M2_RESULT.md)）。
+**F 方案：每 thread 一个本地 clone（采用）。** 经用户确认。代价是 clone 成本、thread 读不到主工作区、依赖要自己装；换来 workspace-write 下的强制隔离与 thread 自主提交（[M2-P0 §5](../../../../docs/archived/results/M2_PROBE_RESULT.md)、[E2E 证据](../../../../docs/archived/results/M2_RESULT.md)）。
 
 ## Consequences
 
@@ -98,24 +98,24 @@ M2 仍是 host-only：新增项目记忆与 thread checkout 两个能力，工�
 - 热重载可能与活着的 agent 上旧 section 同名：实现捕获异常、计数并 warn，不中断其他 agent；旧 provider 是否残留取决于上一代插件是否正常 dispose。重审条件：宿主提供作用域回收保证。
 - 冲突不自动解决：保留 clone 与分支、索引 `blocked`，由 thread 或人处理。重审条件：需要自动合并策略时另立决策。
 - 记忆只追加，不更新、不删除、不压缩；预算与检索 limit 防止无界注入。重审条件：真实项目记忆超过预算。
-- merge 成功后的 teardown（删 clone/workspace/会话、写索引）不是事务；一步失败会留下“已合并但清理不全”的现场，由 status 对照人工收尾（[M2 结果 · 限制](../../../../docs/archived/M2_RESULT.md)）。重审条件：M3 把 teardown 失败降级为可读明细。
+- merge 成功后的 teardown（删 clone/workspace/会话、写索引）不是事务；一步失败会留下“已合并但清理不全”的现场，由 status 对照人工收尾（[M2 结果 · 限制](../../../../docs/archived/results/M2_RESULT.md)）。重审条件：M3 把 teardown 失败降级为可读明细。
 - 中文关键词检索会误召回；返回来源与文件路径供判断。重审条件：出现系统性误召回。
 - 路径守卫只删 `<repo>/.dsh-cowork/threads/<threadId>` 与分支 `cowork/<threadId>`；`.gitignore` 必须持续忽略 `.dsh-cowork/`。
 
 ## Testing
 
-- [M2A1] `cowork_memory_write` 追加带来源的条目到对应 `memory/*.md`，另一个 thread 能检索到同一内容；写入原子、目录锁、损坏文件带行号报错 — `source`、`tests`：E2E run `m2-2d375750-…` 的 `memory-write`（原文见 [M2 结果](../../../../docs/archived/M2_RESULT.md)）与 `memory-cross-thread`（`hits[0].title='E2E 约束'`、`score=6`）；`tests/memory.test.mjs` 29 用例覆盖损坏、预算与评分。
-- [M2A2] 新建或已存在的 cowork agent 在其 system prompt 中看到预算内记忆块；写入后下一次 assembly 重新求值 — `source`、`tests`：注入 seam 由 P0 证明（[M2-P0 §2](../../../../docs/archived/M2_PROBE_RESULT.md)），`tests/memory-prompt.test.mjs` 19 用例覆盖 preset 过滤、digest 复用/更新、dispose；E2E 的 `memory-cross-thread` 证明 thread 可检索同一记忆（注入文本本身未从模型回复反证）。
+- [M2A1] `cowork_memory_write` 追加带来源的条目到对应 `memory/*.md`，另一个 thread 能检索到同一内容；写入原子、目录锁、损坏文件带行号报错 — `source`、`tests`：E2E run `m2-2d375750-…` 的 `memory-write`（原文见 [M2 结果](../../../../docs/archived/results/M2_RESULT.md)）与 `memory-cross-thread`（`hits[0].title='E2E 约束'`、`score=6`）；`tests/memory.test.mjs` 29 用例覆盖损坏、预算与评分。
+- [M2A2] 新建或已存在的 cowork agent 在其 system prompt 中看到预算内记忆块；写入后下一次 assembly 重新求值 — `source`、`tests`：注入 seam 由 P0 证明（[M2-P0 §2](../../../../docs/archived/results/M2_PROBE_RESULT.md)），`tests/memory-prompt.test.mjs` 19 用例覆盖 preset 过滤、digest 复用/更新、dispose；E2E 的 `memory-cross-thread` 证明 thread 可检索同一记忆（注入文本本身未从模型回复反证）。
 - [M2A3] `isolated: true` 的 thread 落到 `.dsh-cowork/threads/<threadId>`、分支 `cowork/<threadId>`，索引写 `checkoutPath`；失败不改索引、不留半成品 — `source`、`tests`：E2E `isolated-thread`（`sessionCwd == checkoutPath`、branch 输出）；`tests/checkout.test.mjs` 26 用例覆盖命令序列与失败清理。
 - [M2A4] thread 在 clone 中的提交经 `cowork_checkout_merge` 合入主分支后，主工作区没有该 thread 的未提交改动；clone 与分支被清理、索引 `checkoutPath=null` — `source`：E2E `thread-work`（commit `ad71b3e`）与 `merge-success`（`cleanup` 四项 true、`rev-parse` 分支 128、`e2e.txt` 进入主工作区）。
 - [M2A5] 冲突保留 clone/分支、索引 `blocked`；thread 解决后重试成功；脏树被 `checkout/dirty` 拒绝且不产生合并提交 — `source`：E2E `conflict-merge`（`merge-conflict`、`blocked`、主仓 `git status` 空）与 `conflict-retry`（`resolved`、`commit 84422ac…`、最终 `done`）；`tests/checkout.test.mjs` 覆盖 dirty 与 abort。
 - [M2A6] `src/memory.ts`、`src/checkout.ts`、`src/memory-prompt.ts` 纯逻辑有单测 — `tests`：`npm test` 145/145，其中 memory 29、checkout 26、memory-prompt 19。
 - [M2A7] `npm run typecheck`、`npm run build`、`npm run check`、`npm test` 全绿；`package.json` 不新增第三方协作运行时或记忆依赖 — `packaging`：集成装配验证与 E2E 驱动验证记录 typecheck/build/check/test exit 0；`package.json` 仍只有 `@deepseek-ai/*` peer 依赖。
-- [M2A8] M2 结果与限制写入 docs、`docs/publish.json` 分类、M2 交接文档更新，`npm run check` 通过 — `publication`：`docs/archived/M2_PROBE_RESULT.md`、`docs/archived/M2_RESULT.md`、本记录均在 `docs/publish.json` 有 internal 条目，`npm run check` 验证每份 Markdown 恰好分类一次。
+- [M2A8] M2 结果与限制写入 docs、`docs/publish.json` 分类、M2 交接文档更新，`npm run check` 通过 — `publication`：`docs/archived/results/M2_PROBE_RESULT.md`、`docs/archived/results/M2_RESULT.md`、本记录均在 `docs/publish.json` 有 internal 条目，`npm run check` 验证每份 Markdown 恰好分类一次。
 
 ## Delivery stages
 
-1. M2-P0 探针：回答会话 cwd/workspace 绑定、记忆注入时机、git 行为与 thread 侧 git 写；结论落入 [M2-P0 结果](../../../../docs/archived/M2_PROBE_RESULT.md) 并选定 F 方案。**已交付。**
+1. M2-P0 探针：回答会话 cwd/workspace 绑定、记忆注入时机、git 行为与 thread 侧 git 写；结论落入 [M2-P0 结果](../../../../docs/archived/results/M2_PROBE_RESULT.md) 并选定 F 方案。**已交付。**
 2. M2-1 memory 模块 + 单测：解析、校验、预算、检索、追加写。**已交付**（`df586f9`）。
 3. M2-2 checkout 模块 + 单测：clone/status/merge/remove 与错误映射。**已交付**（`c2b4531`）。
 4. M2-3 注入模块 + 单测：agent 作用域 section、preset/项目根过滤、digest 缓存与 dispose。**已交付**（`086d60e`）。

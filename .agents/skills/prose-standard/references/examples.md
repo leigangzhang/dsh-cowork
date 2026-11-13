@@ -22,16 +22,6 @@ Remove decoration and repetition, not propositions. Actor, per-session scope, di
 
 Keep the explicit limitation because it changes how an agent applies the workflow. Trim repeated persuasion, not the guardrail.
 
-## A cookbook keeps action and verification
-
-**Over-trimmed:** “Add tests for the tool.”
-
-**Balanced:** “Test registration and disposal at unit level, exercise the tool through the real loader path, and add a snapshot when its rendered output changes. Verify the assertion observes the external result rather than the model's report.”
-
-**Over-detailed:** A walkthrough of every fixture file and assertion already visible in the example code.
-
-Keep the test tiers, required action, real entry path, and observable verification. Remove fixture narration.
-
 ## Preserve ownership and timing
 
 **Over-trimmed:** “Provider work is cancelled during teardown.”
@@ -54,9 +44,9 @@ Event order and its current-request consequence are caller-visible behavior, not
 
 ## Orient complicated code without narrating it
 
-**Over-trimmed:** “Worker realm support.”
+**Over-trimmed:** “Retry support.”
 
-**Balanced:** “Owns the worker realm and its host bridge. Realm initialization is single-shot; disposal terminates the worker and rejects later calls. See the worker-isolation Agent Note for the protocol rationale.”
+**Balanced:** “Owns the retry queue and its timer. A job starts once; disposal cancels pending retries and rejects later calls.”
 
 **Over-detailed:** A paragraph-by-paragraph preview of the classes and helper functions below.
 
@@ -64,9 +54,9 @@ Keep the module's role, dependencies, responsibilities, and non-obvious lifecycl
 
 ## Public JSDoc includes failures
 
-**Over-trimmed:** “Returns the realm global.”
+**Over-trimmed:** “Returns the connection.”
 
-**Balanced:** “Returns the initialized realm global. Throws if initialization has not completed or the realm has already been disposed.”
+**Balanced:** “Returns the initialized connection. Throws if initialization has not completed or the connection has already been disposed.”
 
 **Over-detailed:** The internal state-machine branches and exact helper calls that lead to each throw.
 
@@ -142,21 +132,11 @@ Keep the consequence of order, a surprising scope rule, or a security boundary. 
 
 **Over-detailed:** Copying another package's schema and renderer strings into this backend's README.
 
-**Balanced:** Quote stable prompt, result, and error text owned by this package. Link the generated tool catalog for schemas and the consumer README for text another package owns; state only this package's conditions or deltas locally.
+**Balanced:** Quote stable prompt, result, and error text owned by this package. Link the schema owner and the consumer README for text another package owns; state only this package's conditions or deltas locally.
 
 Wording that reaches a model is behavior, but duplication still drifts. Exactness belongs at the owner.
 
 A prose-only audit may identify suspect wording but must not silently change it when no owning runnable snapshot exists. Leave it unchanged and report the deferral, or expand the authorized change to include the owner scenario and required GUI evidence.
-
-## Generated summaries must stand alone
-
-**Over-trimmed:** “Approval request and policy service.” The owner explains policy order and audit logging later, but the catalog exports only its first sentence.
-
-**Over-detailed:** Moving the service's full lifecycle and prompt-notice behavior into the extracted sentence.
-
-**Balanced:** “Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session.” Keep non-catalog detail in later sentences.
-
-Know what the generator extracts. That fragment must preserve the contract needed on its generated output.
 
 ## Limitations are contracts, not debt inventories
 

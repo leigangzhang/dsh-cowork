@@ -139,6 +139,49 @@ function skillErrors(rel, doc) {
   return errors
 }
 
+const ARCHIVED_FAMILIES = new Set(['handoffs', 'results', 'recon'])
+
+function docsLayoutViolations(files) {
+  const errors = []
+  for (const rel of files) {
+    if (/^docs\/[^/]+_(?:HANDOFF|RESULT|RECON)\.md$/.test(rel)) {
+      errors.push(`docs-layout: ${rel} belongs in a record family subdirectory`)
+    }
+    if (/^docs\/archived\/[^/]+\.md$/.test(rel) && rel !== 'docs/archived/README.md') {
+      errors.push(`docs-layout: ${rel} must be filed under docs/archived/{handoffs,results,recon}/`)
+    }
+    if (rel.startsWith('docs/handoffs/') && rel !== 'docs/handoffs/README.md' && !rel.endsWith('_HANDOFF.md')) {
+      errors.push(`docs-layout: ${rel} is not a handoff record`)
+    }
+    if (rel.startsWith('docs/archived/handoffs/') && !rel.endsWith('_HANDOFF.md')) {
+      errors.push(`docs-layout: ${rel} is not a handoff record`)
+    }
+    if (rel.startsWith('docs/archived/results/') && !rel.endsWith('_RESULT.md')) {
+      errors.push(`docs-layout: ${rel} is not a result record`)
+    }
+    if (rel.startsWith('docs/archived/recon/') && !rel.endsWith('_RECON.md')) {
+      errors.push(`docs-layout: ${rel} is not a reconnaissance record`)
+    }
+    if (rel.startsWith('docs/archived/')) {
+      const parts = rel.split('/')
+      if (parts.length > 3 && !ARCHIVED_FAMILIES.has(parts[2])) {
+        errors.push(`docs-layout: ${rel} uses an unknown archive family '${parts[2]}'`)
+      }
+    }
+  }
+  return errors
+}
+
+function docsLayoutErrors(rootDir, errors) {
+  const docsDir = resolve(rootDir, 'docs')
+  if (!existsSync(docsDir)) {
+    errors.push('docs/ is missing')
+    return
+  }
+  const files = listMarkdownFiles(docsDir).map((f) => relative(rootDir, f))
+  errors.push(...docsLayoutViolations(files))
+}
+
 const IGNORED_DIRS = new Set(['.git', 'node_modules', 'lib', 'dist'])
 
 function listMarkdownFiles(dir) {
@@ -213,7 +256,7 @@ function publicationErrors(rootDir, errors) {
   // documentation index must route to the standing documents
   if (exists('docs/README.md')) {
     const index = read('docs/README.md')
-    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/testing.md', 'docs/publish.json', '.agents/skills/write-docs/SKILL.md', '.agents/skills/prose-standard/SKILL.md', '.agents/skills/trim-cot-leakage/SKILL.md']) {
+    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/testing.md', 'docs/publish.json', 'docs/handoffs/README.md', '.agents/skills/write-docs/SKILL.md', '.agents/skills/prose-standard/SKILL.md', '.agents/skills/trim-cot-leakage/SKILL.md']) {
       if (!index.includes(token)) errors.push(`docs/README.md is missing pointer: ${token}`)
     }
   } else {
@@ -247,6 +290,7 @@ function collect(rootDir) {
   }
 
   publicationErrors(rootDir, errors)
+  docsLayoutErrors(rootDir, errors)
 
   // workflow.json shape
   let workflow = null
@@ -321,7 +365,7 @@ function collect(rootDir) {
 
   // kit gates for standing policy homes: docs-policy / testing-policy / notes-readme
   const policyHomes = [
-    ['docs/documentation.md', ['## Document kinds', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits'], 'docs-policy'],
+    ['docs/documentation.md', ['## Document kinds', '## Directory layout', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits'], 'docs-policy'],
     ['docs/testing.md', ['## Tiers', '## Commands', '## Determinism', '## Blocking and observational lanes', '## Flake policy', '## Evidence per change'], 'testing-policy'],
     ['.agents/notes/README.md', ['## When to write one', '## Classes', '## Flow'], 'notes-readme'],
   ]
@@ -438,6 +482,14 @@ function selfTest() {
         '.agents/skills/example/SKILL.md',
         '---\nname: other-name\ndescription: Use when a skill was renamed.\n---\n\n## When to use\n\nx\n\n## How\n\nx\n\n## Verification\n\nx\n\n## Anti-patterns\n\nx\n',
       ).some((error) => error.includes('disagrees with its directory')),
+    },
+    {
+      name: 'record file kept at docs root',
+      fail: () => docsLayoutViolations(['docs/TOPIC_EXAMPLE_HANDOFF.md']).length > 0,
+    },
+    {
+      name: 'archived record kept outside a family directory',
+      fail: () => docsLayoutViolations(['docs/archived/M1_RESULT.md']).length > 0,
     },
     {
       name: 'fixed wait in test',

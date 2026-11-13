@@ -114,7 +114,7 @@ test('publish.json classifies every Markdown file exactly once', () => {
 
 test('standing policy homes keep their required sections', () => {
   const homes = [
-    ['docs/documentation.md', ['## Document kinds', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits']],
+    ['docs/documentation.md', ['## Document kinds', '## Directory layout', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits']],
     ['docs/testing.md', ['## Tiers', '## Determinism', '## Flake policy']],
     ['.agents/notes/README.md', ['## When to write one', '## Classes', '## Flow']],
   ]
@@ -146,6 +146,21 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(index.includes('.agents/skills/write-docs/SKILL.md'), 'docs index does not route to write-docs')
   assert.ok(index.includes('.agents/skills/prose-standard/SKILL.md'), 'docs index does not route to prose-standard')
   assert.ok(index.includes('.agents/skills/trim-cot-leakage/SKILL.md'), 'docs index does not route to trim-cot-leakage')
+})
+
+test('docs record families live in their type directories', () => {
+  const docsRoot = resolve(root, 'docs')
+  const rootMarkdown = readdirSync(docsRoot).filter((name) => name.endsWith('.md'))
+  assert.deepEqual(
+    rootMarkdown.filter((name) => /_(HANDOFF|RESULT|RECON)\.md$/.test(name)),
+    [],
+    'handoff/result/recon records must not live at the docs root',
+  )
+  for (const rel of ['docs/handoffs/README.md', 'docs/archived/handoffs', 'docs/archived/results', 'docs/archived/recon']) {
+    assert.ok(existsSync(resolve(root, rel)), `${rel} is missing`)
+  }
+  const archivedRoot = readdirSync(resolve(root, 'docs/archived')).filter((name) => name.endsWith('.md'))
+  assert.deepEqual(archivedRoot, ['README.md'], 'archived records must be filed in a family directory')
 })
 
 test('record templates trace each criterion to a declared surface', () => {

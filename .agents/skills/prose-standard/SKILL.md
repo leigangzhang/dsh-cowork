@@ -25,12 +25,6 @@ Accept `mode: automatic | interactive`; default to `automatic`. Enter interactiv
 
 `mode` controls questions, not write authority. Review and audit tasks report findings without editing; explicitly requested write, fix, or trim tasks apply clear changes.
 
-Always exclude `vendor/` from discovery, review, and edits, even when the requested scope is the whole repository. Do not follow a symlink into it. Put exclusions after inclusion globs so a later include cannot re-admit it: for example, end ripgrep commands with `--glob '!vendor/**'`, and give Git commands an explicit `:(exclude)vendor/**` pathspec. If the requested scope contains only `vendor/`, report that no eligible files remain.
-
-Also exclude `.agents/notes/archived/` from prose review and edits. Archived Agent Notes are frozen snapshots; inspect an exact target only to understand a historical inbound citation, never to modernize its prose or outbound links.
-
-Treat generated catalogs, snapshots, and fixtures as derivative. Trace every consumer before editing: source JSDoc may also feed a generated model-visible catalog. Edit the owning source or scenario first, then regenerate every derivative. When a generator extracts a summary from owner prose, make the extracted sentence complete for that surface. Follow [the writing procedure](../write-docs/SKILL.md) for placement and publication. Bilingual pairs are not used in this repository today; if one is introduced, its rule must arrive with both sides and their consistency check.
-
 ## Preserve the complete proposition
 
 Before editing, identify every proposition in the passage. Preserve each relevant:
@@ -55,13 +49,11 @@ This is not a one-way shortening pass. Add or restore prose when code, types, an
 - **Internal comments:** orient non-local structure and obviously complicated local structure, including invariants, race ordering, ownership, security boundaries, and surprising failure behavior. Delete control-flow narration and code restatement.
 - **Module comments:** state the module's role, dependencies, responsibilities, and non-obvious architecture choices; link architecture choices to their owning explanation.
 - **Tests:** explain only non-obvious test design—why a fixture, assertion, platform accommodation, real entry path, or indirect observation is necessary. Delete walkthroughs and inventories.
-- **Cookbooks:** include prerequisites, required actions, the real entry path, observable verification, and concise warnings.
-- **READMEs:** include the consumer contract: configuration, semantics, failures, limitations, extension points, and model-visible effects. Quote stable model-visible text owned by the package; link generated catalogs and cross-package owners. Keep durable gaps and maintainer traps, not ordinary cleanup inventories. Follow [the documentation standard](../../../docs/documentation.md).
+- **READMEs:** include the consumer contract: configuration, semantics, failures, limitations, extension points, and model-visible effects. Quote stable model-visible text owned by the package. Keep durable gaps and maintainer traps, not ordinary cleanup inventories. Follow [the documentation standard](../../../docs/documentation.md).
 - **Agent Notes:** retain unique rationale, mechanisms, alternatives, consequences, shipped verification evidence, and named coverage gaps. Implemented Agent Notes state shipped reality in the present tense; remove planning checklists, not evidence of what pins the decision.
-- **Postmortems:** retain the incident sequence, evidence, causal chain, impact, and prevention. Remove repeated persuasion or implementation detail that does not establish causality.
 - **Skills and agent instructions:** state behavioral guardrails and explicit scope limitations such as “guidance, not a script/checklist.” Keep the workflow concise and link its source of truth.
 - **Examples and configuration comments:** explain access limits, non-obvious wiring or load order, security stance, replay behavior, exceptions, and likely misuse. Do not narrate entries that the configuration already shows.
-- **Prompts and visible strings:** treat wording as behavior. Client UI copy belongs in typed locale dictionaries and reaches Cordis-free primitives as explicit localized props; inspect text, accessibility names, tooltips, placeholders, and format templates together, then run the owning UI or contract test. English UI copy, including plugin `meta.title` and `meta.description`, uses sentence case: capitalize only the first word, proper nouns, and product names such as `Chrome DevTools`, `Git`, or `MCP` (`Git worktrees`, not `Git Worktrees`). Chinese copy keeps its own conventions. Update the owning runnable snapshot for model-visible text and repository-required GUI evidence. If the authorized scope has no owning scenario, leave the wording unchanged and report the deferral; do not silently fold it into a prose-only edit.
+- **Prompts and visible strings:** treat wording as behavior. For client UI copy, inspect text, accessibility names, tooltips, placeholders, and format templates together, then run the owning UI or contract test. English UI copy, including plugin `meta.title` and `meta.description`, uses sentence case: capitalize only the first word, proper nouns, and product names such as `Chrome DevTools`, `Git`, or `MCP` (`Git worktrees`, not `Git Worktrees`). Chinese copy keeps its own conventions. Update the owning runnable snapshot for model-visible text and repository-required GUI evidence. If the authorized scope has no owning scenario, leave the wording unchanged and report the deferral; do not silently fold it into a prose-only edit.
 - **Diagnostics:** name the failing subject or path, violated rule, and correction when it is non-obvious. Remove internal execution narration.
 
 Preserve searchable mechanism names and meaningful modal, temporal, or negative emphasis. Normalize decorative emphasis only.
@@ -73,7 +65,7 @@ Preserve searchable mechanism names and meaningful modal, temporal, or negative 
 3. Inspect the requested scope, not only the largest files. Use searches and word counts to find candidates, then judge passages semantically.
 4. Classify each candidate as keep, add, trim, restore, restructure, or defer. Apply clear changes only when the task authorizes edits; do not manufacture edits to satisfy a deletion target.
 5. Update the owner before derivative artifacts. Re-check analogous passages after learning a new rule.
-6. Run the narrow relevant checks, documentation gates, `git diff --check`, and behavior tests for visible strings. Verify the final diff contains no `vendor/` path and report any accidental vendor match rather than claiming a clean exclusion history.
+6. Run the narrow relevant checks, documentation gates, `git diff --check`, and behavior tests for visible strings.
 7. Report the inspected scope, clear changes, deliberate keeps, deferred cases, and checks actually run.
 
 ## Borderline decisions
@@ -89,7 +81,7 @@ After the user decides, distill the principle and versions into [the examples](r
 ## Verification
 
 - Run the narrow relevant checks for the touched surface; for documentation and skill changes at minimum `npm run check`, and `npm run check:self-test` when the guard itself changed.
-- Run `git diff --check` and confirm the diff contains no `vendor/` path.
+- Run `git diff --check`.
 - For visible strings, run the owning UI, localization, or contract tests and inspect the rendered wording.
 - Report the inspected scope, clear changes, deliberate keeps, deferred cases, and every command actually run.
 
@@ -97,7 +89,5 @@ After the user decides, distill the principle and versions into [the examples](r
 
 - Removing a factual clause, exception, or negative guarantee only to make the passage shorter.
 - Adding a comment that restates code, or deleting a contract because it is obvious to the author.
-- Editing a generated derivative instead of its owning source.
-- Rewriting archived notes or `vendor/` files.
 - Treating this skill as a script or checklist when the local contract still needs judgment.
-- Claiming the diff is clean without running the relevant checks and the vendor-path check.
+- Claiming the diff is clean without running the relevant checks.

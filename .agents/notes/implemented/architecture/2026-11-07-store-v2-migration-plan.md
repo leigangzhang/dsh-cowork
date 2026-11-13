@@ -8,7 +8,7 @@ Class: architecture
 
 M7 要把 `.dsh-cowork/index.json` 从 v1（六态 thread 中心）迁到 v2（`topics[]` + `workItems[]`），并补上 activity/inbox 的文件读写。数据模型、字段与状态映射由 [索引 v2 与迁移](./2026-11-07-topic-store-v2.md) 拥有；执行层面要固定的是另一些事：模块怎么拆、迁移在哪个时点触发、备份与写入的顺序、失败如何保留现场、测试先写哪些。
 
-M6 补的两条约束至今成立：取消在途 reviewer 必须 `archiveSession(id,{stopActivity:true})`（立即归档会让会话无法继续），且 `awaiting_review` 迁移时归档失败不能让迁移假装成功（[M6 探针结果](../../../../docs/archived/M6_PROBE_RESULT.md) §3/§4）。没有这些约定，M7 会写成「一次性替换 `store.ts`」，既不可单测，也会顶到单文件读取上限。
+M6 补的两条约束至今成立：取消在途 reviewer 必须 `archiveSession(id,{stopActivity:true})`（立即归档会让会话无法继续），且 `awaiting_review` 迁移时归档失败不能让迁移假装成功（[M6 探针结果](../../../../docs/archived/results/M6_PROBE_RESULT.md) §3/§4）。没有这些约定，M7 会写成「一次性替换 `store.ts`」，既不可单测，也会顶到单文件读取上限。
 
 ## Decision
 
