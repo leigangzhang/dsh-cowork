@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Standing orders for anyone — human or agent — changing this repository. Every rule is one or two lines and links the file that owns the detail. Keep this file under 80 lines: it loads on every task.
+Standing orders for anyone — human or agent — changing this repository. Every rule is one or two lines and links the file that owns the detail. Keep this file under 120 lines: it loads on every task.
 
 ## Read first
 
@@ -11,6 +11,20 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 - AgentTeams DAG, review gates, worktrees, and delivery: [docs/agent-teams.md](docs/agent-teams.md).
 - Task procedures: [.agents/skills/README.md](.agents/skills/README.md). Skills load progressively by their own `description`; this file does not mirror the catalog.
 - Vocabulary: [docs/glossary.md](docs/glossary.md) before naming a new concept; one concept, one word.
+
+## Project structure
+
+```text
+src/          host plugin: tools, store, API, routing, review, panel models
+src/client/   browser panel: contracts, models, TSX components, styles
+tests/        node:test contracts and behavior, shared fixtures and ts hook
+scripts/      build, coverage, host smoke, change scope, lib build info
+tools/        executable document/workflow gates and migration drill
+docs/         plans, guides, references, handoff and design records
+.agents/      skills and decision records
+lib/          tracked build output consumed by tarball and host smoke
+.dsh-cowork/  local runtime/evidence data; gitignored
+```
 
 ## Working rules
 
