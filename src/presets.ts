@@ -3,7 +3,7 @@
  * and `cowork-reviewer`.
  *
  * Each preset is an explicit list of plugin rows, because S0 proved an empty
- * `plugins` list mounts no tools at all (docs/archived/results/M1_S0_RESULT.md §1): the
+ * `plugins` list mounts no tools at all (docs/handoff/M1_S0_RESULT.md §1): the
  * rows are the same ones the S0 thread-smoke preset used successfully, extended
  * with the job/ask-user/todo/present rows a topic needs. M9 removes the file,
  * shell, job, and present rows from the master (M6 probe 5 proved fs/bash are

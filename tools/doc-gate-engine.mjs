@@ -29,6 +29,7 @@ export const SUPPORTED_KINDS = [
   'publish-manifest',
   'skill-trigger',
   'docs-layout',
+  'design-assets',
   'index-reachable',
   'kind-manifest',
 ]
@@ -40,7 +41,6 @@ const SKIP_DIRECTORIES = new Set([
   'dist', 'build', 'target', '.next', '.cache', '.mypy_cache', '.pytest_cache',
   'vendor', 'coverage', 'lib',
 ])
-const ARCHIVED_FAMILIES = new Set(['handoffs', 'results', 'recon'])
 
 export function globToRegex(pattern) {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')
@@ -315,21 +315,58 @@ export function checkSkillTrigger(rootDir, check) {
 export function checkDocsLayout(rootDir, check) {
   const violations = []
   for (const [rel] of iterFiles(rootDir, check.patterns, check.exclude)) {
+    const parts = rel.split('/')
     if (/^docs\/[^/]+_(?:HANDOFF|RESULT|RECON)\.md$/.test(rel)) {
-      violations.push(`${rel} belongs in a record family subdirectory`)
+      violations.push(`${rel} belongs in docs/handoff/`)
+      continue
     }
-    if (/^docs\/archived\/[^/]+\.md$/.test(rel) && rel !== 'docs/archived/README.md') {
-      violations.push(`${rel} must be filed under docs/archived/{handoffs,results,recon}/`)
+    if (rel.startsWith('docs/archived/') || rel.startsWith('docs/handoffs/')) {
+      violations.push(`${rel} uses a removed record directory; use docs/handoff/`)
+      continue
     }
-    if (rel.startsWith('docs/handoffs/') && rel !== 'docs/handoffs/README.md' && !rel.endsWith('_HANDOFF.md')) {
-      violations.push(`${rel} is not a handoff record`)
+    if (rel.startsWith('docs/discussion/')) {
+      violations.push(`${rel} is a discussion working file; keep it under .dsh-cowork/discussion/`)
+      continue
     }
-    if (rel.startsWith('docs/archived/handoffs/') && !rel.endsWith('_HANDOFF.md')) violations.push(`${rel} is not a handoff record`)
-    if (rel.startsWith('docs/archived/results/') && !rel.endsWith('_RESULT.md')) violations.push(`${rel} is not a result record`)
-    if (rel.startsWith('docs/archived/recon/') && !rel.endsWith('_RECON.md')) violations.push(`${rel} is not a reconnaissance record`)
-    if (rel.startsWith('docs/archived/')) {
-      const parts = rel.split('/')
-      if (parts.length > 3 && !ARCHIVED_FAMILIES.has(parts[2])) violations.push(`${rel} uses an unknown archive family '${parts[2]}'`)
+    if (rel.startsWith('docs/handoff/')) {
+      if (rel !== 'docs/handoff/README.md' && !/_(?:HANDOFF|RESULT|RECON)\.md$/.test(rel)) {
+        violations.push(`${rel} is not a handoff, result, or reconnaissance record`)
+      }
+      continue
+    }
+    if (!rel.startsWith('docs/design/')) continue
+    if (rel === 'docs/design/README.md') continue
+    if (/-v\d+(?=[.-])/i.test(parts.at(-1))) {
+      violations.push(`${rel} keeps an obsolete version suffix; only the current design belongs in git`)
+      continue
+    }
+    if (rel.endsWith('.md')) {
+      if (parts.length !== 4) violations.push(`${rel} must live at docs/design/<feature>/<name>.md`)
+      continue
+    }
+    if (parts.length < 5 || parts[3] !== 'assets') {
+      violations.push(`${rel} must live under docs/design/<feature>/assets/`)
+    }
+  }
+  return violations
+}
+
+export function checkDesignAssets(rootDir, check) {
+  const violations = []
+  const localRef = /(?:src|href)\s*=\s*["']([^"']+)["']/gi
+  for (const [rel, text] of iterFiles(rootDir, check.patterns, check.exclude)) {
+    for (const match of text.matchAll(localRef)) {
+      let target = match[1].trim()
+      if (!target || target.startsWith('#') || target.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue
+      target = target.split('#')[0].split('?')[0]
+      if (!target) continue
+      if (target.startsWith('/')) continue
+      const resolved = relative(rootDir, resolve(rootDir, dirname(rel), target)).split(sep).join('/')
+      if (resolved.startsWith('..')) {
+        violations.push(`${rel}: local asset escapes the repository: ${match[1]}`)
+      } else if (!existsSync(resolve(rootDir, resolved))) {
+        violations.push(`${rel}: local asset does not exist: ${match[1]}`)
+      }
     }
   }
   return violations
@@ -428,6 +465,7 @@ const RUNNERS = {
   'publish-manifest': checkPublishManifest,
   'skill-trigger': checkSkillTrigger,
   'docs-layout': checkDocsLayout,
+  'design-assets': checkDesignAssets,
   'index-reachable': checkIndexReachable,
   'kind-manifest': checkKindManifest,
 }
@@ -545,7 +583,8 @@ export function selfTest() {
     ['link-target', { id: 'self-link', kind: 'link-target', patterns: ['*.md'] }, { 'AGENTS.md': '# A\n\nRead [the map](docs/gone.md).\n' }, { 'AGENTS.md': '# A\n\nRead [the map](docs/here.md).\n', 'docs/here.md': '# Map\n' }],
     ['publish-manifest', { id: 'self-publish', kind: 'publish-manifest', patterns: ['docs/*.md'], manifest: 'docs/publish.json' }, { 'docs/publish.json': JSON.stringify({ public: ['docs/a.md'], internal: [] }), 'docs/a.md': '# A\n', 'docs/b.md': '# B\n' }, { 'docs/publish.json': JSON.stringify({ public: ['docs/a.md'], internal: [{ pattern: 'docs/b.md', reason: 'internal draft' }] }), 'docs/a.md': '# A\n', 'docs/b.md': '# B\n' }],
     ['skill-trigger', { id: 'self-skill', kind: 'skill-trigger', patterns: ['.agents/skills/*/SKILL.md'] }, { '.agents/skills/a/SKILL.md': '---\nname: a\ndescription: Summarizes the testing policy.\n---\n\n## When to use\nx\n' }, { '.agents/skills/a/SKILL.md': '---\nname: a\ndescription: Use when a check fails.\n---\n\n## When to use\nx\n' }],
-    ['docs-layout', { id: 'self-layout', kind: 'docs-layout', patterns: ['docs/*.md'] }, { 'docs/TOPIC_EXAMPLE_HANDOFF.md': '# handoff\n' }, { 'docs/handoffs/TOPIC_EXAMPLE_HANDOFF.md': '# handoff\n' }],
+    ['docs-layout', { id: 'self-layout', kind: 'docs-layout', patterns: ['docs/**/*'] }, { 'docs/handoffs/M1_HANDOFF.md': '# handoff\n', 'docs/discussion/working.md': '# working\n' }, { 'docs/handoff/M1_HANDOFF.md': '# handoff\n', 'docs/handoff/README.md': '# Records\n\n[M1](M1_HANDOFF.md)\n', 'docs/design/README.md': '# Design\n', 'docs/design/topic/topic.md': '# Topic\n', 'docs/design/topic/assets/demo.html': '<html></html>\n' }],
+    ['design-assets', { id: 'self-assets', kind: 'design-assets', patterns: ['docs/design/**/*.html'] }, { 'docs/design/topic/assets/demo.html': '<img src="missing.png">\n' }, { 'docs/design/topic/assets/demo.html': '<img src="image.png">\n', 'docs/design/topic/assets/image.png': 'fixture\n' }],
     ['index-reachable', { id: 'self-index', kind: 'index-reachable', patterns: ['README.md'], index: 'README.md', rootPatterns: ['docs/*.md'], manifest: 'docs/publish.json', requiredExclude: ['docs/README.md'] }, { 'README.md': '# Index\n\n[A](docs/a.md)\n', 'docs/a.md': '# A\n', 'docs/b.md': '# B\n', 'docs/publish.json': JSON.stringify({ public: ['docs/a.md'], internal: [] }) }, { 'README.md': '# Index\n\n[A](docs/a.md)\n[B](docs/b.md)\n', 'docs/a.md': '# A\n', 'docs/b.md': '# B\n', 'docs/publish.json': JSON.stringify({ public: ['docs/a.md'], internal: [] }) }],
     ['kind-manifest', { id: 'self-kind', kind: 'kind-manifest', patterns: ['*.md'], manifest: 'docs/kinds.json' }, { 'docs/kinds.json': JSON.stringify({ kinds: ['guide'], assignments: [{ kind: 'guide', patterns: ['a.md'] }] }), 'a.md': '# A\n', 'b.md': '# B\n' }, { 'docs/kinds.json': JSON.stringify({ kinds: ['guide'], assignments: [{ kind: 'guide', patterns: ['a.md'] }, { kind: 'guide', patterns: ['b.md'] }] }), 'a.md': '# A\n', 'b.md': '# B\n' }],
   ]

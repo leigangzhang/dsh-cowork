@@ -11,13 +11,13 @@ M11 把面板与 HTTP API 切到 canonical v2（wire、读写路由、client 重
 1. **没有一条真实全链路 E2E**。PLAN §6 M12 要求 master 初始化 → 路由新主题 → 主题可见并经 CoWork 打开 → 提交评审 → reviewer verdict 后归档 → master 只收合并决定 → 自动/手动 resolve 与 reopen → 活动流 → 隔离 clone 合并。`src/m2-e2e.ts`/`src/m3-e2e.ts` 是 v1 thread 语义的 dev 驱动（KI-29），不能验证 M10/M11 的工具链。
 2. **真实 v1 数据的迁移与回滚未演练**（KI-22）。M11 只在真实数据上观察到「首次 overview 触发生命周期写 → M7 on-write 迁移」并随即用 `index.v1.backup.json` 恢复；备份完整性、归档失败、二次读取幂等、回滚步骤都没有一次可复现的演练，升级用户没有可依赖的迁移/回滚说明。
 3. **正式安装路径未验证**（KI-31）。M11 因宿主 client pkgMeta 与 Node ESM 缓存（KI-11/KI-16）用 dev 注入器的别名包做真机验证；`npm pack` → 新 profile add → 重启后 v2 client、六条 `/api/cowork.*` 路由与四个 preset 是否可用没有证据，0.2.0 的打包产物也从未检查过清单与版本。
-4. **面向用户的文档仍是 0.1.0 形态**。`README.md` 没有 0.2.0 的破坏性变更、升级/回滚与迁移说明；`docs/routing.md`/`docs/context.md` 仍是 M4 时代的 thread 叙述；`docs/glossary.md` 没有 v2 术语；KI-22/29/31/32/33 未关闭或未重新指派；`docs/archived/results/M12_RESULT.md` 不存在。
+4. **面向用户的文档仍是 0.1.0 形态**。`README.md` 没有 0.2.0 的破坏性变更、升级/回滚与迁移说明；`docs/routing.md`/`docs/context.md` 仍是 M4 时代的 thread 叙述；`docs/glossary.md` 没有 v2 术语；KI-22/29/31/32/33 未关闭或未重新指派；`docs/handoff/M12_RESULT.md` 不存在。
 
 后果：新用户与升级用户都缺乏可执行的安装/迁移路径；评审—合并—resolve 链只有 fake host/单测证据，跨会话回归没有门禁；0.2.0 无法收口。
 
 ## Decision
 
-M12 按以下六部分交付。需求与验收由 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §6 M12、§7 A1–A10 拥有；交付面、证据与偏差由 [M12_RESULT](../../../../docs/archived/results/M12_RESULT.md) 拥有；本记录只固定执行层决定。
+M12 按以下六部分交付。需求与验收由 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §6 M12、§7 A1–A10 拥有；交付面、证据与偏差由 [M12_RESULT](../../../../docs/handoff/M12_RESULT.md) 拥有；本记录只固定执行层决定。
 
 **1) 基线与阶段边界。** 从 M11 交付后的 `origin/main` merge sha `1b0801d` 开 `feat/m12-docs-e2e-0.2.0`；基线 732/732 与四条命令全绿后才改代码。M12 不新增业务工具/预设，不改 canonical v2 数据语义。
 
@@ -36,7 +36,7 @@ M12 按以下六部分交付。需求与验收由 [PLAN-V0.2](../../../../docs/P
 
 **4) 打包与正式安装路径（M12.5）。** `package.json` 0.2.0；`npm run build` 后 `npm pack`，清单只含 `lib/**`、`cordis.patch.yml`、`README.md`、`LICENSE`、`package.json`；干净 `m12verify` profile 安装、独立端口 3091 宿主、boot 列表 client 来自安装包；四个 preset/15 工具/六条 `/api/cowork.*` 路由由已安装包真实 E2E 与面板已认证 200 证明（未认证 401 不作注册证据）；同一 profile 以 `enableDevRoutes: true` + 临时 fixture 跑一次真实 E2E；卸载后 `.dsh-cowork` hash 不变。仓库无 lockfile 的事实记入 M12_RESULT 而不凭空加锁文件。第二个宿主的认证使用启动输出的已认证 URL，不读取/转述 cookie/token。
 
-**5) 文档发布面（M12.2）。** `README.md` 重写为 0.2.0 用户指南（破坏性变更、首次写路径迁移与 `index.v1.backup.json`、升级/回滚、KI-28 可见性上限）；`docs/routing.md`/`docs/context.md` 按 v2 重写；`docs/glossary.md`/`docs/plain-language.md` 补 v2 术语并把 thread 标为 0.1.0；`docs/KNOWN_ISSUES.md` 关闭 KI-22/29/31/32/33、把 KI-18/27/30/34/35/36/37/38 指派到 V0.3 或待确认；新增 `docs/archived/results/M12_RESULT.md`，`docs/archived/handoffs/M12_HANDOFF.md` 只做事实更正；`docs/publish.json` 与 `docs/README.md` 同步；两份 0.1.0 记录迁 implemented。收口顺序按 [agent-teams](../../../../docs/agent-teams.md) R10：实现/文档 → integration-ready → verification → review → 一次性修复 + 文档同步 → final integration → delivery。
+**5) 文档发布面（M12.2）。** `README.md` 重写为 0.2.0 用户指南（破坏性变更、首次写路径迁移与 `index.v1.backup.json`、升级/回滚、KI-28 可见性上限）；`docs/routing.md`/`docs/context.md` 按 v2 重写；`docs/glossary.md`/`docs/plain-language.md` 补 v2 术语并把 thread 标为 0.1.0；`docs/KNOWN_ISSUES.md` 关闭 KI-22/29/31/32/33、把 KI-18/27/30/34/35/36/37/38 指派到 V0.3 或待确认；新增 `docs/handoff/M12_RESULT.md`，`docs/handoff/M12_HANDOFF.md` 只做事实更正；`docs/publish.json` 与 `docs/README.md` 同步；两份 0.1.0 记录迁 implemented。收口顺序按 [agent-teams](../../../../docs/agent-teams.md) R10：实现/文档 → integration-ready → verification → review → 一次性修复 + 文档同步 → final integration → delivery。
 
 **6) 发布边界。** 不发布 GitHub Release、不打 tag、不部署生产；只交付可安装 tgz 与 PR（[PR #18](https://github.com/leigangzhang/dsh-cowork/pull/18)），合并等用户确认。
 
@@ -62,17 +62,17 @@ M12 按以下六部分交付。需求与验收由 [PLAN-V0.2](../../../../docs/P
 - **升级行为**：首次写路径（含打开 CoWork 面板的 overview）执行 on-write 迁移并写 `index.v1.backup.json`；README 写明升级/回滚，真实数据事故记录见 M12_RESULT。
 - **保持项不变**：KI-28（reviewer 宿主侧栏可见是接受上限）、KI-27（隔离只实现 clone）、KI-23（收件箱 at-least-once）、KI-19/KI-21/KI-26/KI-30 的既有边界不因本阶段改变。
 - **未验证**：0.1.0 重装回滚路径、GitHub Release/tag、移动端/多窗口/headless/Windows、真实 LLM 路由质量与成本（KI-36）。
-- **指针**：A1–A10 证据与偏差见 [M12_RESULT](../../../../docs/archived/results/M12_RESULT.md)；启动交接见 [M12_HANDOFF](../../../../docs/archived/handoffs/M12_HANDOFF.md)；遗留归属见 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md)。
+- **指针**：A1–A10 证据与偏差见 [M12_RESULT](../../../../docs/handoff/M12_RESULT.md)；启动交接见 [M12_HANDOFF](../../../../docs/handoff/M12_HANDOFF.md)；遗留归属见 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md)。
 
 ## Testing
 
 - [A1] 真实 v1→v2 迁移/备份逐字节/幂等/回滚演练可复现 — `tests`：`tests/m12-migration-drill.test.mjs`、`tests/store-migration.test.mjs`、`tests/store-v2.test.mjs`；`drill`：`node tools/m12-migration-drill.mjs`（11/11 步，备份 `1dd3cd3c…`==输入==恢复，`migrations=1`，archiveFailures 有记录，回滚 `readIndexVersion=1`）；证据 `.dsh-cowork/e2e/m12/M12_MIGRATION.json`
-- [A2] 已安装包宿主上真实全链路 E2E 一次通过，逐步证据写入 `M12_E2E.json` — `source`：`src/m12-e2e.ts`、`src/m12-e2e-support.ts` 的 run/status 路由与 17 步链；`tests`：`tests/m12-e2e.test.mjs`（步骤/证据/cleanup 契约）；`plan-docs`：`docs/archived/results/M12_RESULT.md` A8（runId `m12-3ccfe5e4…`，17/17、62 s，artifactIdentity 与 `495a872`/`9fc6556f…` 一致）
+- [A2] 已安装包宿主上真实全链路 E2E 一次通过，逐步证据写入 `M12_E2E.json` — `source`：`src/m12-e2e.ts`、`src/m12-e2e-support.ts` 的 run/status 路由与 17 步链；`tests`：`tests/m12-e2e.test.mjs`（步骤/证据/cleanup 契约）；`plan-docs`：`docs/handoff/M12_RESULT.md` A8（runId `m12-3ccfe5e4…`，17/17、62 s，artifactIdentity 与 `495a872`/`9fc6556f…` 一致）
 - [A3] reviewer 生命周期：请求 pending → verdict 绑定 `requestId`/`reviewerSessionId` → verdict 后归档 → master 只收到合并决定 — `tests`：M12 E2E 的 `review-request`/`review-verdict`/`master-merge-decision` 步断言与 `tests/review-verdict.test.mjs`、`tests/review-request.test.mjs`
 - [A4] resolve/reopen 边界：自动 resolve、手动 resolve 不撤销、reopen 清 `resolvedAt/resolvedBy`、resolved 主题不再自动接收 — `tests`：M12 E2E 的 `auto-resolve`/`no-undo`/`resolved-no-receive`/`reopen` 步断言与 `tests/topic.test.mjs`、`tests/topic-events.test.mjs`
 - [A5] 隔离 clone 全链路：`cowork_work_item_create` → clone 内提交 → `cowork_review_request` → pass → `cowork_checkout_merge` 成功且 main 不动 → 清理 — `tests`：M12 E2E 的 `work-item`/`work-item-commit`/`merge`/`cleanup` 步断言与 `tests/checkout.test.mjs`、`tests/work-item.test.mjs`
-- [A6] 正式安装路径：`npm pack` 清单正确；干净 profile 安装并重启后 preset/工具/六路由/v2 client 可用；真实 Chrome 面板打开并截图 — `packaging`：`tests/packaging.test.mjs`、`package.json` 0.2.0、`INSTALL_EVIDENCE.json`（tgz 426,110 B、sha256 `b190af8e…`、135 文件）；`plan-docs`：`docs/archived/results/M12_RESULT.md` 打包/安装/面板节（六路由已认证 200、4 张截图、R9 fixture apply/restore 各 5 ms、index 恢复 `f7fec0db…`）
-- [A7] 卸载保留 `.dsh-cowork` 数据；README 的升级/回滚步骤可执行 — `packaging`：`UNINSTALL_EVIDENCE.json`（remove exit 0、bundles 回退、前后 `index.json`/`m7-execution-prompt.txt` hash 一致）；`plan-docs`：`README.md`「升级到 0.2.0：迁移与回滚」与 `docs/archived/results/M12_RESULT.md` 回滚节
+- [A6] 正式安装路径：`npm pack` 清单正确；干净 profile 安装并重启后 preset/工具/六路由/v2 client 可用；真实 Chrome 面板打开并截图 — `packaging`：`tests/packaging.test.mjs`、`package.json` 0.2.0、`INSTALL_EVIDENCE.json`（tgz 426,110 B、sha256 `b190af8e…`、135 文件）；`plan-docs`：`docs/handoff/M12_RESULT.md` 打包/安装/面板节（六路由已认证 200、4 张截图、R9 fixture apply/restore 各 5 ms、index 恢复 `f7fec0db…`）
+- [A7] 卸载保留 `.dsh-cowork` 数据；README 的升级/回滚步骤可执行 — `packaging`：`UNINSTALL_EVIDENCE.json`（remove exit 0、bundles 回退、前后 `index.json`/`m7-execution-prompt.txt` hash 一致）；`plan-docs`：`README.md`「升级到 0.2.0：迁移与回滚」与 `docs/handoff/M12_RESULT.md` 回滚节
 - [A8] README 写明 0.2.0 破坏性变更、首次写路径迁移（含备份文件）、回滚与 KI-28 限制 — `publication`：`docs/publish.json` 分类与 `npm run check` 链接门禁；`plan-docs`：`README.md` 的破坏性变更/迁移/回滚/可见性节
 - [A9] `docs/routing.md`/`docs/context.md` 按 v2 重写、glossary 更新、KNOWN_ISSUES 关闭或转归属、M12 文档分类进 `docs/publish.json` — `publication`：`npm run check` exit 0（未分类 `.md` 会红）、`docs/publish.json`、`docs/README.md`；`tests`：`tests/workflow.test.mjs`
-- [A10] 最终 HEAD 上五命令全绿、`src/**/*.ts(x)` <51,200 B、`package.json` 0.2.0、delivery 记录 HEAD/diff sha/status/PR — `source`：`tests/source-budget.test.mjs`（773/773、`npm run typecheck`/`build`/`check` exit 0）；`workflow`：`npm run check:self-test` exit 0；`plan-docs`：`docs/archived/results/M12_RESULT.md`「最终交付事实」（artifact `0899d27`、diff `50f2ce81…`、PR #18、tgz `b190af8e…`）
+- [A10] 最终 HEAD 上五命令全绿、`src/**/*.ts(x)` <51,200 B、`package.json` 0.2.0、delivery 记录 HEAD/diff sha/status/PR — `source`：`tests/source-budget.test.mjs`（773/773、`npm run typecheck`/`build`/`check` exit 0）；`workflow`：`npm run check:self-test` exit 0；`plan-docs`：`docs/handoff/M12_RESULT.md`「最终交付事实」（artifact `0899d27`、diff `50f2ce81…`、PR #18、tgz `b190af8e…`）

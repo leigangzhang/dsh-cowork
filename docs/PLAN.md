@@ -120,7 +120,7 @@ new → active → awaiting_review → done
 1. `session.prompt` 是否真的唤醒 idle 会话并跑一轮；
 2. `session.create` 出的会话是否立即出现在侧栏并挂到 workspace；
 3. preset 注册后，新建会话是否可选且 `agentPreset` 是否生效；
-4. worktree 路径是否在 DSH 允许根内（M0 实测：宿主没有 `allowedRoots`，可写根是会话 cwd + 临时目录；见 [M0 结果](archived/results/M0_PROBE_RESULT.md) §4）；
+4. worktree 路径是否在 DSH 允许根内（M0 实测：宿主没有 `allowedRoots`，可写根是会话 cwd + 临时目录；见 [M0 结果](handoff/M0_PROBE_RESULT.md) §4）；
 5. web profile `patchReload=None` 的热重载限制。
 
 ### 3.3 现有插件调研结论（摘要）
@@ -296,9 +296,9 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 - 创建顺序：生成 `threadId` → `git clone --local <repo> <clone>` → `git checkout -b cowork/<threadId>` → `workspace.create(clone)` → `session.create({sessionId, workspaceId, agentPreset})`；thread 会话 cwd 就是 clone 路径，因此 `.git` 在会话沙箱根内，thread 可以自己 `git add/commit`。
 - 索引：thread 记录字段 `checkoutPath` 是唯一事实源，存宿主规范化后的 clone 路径；任一步失败补偿删除索引记录、clone 与本次创建的 workspace。
 - master 独占合并 `cowork_checkout_merge`：前置 thread 状态 ∈ `{awaiting_review, done}` 且 clone `git status --porcelain` 为空（含 untracked）；执行 `git fetch <clone> +refs/heads/cowork/<id>:refs/heads/cowork/<id>`，再 `git merge --no-ff`。
-- 成功 teardown 顺序（`cowork_checkout_merge`）：`workspaceRegistry.resolveByPath(checkoutPath)` 取到 clone 对应的 workspace → `removeCheckout` 删 clone 与分支 → `deleteWorkspace` → `archiveSession(threadId)` → 最后写索引 `checkoutPath=null`、`status='done'`。**`resolveByPath` 必须排在 `removeCheckout` 之前**：宿主先把路径 realpath 规范化再按路径匹配 workspace（`/tmp` → `/private/tmp`，[M2-P0 结果](archived/results/M2_PROBE_RESULT.md) §6），clone 目录不存在就匹配不到——删完 clone 再查只会拿到 `undefined`，workspace 永久残留。索引最后写且无条件执行：merge 已经落地，teardown 各步失败只记录到 `cleanupErrors`，不回滚索引、也不把已完成的 merge 改报为失败。merge 失败时保留现场并返回稳定错误码。
+- 成功 teardown 顺序（`cowork_checkout_merge`）：`workspaceRegistry.resolveByPath(checkoutPath)` 取到 clone 对应的 workspace → `removeCheckout` 删 clone 与分支 → `deleteWorkspace` → `archiveSession(threadId)` → 最后写索引 `checkoutPath=null`、`status='done'`。**`resolveByPath` 必须排在 `removeCheckout` 之前**：宿主先把路径 realpath 规范化再按路径匹配 workspace（`/tmp` → `/private/tmp`，[M2-P0 结果](handoff/M2_PROBE_RESULT.md) §6），clone 目录不存在就匹配不到——删完 clone 再查只会拿到 `undefined`，workspace 永久残留。索引最后写且无条件执行：merge 已经落地，teardown 各步失败只记录到 `cleanupErrors`，不回滚索引、也不把已完成的 merge 改报为失败。merge 失败时保留现场并返回稳定错误码。
 - 冲突：`git merge --abort`、保留 clone 与分支、索引置 `blocked` 并返回冲突文件；thread 在 clone 内 fetch 主分支、解决并提交后重新 handoff，master 重试成功。
-- 为什么不是 `git worktree`：linked worktree 的 git 元数据在 `<repo>/.git/worktrees/`，位于 thread 会话 cwd 之外；workspace-write 策略下 thread 侧 `git add/commit` 被沙箱拒绝（`index.lock: Operation not permitted`，exitCode 128）。workspace-write 是插件必须支持的最小权限，`danger-full-access` 下 worktree 也许可用，但 F 不依赖全权限（[M2-P0 结果](archived/results/M2_PROBE_RESULT.md) §4–§5）。
+- 为什么不是 `git worktree`：linked worktree 的 git 元数据在 `<repo>/.git/worktrees/`，位于 thread 会话 cwd 之外；workspace-write 策略下 thread 侧 `git add/commit` 被沙箱拒绝（`index.lock: Operation not permitted`，exitCode 128）。workspace-write 是插件必须支持的最小权限，`danger-full-access` 下 worktree 也许可用，但 F 不依赖全权限（[M2-P0 结果](handoff/M2_PROBE_RESULT.md) §4–§5）。
 
 ### 5.7 review
 
@@ -379,7 +379,7 @@ MVP 阈值可配置，默认先保守：命中优先，避免错误复用。
 
 ### M4：单插件打包与发布
 
-已完成（2026-11-07）：交付事实、M4A1–M4A8 证据与限制见 [M4 结果](archived/results/M4_RESULT.md)；分发形态、preset 与 dev 门的选择见 [M4 决策](../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md)；下一会话的验证入口见 [M4 交接](archived/handoffs/M4_HANDOFF.md)。
+已完成（2026-11-07）：交付事实、M4A1–M4A8 证据与限制见 [M4 结果](handoff/M4_RESULT.md)；分发形态、preset 与 dev 门的选择见 [M4 决策](../.agents/notes/implemented/feature/2026-11-05-m4-packaging.md)；下一会话的验证入口见 [M4 交接](handoff/M4_HANDOFF.md)。
 
 验收：
 

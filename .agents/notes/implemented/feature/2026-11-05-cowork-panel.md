@@ -6,7 +6,7 @@ Class: feature
 
 ## Problem
 
-M1 的主从闭环已经可用，但所有状态只存在于 `.dsh-cowork/` 与 `cowork_*` 工具的 JSON 结果里：用户看不到「项目 → thread → handoff」的整体形状，只能靠翻会话和手读文件。PLAN §6 M3 要求客户端面板，而 M0 删掉了 client 半边（旧 Slots API 已移除），交付前仓库既没有 client 构建，也没有面向面板的只读数据接口。设计已收敛（[PANEL_RECON](../../../../docs/archived/recon/PANEL_RECON.md)）：面板落右侧栏 tab；648 分栏、≤480 钻取；v0 只读并支持「打开 thread 会话」。
+M1 的主从闭环已经可用，但所有状态只存在于 `.dsh-cowork/` 与 `cowork_*` 工具的 JSON 结果里：用户看不到「项目 → thread → handoff」的整体形状，只能靠翻会话和手读文件。PLAN §6 M3 要求客户端面板，而 M0 删掉了 client 半边（旧 Slots API 已移除），交付前仓库既没有 client 构建，也没有面向面板的只读数据接口。设计已收敛（[PANEL_RECON](../../../../docs/handoff/PANEL_RECON.md)）：面板落右侧栏 tab；648 分栏、≤480 钻取；v0 只读并支持「打开 thread 会话」。
 
 ## Decision
 
@@ -83,5 +83,5 @@ M1 的主从闭环已经可用，但所有状态只存在于 `.dsh-cowork/` 与 
 - [P4] 「复制交接单路径」复制绝对路径并在失败时给明确提示；「打开 thread 会话」导航到对应会话 — `source`：源码与 `tests/panel-model.test.mjs` 覆盖提示文案；真机只点过复制按钮，**成功提示与导航未逐项截图**。
 - [P5] 七种状态与 light/dark 可复现；只消费公开 token 或带 fallback 的内部别名 — `source`、`tests`：截图 `01`（default）、`04`（error）、`05`（empty）、`06`（long-list）、`03`（long-subject 行、no-handoff 行）；loading 骨架与 no-handoff 文案在源码；**深色主题未在真机切换**，对比度由脚本按 token 实际值计算（light 18.90/5.80/18.90，dark 17.45/12.11/17.45）。
 - [P6] `/api/cowork.overview` 与 `/api/cowork.handoff` 仅经认证通道、只读、有界；`project/not-initialized`、`handoff/not-found`、`store/corrupt` 映射到对应 UI 状态 — `source`：真实宿主 `401`（无 cookie）与 `store/corrupt`/`project/not-initialized` 的 UI 截图 `04`/`05`；错误码与 `no-store` 由 `tests/api.test.mjs` 逐条断言。
-- [P7] 客户端能力探针通过：client bundle 被加载、tab 挂载、token 生效、构建路径写进文档；`typecheck`/`build`（含 client）通过 — `packaging`：`npm run build` 产出 `lib/client.js`（53,033 B）并被宿主 `/plugins` 服务加载；`npm run typecheck` 覆盖 host+client；限制写进 [PANEL_RESULT](../../../../docs/archived/results/PANEL_RESULT.md)。
-- [P8] 文档同步：结果与限制入 docs、`docs/publish.json` 分类、M3 交接文档更新，`npm run check` 通过 — `publication`：`docs/archived/results/PANEL_RESULT.md` 与 `docs/archived/handoffs/PANEL_HANDOFF.md` 已分类；`npm run check` 通过。
+- [P7] 客户端能力探针通过：client bundle 被加载、tab 挂载、token 生效、构建路径写进文档；`typecheck`/`build`（含 client）通过 — `packaging`：`npm run build` 产出 `lib/client.js`（53,033 B）并被宿主 `/plugins` 服务加载；`npm run typecheck` 覆盖 host+client；限制写进 [PANEL_RESULT](../../../../docs/handoff/PANEL_RESULT.md)。
+- [P8] 文档同步：结果与限制入 docs、`docs/publish.json` 分类、M3 交接文档更新，`npm run check` 通过 — `publication`：`docs/handoff/PANEL_RESULT.md` 与 `docs/handoff/PANEL_HANDOFF.md` 已分类；`npm run check` 通过。

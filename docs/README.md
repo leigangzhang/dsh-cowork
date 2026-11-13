@@ -13,8 +13,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 这个词在这个仓库里是什么意思 | [glossary.md](glossary.md) |
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |
 | 怎样才算“验证过” | [testing.md](testing.md) |
-| 当前主题页、收件箱的实现交接 | [handoffs/README.md](handoffs/README.md) |
-| M0–M12 已完成阶段的探针、交接与结果文档 | [archived/README.md](archived/README.md) |
+| 各阶段的 handoff、result 与 recon 记录 | [handoff/README.md](handoff/README.md) |
 | 哪些问题明确不修、什么时候重估 | [KNOWN_ISSUES.md](KNOWN_ISSUES.md) |
 | 工程规则与命令 | [AGENTS.md](../AGENTS.md) |
 | 哪个文件可以发布 | [publish.json](publish.json) |
@@ -22,7 +21,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 一个改动欠哪些证据 | [tools/workflow.json](../tools/workflow.json) |
 | 一个需求怎么被路由、新建 topic、经评审与工作项合并 | [routing.md](routing.md) |
 | AgentTeams 的 DAG、门禁、worktree 与交付规则 | [agent-teams.md](agent-teams.md) |
-| 右侧栏主题页、收件箱、工作项等设计稿与索引 | [design/cowork-sidebar/README.md](design/cowork-sidebar/README.md) |
+| 按功能划分的设计文档、前后端方案与模板资产 | [design/README.md](design/README.md) |
 | 主题怎么记录决策、怎么把结果交接给 master | [decision-and-handoff.md](decision-and-handoff.md) |
 | master 与 topic 怎么共享项目上下文、记忆何时注入、handoff/通知账本如何上下行 | [context.md](context.md) |
 
@@ -44,13 +43,9 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/glossary.md` | reference | 术语含义与拼写 |
 | `docs/plain-language.md` | reference | 面向人的说法替换 |
 | `docs/KNOWN_ISSUES.md` | reference | 遗留问题的唯一清单：状态、归属与重估触发条件 |
-| `docs/handoffs/README.md` | index | 当前主题页与收件箱实现交接的入口 |
-| `docs/archived/README.md` | index | V0.1–V0.2 历史记录的总入口 |
-| `docs/archived/handoffs/` | records | 历史阶段与面板的实施交接 |
-| `docs/archived/results/` | records | 历史交付结果与探针结果 |
-| `docs/archived/recon/` | records | 历史前置侦察记录 |
-| `docs/design/cowork-sidebar/` | records | 右侧栏主题页、收件箱、工作项等设计、调研与核实记录 |
-| `docs/discussion/` | assets | 设计讨论数据与 HTML/CSS/PNG 演示资产；不是规则或事实源 |
+| `docs/handoff/README.md` | index | 所有 handoff、result、recon 记录的入口 |
+| `docs/design/README.md` | index | 按功能划分的设计文档与当前模板资产入口 |
+| `docs/design/<feature>/` | records | 当前设计文档及其直接引用的模板资产 |
 | `docs/publish.json` | switch | 唯一发布开关 |
 | `docs/kinds.json` | switch | 每个 Markdown 的唯一 kind 与 skeleton 检查映射 |
 | `tools/workflow.json` | machinery | surface、check 配置与证据命令 |

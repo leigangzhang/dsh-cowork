@@ -166,7 +166,7 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(index.includes('.agents/skills/trim-cot-leakage/SKILL.md'), 'docs index does not route to trim-cot-leakage')
 })
 
-test('docs record families live in their type directories', () => {
+test('handoff records are flat and design records are grouped by feature', () => {
   const docsRoot = resolve(root, 'docs')
   const rootMarkdown = readdirSync(docsRoot).filter((name) => name.endsWith('.md'))
   assert.deepEqual(
@@ -174,11 +174,11 @@ test('docs record families live in their type directories', () => {
     [],
     'handoff/result/recon records must not live at the docs root',
   )
-  for (const rel of ['docs/handoffs/README.md', 'docs/archived/handoffs', 'docs/archived/results', 'docs/archived/recon']) {
-    assert.ok(existsSync(resolve(root, rel)), `${rel} is missing`)
+  assert.ok(existsSync(resolve(root, 'docs/handoff/README.md')), 'docs/handoff/README.md is missing')
+  assert.ok(existsSync(resolve(root, 'docs/design/README.md')), 'docs/design/README.md is missing')
+  for (const removed of ['docs/handoffs', 'docs/archived', 'docs/discussion']) {
+    assert.equal(existsSync(resolve(root, removed)), false, `${removed} must not exist`)
   }
-  const archivedRoot = readdirSync(resolve(root, 'docs/archived')).filter((name) => name.endsWith('.md'))
-  assert.deepEqual(archivedRoot, ['README.md'], 'archived records must be filed in a family directory')
 })
 
 test('record templates trace each criterion to a declared surface', () => {

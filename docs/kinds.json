@@ -52,9 +52,8 @@
       "kind": "index",
       "patterns": [
         "docs/README.md",
-        "docs/archived/README.md",
-        "docs/handoffs/README.md",
-        "docs/design/cowork-sidebar/README.md",
+        "docs/handoff/README.md",
+        "docs/design/README.md",
         ".agents/skills/README.md"
       ]
     },
@@ -99,27 +98,16 @@
     {
       "kind": "record",
       "patterns": [
-        "docs/archived/handoffs/*",
-        "docs/archived/results/*",
-        "docs/archived/recon/*"
+        "docs/handoff/*"
+      ],
+      "exclude": [
+        "docs/handoff/README.md"
       ]
     },
     {
       "kind": "record",
       "patterns": [
-        "docs/handoffs/*"
-      ],
-      "exclude": [
-        "docs/handoffs/README.md"
-      ]
-    },
-    {
-      "kind": "record",
-      "patterns": [
-        "docs/design/cowork-sidebar/*"
-      ],
-      "exclude": [
-        "docs/design/cowork-sidebar/README.md"
+        "docs/design/*/*.md"
       ]
     },
     {

@@ -12,10 +12,10 @@ Every document gets one kind first, and the kind fixes its skeleton, its budget,
 |---|---|---|
 | guide ([README.md](../README.md), this file, [testing.md](testing.md), [routing.md](routing.md), [context.md](context.md), [decision-and-handoff.md](decision-and-handoff.md), [agent-teams.md](agent-teams.md)) | One learning path, or one current rule | Restating what the homes it links to already say |
 | standing-rules ([AGENTS.md](../AGENTS.md)) | The rules an agent must obey in every task | Explanations and examples |
-| index ([docs/README.md](README.md), [docs/archived/README.md](archived/README.md), [docs/handoffs/README.md](handoffs/README.md), [design index](design/cowork-sidebar/README.md), [skills README](../.agents/skills/README.md)) | Where to find what | Any rule or fact of its own |
+| index ([docs/README.md](README.md), [handoff index](handoff/README.md), [design index](design/README.md), [skills README](../.agents/skills/README.md)) | Where to find what | Any rule or fact of its own |
 | plan ([PLAN.md](PLAN.md), [PLAN-V0.2.md](PLAN-V0.2.md)) | Product scope, architecture, milestones, acceptance | Implementation steps as prose |
 | reference ([glossary.md](glossary.md), [plain-language.md](plain-language.md), [KNOWN_ISSUES.md](KNOWN_ISSUES.md)) | A current fact looked up by name or term | Teaching paths, rationale |
-| record ([.agents/notes/](../.agents/notes/README.md), [docs/archived/](archived/README.md), [docs/handoffs/](handoffs/README.md), [design records](design/cowork-sidebar/README.md)) | One decision, design, review, delivery, or handoff | Current-state rules |
+| record ([.agents/notes/](../.agents/notes/README.md), [docs/handoff/](handoff/README.md), [design records](design/README.md)) | One decision, design, review, delivery, or handoff | Current-state rules |
 | skill ([.agents/skills/](../.agents/skills/README.md)) | When to do what | Validation logic and contracts |
 | template (`*/TEMPLATE.md`) | What a record should look like | Real content |
 | switch ([docs/publish.json](publish.json)) | Which files may ship | A second allow-list elsewhere |
@@ -26,19 +26,15 @@ To add a kind, supply its skeleton, home, and a check that maps documents to it,
 
 ## Directory layout
 
-`docs/` root holds the index, general rules, project-wide plans, guides, references, and standalone documents outside a semantic family. A file moves into a subdirectory when it joins an existing family; directories group record families, not document kinds.
+`docs/` root holds the index, general rules, project-wide plans, guides, references, and standalone documents outside a semantic family. A file moves into a subdirectory when it joins an existing family; directories group semantic families, not document kinds.
 
 | Path | Holds | Does not hold |
 |---|---|---|
 | `docs/` | index, general rules, project plans/guides/references, standalone pages | a second file in an existing record family |
-| `docs/design/<feature>/` | design proposals, decisions, research, verification, and the demo index for one feature | current product rules |
-| `docs/handoffs/` | current implementation handoffs and their index | historical phase handoffs |
-| `docs/archived/handoffs/` | historical implementation handoffs | current handoffs |
-| `docs/archived/results/` | historical delivery and probe results | handoffs or current rules |
-| `docs/archived/recon/` | historical reconnaissance records | results or handoffs |
-| `docs/discussion/` | demo assets and raw discussion data | durable rules or facts |
+| `docs/handoff/` | handoff, result, and reconnaissance records plus their index | current rules |
+| `docs/design/<feature>/` | the current design documents for one feature and only the HTML/CSS/PNG assets those documents reference | superseded designs, version copies, or discussion transcripts |
 
-Do not create `guides/`, `references/`, or `plans/` directories: those are document kinds, not semantic families. When a standalone file gains a second document of the same family, move both into the family directory and update links and `docs/publish.json` in the same change. The `docs-layout` guard rejects a handoff, result, or reconnaissance file outside its family directory; semantic fit remains a review call.
+Do not create `guides/`, `references/`, or `plans/` directories: those are document kinds, not semantic families. When a standalone file gains a second document of the same family, move both into the family directory and update links and `docs/publish.json` in the same change. The `docs-layout` guard rejects handoff/result/recon files outside `docs/handoff/`, design records outside a feature subdirectory, and tracked discussion working files. Raw discussion data and superseded assets stay under `.dsh-cowork/discussion/` (gitignored); git history is the only design history.
 
 ## One home per fact
 

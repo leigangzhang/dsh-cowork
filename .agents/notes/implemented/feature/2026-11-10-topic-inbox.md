@@ -14,7 +14,7 @@ Cowork 右栏原本只有主题列表。需要用户行动的事件分散在主�
 - 评审只有自动 reviewer 的 `cowork_review_request` / `cowork_review_verdict`，没有面向用户的评审请求；自动 reviewer 的 verdict 也没有稳定的侧栏记录。
 - 旧 `.dsh-cowork/inbox.json` 是 master 的合并/退回队列；投递会唤醒 master 一轮对话，不是逐项、可停留在侧栏处理的请求。
 
-设计见 [topic-inbox.md](../../../../docs/design/cowork-sidebar/topic-inbox.md)，交互稿见 [topic-reminder-demo.html](../../../../docs/discussion/topic-reminder-demo.html)。运行中的宿主 DSH 0.2.1-rc.2 没有 `ctx.sessionNotices` 和 `notice/message`，所以本方案不等待 A2，也不把提醒伪装成 `user/message` 或 tool call。
+设计见 [topic-inbox.md](../../../../docs/design/inbox/topic-inbox.md)，交互稿见 [topic-reminder-demo.html](../../../../docs/design/inbox/assets/topic-reminder-demo.html)。运行中的宿主 DSH 0.2.1-rc.2 没有 `ctx.sessionNotices` 和 `notice/message`，所以本方案不等待 A2，也不把提醒伪装成 `user/message` 或 tool call。
 
 ## Decision
 
@@ -78,7 +78,7 @@ Cowork 右栏原本只有主题列表。需要用户行动的事件分散在主�
 
 ## Links
 
-- [设计](../../../../docs/design/cowork-sidebar/topic-inbox.md)
-- [交接](../../../../docs/handoffs/TOPIC_INBOX_HANDOFF.md)
-- [主题页](../../../../docs/design/cowork-sidebar/topic-page.md)
-- [收件箱交互稿](../../../../docs/discussion/topic-reminder-demo.html)
+- [设计](../../../../docs/design/inbox/topic-inbox.md)
+- [交接](../../../../docs/handoff/TOPIC_INBOX_HANDOFF.md)
+- [主题页](../../../../docs/design/topic/topic-page.md)
+- [收件箱交互稿](../../../../docs/design/inbox/assets/topic-reminder-demo.html)
