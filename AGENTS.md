@@ -9,8 +9,7 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 - Documentation rules: [docs/AGENTS.md](docs/AGENTS.md). It owns kinds, one home per fact, budgets, and publication.
 - Test strategy, commands, and evidence map: [docs/testing.md](docs/testing.md) and [tools/workflow.json](tools/workflow.json).
 - AgentTeams DAG, review gates, worktrees, and delivery: [docs/agent-teams.md](docs/agent-teams.md).
-- Writing procedures: [write-docs](.agents/skills/write-docs/SKILL.md), [prose-standard](.agents/skills/prose-standard/SKILL.md), [trim-cot-leakage](.agents/skills/trim-cot-leakage/SKILL.md).
-- Review and delivery procedures: [code-review](.agents/skills/code-review/SKILL.md), [pre-push-checks](.agents/skills/pre-push-checks/SKILL.md), [pr-description](.agents/skills/pr-description/SKILL.md), [find-simplifications](.agents/skills/find-simplifications/SKILL.md).
+- Task procedures: [.agents/skills/README.md](.agents/skills/README.md). Skills load progressively by their own `description`; this file does not mirror the catalog.
 - Vocabulary: [docs/glossary.md](docs/glossary.md) before naming a new concept; one concept, one word.
 
 ## Working rules
