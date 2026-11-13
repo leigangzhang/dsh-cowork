@@ -32,6 +32,14 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 - **Prefer owned or maintained code.** Add a dependency only when it removes more owned code and tests than it creates; record the reason and do not install tools globally.
 - **Verify the world.** Re-run the command or re-read the file from outside the writer; report what did not run and what cannot be falsified.
 
+## Type safety and documentation
+
+Everything compiles under `strict: true`; avoid `any`, and any remaining `any` explains why narrowing is infeasible. Every module and non-obvious export has concise JSDoc for its contract; function-like exports include `@param`/`@returns` when the contract is not obvious from names and types.
+
+Comments and docs state complete contracts and context, not reasoning transcripts. Use concrete terms; reserve `contract` for obligations, invariants, compatibility, and other caller/callee promises, and `boundary` for a literal process, wire, security, transaction, or lifecycle edge. Do not narrate control flow or tests, preserve review history, or restate code; keep behavior, failure, timing, ownership, and safe-use facts, and link the rationale. Use [prose-standard](.agents/skills/prose-standard/SKILL.md) for editorial decisions.
+
+Docs accompany every code change: update affected README, JSDoc, and owning docs together. Wire mechanically checkable invariants into `npm run check` or the owning test and prove a changed guard rejects an invalid case; use narrow, justified exceptions instead of disabling a rule globally. Current-state prose, one home per fact, and budgets live in [docs/AGENTS.md](docs/AGENTS.md).
+
 ## Run relevant checks locally
 
 Before pushing, load [pre-push-checks](.agents/skills/pre-push-checks/SKILL.md), confirm the live base, and run `npm run change-scope -- --base <verified-base>`. Report only commands that actually ran; name every unrun check.
