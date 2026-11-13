@@ -41,7 +41,9 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 ```sh
 npm run check              # executable conventions (workflow, skills, templates, publication, budgets)
 npm run check:self-test    # prove the guards can fail
-npm test                   # contract tests for the repository's own rules
+npm test                   # contract and behavior tests
+npm run test:coverage      # node:test coverage floors for host TypeScript
+npm run test:host-smoke    # pack current lib/ and boot a temporary DSH profile
 npm run typecheck          # TypeScript check (requires deps installed)
 npm run build              # host build (auto-detects a DSH source checkout for types and the installed app for runtime)
 ```

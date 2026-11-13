@@ -74,6 +74,29 @@ test('tools/workflow.json declares unique surfaces with non-empty evidence', () 
   assert.ok(Array.isArray(kinds.assignments) && kinds.assignments.length > 0, 'docs/kinds.json needs assignments')
 })
 
+test('executable test lanes are wired to scripts, workflow evidence, and the testing guide', () => {
+  const pkg = JSON.parse(read('package.json'))
+  const workflow = JSON.parse(read('tools/workflow.json'))
+  const testing = read('docs/testing.md')
+  for (const script of ['test', 'test:coverage', 'test:host-smoke', 'typecheck', 'build']) {
+    assert.equal(typeof pkg.scripts?.[script], 'string', `package.json is missing script ${script}`)
+  }
+  const source = workflow.surfaces.find((surface) => surface.name === 'source')
+  assert.ok(source, 'workflow must declare the source surface')
+  for (const command of ['npm run test:coverage', 'npm run typecheck', 'npm run build', 'npm run test:host-smoke']) {
+    assert.ok(source.evidence.includes(command), `source evidence is missing: ${command}`)
+  }
+  const packaging = workflow.surfaces.find((surface) => surface.name === 'packaging')
+  assert.ok(packaging, 'workflow must declare the packaging surface')
+  for (const command of ['npm test', 'npm run build', 'npm run test:host-smoke']) {
+    assert.ok(packaging.evidence.includes(command), `packaging evidence is missing: ${command}`)
+  }
+  assert.ok(packaging.patterns.includes('cordis.patch.yml'), 'packaging must own the bundle patch')
+  for (const command of ['npm run test:coverage', 'npm run test:host-smoke']) {
+    assert.ok(testing.includes(command), `docs/testing.md is missing: ${command}`)
+  }
+})
+
 test('AGENTS.md keeps the context budget and the required pointers', () => {
   const agents = read('AGENTS.md')
   const workflow = JSON.parse(read('tools/workflow.json'))

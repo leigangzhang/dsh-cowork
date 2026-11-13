@@ -1,0 +1,102 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  COVERAGE_FLOORS,
+  DEV_ONLY_COVERAGE_EXCLUDES,
+  coverageArgs,
+  testFilesIn,
+} from '../scripts/test-coverage.mjs'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const root = resolve(here, '..')
+
+test('coverage floors are the reviewed 2026-11-13 baseline', () => {
+  assert.deepEqual(COVERAGE_FLOORS, { lines: 65, branches: 82, functions: 80 })
+})
+
+test('coverage exclusions are explicit, existing dev-only drivers', () => {
+  assert.deepEqual(DEV_ONLY_COVERAGE_EXCLUDES, [
+    'src/m2-e2e.ts',
+    'src/m2-e2e-support.ts',
+    'src/m3-e2e.ts',
+    'src/m3-e2e-support.ts',
+    'src/m12-e2e.ts',
+    'src/m12-e2e-support.ts',
+    'src/s0-probe.ts',
+    'src/probe-engine.ts',
+    'src/probe-store.ts',
+    'src/panel-probe.ts',
+  ])
+  for (const path of DEV_ONLY_COVERAGE_EXCLUDES) {
+    assert.ok(existsSync(resolve(root, path)), `${path} must exist`)
+    assert.match(path, /(?:e2e|probe)/, `${path} is not a dev-only driver`)
+  }
+})
+
+test('coverage args carry the include, every exclusion, and every floor', () => {
+  const args = coverageArgs(['/tmp/a.test.mjs', '/tmp/b.test.mjs'])
+  assert.ok(args.includes('--experimental-test-coverage'))
+  assert.ok(args.includes('--test-coverage-include=src/**/*.ts'))
+  for (const path of DEV_ONLY_COVERAGE_EXCLUDES) {
+    assert.ok(args.includes(`--test-coverage-exclude=${path}`), `missing exclusion for ${path}`)
+  }
+  assert.ok(args.includes('--test-coverage-lines=65'))
+  assert.ok(args.includes('--test-coverage-branches=82'))
+  assert.ok(args.includes('--test-coverage-functions=80'))
+  assert.equal(args.filter((entry) => entry === '--test').length, 1)
+  assert.deepEqual(args.slice(-2), ['/tmp/a.test.mjs', '/tmp/b.test.mjs'])
+})
+
+test('testFilesIn finds exactly the sorted mjs tests', () => {
+  const files = testFilesIn(resolve(root, 'tests'))
+  assert.ok(files.length > 0)
+  assert.deepEqual(files, [...files].sort())
+  assert.ok(files.every((path) => path.endsWith('.mjs')))
+})
+
+test('the coverage floor mechanism can fail', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cowork-coverage-gate-'))
+  try {
+    writeFileSync(join(dir, 'probe.mjs'), [
+      'export function covered() { return 1 }',
+      'export function uncovered() {',
+      '  return 2',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'probe.test.mjs'), [
+      "import test from 'node:test'",
+      "import assert from 'node:assert/strict'",
+      "import { covered } from './probe.mjs'",
+      '',
+      "test('covers only one export', () => assert.equal(covered(), 1))",
+      '',
+    ].join('\n'))
+    const result = spawnSync(process.execPath, [
+      '--experimental-test-coverage',
+      '--test-coverage-include=probe.mjs',
+      '--test-coverage-functions=100',
+      '--test',
+      'probe.test.mjs',
+    ], {
+      cwd: dir,
+      encoding: 'utf8',
+      timeout: 30_000,
+      // node:test exports a child context; a nested runner must start fresh.
+      env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_'))),
+    })
+    assert.notEqual(
+      result.status,
+      0,
+      `an uncovered function must fail the 100% floor (status=${String(result.status)}, signal=${String(result.signal)})\n${result.stdout}\n${result.stderr}`,
+    )
+    assert.match(`${result.stdout}\n${result.stderr}`, /coverage/i)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
