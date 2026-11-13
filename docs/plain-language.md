@@ -2,6 +2,11 @@
 
 The other half of the vocabulary problem: [glossary.md](glossary.md) fixes what a word means inside this project, and this page says how to say it to someone who has not read the glossary. A person reading a reply, a PR description, a release note, or a commit message has not read the glossary.
 
+## How to use this table
+
+- Find the term before writing to a human; if it is missing, use the everyday sentence and add the entry afterwards.
+- Each entry gives the plain sentence and one replacement example.
+
 ## When to expand
 
 1. **First use in human-facing text.** Expand once, or replace the term outright.
@@ -18,9 +23,9 @@ The main session that routes requests and approves finished work.
 
 *Instead of* "master 会把需求路由到最相关 thread" → *say* "主会话会把需求派给最相关的话题会话".
 
-### topic（主题会话）
+### topic
 
-One feature's own conversation, which you can open and continue like any other chat. A work item and its review request live inside that topic.
+Topic（主题会话）: one feature's own conversation, which you can open and continue like any other chat. A work item and its review request live inside that topic.
 
 *Instead of* "thread 完成 handoff" → *say* "这个话题会话做完后，会交回一份结构化汇报".
 

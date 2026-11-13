@@ -6,7 +6,7 @@ Class: architecture
 
 ## Problem
 
-M8 已经把主题生命周期、活动与收件箱落到代码里（[M8 交付结果](../../../../docs/archived/M8_RESULT.md)）：三态、`idle`/`resolved` 判定、`turn/end` 事件、锁内重读、活动上限与收件箱合并/重放都有测试；store 也提供了 canonical v2 的 `readIndexDocument`/`mutateIndexDocument`。但这些规则还没有接到用户面：
+M8 已经把主题生命周期、活动与收件箱落到代码里（[M8 交付结果](../../../../docs/archived/results/M8_RESULT.md)）：三态、`idle`/`resolved` 判定、`turn/end` 事件、锁内重读、活动上限与收件箱合并/重放都有测试；store 也提供了 canonical v2 的 `readIndexDocument`/`mutateIndexDocument`。但这些规则还没有接到用户面：
 
 - 路由仍是 M4 的纯词法实现（`src/router.ts`，六态 v1 视图、subject×3 + handoff 摘要×2 + 时效加分，阈值 4、领先 1）；「继续」「再改一下」这类接力意图零命中，`resolved` 被硬排除，选错没有学习路径。
 - `cowork_route` 仍返回 thread 形状，不能表达 `resolvedMatch`、可解释原因和候选；`cowork_project_status` 返回整个索引、全部 handoff 和最新评审，没有界；`cowork_topic_create`/`cowork_topic_list`/`cowork_topic_resolve` 不存在。
@@ -14,7 +14,7 @@ M8 已经把主题生命周期、活动与收件箱落到代码里（[M8 交付�
 - `src/tools.ts` 43,854 B、11 个工具与所有共享 helper 挤在一个文件；`cowork-master` 仍挂 fs/search/bash/jobs/present，`cowork-thread` 仍是唯一的主题 preset，memory 只识别 `cowork-master`/`cowork-thread`。
 - `digest`、`lastDeliveryConfirmedAt`、`masterFocusTopicId` 仍没有写入者，M8 的五条件在实际数据上不会成立。
 
-M9 的范围、工具角色表、预设与配置默认值由 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §2.2/§5.3/§5.7/§5.8/§5.10/§6 M9 拥有；三层路由的需求规则由 [主会话到主题的三层路由](../feature/2026-11-07-three-layer-routing.md) 拥有；角色模型由 [用主题会话取代 thread](./2026-11-07-topic-session-model.md) 拥有；v2 数据模型由 [索引 v2 与迁移](./2026-11-07-topic-store-v2.md) 拥有。本记录固定执行层：模块边界、数据/配置扩展、读取点、工具拆分、预设与测试顺序；交付事实与证据见 [M9_RESULT](../../../../docs/archived/M9_RESULT.md)。
+M9 的范围、工具角色表、预设与配置默认值由 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §2.2/§5.3/§5.7/§5.8/§5.10/§6 M9 拥有；三层路由的需求规则由 [主会话到主题的三层路由](../feature/2026-11-07-three-layer-routing.md) 拥有；角色模型由 [用主题会话取代 thread](2026-11-07-topic-session-model.md) 拥有；v2 数据模型由 [索引 v2 与迁移](2026-11-07-topic-store-v2.md) 拥有。本记录固定执行层：模块边界、数据/配置扩展、读取点、工具拆分、预设与测试顺序；交付事实与证据见 [M9_RESULT](../../../../docs/archived/results/M9_RESULT.md)。
 
 ## Decision
 
@@ -87,7 +87,7 @@ M9 的范围、工具角色表、预设与配置默认值由 [PLAN-V0.2](../../.
 - M9 之后 14 个工具由 `src/tools.ts` 编排、五个业务模块 + 保留的 `review-tools` 注册；`cowork-topic` 成为 canonical 主题预设，`cowork-thread` 只服务存量会话一个版本；master 的 preset 行不再挂 fs/fs-search/bash/jobs/present。
 - `cowork_route` 从 thread 形状换到 topic 三层形状：`subject`/`isolated` 参数移除、`resolved_match` 与 `candidates`/`modelUsed`/`modelError` 出现；`cowork_thread_*` 别名返回与 `cowork_topic_*` 相同的 topic payload。这是 0.2.0 计划内破坏性改名，M12 README 统一记录（KI-18 的收口路径不变）。
 - 读取点接上后，`idle`/`resolved` 会在 `project_status`/`cowork_route` 读取时惰性落地；`workItems` 恒空使第三个已解决条件恒真，M10 必须传真实 active 计数，否则可能误自动 resolved（KI-24）。
-- 模型路径：M9 用 fake port 测试覆盖守卫/超时/回退/坏输出；真实宿主探针验证了 `ctx.get('llm')` 可达、最低档 `off`、真实流 `M9_LLM_OK`（[M9_RESULT](../../../../docs/archived/M9_RESULT.md)），但 `cowork-topic` 因本机 web profile 禁用 `dsh-cowork` 插件未能 live 创建，三层路由的真实 E2E 与模型的真实延迟/成本仍归 M12（KI-22）。若真实路由此后失败，关闭第三层仍保留确定性路径。
+- 模型路径：M9 用 fake port 测试覆盖守卫/超时/回退/坏输出；真实宿主探针验证了 `ctx.get('llm')` 可达、最低档 `off`、真实流 `M9_LLM_OK`（[M9_RESULT](../../../../docs/archived/results/M9_RESULT.md)），但 `cowork-topic` 因本机 web profile 禁用 `dsh-cowork` 插件未能 live 创建，三层路由的真实 E2E 与模型的真实延迟/成本仍归 M12（KI-22）。若真实路由此后失败，关闭第三层仍保留确定性路径。
 - 索引兼容：`masterFocusTopicId`/`lastRouteTopicId` 缺省 `null`、无迁移；真实旧 v2 文档的读取/首次写回演练归 M12。
 - 预算与范围：`src/tools.ts` 2,489 B、`src/store.ts` 48,590 B（余量约 562 B）、`src/**/*.ts` 最大 49,923 B；`git diff --name-only 7b9a6a5..6379712` 恰为 39 个 `src`/`tests` 文件，不含 `docs/**`、`presets/**`、`src/client/**`、`src/api*.ts`；M10–M12 模块不存在。
 - 残余遗留：`awaiting_review` 与 legacy review 兼容保留一版（KI-25，M10）；inbox 的 at-least-once 崩溃窗口（KI-23，M12）；兼容视图与 legacy 字段仍在（KI-18，M10→M12）；真实宿主 E2E/迁移（KI-22，M12）。
@@ -102,4 +102,4 @@ M9 的范围、工具角色表、预设与配置默认值由 [PLAN-V0.2](../../.
 - [A6] 工具名/角色/别名按 §5.7：`cowork_topic_create`/`cowork_topic_list` 与弃用别名同结果；`cowork_handoff(done)` 写 `digest`/`lastDeliveryConfirmedAt`，`blocked` 置标记；`tools.ts` 只做编排 — `tests`：`tests/project-tools.test.mjs`（`the assembly registers the fourteen tools in the documented order`）、`tests/topic-tools.test.mjs`（`cowork_thread_create is the same execute and schema as cowork_topic_create`、`cowork_handoff(done) records the summary and delivery proof without resolving the topic`、`cowork_handoff(blocked) sets blocked and clears awaitingReview; awaiting_review is the reverse`）、`tests/source-budget.test.mjs`（`the tool split owns every tool name and keeps tools.ts orchestration-only`）。
 - [A7] `cowork-master` 去 fs/fs-search/bash/jobs/present；`cowork-topic` 与 `cowork-thread` 别名可用；memory 识别三种业务 preset 且不注入 reviewer — `tests`：`tests/presets.test.mjs` 与 `tests/memory-prompt.test.mjs`。
 - [A8] 配置默认值按 §5.10（idle/resolve/routing.*），不硬编码；索引新增 focus/route 字段缺省为 null，旧 v2 文档可读、无迁移 — `tests`：`tests/routing.test.mjs`（`the Config schema defaults match PLAN-V0.2 §5.10`、`the Config schema keeps explicit values and fills nested defaults`、`normalizeConfig tolerates a hand-built partial config`）、`tests/store-schema.test.mjs`（`v2 normalization defaults the routing targets to null`、`v2 validation accepts null, absent, and present routing targets`、`v2 validation rejects a broken routing target`）、`tests/store-migration.test.mjs`（`a v1 migration writes both routing targets as null`、`the read-only v1 projection also carries both null routing targets`）。
-- [A9] `src/tools.ts` ≤ 49,152 B、`src/**/*.ts` < 51,200 B；不改 M9 范围外文件；`npm run typecheck`/`build`/`check` 通过 — `source`：`tests/source-budget.test.mjs`（`every src/**/*.ts and src/**/*.tsx file stays under the 50 KiB read limit`、`the review-tool split keeps src/tools.ts well below the limit`、`the legacy keyword router is gone and nothing imports it`、`the host LLM adapter lives in src/llm-port.ts`）；`npm test` 596 pass / 0 fail / 0 skip / 0 todo exit 0，`npm run typecheck`、`npm run build`、`npm run check` 均 exit 0；`src/tools.ts` 2,489 B、`src/store.ts` 48,590 B、`src` 最大 49,923 B；范围 diff 见 [M9_RESULT](../../../../docs/archived/M9_RESULT.md)。
+- [A9] `src/tools.ts` ≤ 49,152 B、`src/**/*.ts` < 51,200 B；不改 M9 范围外文件；`npm run typecheck`/`build`/`check` 通过 — `source`：`tests/source-budget.test.mjs`（`every src/**/*.ts and src/**/*.tsx file stays under the 50 KiB read limit`、`the review-tool split keeps src/tools.ts well below the limit`、`the legacy keyword router is gone and nothing imports it`、`the host LLM adapter lives in src/llm-port.ts`）；`npm test` 596 pass / 0 fail / 0 skip / 0 todo exit 0，`npm run typecheck`、`npm run build`、`npm run check` 均 exit 0；`src/tools.ts` 2,489 B、`src/store.ts` 48,590 B、`src` 最大 49,923 B；范围 diff 见 [M9_RESULT](../../../../docs/archived/results/M9_RESULT.md)。

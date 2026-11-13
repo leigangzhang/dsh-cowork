@@ -2,7 +2,7 @@
 
 Status: implemented（2026-11-10，delivery 前代码 HEAD `a26e1c5`；实现结果与偏差见 §14）
 决策记录: [2026-11-10-topic-inbox.md](../../../.agents/notes/implemented/feature/2026-11-10-topic-inbox.md)
-交接: [TOPIC_INBOX_HANDOFF.md](../../TOPIC_INBOX_HANDOFF.md)
+交接: [TOPIC_INBOX_HANDOFF.md](../../handoffs/TOPIC_INBOX_HANDOFF.md)
 
 本方案把右侧栏从单列主题页扩展为“主题栏 + 收件箱”。收件箱承接评审、权限审批、ask-user 提问和 PLAN 待确认四类需要用户行动的请求，以及分配、上报、决策提案、自动评审结果、归档五类只读通知。解决后，请求卡片下方追加一条右侧用户回复。
 
@@ -526,7 +526,7 @@ sequenceDiagram
 - [主题页设计](topic-page.md)
 - [跨对象决策](cross-cutting-decisions.md)
 - [决策记录](../../../.agents/notes/implemented/feature/2026-11-10-topic-inbox.md)
-- [交接文档](../../TOPIC_INBOX_HANDOFF.md)
+- [交接文档](../../handoffs/TOPIC_INBOX_HANDOFF.md)
 - [术语表](../../glossary.md)
 - [收件箱交互稿](../../discussion/topic-reminder-demo.html)
 

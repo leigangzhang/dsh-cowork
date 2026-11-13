@@ -158,14 +158,14 @@ resolved → active（菜单恢复 / reopen）
 | 创建会话 | `sessionController.create({ workspaceId, agentPreset })` 创建普通会话并挂到 workspace | M0 结果、`src/session-slice.ts` |
 | 唤醒会话 | `sessionController.prompt({ sessionId, mode:'queue', content })` | M0/M1 E2E |
 | 重命名 | `sessionController.rename` | `src/session-slice.ts` |
-| 归档/隐藏 | `archiveSession` 是展示过滤且 `archivedSessionIds` 可读，但归档后 `prompt` 的 turn 以 `blocked` 结束、消息不落盘；unarchive 才恢复 | `dsh-workspace/lib/index.js`、[M6 探针结果](archived/M6_PROBE_RESULT.md) §3 |
+| 归档/隐藏 | `archiveSession` 是展示过滤且 `archivedSessionIds` 可读，但归档后 `prompt` 的 turn 以 `blocked` 结束、消息不落盘；unarchive 才恢复 | `dsh-workspace/lib/index.js`、[M6 探针结果](archived/results/M6_PROBE_RESULT.md) §3 |
 | 打开会话 | 客户端 `uiWorkspace.openSession(sessionId)` 切换主区 | `src/client/contracts.ts` |
-| 面板 | 右侧栏 tab、`sidebar.right.pane.tab`、footer action 已可用 | `docs/archived/PANEL_RESULT.md` |
+| 面板 | 右侧栏 tab、`sidebar.right.pane.tab`、footer action 已可用 | `docs/archived/results/PANEL_RESULT.md` |
 | 会话事件 | 插件可订阅 `session/event`（E2E 已用） | `src/m3-e2e.ts` |
 | 模型调用 | `ctx.llm.prepareCall` 已由 `dsh-session-title-llm` 使用；可设 `maxTokens`、`reasoningEffort`、超时 | `dsh-session-title-llm/lib/index.js` |
 | 隔离 clone | 现有 per-thread clone 可用，路径在仓库内，reviewer 可读 | M2 结果、`src/checkout.ts` |
 
-### 3.2 M6 探针问题（结论见 [M6 探针结果](archived/M6_PROBE_RESULT.md)）
+### 3.2 M6 探针问题（结论见 [M6 探针结果](archived/results/M6_PROBE_RESULT.md)）
 
 1. 插件通过 `ctx.get('llm')` 调用 `prepareCall` 的最小可用参数；最低 `reasoningEffort` 是否等价于关闭推理；没有服务时的回退。
 2. 生产插件能否稳定收到 `session/event` 的 `turn/start`/`turn/end` 和用户消息。
@@ -386,7 +386,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 - 右侧栏默认 tab 仍是普通会话；CoWork 不自动打开；footer 入口保留。
 - 左侧栏与归档：v2 的 menu 归档会 `archiveSession` 主题会话（定稿「归档后主题移入已解决」）；恢复走 unarchive。打开主题仍不需要 unarchive，除已归档会话的容错。
 - reviewer 隐藏：verdict 后归档（M6 探针 4：创建后立即归档会让 turn `blocked`）；失败记录，不假装成功。
-- 历史：M11 交付的「列表 + 详情 + 评审卡」已被 2026-11-10 主题页 v2 取代；M11 当时验收仍见 [M11_RESULT](archived/M11_RESULT.md)。
+- 历史：M11 交付的「列表 + 详情 + 评审卡」已被 2026-11-10 主题页 v2 取代；M11 当时验收仍见 [M11_RESULT](archived/results/M11_RESULT.md)。
 
 ### 5.10 配置默认值
 
@@ -423,14 +423,14 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 ### M6 探针与决策记录
 
-- 范围：核对 7 份 proposed 决策记录（见 §8）与探针结论一致，必要时补充；执行 §3.2 的 7 项探针，写 `docs/archived/M6_PROBE_RESULT.md`。本文件与 7 份记录已保存；不重写 `docs/PLAN.md`。
+- 范围：核对 7 份 proposed 决策记录（见 §8）与探针结论一致，必要时补充；执行 §3.2 的 7 项探针，写 `docs/archived/results/M6_PROBE_RESULT.md`。本文件与 7 份记录已保存；不重写 `docs/PLAN.md`。
 - 依赖：无。
 - 完成标准：
   - 7 份记录存在，含非空 `## Alternatives considered`，且与探针结论一致。
   - 探针 1–3 结论明确（LLM、session/event、archive 后打开/prompt）；4–6 有结论；7 记录。
   - `docs/PLAN-V0.2.md` 已存在且阶段为 M6–M12；`docs/PLAN.md` 保持 V0.1 不变。
   - `npm run check` 通过（新文件已分类）。
-- 证据：`docs/archived/M6_PROBE_RESULT.md`、7 份 proposed 记录、`npm run check`。
+- 证据：`docs/archived/results/M6_PROBE_RESULT.md`、7 份 proposed 记录、`npm run check`。
 - 不做：不改 `src/`；不执行 M7–M12。
 
 ### M7 数据模型与迁移
@@ -493,18 +493,18 @@ master → 插件：cowork_checkout_merge(workItemId)
   - 真实 Chrome 面板检查通过。
 - 证据：`tests/api-contract.test.mjs`、`tests/panel-model.test.mjs`、面板截图与 run 记录。
 - 不做：不做主题内嵌多面板；不做移动端新布局。
-- M11 已交付：代码 artifact `6b7beab`，证据与验收见 [M11_RESULT](archived/M11_RESULT.md)。
+- M11 已交付：代码 artifact `6b7beab`，证据与验收见 [M11_RESULT](archived/results/M11_RESULT.md)。
 
 ### M12 文档、真实 E2E、0.2.0
 
-- 范围：`README.md`、`docs/routing.md`、`docs/context.md`、`docs/glossary.md`、`docs/KNOWN_ISSUES.md`、`docs/publish.json`、`docs/archived/M12_RESULT.md`、`docs/archived/M12_HANDOFF.md`；`src/m12-e2e.ts`、`tests/m12-e2e.test.mjs`；版本 0.2.0；打包与本地安装/卸载。
+- 范围：`README.md`、`docs/routing.md`、`docs/context.md`、`docs/glossary.md`、`docs/KNOWN_ISSUES.md`、`docs/publish.json`、`docs/archived/results/M12_RESULT.md`、`docs/archived/handoffs/M12_HANDOFF.md`；`src/m12-e2e.ts`、`tests/m12-e2e.test.mjs`；版本 0.2.0；打包与本地安装/卸载。
 - 依赖：M7–M11。
 - 完成标准：
   - 真实 E2E 全链路：master 初始化 → 路由新主题 → 主题在左侧栏可见并经 CoWork 打开（决策 (b)） → 提交评审 → reviewer verdict 后归档 → master 只收合并决定 → 已解决自动标记 → 无撤销 → 手动重开 → 已解决不自动接收 → 活动流 → 隔离 clone 合并。
   - 面板真实 Chrome 验证。
   - `npm run check`、`npm run check:self-test`、`npm test`、`npm run typecheck`、`npm run build` 全绿；`npm pack` 与本地 profile 安装/卸载通过。
   - README 写明 0.2.0 破坏性变更、迁移、回滚。
-- 证据：`docs/archived/M12_RESULT.md`、`.dsh-cowork/e2e/M12_E2E.json`、面板截图、打包清单。
+- 证据：`docs/archived/results/M12_RESULT.md`、`.dsh-cowork/e2e/M12_E2E.json`、面板截图、打包清单。
 - 不做：不发布 GitHub Release，除非用户另行确认。
 
 ---
@@ -517,7 +517,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 - 真实 E2E：M12 全链路；配置短阈值（`idleAfterMs=500`、`resolveAfterMs=1000`）；模型路由在 E2E 中关闭，另做观测性探针。
 - 面板：真实 Chrome；先修宿主健康与 overview API，再驱动 UI；复用浏览器会话；fixture 隔离。
 - 检查：`npm run check`、`npm run check:self-test`、`npm test`、`npm run typecheck`、`npm run build`。
-- 证据：`docs/archived/M6_PROBE_RESULT.md`、`docs/archived/M12_RESULT.md`、`docs/archived/M12_HANDOFF.md`、`.dsh-cowork/e2e/M12_E2E.json`、面板截图。
+- 证据：`docs/archived/results/M6_PROBE_RESULT.md`、`docs/archived/results/M12_RESULT.md`、`docs/archived/handoffs/M12_HANDOFF.md`、`.dsh-cowork/e2e/M12_E2E.json`、面板截图。
 - source budget：`src/tools.ts` ≤ 49,152 B；所有 `src/**/*.ts` < 51,200 B；拆分为 §4.2 的模块。
 
 验收编号：
@@ -529,9 +529,9 @@ master → 插件：cowork_checkout_merge(workItemId)
 - `[A5]` 工具/角色/别名、preset、memory — `tests`（tools/presets/memory-prompt）。
 - `[A6]` 面板契约、排序/标签/操作、写路由 — `tests` + 真实 Chrome。
 - `[A7]` 隔离、串行合并、冲突、清理 — `tests`（work-item/checkout）。
-- `[A8]` 真实 E2E — `tests`（m12-e2e）+ `docs/archived/M12_RESULT.md`。
+- `[A8]` 真实 E2E — `tests`（m12-e2e）+ `docs/archived/results/M12_RESULT.md`。
 - `[A9]` 文档分类/检查/构建 — `npm run check`、`check:self-test`、`typecheck`、`build`。
-- `[A10]` 回滚（备份恢复 + 0.1.0 重装） — `docs/archived/M12_RESULT.md`。
+- `[A10]` 回滚（备份恢复 + 0.1.0 重装） — `docs/archived/results/M12_RESULT.md`。
 
 ---
 
@@ -585,14 +585,14 @@ master → 插件：cowork_checkout_merge(workItemId)
 - 本文件 `docs/PLAN-V0.2.md` 是 V0.2 的阶段计划；`docs/PLAN.md` 保持 V0.1（M0–M4），不覆盖；M5 记忆整理保留在 V0.1 与 `KNOWN_ISSUES` 中。
 - `docs/README.md` 与 `docs/publish.json` 在保存 V0.2 时已加入索引与 internal 分类；后续文档更新按 M12 执行。
 - `README.md`、`docs/routing.md`、`docs/context.md`、`docs/glossary.md`、`docs/KNOWN_ISSUES.md` 在 M12 按 V0.2 更新；`AGENTS.md` 的 thread→topic 表述在 M12 由用户确认后更新。
-- M6 已产出 `docs/archived/M6_PROBE_RESULT.md` 与 `docs/archived/M6_HANDOFF.md`；M11 的会话可见性按 2026-11-07 决策 (b) 执行（主题保留左侧栏）。
-- 历史交接 `docs/archived/M4_HANDOFF.md` 不改正文；新的 `docs/archived/M12_HANDOFF.md` 说明 V0.2 起点与回滚。
+- M6 已产出 `docs/archived/results/M6_PROBE_RESULT.md` 与 `docs/archived/handoffs/M6_HANDOFF.md`；M11 的会话可见性按 2026-11-07 决策 (b) 执行（主题保留左侧栏）。
+- 历史交接 `docs/archived/handoffs/M4_HANDOFF.md` 不改正文；新的 `docs/archived/handoffs/M12_HANDOFF.md` 说明 V0.2 起点与回滚。
 
 ### 10.2 交接说明
 
-1. 本文件与 7 份 proposed 记录已保存；开始 M6 时先核对记录与探针结论，再执行探针、写 `docs/archived/M6_PROBE_RESULT.md`；完成后停下。
+1. 本文件与 7 份 proposed 记录已保存；开始 M6 时先核对记录与探针结论，再执行探针、写 `docs/archived/results/M6_PROBE_RESULT.md`；完成后停下。
 2. M7–M12 一次只做一个；每个阶段结束报告：改了什么、验证命令与结果、如何回滚、遗留风险；等确认后再进入下一阶段。
-3. 工作目录固定 `/Users/ray/Workspace/dsh-cowork`；先读 `AGENTS.md`、`docs/documentation.md`、`docs/testing.md`、本文件。
+3. 工作目录固定 `/Users/ray/Workspace/dsh-cowork`；先读 `AGENTS.md`、`docs/AGENTS.md`、`docs/testing.md`、本文件。
 4. 不修改 `~/.agents/AGENTS.md`、`~/.dsh` 下无关配置；不发布到远端，不上传源码。
 5. 任何阶段发现宿主前提被推翻，停下来报告已知事实和 2–3 个选项，不绕过。
 6. 真实 E2E 与面板验收通过后，才宣布 M12 完成；未跑的命令必须在报告中明确列出。

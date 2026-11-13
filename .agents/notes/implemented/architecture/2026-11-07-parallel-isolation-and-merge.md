@@ -54,7 +54,7 @@ M4 的隔离单位是 thread：每个 isolated thread 一个本地 clone、一�
 - 共享工作区评审：工作区可能包含用户未提交的改动；要求干净且提交范围明确，否则拒绝。重审条件：用户频繁在同一工作区并行编辑。
 - AgentTeams 双重合并/双重评审：只靠文档规则与人工约定，插件不能自动检测。重审条件：出现两份 verdict 或两个合并入口。
 - 隔离提供方只有 clone：`isolation.provider` 的配置形状已经存在，但实际实现只有 `'clone'`；worktree 适配器需要单独探针与记录（KI-27）。
-- 本记录取代原 `proposed/architecture/2026-11-07-parallel-isolation-and-merge.md`；实现与证据见 [M10 交付结果](../../../../docs/archived/M10_RESULT.md)。
+- 本记录取代原 `proposed/architecture/2026-11-07-parallel-isolation-and-merge.md`；实现与证据见 [M10 交付结果](../../../../docs/archived/results/M10_RESULT.md)。
 
 ## Testing
 
@@ -62,4 +62,4 @@ M4 的隔离单位是 thread：每个 isolated thread 一个本地 clone、一�
 - [A2] 评审请求绑定 `baseCommit/headCommit`；合并要求同一 head 的 pass；head 移动后旧通过不可合并 — `tests`：`tests/work-item.test.mjs`（`a head that moved after the review is refused without merging`、`a work item without a passed review cannot be merged`）；`tests/review-request.test.mjs`（`the merge gate accepts exactly a passed review of the current head`）
 - [A3] `cowork_checkout_merge` 只由 master 调用，合并串行；冲突保留现场，解决后重新评审；`main` 不被插件修改 — `tests`：`tests/work-item.test.mjs`（`the merge tool is master only`、`main and a detached HEAD are protected merge targets`、`a conflicting merge keeps the clone and reports the conflict files`、`serializeMerge runs merges in order and survives a rejected operation`）
 - [A4] 合并成功后清理 clone 与分支、更新工作项/主题、写活动；清理失败只记录，不回滚合并结果 — `tests`：`tests/work-item.test.mjs`（`a passed work item merges into the current branch and is torn down`、`a cleanup failure is reported without failing the finished merge`）
-- [A5] AgentTeams 场景只保留一个评审负责人；不引入 AgentTeams 运行时依赖；规则写进文档 — `decisions`：本记录、[评审请求模型](../feature/2026-11-07-review-request-model.md)、[M10 交付结果](../../../../docs/archived/M10_RESULT.md)
+- [A5] AgentTeams 场景只保留一个评审负责人；不引入 AgentTeams 运行时依赖；规则写进文档 — `decisions`：本记录、[评审请求模型](../feature/2026-11-07-review-request-model.md)、[M10 交付结果](../../../../docs/archived/results/M10_RESULT.md)

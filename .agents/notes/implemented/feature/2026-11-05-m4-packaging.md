@@ -26,7 +26,7 @@ M3 的能力已经可用，但只以 `dev_inject_plugin` 的 runtime 注入形�
 
 **README 是用户手册。** [README](../../../../README.md) 写安装（build → pack → 新 profile → add → 重启）、选择 preset、使用流程、数据落点、卸载与升级、限制与前提；不再把交接与探针事实写进用户文档。
 
-安装验证路径固定为：新 profile `m4verify`（`--from-default-profile web`，只装本包）→ `--dump-config` 核对层 → 重启 → 默认面 404/401 → dev patch 覆盖后跑 15 步 E2E → 真实 Chrome 面板 → 卸载并确认数据保留。交付事实见 [M4 结果](../../../../docs/archived/M4_RESULT.md)，探针输出见 [M4-P0 探针](../../../../docs/archived/M4_PROBE_RESULT.md)。
+安装验证路径固定为：新 profile `m4verify`（`--from-default-profile web`，只装本包）→ `--dump-config` 核对层 → 重启 → 默认面 404/401 → dev patch 覆盖后跑 15 步 E2E → 真实 Chrome 面板 → 卸载并确认数据保留。交付事实见 [M4 结果](../../../../docs/archived/results/M4_RESULT.md)，探针输出见 [M4-P0 探针](../../../../docs/archived/results/M4_PROBE_RESULT.md)。
 
 ## Alternatives considered
 

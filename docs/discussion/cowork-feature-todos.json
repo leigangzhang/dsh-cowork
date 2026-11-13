@@ -273,7 +273,7 @@
       "next": "已实现并验证（2026-11-10）。后续工作：工作项页/评审页、宿主 A2 提醒卡（KI-40）、右栏宽度接口（KI-42）。",
       "design": "docs/design/cowork-sidebar/topic-inbox.md",
       "proposal": ".agents/notes/implemented/feature/2026-11-10-topic-inbox.md",
-      "handoff": "docs/TOPIC_INBOX_HANDOFF.md",
+      "handoff": "docs/handoffs/TOPIC_INBOX_HANDOFF.md",
       "updatedAt": "2026-11-10T00:00:00Z",
       "implementedAt": "2026-11-10",
       "implementation": {
@@ -313,7 +313,7 @@
           "tests/inbox-model.test.mjs",
           "tests/open-port.test.mjs"
         ],
-        "gate": "check/typecheck/build exit 0; npm test 962/962; GUI evidence in docs/TOPIC_INBOX_HANDOFF.md"
+        "gate": "check/typecheck/build exit 0; npm test 962/962; GUI evidence in docs/handoffs/TOPIC_INBOX_HANDOFF.md"
       },
       "deviations": [
         "宿主没有右栏宽度 setter：窄栏降级为面板内全宽收件箱（KI-42）",

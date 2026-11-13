@@ -31,7 +31,7 @@ Class: process
 
 **把所有细节继续放在 P18。** 否决：P18 会重新变成项目手册，跨项目复用时会带入 worktree、marker、fixture 等本仓库专属概念；通用原则和项目机制混在同一层，违背分级配置。
 
-**把所有规则塞进 AGENTS.md。** 否决：AGENTS.md 有 80 行预算，且项目约定 AGENTS.md 只拥有指针；细节已经分散到 `docs/AGENTTEAM.md`、`docs/documentation.md` 和 `tools/workflow.json`，再复制会造成漂移。
+**把所有规则塞进 AGENTS.md。** 否决：AGENTS.md 有 80 行预算，且项目约定 AGENTS.md 只拥有指针；细节已经分散到 `docs/AGENTTEAM.md`、`docs/AGENTS.md` 和 `tools/workflow.json`，再复制会造成漂移。
 
 **保留 reviewer 的 `readonly` 策略。** 否决：M7/M8/M9 的 reviewer 都明确无法执行命令，最终只能采信 verifier；这不能满足“独立复核运行结果”的要求。改用 `verify-only` 后仍配合隔离副本和只读协议，因为 bash 本身不是 OS 沙箱。
 

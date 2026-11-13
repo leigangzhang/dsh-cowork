@@ -6,9 +6,9 @@ Class: architecture
 
 ## Problem
 
-M7 把索引落到 v2（`topics[]`/`workItems[]`）、实现迁移事务与 activity/inbox 的文件 I/O，并让未改造的 v1 调用方继续通过兼容视图工作（[M7 迁移实施记录](./2026-11-07-store-v2-migration-plan.md)）。但 M7 只拥有存储与投影：没有任何代码维护主题的生命周期与活动语义——没有 `idle`/`resolved` 判定，没有 `turn/end` 的 `lastActiveAt` 更新，没有重开，没有业务活动事件；收件箱只有文件层，没有合并、投递与重放。索引里的主题因此永远停在 `active`，v2 的 `lastActiveAt`、`digest`、`lastDeliveryConfirmedAt` 没有写入者，M9 的路由与 M11 的面板都没有可用的状态。
+M7 把索引落到 v2（`topics[]`/`workItems[]`）、实现迁移事务与 activity/inbox 的文件 I/O，并让未改造的 v1 调用方继续通过兼容视图工作（[M7 迁移实施记录](2026-11-07-store-v2-migration-plan.md)）。但 M7 只拥有存储与投影：没有任何代码维护主题的生命周期与活动语义——没有 `idle`/`resolved` 判定，没有 `turn/end` 的 `lastActiveAt` 更新，没有重开，没有业务活动事件；收件箱只有文件层，没有合并、投递与重放。索引里的主题因此永远停在 `active`，v2 的 `lastActiveAt`、`digest`、`lastDeliveryConfirmedAt` 没有写入者，M9 的路由与 M11 的面板都没有可用的状态。
 
-M8 的主需求规则由 [主题三态与已解决规则](../feature/2026-11-07-three-state-lifecycle.md) 拥有，数据模型由 [索引 v2 与迁移](./2026-11-07-topic-store-v2.md) 拥有，状态机与验收见 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §2.3/§5.1/§5.6/§6 M8。本记录固定执行层：模块边界、store 扩展、评估时机、KI 处置与测试归属。
+M8 的主需求规则由 [主题三态与已解决规则](../feature/2026-11-07-three-state-lifecycle.md) 拥有，数据模型由 [索引 v2 与迁移](2026-11-07-topic-store-v2.md) 拥有，状态机与验收见 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md) §2.3/§5.1/§5.6/§6 M8。本记录固定执行层：模块边界、store 扩展、评估时机、KI 处置与测试归属。
 
 写提案时核对过的 M7 执行缺口，M8 已全部补上：store 只有 v1 兼容视图而没有 canonical v2 文档读写；`ACTIVITY_TYPES` 没有 `topic-reopened`；`src/topic.ts`、`src/topic-events.ts`、`src/activity.ts`、`src/inbox.ts` 不存在；迁移 activity 先于 index 写（KI-20，已在 M8 修复并从 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md) 删除）。
 
@@ -31,7 +31,7 @@ M8 的主需求规则由 [主题三态与已解决规则](../feature/2026-11-07-
 - `user/message`：只对 `resolved` topic 生效；锁内再次确认仍 `resolved` 才 `reopenResolvedTopic`，并追加一条 `topic-reopened` 事件（`eventId`、`time`、`topicId`、`summary`、`details` 取旧 `resolvedAt`/`resolvedBy`）；mutate 返回 `null`（并发已重开/已不存在）时不追加事件，多条消息只产生一条事件。
 - 监听器整体不向宿主事件总线抛错：read/mutate/append 任何失败只经 `log` 记录；活动 append 失败时索引保持已重开，不回滚。
 - `src/index.ts` 只做装配：`ctx.on('session/event', …)`、`session.header.cwd` → `findProjectRoot`、按 repo 构造 `ProjectStore`（注入 `workspaceRegistry.archiveSession`）、`ctx.effect(() => topicEvents.attach(), 'dsh-cowork: topic lifecycle events')`。
-- 依赖与限制：`turn/end`/`user/message` 的宿主行为来自 [M6 探针结果](../../../../docs/archived/M6_PROBE_RESULT.md) §2；`session.header.cwd` 解析项目根依赖 header 的稳定性，M6 未验证、M12 真实 E2E 首验（F2，未核实）。
+- 依赖与限制：`turn/end`/`user/message` 的宿主行为来自 [M6 探针结果](../../../../docs/archived/results/M6_PROBE_RESULT.md) §2；`session.header.cwd` 解析项目根依赖 header 的稳定性，M6 未验证、M12 真实 E2E 首验（F2，未核实）。
 
 **4) 业务活动（`src/activity.ts`）。** 导出 `buildActivityEvent(input, now)`、`recordActivity(sink, input, now)`、`topicReopenedActivity(topic, now)`、`statusChangedActivity(...)`、`errorActivity(...)`；只构造与记录事件，文件 I/O 与 500 条 / 524288 B 上限、坏行跳过仍由 `src/store.ts` 的 `appendActivity`/`readActivity` 提供。`ACTIVITY_TYPES`（`src/store-schema.ts`）增加 `topic-reopened`。
 已知偏差（F1）：M8.2 在 `src/topic-events.ts` 内联构造 `topic-reopened`，未复用 `topicReopenedActivity`，两处形状/摘要不同（都经 store 校验）；这是 M8.1/M8.2 并行 worktree 的边界产物，当前不视为缺陷，M9 接线 `activity`/`cowork_project_status` 时统一。

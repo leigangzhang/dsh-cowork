@@ -1,0 +1,139 @@
+{
+  "comment": "Every tracked Markdown file matches exactly one kind assignment. A skeletonCheck names the required-sections check that owns that home; null means the kind has no fixed section skeleton here.",
+  "kinds": [
+    "standing-rules",
+    "guide",
+    "index",
+    "plan",
+    "reference",
+    "record",
+    "skill",
+    "template"
+  ],
+  "assignments": [
+    {
+      "kind": "standing-rules",
+      "patterns": [
+        "AGENTS.md"
+      ]
+    },
+    {
+      "kind": "guide",
+      "patterns": [
+        "docs/AGENTS.md"
+      ],
+      "skeletonCheck": "docs-policy"
+    },
+    {
+      "kind": "guide",
+      "patterns": [
+        "docs/testing.md"
+      ],
+      "skeletonCheck": "testing-policy"
+    },
+    {
+      "kind": "guide",
+      "patterns": [
+        ".agents/notes/README.md"
+      ],
+      "skeletonCheck": "notes-readme"
+    },
+    {
+      "kind": "guide",
+      "patterns": [
+        "README.md",
+        "docs/AGENTTEAM.md",
+        "docs/context.md",
+        "docs/routing.md",
+        "docs/decision-and-handoff.md"
+      ]
+    },
+    {
+      "kind": "index",
+      "patterns": [
+        "docs/README.md",
+        "docs/archived/README.md",
+        "docs/handoffs/README.md",
+        "docs/design/cowork-sidebar/README.md",
+        ".agents/skills/README.md"
+      ]
+    },
+    {
+      "kind": "plan",
+      "patterns": [
+        "docs/PLAN.md",
+        "docs/PLAN-V0.2.md"
+      ]
+    },
+    {
+      "kind": "reference",
+      "patterns": [
+        "docs/glossary.md"
+      ],
+      "skeletonCheck": "glossary-sections"
+    },
+    {
+      "kind": "reference",
+      "patterns": [
+        "docs/plain-language.md"
+      ],
+      "skeletonCheck": "plain-language-sections"
+    },
+    {
+      "kind": "reference",
+      "patterns": [
+        "docs/KNOWN_ISSUES.md",
+        ".agents/skills/prose-standard/references/examples.md"
+      ]
+    },
+    {
+      "kind": "record",
+      "patterns": [
+        ".agents/notes/implemented/*",
+        ".agents/notes/proposed/*"
+      ],
+      "exclude": [
+        "*/TEMPLATE.md"
+      ]
+    },
+    {
+      "kind": "record",
+      "patterns": [
+        "docs/archived/handoffs/*",
+        "docs/archived/results/*",
+        "docs/archived/recon/*"
+      ]
+    },
+    {
+      "kind": "record",
+      "patterns": [
+        "docs/handoffs/*"
+      ],
+      "exclude": [
+        "docs/handoffs/README.md"
+      ]
+    },
+    {
+      "kind": "record",
+      "patterns": [
+        "docs/design/cowork-sidebar/*"
+      ],
+      "exclude": [
+        "docs/design/cowork-sidebar/README.md"
+      ]
+    },
+    {
+      "kind": "skill",
+      "patterns": [
+        ".agents/skills/*/SKILL.md"
+      ],
+      "skeletonCheck": "skill-record"
+    },
+    {
+      "kind": "template",
+      "patterns": [
+        ".agents/notes/*/TEMPLATE.md"
+      ]
+    }
+  ]
+}

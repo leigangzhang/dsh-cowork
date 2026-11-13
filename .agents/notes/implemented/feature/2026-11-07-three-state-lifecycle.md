@@ -50,10 +50,10 @@ Class: feature
 - 自动标记 resolved 依赖 `lastDeliveryConfirmedAt` 与 `digest`：主题完成时没有写 `handoff(done)` 就不会自动标记，会长期停在 `idle`。这是有意的保守：宁可漏标，不可误标。
 - 没有撤销。用户误开自动标记只能手动重开；重开会清空 `resolvedAt`/`resolvedBy` 并写 `topic-reopened`，历史仍留在 activity。重审条件：用户要求撤销或需要审计两者差异。
 - 时间全部走注入时钟（`nowMs`），生产由 `ProjectStore` 的 clock 与 `src/index.ts` 的 `clock: () => new Date()` 提供；跨时区不影响 ISO 比较。重审条件：宿主提供独立时钟服务。
-- 事件路径的已知限制（均记入 [M8 交付结果](../../../../docs/archived/M8_RESULT.md) 的偏差段，不阻塞 M8）：`turn/end`/`user/message` 只在 M6 探针的宿主进程内验证过，每会话 500 条缓冲上限未验证；`session.header.cwd` 的依赖未在真实宿主核实（M12 首验）。若宿主不再发事件，`lastActiveAt` 退回按工具调用与读取更新并在文档标注，不假装准确。
+- 事件路径的已知限制（均记入 [M8 交付结果](../../../../docs/archived/results/M8_RESULT.md) 的偏差段，不阻塞 M8）：`turn/end`/`user/message` 只在 M6 探针的宿主进程内验证过，每会话 500 条缓冲上限未验证；`session.header.cwd` 的依赖未在真实宿主核实（M12 首验）。若宿主不再发事件，`lastActiveAt` 退回按工具调用与读取更新并在文档标注，不假装准确。
 - `workItems` 恒为 `[]`，第三个已解决条件在 M8 恒真；M10 引入工作项时必须把真实 active 计数传入 `evaluateTopicLifecycle`，否则可能把仍有进行中工作的主题标成已解决。
 - 迁移兼容性沿用 M7：v1 的 `done`/`archived` 迁移为 `resolved`（`resolvedBy='master'`，时间取 `updatedAt`），`awaiting_review` 在写路径取消在途评审。v1 的未知扩展字段在 v1 兼容视图里不再透出，但 canonical v2 文档与 legacy 写回仍保留，不丢数据；详见 [M8 执行记录](../architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)。
-- 本记录取代原 `proposed/feature/2026-11-07-three-state-lifecycle.md`；状态迁移、标记清理与兼容性同时写入 [M8 交付结果](../../../../docs/archived/M8_RESULT.md)，遗留项见 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md)。
+- 本记录取代原 `proposed/feature/2026-11-07-three-state-lifecycle.md`；状态迁移、标记清理与兼容性同时写入 [M8 交付结果](../../../../docs/archived/results/M8_RESULT.md)，遗留项见 [KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md)。
 
 ## Testing
 
@@ -61,4 +61,4 @@ Class: feature
 - [A2] 五个已解决条件逐条缺失都不标记，全部满足写 `resolvedBy='master'`/`resolvedAt`，且模块无撤销导出 — `tests`：`tests/topic.test.mjs`（`a topic is resolved only when all five conditions hold`、`the module exposes no undo path`）
 - [A3] 3 天边界用注入时钟（-1ms/恰好/+1ms），锁内重读到新状态时放弃标记 — `tests`：`tests/topic.test.mjs`（`the three-day threshold is inclusive and wins over idle`）与 `tests/topic-events.test.mjs`（`a reopen abandoned under the lock writes nothing and records no event`）
 - [A4] 重开清空 `resolvedAt`/`resolvedBy`、回 `active` 并写一条 `topic-reopened`；`resolved` 不再被评估或新活动改变 — `tests`：`tests/topic.test.mjs`（`reopening clears the resolution fields and returns to active`、`a resolved topic never changes through evaluation or new activity`）与 `tests/topic-events.test.mjs`（`user/message reopens a resolved topic and records one topic-reopened event`）
-- [A5] 状态、标记与迁移兼容性写入交付记录 — `decisions`：本记录、[M8 执行记录](../architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)、[M8 交付结果](../../../../docs/archived/M8_RESULT.md)、[KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md)
+- [A5] 状态、标记与迁移兼容性写入交付记录 — `decisions`：本记录、[M8 执行记录](../architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md)、[M8 交付结果](../../../../docs/archived/results/M8_RESULT.md)、[KNOWN_ISSUES](../../../../docs/KNOWN_ISSUES.md)
