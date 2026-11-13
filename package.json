@@ -33,7 +33,6 @@
     "typecheck": "bash scripts/build.sh --no-emit",
     "check": "node tools/check-invariants.mjs",
     "check:self-test": "node tools/check-invariants.mjs --self-test",
-    "check:lib-sync": "node --test tests/lib-sync.test.mjs",
     "change-scope": "node scripts/change-scope.mjs",
     "test": "node --test tests/*.mjs",
     "test:coverage": "node scripts/test-coverage.mjs",

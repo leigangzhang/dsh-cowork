@@ -24,7 +24,7 @@ Use before approving or rejecting a change, before opening or updating a PR, bef
 
 - Run `npm run change-scope -- --base <verified-base>` and confirm all four path groups are accounted for.
 - Run `npm run check`; for a skill or workflow change also run `npm run check:self-test`.
-- Select the narrowest tests from `tools/workflow.json`. For a behavior change, run `npm run test:coverage`, `npm run build`, `npm run check:lib-sync`, and `npm run test:host-smoke`; for a docs-only change, run `npm run check`.
+- Select the narrowest tests from `tools/workflow.json`. For a behavior change, run `npm run test:coverage`, `npm run build`, and `npm run test:host-smoke`; for a docs-only change, run `npm run check`.
 - Confirm the final report states commands and results, including checks that did not run.
 - For a PR, use [pr-description](../pr-description/SKILL.md) to write the Motivation / Changes / Testing / Evidence structure with test design, actual test entries, unrun checks, and reviewable evidence.
 

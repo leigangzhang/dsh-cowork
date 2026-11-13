@@ -1,1 +1,0 @@
-{"version":3,"file":"notice-contract.js","sourceRoot":"","sources":["../src/notice-contract.ts"],"names":[],"mappings":"AAAA;;;;;;;;;GASG;AAEH,kDAAkD;AAClD,MAAM,CAAC,MAAM,YAAY,GAAG,CAAC,YAAY,EAAE,QAAQ,EAAE,UAAU,EAAE,eAAe,EAAE,SAAS,CAAU,CAAA;AAKrG,uDAAuD;AACvD,MAAM,UAAU,YAAY,CAAC,KAAc;IACzC,OAAO,OAAO,KAAK,KAAK,QAAQ,IAAK,YAAkC,CAAC,QAAQ,CAAC,KAAK,CAAC,CAAA;AACzF,CAAC"}

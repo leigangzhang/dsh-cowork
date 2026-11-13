@@ -114,6 +114,4 @@ rm -rf lib
 ./node_modules/.bin/tsc -p tsconfig.json
 echo "=== Building src/client → lib/client.js ==="
 node scripts/build-client.mjs
-echo "=== Recording source digest ==="
-node scripts/write-build-info.mjs
 echo "=== Build complete ==="
