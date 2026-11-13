@@ -29,6 +29,8 @@ export const SUPPORTED_KINDS = [
   'publish-manifest',
   'skill-trigger',
   'docs-layout',
+  'index-reachable',
+  'kind-manifest',
 ]
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -132,18 +134,23 @@ function sectionVariants(section, check) {
 
 export function checkBudget(rootDir, check) {
   const limits = []
-  for (const field of ['maxLines', 'maxWords']) {
+  for (const field of ['maxLines', 'maxWords', 'maxBytes']) {
     const value = check[field]
     if (value === undefined) continue
     if (!Number.isInteger(value) || value < 1) throw new Error(`check ${check.id}: ${field} must be a positive integer`)
     limits.push([field, value])
   }
-  if (limits.length === 0) throw new Error(`check ${check.id}: needs maxLines, maxWords, or both`)
+  if (limits.length === 0) throw new Error(`check ${check.id}: needs maxLines, maxWords, or maxBytes`)
   const violations = []
   for (const [rel, text] of iterFiles(rootDir, check.patterns, check.exclude)) {
     for (const [field, limit] of limits) {
-      const counted = field === 'maxLines' ? countLines(text) : countWords(text)
-      if (counted > limit) violations.push(`${rel}: ${counted} ${field === 'maxLines' ? 'lines' : 'words'}, budget is ${limit}`)
+      const counted = field === 'maxLines'
+        ? countLines(text)
+        : field === 'maxWords'
+          ? countWords(text)
+          : Buffer.byteLength(text, 'utf8')
+      const unit = field === 'maxLines' ? 'lines' : field === 'maxWords' ? 'words' : 'bytes'
+      if (counted > limit) violations.push(`${rel}: ${counted} ${unit}, budget is ${limit}`)
     }
   }
   return violations
@@ -328,6 +335,91 @@ export function checkDocsLayout(rootDir, check) {
   return violations
 }
 
+export function checkIndexReachable(rootDir, check) {
+  if (typeof check.index !== 'string' || check.index === '') throw new Error(`check ${check.id}: index is required`)
+  const indexPath = resolve(rootDir, check.index)
+  if (!existsSync(indexPath)) throw new Error(`check ${check.id}: index not found: ${check.index}`)
+  const text = readFileSync(indexPath, 'utf8')
+  const linked = new Set()
+  for (const match of text.matchAll(/!?\[[^\]]*\]\(([^)]+)\)/g)) {
+    let target = match[1].trim()
+    if (target.startsWith('<') && target.endsWith('>')) target = target.slice(1, -1)
+    else target = target.split(/\s+/)[0]
+    const pathPart = target.split('#')[0].split('?')[0]
+    if (!pathPart || pathPart.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(pathPart) || pathPart.startsWith('//')) continue
+    let decoded = pathPart
+    try { decoded = decodeURIComponent(pathPart) } catch {}
+    linked.add(relative(rootDir, resolve(dirname(indexPath), decoded)).split(sep).join('/'))
+  }
+
+  const required = new Set()
+  if (check.manifest) {
+    const manifestPath = resolve(rootDir, check.manifest)
+    if (!existsSync(manifestPath)) throw new Error(`check ${check.id}: manifest not found: ${check.manifest}`)
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    if (!Array.isArray(manifest.public)) throw new Error(`check ${check.id}: manifest public must be a list`)
+    for (const entry of manifest.public) {
+      if (typeof entry === 'string' && entry !== '' && !/[*?\[]/.test(entry)) required.add(entry)
+    }
+  }
+  if (Array.isArray(check.rootPatterns)) {
+    for (const [rel] of iterFiles(rootDir, check.rootPatterns, check.exclude)) {
+      if (rel.split('/').length === 2) required.add(rel)
+    }
+  }
+  const excluded = new Set(check.requiredExclude ?? [])
+  const violations = []
+  for (const rel of required) {
+    if (!excluded.has(rel) && !linked.has(rel)) violations.push(`${rel}: not reachable from ${check.index}`)
+  }
+  return violations
+}
+
+export function checkKindManifest(rootDir, check) {
+  if (typeof check.manifest !== 'string' || check.manifest === '') throw new Error(`check ${check.id}: manifest is required`)
+  const manifestPath = resolve(rootDir, check.manifest)
+  if (!existsSync(manifestPath)) throw new Error(`check ${check.id}: manifest not found: ${check.manifest}`)
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  if (!Array.isArray(manifest.kinds) || manifest.kinds.length === 0) throw new Error(`check ${check.id}: kinds must be a non-empty list`)
+  if (!Array.isArray(manifest.assignments) || manifest.assignments.length === 0) throw new Error(`check ${check.id}: assignments must be a non-empty list`)
+  const kinds = new Set(manifest.kinds)
+  let checksById = null
+  if (check.declaredIn) {
+    const configPath = resolve(rootDir, check.declaredIn)
+    if (!existsSync(configPath)) throw new Error(`check ${check.id}: declaredIn not found: ${check.declaredIn}`)
+    const config = JSON.parse(readFileSync(configPath, 'utf8'))
+    checksById = new Map((config.checks ?? []).map((item) => [item.id, item]))
+  }
+  const violations = []
+  const assignments = manifest.assignments.map((assignment, index) => {
+    if (!kinds.has(assignment.kind)) violations.push(`${check.manifest} assignments[${index}]: unknown kind '${assignment.kind}'`)
+    if (!Array.isArray(assignment.patterns) || assignment.patterns.length === 0) {
+      violations.push(`${check.manifest} assignments[${index}]: missing patterns`)
+    }
+    if (assignment.skeletonCheck) {
+      const skeleton = checksById?.get(assignment.skeletonCheck)
+      if (!skeleton) violations.push(`${check.manifest} assignments[${index}]: skeletonCheck '${assignment.skeletonCheck}' is not a declared check`)
+      else if (skeleton.kind !== 'required-sections') {
+        violations.push(`${check.manifest} assignments[${index}]: skeletonCheck '${assignment.skeletonCheck}' is not a required-sections check`)
+      }
+    }
+    return assignment
+  })
+  const used = new Set()
+  for (const [rel] of iterFiles(rootDir, check.patterns, check.exclude)) {
+    const hits = assignments
+      .map((assignment, index) => ({ assignment, index }))
+      .filter(({ assignment }) => matchesAny(rel, assignment.patterns ?? []) && !matchesAny(rel, assignment.exclude ?? []))
+    if (hits.length === 0) violations.push(`${rel}: matches no declared kind`)
+    else if (hits.length > 1) violations.push(`${rel}: matches ${hits.length} kinds: ${hits.map(({ assignment }) => assignment.kind).join(', ')}`)
+    else used.add(hits[0].index)
+  }
+  assignments.forEach((assignment, index) => {
+    if (!used.has(index)) violations.push(`${check.manifest} assignments[${index}] (${assignment.kind}) matches no file`)
+  })
+  return violations
+}
+
 const RUNNERS = {
   budget: checkBudget,
   'required-sections': checkRequiredSections,
@@ -336,6 +428,8 @@ const RUNNERS = {
   'publish-manifest': checkPublishManifest,
   'skill-trigger': checkSkillTrigger,
   'docs-layout': checkDocsLayout,
+  'index-reachable': checkIndexReachable,
+  'kind-manifest': checkKindManifest,
 }
 
 export function validateConfig(config) {
@@ -452,6 +546,8 @@ export function selfTest() {
     ['publish-manifest', { id: 'self-publish', kind: 'publish-manifest', patterns: ['docs/*.md'], manifest: 'docs/publish.json' }, { 'docs/publish.json': JSON.stringify({ public: ['docs/a.md'], internal: [] }), 'docs/a.md': '# A\n', 'docs/b.md': '# B\n' }, { 'docs/publish.json': JSON.stringify({ public: ['docs/a.md'], internal: [{ pattern: 'docs/b.md', reason: 'internal draft' }] }), 'docs/a.md': '# A\n', 'docs/b.md': '# B\n' }],
     ['skill-trigger', { id: 'self-skill', kind: 'skill-trigger', patterns: ['.agents/skills/*/SKILL.md'] }, { '.agents/skills/a/SKILL.md': '---\nname: a\ndescription: Summarizes the testing policy.\n---\n\n## When to use\nx\n' }, { '.agents/skills/a/SKILL.md': '---\nname: a\ndescription: Use when a check fails.\n---\n\n## When to use\nx\n' }],
     ['docs-layout', { id: 'self-layout', kind: 'docs-layout', patterns: ['docs/*.md'] }, { 'docs/TOPIC_EXAMPLE_HANDOFF.md': '# handoff\n' }, { 'docs/handoffs/TOPIC_EXAMPLE_HANDOFF.md': '# handoff\n' }],
+    ['index-reachable', { id: 'self-index', kind: 'index-reachable', patterns: ['README.md'], index: 'README.md', rootPatterns: ['docs/*.md'], manifest: 'docs/publish.json', requiredExclude: ['docs/README.md'] }, { 'README.md': '# Index\n\n[A](docs/a.md)\n', 'docs/a.md': '# A\n', 'docs/b.md': '# B\n', 'docs/publish.json': JSON.stringify({ public: ['docs/a.md'], internal: [] }) }, { 'README.md': '# Index\n\n[A](docs/a.md)\n[B](docs/b.md)\n', 'docs/a.md': '# A\n', 'docs/b.md': '# B\n', 'docs/publish.json': JSON.stringify({ public: ['docs/a.md'], internal: [] }) }],
+    ['kind-manifest', { id: 'self-kind', kind: 'kind-manifest', patterns: ['*.md'], manifest: 'docs/kinds.json' }, { 'docs/kinds.json': JSON.stringify({ kinds: ['guide'], assignments: [{ kind: 'guide', patterns: ['a.md'] }] }), 'a.md': '# A\n', 'b.md': '# B\n' }, { 'docs/kinds.json': JSON.stringify({ kinds: ['guide'], assignments: [{ kind: 'guide', patterns: ['a.md'] }, { kind: 'guide', patterns: ['b.md'] }] }), 'a.md': '# A\n', 'b.md': '# B\n' }],
   ]
   let failed = 0
   for (const [kind, check, invalidFiles, validFiles] of cases) {
@@ -489,6 +585,15 @@ export function selfTest() {
   if (overWords.length > 0 && underWords.length === 0) console.log('PASS budget-words: word ceiling fires independently')
   else {
     console.error('FAIL budget-words: word ceiling did not fire or rejected a short file')
+    failed += 1
+  }
+
+  const byteCheck = { id: 'self-bytes', kind: 'budget', patterns: ['NOTE.md'], maxBytes: 10 }
+  const overBytes = withFixtures({ 'NOTE.md': 'x'.repeat(20) }, (dir) => RUNNERS.budget(dir, byteCheck))
+  const underBytes = withFixtures({ 'NOTE.md': 'x' }, (dir) => RUNNERS.budget(dir, byteCheck))
+  if (overBytes.length > 0 && underBytes.length === 0) console.log('PASS budget-bytes: byte ceiling fires independently')
+  else {
+    console.error('FAIL budget-bytes: byte ceiling did not fire or rejected a short file')
     failed += 1
   }
 

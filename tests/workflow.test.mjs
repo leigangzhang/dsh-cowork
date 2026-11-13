@@ -66,6 +66,12 @@ test('tools/workflow.json declares unique surfaces with non-empty evidence', () 
     assert.ok(check.kind, `${check.id} needs a kind`)
     assert.ok(Array.isArray(check.patterns) && check.patterns.length > 0, `${check.id} needs patterns`)
   }
+  for (const id of ['markdown-links', 'doc-index-reachability', 'kind-manifest', 'markdown-size']) {
+    assert.ok(checkIds.has(id), `workflow missing document check: ${id}`)
+  }
+  const kinds = JSON.parse(read('docs/kinds.json'))
+  assert.ok(Array.isArray(kinds.kinds) && kinds.kinds.length > 0, 'docs/kinds.json needs a non-empty kinds list')
+  assert.ok(Array.isArray(kinds.assignments) && kinds.assignments.length > 0, 'docs/kinds.json needs assignments')
 })
 
 test('AGENTS.md keeps the context budget and the required pointers', () => {

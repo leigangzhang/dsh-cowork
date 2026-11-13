@@ -295,17 +295,12 @@
       "why": "Every document is deliberately public or internal; an unclassified file is a silent omission, and a public entry with no file behind it is a broken promise."
     },
     {
-      "id": "agent-input-links",
+      "id": "markdown-links",
       "kind": "link-target",
       "patterns": [
-        "AGENTS.md",
-        "*/AGENTS.md",
-        ".agents/skills/*/SKILL.md",
-        ".agents/notes/*/TEMPLATE.md",
-        "README.md",
-        "docs/README.md"
+        "*.md"
       ],
-      "why": "Agent-loaded files and entry indexes must not cite files that do not exist; a reader follows a broken pointer and finds nothing."
+      "why": "Every tracked Markdown file must not cite a missing local file; external URLs are not fetched, but every relative link is resolvable."
     },
     {
       "id": "no-proposal-era-headings",
@@ -375,6 +370,42 @@
         "docs/*.md"
       ],
       "why": "Record families live under docs/handoffs/ or docs/archived/{handoffs,results,recon}/; root docs hold rules, project documents, and standalone files."
+    },
+    {
+      "id": "doc-index-reachability",
+      "kind": "index-reachable",
+      "patterns": [
+        "docs/README.md"
+      ],
+      "index": "docs/README.md",
+      "manifest": "docs/publish.json",
+      "rootPatterns": [
+        "docs/*.md"
+      ],
+      "requiredExclude": [
+        "docs/README.md",
+        "README.md"
+      ],
+      "why": "A public page or a root document that exists but cannot be reached from the documentation index is effectively invisible."
+    },
+    {
+      "id": "kind-manifest",
+      "kind": "kind-manifest",
+      "patterns": [
+        "*.md"
+      ],
+      "manifest": "docs/kinds.json",
+      "declaredIn": "tools/workflow.json",
+      "why": "Each Markdown file gets exactly one declared kind, and every assignment that claims a fixed skeleton points at a declared required-sections check."
+    },
+    {
+      "id": "markdown-size",
+      "kind": "budget",
+      "patterns": [
+        "*.md"
+      ],
+      "maxBytes": 51200,
+      "why": "No Markdown file may exceed the 50 KiB single-file read limit; oversized pages must be split or relocated."
     }
   ]
 }

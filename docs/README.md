@@ -21,6 +21,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 决策记录怎么写、为什么写 | [.agents/notes/README.md](../.agents/notes/README.md) |
 | 一个改动欠哪些证据 | [tools/workflow.json](../tools/workflow.json) |
 | 一个需求怎么被路由、新建 topic、经评审与工作项合并 | [routing.md](routing.md) |
+| AgentTeams 的 DAG、门禁、worktree 与交付规则 | [AGENTTEAM.md](AGENTTEAM.md) |
 | 右侧栏主题页、收件箱、工作项等设计稿与索引 | [design/cowork-sidebar/README.md](design/cowork-sidebar/README.md) |
 | 主题怎么记录决策、怎么把结果交接给 master | [decision-and-handoff.md](decision-and-handoff.md) |
 | master 与 topic 怎么共享项目上下文、记忆何时注入、handoff/通知账本如何上下行 | [context.md](context.md) |
@@ -51,5 +52,6 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/design/cowork-sidebar/` | records | 右侧栏主题页、收件箱、工作项等设计、调研与核实记录 |
 | `docs/discussion/` | assets | 设计讨论数据与 HTML/CSS/PNG 演示资产；不是规则或事实源 |
 | `docs/publish.json` | switch | 唯一发布开关 |
-| `tools/workflow.json` | machinery | surface 与证据命令 |
+| `docs/kinds.json` | switch | 每个 Markdown 的唯一 kind 与 skeleton 检查映射 |
+| `tools/workflow.json` | machinery | surface、check 配置与证据命令 |
 | `.agents/notes/` | records | 决策记录与模板 |

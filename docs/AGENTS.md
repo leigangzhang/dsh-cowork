@@ -1,6 +1,6 @@
 # Documentation standard
 
-The documentation rules for this repository. They are adapted from the agent-workflow-kit documentation harness and cut to this repository's one-tier shape. Every command named here runs.
+The documentation rules for this repository, adapted from the agent-workflow-kit harness to this repository's one-tier shape. Every command named here runs.
 
 A **skill** is the one kind whose reader is a model: its `description` is a load condition (`Use when …`), not a summary; its body carries the decision logic; and its `## Verification` section names the gate to run. No validation logic lives in a skill. The host owns the loader, and the skill guard in `npm run check` proves only that the description still reads as a trigger, never that the skill was loaded. The writing procedures live in [write-docs](../.agents/skills/write-docs/SKILL.md), [prose-standard](../.agents/skills/prose-standard/SKILL.md), and [trim-cot-leakage](../.agents/skills/trim-cot-leakage/SKILL.md).
 
@@ -11,6 +11,7 @@ Every document gets one kind first, and the kind fixes its skeleton, its budget,
 | kind | It answers | Not its job |
 |---|---|---|
 | guide ([README.md](../README.md), this file, [testing.md](testing.md), [routing.md](routing.md), [context.md](context.md), [decision-and-handoff.md](decision-and-handoff.md), [AGENTTEAM.md](AGENTTEAM.md)) | One learning path, or one current rule | Restating what the homes it links to already say |
+| standing-rules ([AGENTS.md](../AGENTS.md)) | The rules an agent must obey in every task | Explanations and examples |
 | index ([docs/README.md](README.md), [docs/archived/README.md](archived/README.md), [docs/handoffs/README.md](handoffs/README.md), [design index](design/cowork-sidebar/README.md), [skills README](../.agents/skills/README.md)) | Where to find what | Any rule or fact of its own |
 | plan ([PLAN.md](PLAN.md), [PLAN-V0.2.md](PLAN-V0.2.md)) | Product scope, architecture, milestones, acceptance | Implementation steps as prose |
 | reference ([glossary.md](glossary.md), [plain-language.md](plain-language.md), [KNOWN_ISSUES.md](KNOWN_ISSUES.md)) | A current fact looked up by name or term | Teaching paths, rationale |
@@ -19,13 +20,13 @@ Every document gets one kind first, and the kind fixes its skeleton, its budget,
 | template (`*/TEMPLATE.md`) | What a record should look like | Real content |
 | switch ([docs/publish.json](publish.json)) | Which files may ship | A second allow-list elsewhere |
 
-To add a kind, supply all three at once: its skeleton, its home, and a check that maps documents to it. With one missing, no reader can say whether a document of that kind is acceptable. `contract` and `generated` are not kinds here: interfaces live in source, and no page is generated. Introducing either requires its skeleton, home, and check in the same change.
+To add a kind, supply its skeleton, home, and a check that maps documents to it, then declare it in [docs/kinds.json](kinds.json). With one missing, no reader can say whether that kind is acceptable. `contract` and `generated` are not kinds here: interfaces live in source, and no page is generated. Introducing either requires its skeleton, home, and check in the same change.
 
 **Names.** For new files, uppercase is reserved for names a tool or reader looks up by name: `README.md`, `AGENTS.md`, `SKILL.md`, `TEMPLATE.md`, `PLAN.md`, `PLAN-V0.2.md`, `KNOWN_ISSUES.md`. Every other new file is lowercase kebab-case. Existing uppercase names remain for link stability and are not a precedent. A name is a label, never a kind signal: the kind follows from the mechanical facts, so a change of kind renames the file.
 
 ## Directory layout
 
-`docs/` root holds the documentation index, general rules, project-wide plans, guides, and references, and standalone documents that do not belong to a semantic family. A file moves into a subdirectory when it is one member of an existing family; a directory groups record families, not document kinds.
+`docs/` root holds the index, general rules, project-wide plans, guides, references, and standalone documents outside a semantic family. A file moves into a subdirectory when it joins an existing family; directories group record families, not document kinds.
 
 | Path | Holds | Does not hold |
 |---|---|---|
@@ -87,7 +88,7 @@ A standing document is a budget, not a warehouse. Over budget, in this order:
 2. **condense**: it does belong here, but it can be shorter;
 3. **raise the number**: only when the words genuinely need the space, and say why in the commit.
 
-The checks count lines (`maxLines`) or whitespace-separated words (`maxWords`). Chinese pages use line ceilings because a word count undercounts them; English pages use word ceilings. `AGENTS.md` is capped at 120 lines; this file at 1850 words, [testing.md](testing.md) at 1900, and [glossary.md](glossary.md) and [plain-language.md](plain-language.md) at 1500 each. Other standing documents stay short by review; a new hard budget needs a check in the same change. Within 5% of a ceiling, relocate or condense rather than adding words.
+The checks count lines (`maxLines`), whitespace-separated words (`maxWords`), or bytes (`maxBytes`). Chinese pages use line ceilings because word counts undercount them; English pages use word ceilings. `AGENTS.md` is capped at 120 lines; this file at 1850 words, [testing.md](testing.md) at 1900, and [glossary.md](glossary.md) and [plain-language.md](plain-language.md) at 1500 each. Other standing docs stay short by review; a new hard budget needs a check. Within 5%, relocate or condense rather than adding words.
 
 ## Publication
 
