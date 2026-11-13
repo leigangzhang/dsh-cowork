@@ -6,16 +6,16 @@ Class: process
 
 ## Problem
 
-`docs/documentation.md` 已经吸收 agent-workflow-kit 的文档治理骨架，但被裁成最小版：缺少 skill 这一 kind、四段式技能契约、命名规则、目录架构、完整的 link/mirror/generate 三分法、预算细节、防劣质清单的完整边界。仓库也没有自己的 `write-docs`、`prose-standard` 与 `trim-cot-leakage` skill，下一次写文档只能凭规则正文重新推导步骤；规则与操作之间没有任何可执行检查。
+`docs/AGENTS.md` 已经吸收 agent-workflow-kit 的文档治理骨架，但被裁成最小版：缺少 skill 这一 kind、四段式技能契约、命名规则、目录架构、完整的 link/mirror/generate 三分法、预算细节、防劣质清单的完整边界。仓库也没有自己的 `write-docs`、`prose-standard` 与 `trim-cot-leakage` skill，下一次写文档只能凭规则正文重新推导步骤；规则与操作之间没有任何可执行检查。
 
 `docs/` 的物理结构与语义类型也不一致：当前实现交接散在根目录，`docs/archived/` 把实施交接、交付/探针结果和侦察记录平铺在一起；`prose-standard` 还带着 vendor、Cordis、postmortem、cookbook、双语与生成物等本仓库不使用的通用规则。
 
 ## Decision
 
-- [docs/documentation.md](../../../../docs/documentation.md) 是文档规则的唯一 home：kind、命名、one-home-per-fact、tutorial/reference 二分、link/mirror/generate、预算、发布开关、防劣质清单与已知边界都在这里。结构按参考仓库还原，路径、命令和“暂无生成页/镜像登记表”的项目事实就地改写。
+- [docs/AGENTS.md](../../../../docs/AGENTS.md) 是文档规则的唯一 home：kind、命名、one-home-per-fact、tutorial/reference 二分、link/mirror/generate、预算、发布开关、防劣质清单与已知边界都在这里。结构按参考仓库还原，路径、命令和“暂无生成页/镜像登记表”的项目事实就地改写。
 - `.agents/skills/write-docs/SKILL.md` 管写作与评审步骤，`.agents/skills/prose-standard/SKILL.md` 管完整命题、按位置所需的正文覆盖和边界判断，`.agents/skills/trim-cot-leakage/SKILL.md` 管 CoT/会话残留、变更叙述和推理过程泄漏；三个 skill 都保留 `## When to use`、`## How`、`## Verification`、`## Anti-patterns`，`description` 是加载条件而不是摘要。
-- `prose-standard` 从本地 `deepseek-harness/.agents/skills/dsh-prose-standard` 迁移：保留编辑判断、完整命题、按位置覆盖、workflow、borderline decisions 和 `references/examples.md` 中适用于本项目的示例；把悬空指针换成本项目的 `write-docs`、`trim-cot-leakage`、[docs/documentation.md](../../../../docs/documentation.md) 与实际检查，并删除 vendor、Cordis、postmortem、cookbook、双语、生成物和 archived-notes 等本仓库不使用的通用规则。
-- [docs/documentation.md](../../../../docs/documentation.md) 增加 `## Directory layout`：`docs/` 根只放索引、通用规则、项目级计划/指南/参考和独立文件；同语义记录进入 `docs/design/<feature>/`、`docs/handoffs/` 和 `docs/archived/{handoffs,results,recon}/`，不按 `guide/reference/plan` 这种 kind 拆目录。
+- `prose-standard` 从本地 `deepseek-harness/.agents/skills/dsh-prose-standard` 迁移：保留编辑判断、完整命题、按位置覆盖、workflow、borderline decisions 和 `references/examples.md` 中适用于本项目的示例；把悬空指针换成本项目的 `write-docs`、`trim-cot-leakage`、[docs/AGENTS.md](../../../../docs/AGENTS.md) 与实际检查，并删除 vendor、Cordis、postmortem、cookbook、双语、生成物和 archived-notes 等本仓库不使用的通用规则。
+- [docs/AGENTS.md](../../../../docs/AGENTS.md) 增加 `## Directory layout`：`docs/` 根只放索引、通用规则、项目级计划/指南/参考和独立文件；同语义记录进入 `docs/design/<feature>/`、`docs/handoffs/` 和 `docs/archived/{handoffs,results,recon}/`，不按 `guide/reference/plan` 这种 kind 拆目录。
 - 当前交接移动到 `docs/handoffs/`，历史交接/结果/侦察移动到 `docs/archived/handoffs|results|recon/`；所有 tracked Markdown、JSON、源码注释和测试中的路径引用同步重写，`docs/publish.json` 改为按 `docs/handoffs/*` 分类。
 - `docs/README.md` 和 `AGENTS.md` 只增加指针，不复制规则。`.agents/skills/` 作为 agent 输入在 [docs/publish.json](../../../../docs/publish.json) 中统一登记为 `internal`。
 - [tools/workflow.json](../../../../tools/workflow.json) 增加 `agent-skills` surface；`npm run check` 校验 skill 的 front matter、触发词、四段式正文和相对链接，`docs-layout` 拒绝根目录散落的 handoff/result/recon 或归档根目录散落的记录，负例由 `npm run check:self-test` 证明会变红。

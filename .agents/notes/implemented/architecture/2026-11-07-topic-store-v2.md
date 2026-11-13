@@ -12,7 +12,7 @@ M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`chec
 
 ## Decision
 
-**索引 v2。** `index.json` 写 `version: 2`、`topics[]`、`workItems[]`。`TopicRecord` 字段：`topicId/title/status/awaitingReview/blocked/scope/ownedPaths/aliases/digest/cwd/legacyCheckoutPath/createdAt/updatedAt/lastActiveAt/lastDeliveryConfirmedAt/resolvedAt/resolvedBy/latestReviewRequestId/reviewStatus/reviewerSessionId`。`WorkItemRecord` 字段见 [并行隔离与合并](./2026-11-07-parallel-isolation-and-merge.md)。写只写 v2；读兼容 v1，内存里归一化。
+**索引 v2。** `index.json` 写 `version: 2`、`topics[]`、`workItems[]`。`TopicRecord` 字段：`topicId/title/status/awaitingReview/blocked/scope/ownedPaths/aliases/digest/cwd/legacyCheckoutPath/createdAt/updatedAt/lastActiveAt/lastDeliveryConfirmedAt/resolvedAt/resolvedBy/latestReviewRequestId/reviewStatus/reviewerSessionId`。`WorkItemRecord` 字段见 [并行隔离与合并](2026-11-07-parallel-isolation-and-merge.md)。写只写 v2；读兼容 v1，内存里归一化。
 
 **评审请求文件。** `reviews/<topicId>-<requestId>.json` 保存请求与 verdict 在同一文件：请求字段、`status`、`reviewerSessionId`、`requestedAt`、`reviewedAt`、`verdict`。一次请求一个文件，verdict 后不再新建文件；上一轮通过 `previousRequestId` 关联。旧的 `reviews/<threadId>-<stamp>.json` 保留只读，不重写。
 
@@ -64,7 +64,7 @@ M4 的 `.dsh-cowork/index.json` 是 thread 中心：`threads[]`、六态、`chec
 - 活动/收件箱文件损坏：损坏行跳过并记录；整文件损坏时报错，不静默覆盖。重审条件：出现并发写入或磁盘错误。
 - schema 漂移：v2 字段只在 `store-schema.ts` 定义；新增字段必须带默认值和迁移说明。重审条件：出现第二个写索引的模块。
 - 版本兼容：0.2.0 不能读回 v1 的运行时；回滚必须恢复备份并重装。重审条件：需要双向迁移。
-- 落地路径：M6 探针 3/4 已确认 archive 语义与 reviewer 回收时机（见 [M6 探针结果](../../../../docs/archived/results/M6_PROBE_RESULT.md) §3/§4）；M7 落地 v2 schema、迁移、备份与 activity/inbox 文件读写和锁（见 [M7 执行记录](./2026-11-07-store-v2-migration-plan.md)）；M8 把活动流裁剪、收件箱合并/重放接入生命周期（见 [M8 交付结果](../../../../docs/archived/results/M8_RESULT.md)）；M10 落地评审请求文件写入与 verdict 合并（见 [M10 交付结果](../../../../docs/archived/results/M10_RESULT.md)）；M12 完成迁移/回滚的真实 E2E 与文档收口。
+- 落地路径：M6 探针 3/4 已确认 archive 语义与 reviewer 回收时机（见 [M6 探针结果](../../../../docs/archived/results/M6_PROBE_RESULT.md) §3/§4）；M7 落地 v2 schema、迁移、备份与 activity/inbox 文件读写和锁（见 [M7 执行记录](2026-11-07-store-v2-migration-plan.md)）；M8 把活动流裁剪、收件箱合并/重放接入生命周期（见 [M8 交付结果](../../../../docs/archived/results/M8_RESULT.md)）；M10 落地评审请求文件写入与 verdict 合并（见 [M10 交付结果](../../../../docs/archived/results/M10_RESULT.md)）；M12 完成迁移/回滚的真实 E2E 与文档收口。
 - 本记录由 M12 从 `proposed/architecture/` 下的同名提案迁入 `implemented/architecture/` 并按 implemented 骨架重写；交付事实与证据见 [M8 交付结果](../../../../docs/archived/results/M8_RESULT.md) 与 [M10 交付结果](../../../../docs/archived/results/M10_RESULT.md)。
 
 ## Testing

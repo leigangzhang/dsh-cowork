@@ -5,7 +5,7 @@ description: Use when creating, restructuring, auditing, or reviewing documentat
 
 # Write documentation
 
-**The only valid evidence for an operational claim is that you ran it.** Everything below follows from that. The rules live in [documentation.md](../../../docs/documentation.md); this skill answers only "when do I apply which rule".
+**The only valid evidence for an operational claim is that you ran it.** Everything below follows from that. The rules live in [docs/AGENTS.md](../../../docs/AGENTS.md); this skill answers only "when do I apply which rule".
 
 **Name the concept before you write it.** A word that already means something in this repository may not be reused for something else: check [docs/glossary.md](../../../docs/glossary.md), and if the word is new, add the entry in the same change.
 
@@ -23,9 +23,9 @@ description: Use when creating, restructuring, auditing, or reviewing documentat
 - **tutorial**: an ordered path to a result, introducing only the concepts each step needs right then;
 - **reference**: a lookup scope describing current behaviour, with no teaching order.
 
-Substantial as both means two documents. Classification comes first, then the kind ([kind table](../../../docs/documentation.md#document-kinds)) — the kind fixes the skeleton, the budget, and the reader.
+Substantial as both means two documents. Classification comes first, then the kind ([kind table](../../../docs/AGENTS.md#document-kinds)) — the kind fixes the skeleton, the budget, and the reader.
 
-**2. Put it in its nearest owner.** A package contract sits next to the package code; cross-package learning goes into `docs/`. One home per fact: when a sentence appears twice, delete one copy and link the other. The placement table is in [one home per fact](../../../docs/documentation.md#one-home-per-fact).
+**2. Put it in its nearest owner.** A package contract sits next to the package code; cross-package learning goes into `docs/`. One home per fact: when a sentence appears twice, delete one copy and link the other. The placement table is in [one home per fact](../../../docs/AGENTS.md#one-home-per-fact).
 
 **3. Decide link, mirror, or generate first.** Default to a link: the fact lives in source, configuration, or a generator, and the document says what it is and where to look. Mirror only when it must be shown verbatim, and register it with a byte-for-byte check against its source region. Generate only when a whole page is exported from one source; change the generator rather than the page, and give it a `--check` command on a workflow surface. This repository has no mirror registry or generated page today, so introducing either adds the missing registry and check in the same change. Restatement is drift.
 
@@ -45,7 +45,7 @@ Substantial as both means two documents. Classification comes first, then the ki
 
 **7. Publication is an explicit decision.** A new page must be classified `public` or `internal` in [docs/publish.json](../../../docs/publish.json); a file that is neither is a silent omission and the gate goes red. The manifest is the switch, not the projection.
 
-**8. Walk the slop checklist before handing it over.** Duplicated rules, history out of bounds, status annotations, hand-copied catalogs, reasoning-trace leakage, paragraph walls, emphasis inflation, prose restating code ([The slop checklist](../../../docs/documentation.md#the-slop-checklist)); whatever can be pinned as a check, pin.
+**8. Walk the slop checklist before handing it over.** Duplicated rules, history out of bounds, status annotations, hand-copied catalogs, reasoning-trace leakage, paragraph walls, emphasis inflation, prose restating code ([The slop checklist](../../../docs/AGENTS.md#the-slop-checklist)); whatever can be pinned as a check, pin.
 
 ## Verification
 

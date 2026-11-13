@@ -25,7 +25,7 @@
 5. [主题会话模型](../../../.agents/notes/implemented/architecture/2026-11-07-topic-session-model.md)：master/插件/主题/reviewer 的角色边界与旧 thread 别名（M12 已迁 implemented）。
 6. [M8 交付结果](../results/M8_RESULT.md)：M8 实际交付、证据、偏差、回滚；[M8 执行记录](../../../.agents/notes/implemented/architecture/2026-11-07-m8-lifecycle-activity-inbox-plan.md) 与 [三态规则](../../../.agents/notes/implemented/feature/2026-11-07-three-state-lifecycle.md) 是 M8 的正式记录。
 7. [M6 探针结果](../results/M6_PROBE_RESULT.md) §1（LLM prepareCall/关闭推理）、§5（preset 工具面与 per-agent restrict 边界）、§2（session/event）。
-8. [docs/testing.md](../../testing.md)、[docs/documentation.md](../../documentation.md)、[tools/workflow.json](../../../tools/workflow.json)：证据面、文档分类、检查映射。
+8. [docs/testing.md](../../testing.md)、[docs/AGENTS.md](../../AGENTS.md)、[tools/workflow.json](../../../tools/workflow.json)：证据面、文档分类、检查映射。
 9. [KNOWN_ISSUES](../../KNOWN_ISSUES.md)：KI-18（兼容层，M9→M10→M12）、KI-19/21/22。
 
 ## 第一步：M9 的启动顺序

@@ -592,7 +592,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 1. 本文件与 7 份 proposed 记录已保存；开始 M6 时先核对记录与探针结论，再执行探针、写 `docs/archived/results/M6_PROBE_RESULT.md`；完成后停下。
 2. M7–M12 一次只做一个；每个阶段结束报告：改了什么、验证命令与结果、如何回滚、遗留风险；等确认后再进入下一阶段。
-3. 工作目录固定 `/Users/ray/Workspace/dsh-cowork`；先读 `AGENTS.md`、`docs/documentation.md`、`docs/testing.md`、本文件。
+3. 工作目录固定 `/Users/ray/Workspace/dsh-cowork`；先读 `AGENTS.md`、`docs/AGENTS.md`、`docs/testing.md`、本文件。
 4. 不修改 `~/.agents/AGENTS.md`、`~/.dsh` 下无关配置；不发布到远端，不上传源码。
 5. 任何阶段发现宿主前提被推翻，停下来报告已知事实和 2–3 个选项，不绕过。
 6. 真实 E2E 与面板验收通过后，才宣布 M12 完成；未跑的命令必须在报告中明确列出。

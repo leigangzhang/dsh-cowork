@@ -3,7 +3,7 @@
   "public": [
     "README.md",
     "docs/README.md",
-    "docs/documentation.md",
+    "docs/AGENTS.md",
     "docs/glossary.md",
     "docs/plain-language.md",
     "docs/testing.md",

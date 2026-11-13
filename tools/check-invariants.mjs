@@ -256,7 +256,7 @@ function publicationErrors(rootDir, errors) {
   // documentation index must route to the standing documents
   if (exists('docs/README.md')) {
     const index = read('docs/README.md')
-    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/testing.md', 'docs/publish.json', 'docs/handoffs/README.md', '.agents/skills/write-docs/SKILL.md', '.agents/skills/prose-standard/SKILL.md', '.agents/skills/trim-cot-leakage/SKILL.md']) {
+    for (const token of ['docs/PLAN.md', 'docs/AGENTS.md', 'docs/testing.md', 'docs/publish.json', 'docs/handoffs/README.md', '.agents/skills/write-docs/SKILL.md', '.agents/skills/prose-standard/SKILL.md', '.agents/skills/trim-cot-leakage/SKILL.md']) {
       if (!index.includes(token)) errors.push(`docs/README.md is missing pointer: ${token}`)
     }
   } else {
@@ -282,7 +282,7 @@ function collect(rootDir) {
   // README must point at the plan and the documentation standard
   if (exists('README.md')) {
     const readme = read('README.md')
-    for (const token of ['docs/PLAN.md', 'docs/documentation.md', 'docs/README.md']) {
+    for (const token of ['docs/PLAN.md', 'docs/AGENTS.md', 'docs/README.md']) {
       if (!readme.includes(token)) errors.push(`README.md is missing pointer: ${token}`)
     }
   } else {
@@ -365,7 +365,7 @@ function collect(rootDir) {
 
   // kit gates for standing policy homes: docs-policy / testing-policy / notes-readme
   const policyHomes = [
-    ['docs/documentation.md', ['## Document kinds', '## Directory layout', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits'], 'docs-policy'],
+    ['docs/AGENTS.md', ['## Document kinds', '## Directory layout', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits'], 'docs-policy'],
     ['docs/testing.md', ['## Tiers', '## Commands', '## Determinism', '## Blocking and observational lanes', '## Flake policy', '## Evidence per change'], 'testing-policy'],
     ['.agents/notes/README.md', ['## When to write one', '## Classes', '## Flow'], 'notes-readme'],
   ]
@@ -377,13 +377,13 @@ function collect(rootDir) {
     const doc = read(rel)
     for (const heading of sections) {
       if (!doc.includes(heading)) errors.push(`${gate}: ${rel} missing ${heading}`)
-      else if (!sectionHasBody(doc, heading) && !['docs/documentation.md', 'docs/testing.md', '.agents/notes/README.md'].includes(rel)) errors.push(`${gate}: ${rel} section is empty: ${heading}`)
+      else if (!sectionHasBody(doc, heading) && !['docs/AGENTS.md', 'docs/testing.md', '.agents/notes/README.md'].includes(rel)) errors.push(`${gate}: ${rel} section is empty: ${heading}`)
     }
   }
 
   // kit budgets: standing docs are budgets, not warehouses
   const budgets = [
-    ['docs/documentation.md', 200, 'docs-budget'],
+    ['docs/AGENTS.md', 200, 'docs-budget'],
     ['docs/testing.md', 160, 'testing-budget'],
     ['docs/glossary.md', 220, 'reference-budget'],
     ['docs/plain-language.md', 200, 'reference-budget'],

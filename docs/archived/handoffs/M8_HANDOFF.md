@@ -28,7 +28,7 @@
 5. [M7 迁移实施记录](../../../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)：M7 实际交付、限制与 Testing；不要重做它的决定。
 6. [KNOWN_ISSUES](../../KNOWN_ISSUES.md)：KI-18..KI-22 的归属与重估触发条件。
 7. [M6 探针结果](../results/M6_PROBE_RESULT.md) §2（`session/event` 与 500 条缓冲限制）、§4（reviewer 归档必须 after-verdict）。
-8. [docs/testing.md](../../testing.md)、[docs/documentation.md](../../documentation.md)、[tools/workflow.json](../../../tools/workflow.json)：证据面、文档分类、检查映射。
+8. [docs/testing.md](../../testing.md)、[docs/AGENTS.md](../../AGENTS.md)、[tools/workflow.json](../../../tools/workflow.json)：证据面、文档分类、检查映射。
 9. [M6 交接](M6_HANDOFF.md)：交接骨架与历史约定；其中的启动步骤已完成，只读不重跑。
 
 ## 第一步：M8 的启动顺序

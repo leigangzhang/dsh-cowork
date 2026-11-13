@@ -2,7 +2,7 @@
 
 Current implementation handoffs for the Cowork sidebar. This page only routes; each handoff owns its own scope, acceptance evidence, and open risks.
 
-Historical phase handoffs live under [archived/handoffs/](../archived/handoffs/), delivery and probe results under [archived/results/](../archived/results/), and reconnaissance records under [archived/recon/](../archived/recon/).
+Historical phase handoffs live under [archived/handoffs/](../archived/handoffs), delivery and probe results under [archived/results/](../archived/results), and reconnaissance records under [archived/recon/](../archived/recon).
 
 | Scope | Handoff |
 |---|---|

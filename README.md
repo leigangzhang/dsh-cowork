@@ -147,7 +147,7 @@ npm run build              # host + client 构建
 - 路由与上下文：[routing.md](docs/routing.md)、[context.md](docs/context.md)。
 - 术语：[glossary.md](docs/glossary.md)、面向非术语读者的说法：[plain-language.md](docs/plain-language.md)。
 - 遗留与重估条件：[KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)；怎样才算验证过：[testing.md](docs/testing.md)。
-- 文档规范与发布开关：[documentation.md](docs/documentation.md)；全部文档索引：[docs/README.md](docs/README.md)。
+- 文档规范与发布开关：[docs/AGENTS.md](docs/AGENTS.md)；全部文档索引：[docs/README.md](docs/README.md)。
 - 仓库常驻规则：[AGENTS.md](AGENTS.md)；改一个文件欠哪些证据：[tools/workflow.json](tools/workflow.json)。
 
 ## 许可

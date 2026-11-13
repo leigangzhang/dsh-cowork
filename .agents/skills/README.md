@@ -17,5 +17,5 @@ An agent loads a skill by name once its `description` matches the work. Skills a
 ## Related
 
 - Every home in this repository, and what each one owns: [docs/README.md](../../docs/README.md).
-- The rules these skills apply: [docs/documentation.md](../../docs/documentation.md).
+- The rules these skills apply: [docs/AGENTS.md](../../docs/AGENTS.md).
 - The checks that keep the skill set honest: [tools/workflow.json](../../tools/workflow.json) and [tools/check-invariants.mjs](../../tools/check-invariants.mjs).

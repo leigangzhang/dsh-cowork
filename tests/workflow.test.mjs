@@ -114,7 +114,7 @@ test('publish.json classifies every Markdown file exactly once', () => {
 
 test('standing policy homes keep their required sections', () => {
   const homes = [
-    ['docs/documentation.md', ['## Document kinds', '## Directory layout', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits']],
+    ['docs/AGENTS.md', ['## Document kinds', '## Directory layout', '## One home per fact', '## Tutorial or reference', '## Generated, mirrored, or linked', '## Budgets', '## Publication', '## The slop checklist', '## Known limits']],
     ['docs/testing.md', ['## Tiers', '## Determinism', '## Flake policy']],
     ['.agents/notes/README.md', ['## When to write one', '## Classes', '## Flow']],
   ]

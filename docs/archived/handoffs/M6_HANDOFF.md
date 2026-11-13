@@ -25,7 +25,7 @@
 4. [M11 可见性降级决策](../../../.agents/notes/implemented/feature/2026-11-07-topic-visibility-fallback.md)：为什么是 (b)、代价、验收。
 5. [M7 迁移实施记录](../../../.agents/notes/implemented/architecture/2026-11-07-store-v2-migration-plan.md)：M7 的执行顺序、事务与测试先行。
 6. [索引 v2 与迁移](../../../.agents/notes/implemented/architecture/2026-11-07-topic-store-v2.md)：数据模型、字段与六态映射（M12 已迁 implemented）。
-7. [docs/testing.md](../../testing.md)、[docs/documentation.md](../../documentation.md)、[tools/workflow.json](../../../tools/workflow.json)：证据面、文档分类与检查映射。
+7. [docs/testing.md](../../testing.md)、[docs/AGENTS.md](../../AGENTS.md)、[tools/workflow.json](../../../tools/workflow.json)：证据面、文档分类与检查映射。
 8. 本机可选：`.dsh-cowork/m6-probe/toolbelt` 与 `runs/`（gitignored）；复跑方法见 M6 结果 §10。
 
 ## 交付前的事实（历史）

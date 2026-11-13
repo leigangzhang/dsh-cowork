@@ -10,7 +10,7 @@
 2. [docs/archived/recon/PANEL_RECON.md](../recon/PANEL_RECON.md)：右侧栏 tab 的挂载、14 个公开 token、宽度公式、client 打包约定。
 3. [面板决策](../../../.agents/notes/implemented/feature/2026-11-05-cowork-panel.md)：布局/数据/验收；尤其 `## Proposal` 的“数据契约”和“客户端构建与探针”。
 4. [docs/archived/results/M1_RESULT.md](../results/M1_RESULT.md)：`index.json`、handoffs 与现有工具行为。
-5. [.agents/notes/README.md](../../../.agents/notes/README.md)、[docs/documentation.md](../../documentation.md)：记录迁移与发布分类。
+5. [.agents/notes/README.md](../../../.agents/notes/README.md)、[docs/AGENTS.md](../../AGENTS.md)：记录迁移与发布分类。
 
 ## 现在的事实
 
