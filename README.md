@@ -160,7 +160,7 @@ npm run build              # host + client 构建
 
 `test:host-smoke` 使用临时 `DSH_HOME` 和临时 npm 缓存，不读写用户的真实 profile。`lib/` 已跟踪到 git；源码变更后运行 `npm run build`，并把对应的 `lib/` 变更一起提交。`npm test` 会运行同一个 `lib/build-info.json` 校验，源码改了而 `lib/` 没重建会直接变红。
 
-审查与交付流程见 [.agents/skills/README.md](.agents/skills/README.md)（`code-review` / `pre-push-checks` / `pr-description` / `merging-stacked-prs` / `find-simplifications`），PR 描述使用 [pull_request_template.md](.github/pull_request_template.md)。
+审查与交付流程见 [.agents/skills/README.md](.agents/skills/README.md)（`code-review` / `pre-push-checks` / `pr-description` / `merging-stacked-prs` / `find-simplifications`）；PR 结构由 [pr-description](.agents/skills/pr-description/SKILL.md) 声明，不再维护独立的 `.github` 模板文件。
 
 ## 文档与规则
 

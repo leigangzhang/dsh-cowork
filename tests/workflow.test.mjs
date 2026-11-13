@@ -74,13 +74,14 @@ test('tools/workflow.json declares unique surfaces with non-empty evidence', () 
   assert.ok(Array.isArray(kinds.assignments) && kinds.assignments.length > 0, 'docs/kinds.json needs assignments')
 })
 
-test('the PR template carries the review and evidence sections', () => {
-  const template = read('.github/pull_request_template.md')
+test('pr-description owns the PR structure and no separate template exists', () => {
+  const skill = read('.agents/skills/pr-description/SKILL.md')
   for (const heading of ['## Motivation', '## Changes', '## Testing', '## Evidence']) {
-    assert.ok(template.includes(`${heading}\n`), `PR template is missing ${heading}`)
+    assert.ok(skill.includes(`${heading}\n`), `pr-description is missing ${heading}`)
   }
-  assert.match(template, /npm run change-scope -- --base/)
-  assert.match(template, /### Not run/)
+  assert.match(skill, /### Not run/)
+  assert.match(skill, /npm run change-scope -- --base/)
+  assert.equal(existsSync(resolve(root, '.github/pull_request_template.md')), false, 'the PR template must live in the skill, not a separate file')
 })
 
 test('executable test lanes are wired to scripts, workflow evidence, and the testing guide', () => {

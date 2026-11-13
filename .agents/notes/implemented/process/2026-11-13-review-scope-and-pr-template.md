@@ -4,6 +4,8 @@ Status: implemented
 Date: 2026-11-13
 Class: process
 
+> Superseded in part by [2026-11-13-pr-description-owns-template.md](2026-11-13-pr-description-owns-template.md): the separate `.github/pull_request_template.md` was removed and PR structure now lives in [pr-description](../../../../.agents/skills/pr-description/SKILL.md). The `change-scope` and `code-review` decisions remain current.
+
 ## Problem
 
 本项目的审查规则分散在 [AGENTS.md](../../../../AGENTS.md)、[docs/agent-teams.md](../../../../docs/agent-teams.md)、[tools/workflow.json](../../../../tools/workflow.json) 和用户级工程规则里，但没有一个可执行的“本次改动范围”报告，也没有项目自己的 review 过程文件和 PR 描述骨架。
@@ -20,9 +22,9 @@ Class: process
 
 **2. 项目 review skill 拥有审查过程。** [.agents/skills/code-review/SKILL.md](../../../../.agents/skills/code-review/SKILL.md) 固定“固定范围 → 读需求 → 按优先级审查 → 验证证据 → 报告 finding → 独立 verdict”的流程。Finding 必须带 `path:line`、影响、证据和 required fix；blocker 与 suggestion 分开；实现者不得给自己的实现最终 verdict。[docs/agent-teams.md](../../../../docs/agent-teams.md) 只保留 DAG/verdict 所有权，并指向该 skill。
 
-**3. PR 模板固定四个事实段落。** [.github/pull_request_template.md](../../../../.github/pull_request_template.md) 包含 `## Motivation`、`## Changes`、`## Testing`、`## Evidence`；Changes 区分 interface/behavior，Testing 先写 test design 再列实际运行的 test entries 和未运行项，Evidence 只放可复核的命令、计数、artifact identity、截图或外部状态。`docs/kinds.json` 将它归为 `template`，`docs/publish.json` 将 `.github/*` 归为 internal。
+**3. PR 结构固定四个事实段落。** 原实现把 `.github/pull_request_template.md` 作为独立模板，含 `## Motivation`、`## Changes`、`## Testing`、`## Evidence`；Changes 区分 interface/behavior，Testing 先写 test design 再列实际运行的 test entries 和未运行项，Evidence 只放可复核的命令、计数、artifact identity、截图或外部状态。该独立模板已由 [新记录](2026-11-13-pr-description-owns-template.md) 取代，PR 结构现在由 `pr-description` 技能声明。
 
-**4. 指针与索引同步。** 根 [AGENTS.md](../../../../AGENTS.md) 和 [docs/README.md](../../../../docs/README.md) 指向 review skill；[.agents/skills/README.md](../../../../.agents/skills/README.md) 增加“如何审查/准备 PR”的入口；[tests/workflow.test.mjs](../../../../tests/workflow.test.mjs) 固定 PR 模板 section、script、skill 和索引的一致性。
+**4. 指针与索引同步。** 根 [AGENTS.md](../../../../AGENTS.md) 和 [docs/README.md](../../../../docs/README.md) 指向 review skill；[.agents/skills/README.md](../../../../.agents/skills/README.md) 增加“如何审查/准备 PR”的入口；[tests/workflow.test.mjs](../../../../tests/workflow.test.mjs) 固定 PR section、script、skill 和索引的一致性。
 
 ## Alternatives considered
 
