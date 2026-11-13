@@ -6,7 +6,7 @@ Class: feature
 
 ## Problem
 
-工作项查看器的设计、技术选型和 V1–V16 核实已经完成，用户也确认了设计：查看器在主区域，右栏只做列表；所有文本可编辑；批注投递后模型思考并修改；Excalidraw 不带中文字体，客户端允许到 100 MB。设计见 [work-item-artifact-viewer.md](../../../../docs/design/cowork-sidebar/work-item-artifact-viewer.md)，核实见 [work-item-artifact-verification.md](../../../../docs/design/cowork-sidebar/work-item-artifact-verification.md)。
+工作项查看器的设计、技术选型和 V1–V16 核实已经完成，用户也确认了设计：查看器在主区域，右栏只做列表；所有文本可编辑；批注投递后模型思考并修改；Excalidraw 不带中文字体，客户端允许到 100 MB。设计见 [work-item-artifact-viewer.md](../../../../docs/design/work-item/work-item-artifact-viewer.md)，核实见 [work-item-artifact-verification.md](../../../../docs/design/work-item/work-item-artifact-verification.md)。
 
 当前插件还没有这项工作：
 
@@ -19,7 +19,7 @@ Class: feature
 
 ## Proposal
 
-按[工作项前端设计与开发方案](../../../../docs/design/cowork-sidebar/work-item-frontend.md)分五阶段实现；第一阶段只做基础与只读，后续再扩编辑、实时、图表/表格、Doc/PDF/画布。
+按[工作项前端设计与开发方案](../../../../docs/design/work-item/work-item-frontend.md)分五阶段实现；第一阶段只做基础与只读，后续再扩编辑、实时、图表/表格、Doc/PDF/画布。
 
 **1. 承载面。** 在 Cowork 面板内部加标签壳（主题/工作项/活动记录/项目记忆），工作项标签渲染 `WorkItemList`；主区域注册 keyed panel `cowork-work-item`，从列表用 `ctx.layout.selectPanel` 打开，顶部“返回会话”用 `selectPanel(null)` 关闭。列表标签是 session-scoped，打开时把 `{sessionId, artifactId}` 写进客户端 store；主区域查看器从 store 取上下文。宿主没有 `layout` 时显示无法打开，不退回右栏全屏。
 
@@ -81,9 +81,9 @@ Class: feature
 
 ## Demo
 
-- 主查看器：[work-item-demo-v3.png](../../../../docs/discussion/work-item-demo-v3.png)
-- 画布与区域批注：[work-item-demo-v3-canvas.png](../../../../docs/discussion/work-item-demo-v3-canvas.png)
-- Doc/表格/PDF/状态/多模态：[work-item-demo-v3-details.png](../../../../docs/discussion/work-item-demo-v3-details.png)
-- 交互稿：[work-item-demo-v3.html](../../../../docs/discussion/work-item-demo-v3.html)（`?view=text|canvas|details`）
-- 设计：[work-item-artifact-viewer.md](../../../../docs/design/cowork-sidebar/work-item-artifact-viewer.md)
-- 前端设计方案：[work-item-frontend.md](../../../../docs/design/cowork-sidebar/work-item-frontend.md)
+- 主查看器：[work-item-demo.png](../../../../docs/design/work-item/assets/work-item-demo.png)
+- 画布与区域批注：[work-item-demo-canvas.png](../../../../docs/design/work-item/assets/work-item-demo-canvas.png)
+- Doc/表格/PDF/状态/多模态：[work-item-demo-details.png](../../../../docs/design/work-item/assets/work-item-demo-details.png)
+- 交互稿：[work-item-demo.html](../../../../docs/design/work-item/assets/work-item-demo.html)（`?view=text|canvas|details`）
+- 设计：[work-item-artifact-viewer.md](../../../../docs/design/work-item/work-item-artifact-viewer.md)
+- 前端设计方案：[work-item-frontend.md](../../../../docs/design/work-item/work-item-frontend.md)

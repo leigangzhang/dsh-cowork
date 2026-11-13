@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Cowork 项目记忆详情 Demo</title>
+<style>
+  :root {
+    --ink: #101828;
+    --muted: #667085;
+    --soft: #98a2b3;
+    --line: #e4e7ec;
+    --line-soft: #eef0f3;
+    --canvas: #eef1f5;
+    --panel: #f8f9fb;
+    --card: #ffffff;
+    --blue: #175cd3;
+    --blue-soft: #eff6ff;
+    --red: #b42318;
+    --red-soft: #fef3f2;
+    --amber: #b54708;
+    --amber-soft: #fffaeb;
+    --green: #067647;
+    --green-soft: #ecfdf3;
+    --gray-soft: #f2f4f7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--canvas);
+    color: var(--ink);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage {
+    width: 1280px;
+    height: 900px;
+    padding: 36px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    background:
+      radial-gradient(900px 500px at 22% 12%, #ffffff 0%, rgba(255,255,255,0) 70%),
+      radial-gradient(700px 500px at 90% 90%, #e9edf4 0%, rgba(233,237,244,0) 70%),
+      var(--canvas);
+  }
+  .app {
+    position: relative;
+    width: 1208px;
+    height: 828px;
+    display: flex;
+    overflow: hidden;
+    border: 1px solid #dfe3e8;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 22px 60px rgba(16, 24, 40, .12), 0 2px 8px rgba(16, 24, 40, .06);
+  }
+  .demo-badge {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 4;
+    padding: 4px 9px;
+    border: 1px solid #d1e9ff;
+    border-radius: 999px;
+    background: rgba(239, 248, 255, .94);
+    color: var(--blue);
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: .02em;
+    backdrop-filter: blur(8px);
+  }
+
+  /* Left: the main session remains the user's conversation context. */
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: #fcfcfd;
+    border-right: 1px solid var(--line);
+  }
+  .main-head {
+    height: 58px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line-soft);
+    background: rgba(255, 255, 255, .78);
+  }
+  .main-head-left { display: flex; align-items: center; gap: 10px; }
+  .app-mark {
+    width: 25px;
+    height: 25px;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: #0f1115;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .main-title { font-size: 13px; font-weight: 650; }
+  .main-sub { color: var(--soft); font-size: 11px; margin-top: 1px; }
+  .main-actions { display: flex; gap: 6px; }
+  .ghost-icon {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--muted);
+  }
+  .main-body {
+    flex: 1;
+    min-height: 0;
+    padding: 24px 28px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow: hidden;
+  }
+  .day-label { align-self: center; color: var(--soft); font-size: 10.5px; letter-spacing: .06em; }
+  .row { display: flex; gap: 10px; align-items: flex-start; }
+  .row.user { justify-content: flex-end; }
+  .avatar {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    background: #101828;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .avatar.assistant { background: #e9f1ff; color: var(--blue); }
+  .bubble {
+    max-width: 480px;
+    padding: 10px 13px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    color: #344054;
+    font-size: 12.5px;
+    line-height: 1.6;
+    box-shadow: 0 1px 1px rgba(16, 24, 40, .02);
+  }
+  .row.user .bubble {
+    border-color: #d1e9ff;
+    border-bottom-right-radius: 4px;
+    background: #eff8ff;
+    color: #1849a9;
+  }
+  .notice-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 2px;
+    padding: 10px 12px;
+    border: 1px solid #fedf89;
+    border-radius: 10px;
+    background: #fffaeb;
+    color: #93370d;
+    font-size: 12px;
+  }
+  .notice-dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: #f79009;
+  }
+  .notice-card strong { font-weight: 650; }
+  .notice-link { margin-left: auto; color: #b54708; font-weight: 650; white-space: nowrap; }
+  .composer {
+    margin: 0 20px 18px;
+    padding: 10px 11px 9px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 4px 14px rgba(16, 24, 40, .04);
+  }
+  .composer-line { display: flex; align-items: center; gap: 8px; color: var(--soft); font-size: 12px; }
+  .composer-plus {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    background: var(--gray-soft);
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+  }
+  .composer-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 9px; }
+  .tiny-actions { display: flex; gap: 7px; color: var(--soft); font-size: 10.5px; }
+  .send {
+    width: 25px;
+    height: 25px;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: var(--blue);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  /* Right: sidebar owns its own tab bar and topic list. */
+  .sidebar {
+    width: 378px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+  }
+  .sidebar-head {
+    padding: 16px 16px 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+  .sidebar-eyebrow { color: var(--soft); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+  .sidebar-title { margin-top: 2px; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+  .sidebar-sub { margin-top: 2px; color: var(--muted); font-size: 11px; }
+  .sidebar-head-actions { display: flex; gap: 6px; padding-top: 2px; }
+  .new-topic {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 27px;
+    padding: 0 9px;
+    border: 1px solid #b2ddff;
+    border-radius: 7px;
+    background: #eff8ff;
+    color: var(--blue);
+    font-size: 11px;
+    font-weight: 650;
+  }
+  .tabs {
+    display: flex;
+    gap: 1px;
+    margin-top: 14px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(248, 249, 251, .86);
+  }
+  .tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 9px 8px 10px;
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .tab svg { width: 13px; height: 13px; opacity: .9; }
+  .tab.active { color: var(--blue); }
+  .tab.active::after {
+    content: "";
+    position: absolute;
+    left: 7px;
+    right: 7px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--blue);
+  }
+  .tab-count {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: #e9edf3;
+    color: #667085;
+    font-size: 9px;
+    font-weight: 700;
+  }
+  .tab.active .tab-count { background: var(--blue-soft); color: var(--blue); }
+  .sidebar-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 13px 13px 14px;
+  }
+  .sidebar-body::-webkit-scrollbar { width: 6px; }
+  .sidebar-body::-webkit-scrollbar-thumb { background: #d0d5dd; border-radius: 99px; }
+  .action-bar {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 15px;
+    padding: 10px 11px;
+    border: 1px solid #fecdca;
+    border-radius: 10px;
+    background: #fffbfa;
+  }
+  .action-icon {
+    width: 23px;
+    height: 23px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: var(--red-soft);
+    color: var(--red);
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .action-text { min-width: 0; flex: 1; }
+  .action-title { color: #912018; font-size: 11.5px; font-weight: 700; }
+  .action-sub { margin-top: 1px; color: #b42318; opacity: .72; font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .action-arrow { color: #d92d20; font-size: 13px; }
+  .group { margin-bottom: 15px; }
+  .group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 7px;
+    padding: 0 2px;
+    color: var(--soft);
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .group-head .count { color: #98a2b3; font-weight: 600; letter-spacing: 0; }
+  .topic-card {
+    position: relative;
+    margin-bottom: 8px;
+    padding: 11px 11px 10px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--card);
+    box-shadow: 0 1px 1px rgba(16, 24, 40, .025);
+  }
+  .topic-card.blocked { border-color: #fecdca; background: linear-gradient(180deg, #fff 0%, #fffbfa 100%); }
+  .topic-card.running { border-color: #e4e7ec; }
+  .topic-card.idle { background: #fcfcfd; }
+  .topic-title {
+    margin: 0 0 6px;
+    color: #101828;
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.4;
+  }
+  .topic-card.blocked .topic-title { color: #7a271a; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 19px;
+    padding: 0 7px;
+    border-radius: 999px;
+    font-size: 9.5px;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+  .chip::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .8; }
+  .chip.red { color: var(--red); background: var(--red-soft); }
+  .chip.amber { color: var(--amber); background: var(--amber-soft); }
+  .chip.green { color: var(--green); background: var(--green-soft); }
+  .chip.blue { color: var(--blue); background: var(--blue-soft); }
+  .chip.gray { color: #475467; background: var(--gray-soft); }
+  .digest {
+    margin: 0 0 8px;
+    color: #667085;
+    font-size: 10.75px;
+    line-height: 1.55;
+  }
+  .topic-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--soft);
+    font-size: 9.75px;
+  }
+  .topic-meta-left { display: flex; align-items: center; gap: 6px; }
+  .meta-dot { width: 3px; height: 3px; border-radius: 50%; background: #d0d5dd; }
+  .work-count { color: #667085; }
+  .more {
+    color: #98a2b3;
+    font-size: 14px;
+    line-height: 1;
+    letter-spacing: 1px;
+  }
+  .resolved-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border: 1px dashed #d0d5dd;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .55);
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .resolved-icon {
+    width: 17px;
+    height: 17px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--green-soft);
+    color: var(--green);
+    font-size: 10px;
+    font-weight: 800;
+  }
+  .resolved-chevron { margin-left: auto; color: #98a2b3; font-size: 13px; }
+  .field-note {
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line-soft);
+    color: #98a2b3;
+    font-size: 9.75px;
+    line-height: 1.55;
+  }
+  .field-note b { color: #667085; font-weight: 650; }
+</style>
+
+<style>
+  .detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
+  .detail-kicker { color:#98a2b3; font-size:9.5px; font-weight:650; letter-spacing:.05em; text-transform:uppercase; }
+  .detail-title { margin:3px 0 3px; color:#101828; font-size:19px; font-weight:700; letter-spacing:-.02em; }
+  .detail-meta { color:#98a2b3; font-size:10px; }
+  .detail-actions { display:flex; gap:6px; }
+  .detail-button { height:27px; padding:0 9px; border:1px solid #e4e7ec; border-radius:7px; background:#fff; color:#475467; font:inherit; font-size:9.75px; font-weight:600; }
+  .detail-button.primary { border-color:#b2ddff; background:#eff8ff; color:#175cd3; }
+  .doc-card { border:1px solid #e4e7ec; border-radius:12px; background:#fff; padding:24px 28px 22px; box-shadow:0 1px 2px rgba(16,24,40,.03); }
+  .doc-top { display:flex; align-items:center; justify-content:space-between; gap:10px; padding-bottom:12px; border-bottom:1px solid #eef0f3; margin-bottom:16px; }
+  .doc-title { color:#344054; font-size:11px; font-weight:700; }
+  .doc-meta { color:#98a2b3; font-size:9.5px; }
+  .doc-card h2 { margin:15px 0 8px; color:#101828; font-size:13px; font-weight:700; }
+  .doc-card h2:first-of-type { margin-top:0; }
+  .md-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px; }
+  .md-item { display:flex; gap:11px; align-items:flex-start; }
+  .md-date { flex:none; min-width:74px; padding-top:1px; color:#98a2b3; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:9px; }
+  .md-text { margin:0; color:#344054; font-size:11px; line-height:1.6; }
+  .md-source { display:inline-block; margin-top:2px; color:#98a2b3; font-size:9px; }
+  .md-source a { color:#175cd3; text-decoration:none; }
+  .detail-note { margin-top:12px; padding-top:10px; border-top:1px solid #eef0f3; color:#98a2b3; font-size:9.5px; line-height:1.55; }
+  .detail-note b { color:#667085; font-weight:650; }
+  .mem-summary { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:8px; }
+  .mem-title-line { display:flex; align-items:baseline; gap:6px; }
+  .mem-title-line b { color:#344054; font-size:12px; }
+  .mem-title-line span { color:#98a2b3; font-size:9.5px; }
+  .mem-sync { padding:3px 7px; border:1px solid #b2ddff; border-radius:6px; background:#eff8ff; color:#175cd3; font-size:9px; font-weight:600; }
+  .mem-search { display:flex; align-items:center; gap:6px; height:27px; margin-bottom:12px; padding:0 9px; border:1px solid #e4e7ec; border-radius:8px; background:#fff; color:#98a2b3; font-size:9.75px; }
+  .cat-list { display:flex; flex-direction:column; gap:7px; }
+  .category-row { display:flex; align-items:center; gap:9px; padding:9px 10px; border:1px solid #e4e7ec; border-radius:9px; background:#fff; }
+  .category-row.selected { border-color:#b2ddff; box-shadow:0 0 0 2px #eff8ff; }
+  .cat-icon { width:27px; height:27px; flex:none; display:grid; place-items:center; border-radius:8px; font-size:10px; font-weight:800; }
+  .cat-icon.user { background:#eff8ff; color:#175cd3; }
+  .cat-icon.project { background:#f4f3ff; color:#6941c6; }
+  .cat-icon.rule { background:#fffaeb; color:#b54708; }
+  .cat-icon.skill { background:#ecfdf3; color:#067647; }
+  .cat-main { min-width:0; flex:1; }
+  .cat-title { display:flex; align-items:center; gap:5px; color:#344054; font-size:10.5px; font-weight:650; }
+  .cat-count { color:#98a2b3; font-size:9px; font-weight:600; }
+  .cat-sub { margin-top:1px; color:#98a2b3; font-size:8.75px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cat-chev { color:#98a2b3; font-size:14px; }
+  .mem-links { margin-top:13px; padding-top:9px; border-top:1px solid #eef0f3; display:flex; flex-direction:column; gap:5px; color:#98a2b3; font-size:8.75px; line-height:1.45; }
+  .mem-links a { color:#175cd3; text-decoration:none; }
+</style>
+
+</head>
+<body>
+<div class="stage">
+  <div class="app">
+    <div class="demo-badge">项目记忆 · 详情页</div>
+
+    <main class="main">
+      <header class="main-head">
+        <div class="main-head-left">
+          <div class="app-mark">C</div>
+          <div>
+            <div class="main-title">项目记忆</div>
+            <div class="main-sub">项目上下文 · Markdown 详情</div>
+          </div>
+        </div>
+        <div class="main-actions"><div class="ghost-icon">↗</div><div class="ghost-icon">⋯</div></div>
+      </header>
+
+      <div class="main-body" style="padding-bottom:16px;">
+        <div class="detail-head">
+          <div>
+            <div class="detail-kicker">项目记忆 / 项目上下文</div>
+            <h1 class="detail-title">项目上下文.md</h1>
+            <div class="detail-meta">12 条 · 最近更新 2 天前 · 来源：会话 / 文件 / 决策摘要</div>
+          </div>
+          <div class="detail-actions"><button class="detail-button">导出 Markdown</button><button class="detail-button primary">编辑</button></div>
+        </div>
+
+        <article class="doc-card">
+          <div class="doc-top"><span class="doc-title">项目上下文</span><span class="doc-meta">Markdown · 项目级</span></div>
+
+          <h2>项目上下文</h2>
+          <ul class="md-list">
+            <li class="md-item"><span class="md-date">2026-11-09</span><div><p class="md-text">本地优先，不上传云端；不读取或写入 viking://。</p><span class="md-source">来源：用户规则</span></div></li>
+            <li class="md-item"><span class="md-date">2026-11-08</span><div><p class="md-text">主题使用原生 DSH session；创建只走 sessionController.create，不用 spawn/fork。</p><span class="md-source">来源：PLAN.md</span></div></li>
+            <li class="md-item"><span class="md-date">2026-11-07</span><div><p class="md-text">项目使用 pnpm + TypeScript strict；测试使用 node --test。</p><span class="md-source">来源：package.json / AGENTS.md</span></div></li>
+          </ul>
+
+          <h2>关键决策摘要</h2>
+          <ul class="md-list">
+            <li class="md-item"><span class="md-date">2026-11-10</span><div><p class="md-text">评审请求挂到工作项详情，右侧栏不新增第五个标签。</p><span class="md-source">来源：决策记录 3d09be6c · <a href="#">全文见资料库 →</a></span></div></li>
+            <li class="md-item"><span class="md-date">2026-11-10</span><div><p class="md-text">决策记录只存摘要；活动流与 Artifact 资料库分离。</p><span class="md-source">来源：决策记录 · <a href="#">全文见资料库 →</a></span></div></li>
+          </ul>
+        </article>
+
+        <div class="detail-note"><b>详情样式按类型区分：</b>上下文记忆用 Markdown 文档；用户记忆可用卡片；规则可用表格；技能可用技能卡。这里不展示时间线。</div>
+      </div>
+
+      <div class="composer">
+        <div class="composer-line"><span class="composer-plus">+</span><span>继续输入，或按 / 选择操作…</span></div>
+        <div class="composer-foot"><div class="tiny-actions"><span>Markdown</span><span>图片</span><span>文件</span></div><div class="send">↑</div></div>
+      </div>
+    </main>
+
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div>
+          <div class="sidebar-eyebrow">Cowork</div>
+          <div class="sidebar-title">侧边栏</div>
+          <div class="sidebar-sub">工作区 · dsh-cowork</div>
+        </div>
+        <div class="sidebar-head-actions"><div class="new-topic">导入/导出</div></div>
+      </div>
+
+      <nav class="tabs">
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 6.5h14M5 11h14M5 15.5h8" stroke-linecap="round"/><path d="M5.5 19.5 4 21v-3" stroke-linecap="round" stroke-linejoin="round"/></svg>主题 <span class="tab-count">6</span></div>
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><path d="m8 12 2.5 2.5L16 9" stroke-linecap="round" stroke-linejoin="round"/></svg>工作项 <span class="tab-count">5</span></div>
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 12h3l2-5 4 10 2-5h4" stroke-linecap="round" stroke-linejoin="round"/></svg>活动记录</div>
+        <div class="tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4.5h12v15H6z"/><path d="M9 8h6M9 11.5h6M9 15h4" stroke-linecap="round"/></svg>项目记忆</div>
+      </nav>
+
+      <div class="sidebar-body">
+        <div class="mem-summary"><div class="mem-title-line"><b>项目记忆</b><span>32 条</span></div><div class="mem-sync">导入 / 导出</div></div>
+        <div class="mem-search">⌕&nbsp;&nbsp;搜索记忆…</div>
+
+        <div class="cat-list">
+          <div class="category-row">
+            <div class="cat-icon user">U</div>
+            <div class="cat-main"><div class="cat-title">用户记忆 <span class="cat-count">8</span></div><div class="cat-sub">偏好 / 反复要求 / 个人约束</div></div>
+            <div class="cat-chev">›</div>
+          </div>
+          <div class="category-row selected">
+            <div class="cat-icon project">P</div>
+            <div class="cat-main"><div class="cat-title">项目记忆 <span class="cat-count">12</span></div><div class="cat-sub">项目上下文 / 关键决策摘要</div></div>
+            <div class="cat-chev">›</div>
+          </div>
+          <div class="category-row">
+            <div class="cat-icon rule">R</div>
+            <div class="cat-main"><div class="cat-title">规则 <span class="cat-count">5</span></div><div class="cat-sub">项目规则 / 会话规则 · 唯一来源</div></div>
+            <div class="cat-chev">›</div>
+          </div>
+          <div class="category-row">
+            <div class="cat-icon skill">S</div>
+            <div class="cat-main"><div class="cat-title">技能 <span class="cat-count">7</span></div><div class="cat-sub">声明 / 用户上传 · /slash + 自动</div></div>
+            <div class="cat-chev">›</div>
+          </div>
+        </div>
+
+        <div class="mem-links">
+          <a href="#">决策全文在 Artifact 资料库 →</a>
+          <span>运行上下文由后台管理，不在记忆标签页展示。</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

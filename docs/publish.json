@@ -19,8 +19,8 @@
       "reason": "product development plan: scope, architecture, milestones, and acceptance for contributors, not a user-facing guide"
     },
     {
-      "pattern": "docs/archived/*",
-      "reason": "completed V0.1 (M0–M4) and V0.2 (M6–M12) development records grouped by family under handoffs/, results/, and recon/: environment- and version-bound historical evidence kept for audit, not current user guidance"
+      "pattern": "docs/handoff/*",
+      "reason": "handoff, result, and reconnaissance records plus their index: delivery-time evidence and execution history, not current user guidance"
     },
     {
       "pattern": "docs/PLAN-V0.2.md",
@@ -39,7 +39,7 @@
       "reason": "deferred and planned-away issue list for contributors: current status, ownership, and re-evaluation triggers; not a user-facing guide"
     },
     {
-      "pattern": "docs/AGENTTEAM.md",
+      "pattern": "docs/agent-teams.md",
       "reason": "Project-level AgentTeams rules: impact scanning, readiness as a task/event, fast contract tests before real E2E, one integration gate with bound artifact identity, executable reviewer policy, batched closeout, scoped E2E, delivery task and closeout metrics; internal guidance for captains and members, not a user-facing guide"
     },
     {
@@ -52,11 +52,7 @@
     },
     {
       "pattern": "docs/design/*",
-      "reason": "Cowork sidebar design docs and index: internal design drafts with background, design-process decisions, and demos; not user-facing until implementation lands"
-    },
-    {
-      "pattern": "docs/handoffs/*",
-      "reason": "current theme-page and inbox implementation handoffs plus their index: design/decision links, host probe results, request contracts, implementation order, acceptance commands, GUI evidence, and open risks; internal implementation evidence, not a user guide"
+      "reason": "feature design records and their current template assets: internal design documents for contributors, not user-facing guides"
     }
   ]
 }

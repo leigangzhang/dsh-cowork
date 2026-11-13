@@ -55,23 +55,23 @@ The legacy master-only decision queue at `<repo>/.dsh-cowork/inbox.json`. The cu
 
 ### request inbox
 
-The Cowork right-column view of actionable requests and notification notes. It is a read view over `.dsh-cowork/requests/` plus the existing notice/activity stream, not a delivery queue; it does not read or write the legacy `inbox.json`. UI label: 收件箱. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+The Cowork right-column view of actionable requests and notification notes. It is a read view over `.dsh-cowork/requests/` plus the existing notice/activity stream, not a delivery queue; it does not read or write the legacy `inbox.json`. UI label: 收件箱. Source: [topic-inbox.md](design/inbox/topic-inbox.md).
 
 ### request
 
-One actionable item in the request inbox. Four kinds: `user-review`, `authorization`, `question`, `plan`. Every request has one `requestId`, one status, one persisted left-side topic message and (after resolution) one right-side user reply. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+One actionable item in the request inbox. Four kinds: `user-review`, `authorization`, `question`, `plan`. Every request has one `requestId`, one status, one persisted left-side topic message and (after resolution) one right-side user reply. Source: [topic-inbox.md](design/inbox/topic-inbox.md).
 
 ### user review request
 
-A request for the user to pass or return a review. It is distinct from the automated [review request](#review-request): it creates no reviewer session and records no reviewer verdict. UI label: 评审. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+A request for the user to pass or return a review. It is distinct from the automated [review request](#review-request): it creates no reviewer session and records no reviewer verdict. UI label: 评审. Source: [topic-inbox.md](design/inbox/topic-inbox.md).
 
 ### plan request
 
-A request to approve or revise one plan file. It is not the host Plan Mode; “查看全文” on the card opens the plan file through the host file-opener interface. UI label: PLAN 待确认. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+A request to approve or revise one plan file. It is not the host Plan Mode; “查看全文” on the card opens the plan file through the host file-opener interface. UI label: PLAN 待确认. Source: [topic-inbox.md](design/inbox/topic-inbox.md).
 
 ### notification note
 
-A non-actionable inbox row for assignment, report, decision proposal, automated review verdict or archive. It renders as centered gray text, not a card, never carries “知道了”, and an automated review verdict has no link or action. Source: [topic-inbox.md](design/cowork-sidebar/topic-inbox.md).
+A non-actionable inbox row for assignment, report, decision proposal, automated review verdict or archive. It renders as centered gray text, not a card, never carries “知道了”, and an automated review verdict has no link or action. Source: [topic-inbox.md](design/inbox/topic-inbox.md).
 
 ### activity
 

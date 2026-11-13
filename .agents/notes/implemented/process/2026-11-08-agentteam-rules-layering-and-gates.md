@@ -21,8 +21,8 @@ Class: process
 规则现在按四层分工：
 
 - 用户级 `~/.agents/AGENTS.md` 的 `P18` 只保留跨项目原则：profile 优先、边界物理化、任务契约自包含、独立且可执行的审查、证据随产物、审查双闸、显式交付闭环、保守收口与成本控制。
-- 项目级 [docs/AGENTTEAM.md](../../../../docs/AGENTTEAM.md) 拥有 DAG、影响面扫描、gate artifact、worktree、批量收口、交付任务和浏览器/面板规则；R3 要求首个 verification 绑定 `HEAD`、diff sha256、`git status`；R6 要求派单前 grep 引用、检查文件预算并把受影响测试写入 inScope；R10 要求 review 后的 finding 一次批量修复，纯注释/文档变更走 `npm run check` 和 delta review，并建立显式 `delivery` 任务。
-- 项目入口 [AGENTS.md](../../../../AGENTS.md) 只保留指针和硬约束，并要求队长在创建计划前读 [docs/AGENTTEAM.md](../../../../docs/AGENTTEAM.md)。浏览器/面板规则以摘要形式保留在 `## AgentTeams` 段：先修 host health 与 overview API，复用浏览器 session，隔离 fixture 与 live 数据，不用 sleep 当 readiness。
+- 项目级 [docs/agent-teams.md](../../../../docs/agent-teams.md) 拥有 DAG、影响面扫描、gate artifact、worktree、批量收口、交付任务和浏览器/面板规则；R3 要求首个 verification 绑定 `HEAD`、diff sha256、`git status`；R6 要求派单前 grep 引用、检查文件预算并把受影响测试写入 inScope；R10 要求 review 后的 finding 一次批量修复，纯注释/文档变更走 `npm run check` 和 delta review，并建立显式 `delivery` 任务。
+- 项目入口 [AGENTS.md](../../../../AGENTS.md) 只保留指针和硬约束，并要求队长在创建计划前读 [docs/agent-teams.md](../../../../docs/agent-teams.md)。浏览器/面板规则以摘要形式保留在 `## AgentTeams` 段：先修 host health 与 overview API，复用浏览器 session，隔离 fixture 与 live 数据，不用 sleep 当 readiness。
 - 部署 profile 的本地配置 `~/.dsh/profiles/{web,desktop}/cordis.patch.yml` 使用可执行只读审查策略：`impl-review`、`impl-review-parallel`、`refactor-parallel` 的 reviewer 使用 `verify-only`；新增 `impl-review-parallel`（4 个成员，两个实现者各用独立 worktree）；队长协议保持在 240 字符内，`pair-review` 做同样的去冗长处理。这些 profile 是部署配置，不进入仓库提交。
 
 浏览器/面板规则继续由项目规则 R8/R9 拥有；[AGENTS.md](../../../../AGENTS.md) 中的英文条目是必须加载的摘要指针，不重复 R8/R9 的操作细节。
@@ -31,7 +31,7 @@ Class: process
 
 **把所有细节继续放在 P18。** 否决：P18 会重新变成项目手册，跨项目复用时会带入 worktree、marker、fixture 等本仓库专属概念；通用原则和项目机制混在同一层，违背分级配置。
 
-**把所有规则塞进 AGENTS.md。** 否决：AGENTS.md 有 80 行预算，且项目约定 AGENTS.md 只拥有指针；细节已经分散到 `docs/AGENTTEAM.md`、`docs/AGENTS.md` 和 `tools/workflow.json`，再复制会造成漂移。
+**把所有规则塞进 AGENTS.md。** 否决：AGENTS.md 有 80 行预算，且项目约定 AGENTS.md 只拥有指针；细节已经分散到 `docs/agent-teams.md`、`docs/AGENTS.md` 和 `tools/workflow.json`，再复制会造成漂移。
 
 **保留 reviewer 的 `readonly` 策略。** 否决：M7/M8/M9 的 reviewer 都明确无法执行命令，最终只能采信 verifier；这不能满足“独立复核运行结果”的要求。改用 `verify-only` 后仍配合隔离副本和只读协议，因为 bash 本身不是 OS 沙箱。
 
@@ -50,7 +50,7 @@ Class: process
 ## Testing
 
 - [A1] `AGENTS.md` 保持 80 行以内，并在 `## AgentTeams` 段包含 R8/R9 浏览器条目 — `context-rules`
-- [A2] [docs/AGENTTEAM.md](../../../../docs/AGENTTEAM.md) 是项目规则唯一 home，`docs/publish.json` 对该路径恰好分类一次 — `publication`
+- [A2] [docs/agent-teams.md](../../../../docs/agent-teams.md) 是项目规则唯一 home，`docs/publish.json` 对该路径恰好分类一次 — `publication`
 - [A3] 项目规则包含 gate artifact、影响面扫描、批量 cleanup、delivery 任务和更新后的 DAG — `decisions`
 - [A4] `npm run check` 通过，`npm test` 通过 596/596 — `context-rules`, `publication`
 - [A5] web/desktop profile YAML 均可解析，各 8 个 profile，队长协议段 ≤240 字符，目标 reviewer 为 `verify-only` — `decisions`（部署配置在仓库外；本记录保存一次性 Ruby 校验结论，CI 覆盖标 unpinned）

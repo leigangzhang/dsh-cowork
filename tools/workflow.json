@@ -367,9 +367,17 @@
       "id": "docs-layout",
       "kind": "docs-layout",
       "patterns": [
-        "docs/*.md"
+        "docs/**/*"
       ],
-      "why": "Record families live under docs/handoffs/ or docs/archived/{handoffs,results,recon}/; root docs hold rules, project documents, and standalone files."
+      "why": "Handoff, result, and reconnaissance records live together in docs/handoff/; design records stay under docs/design/<feature>/; raw discussion and superseded design versions stay out of git."
+    },
+    {
+      "id": "design-assets",
+      "kind": "design-assets",
+      "patterns": [
+        "docs/design/**/*.html"
+      ],
+      "why": "A committed design template is only usable when every local HTML dependency and referenced image still resolves after the discussion working files are removed."
     },
     {
       "id": "doc-index-reachability",

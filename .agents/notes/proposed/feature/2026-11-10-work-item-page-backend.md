@@ -6,7 +6,7 @@ Class: feature
 
 ## Problem
 
-工作项页面的前端方案已经定稿：右栏列表、主区域查看器、逐行/区域批注、文本编辑、模型投递、多模态附件和各类型渲染。前端设计见 [work-item-frontend.md](../../../../docs/design/cowork-sidebar/work-item-frontend.md)，页面设计见 [work-item-artifact-viewer.md](../../../../docs/design/cowork-sidebar/work-item-artifact-viewer.md)。
+工作项页面的前端方案已经定稿：右栏列表、主区域查看器、逐行/区域批注、文本编辑、模型投递、多模态附件和各类型渲染。前端设计见 [work-item-frontend.md](../../../../docs/design/work-item/work-item-frontend.md)，页面设计见 [work-item-artifact-viewer.md](../../../../docs/design/work-item/work-item-artifact-viewer.md)。
 
 后端还没有这项工作：
 
@@ -19,7 +19,7 @@ Class: feature
 
 ## Proposal
 
-按[后端设计](../../../../docs/design/cowork-sidebar/work-item-backend.md)实现；本轮只写设计，不写生产代码。
+按[后端设计](../../../../docs/design/work-item/work-item-backend.md)实现；本轮只写设计，不写生产代码。
 
 **1. 独立 artifacts 存储。** 数据放在 `<repo>/.dsh-cowork/artifacts/<artifactId>/`，包含 `artifact.json`、`comments.jsonl`、`dispatch.jsonl`、`revisions/`、`uploads/`；项目级 `events.jsonl`。不改 `ProjectIndexV2`，不与旧 `workItems` 共用锁或字段。artifacts 使用独立 `.write.lock`、原子记录写、读方无锁。
 
@@ -85,7 +85,7 @@ Class: feature
 
 ## Documents
 
-- 设计：[work-item-backend.md](../../../../docs/design/cowork-sidebar/work-item-backend.md)
-- 前端方案：[work-item-frontend.md](../../../../docs/design/cowork-sidebar/work-item-frontend.md)
-- 页面设计：[work-item-artifact-viewer.md](../../../../docs/design/cowork-sidebar/work-item-artifact-viewer.md)
-- 核实：[work-item-artifact-verification.md](../../../../docs/design/cowork-sidebar/work-item-artifact-verification.md)
+- 设计：[work-item-backend.md](../../../../docs/design/work-item/work-item-backend.md)
+- 前端方案：[work-item-frontend.md](../../../../docs/design/work-item/work-item-frontend.md)
+- 页面设计：[work-item-artifact-viewer.md](../../../../docs/design/work-item/work-item-artifact-viewer.md)
+- 核实：[work-item-artifact-verification.md](../../../../docs/design/work-item/work-item-artifact-verification.md)

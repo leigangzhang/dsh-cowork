@@ -12,7 +12,7 @@ Class: process
 - **无产品引用或仅测试引用的代码**：`renderMemoryEntry`（`src/memory.ts:416`）与 `formatMasterMessage`（`src/handoff.ts:241`）只被测试调用；`store.listReviews/latestReviews/readReview/writeReview`（`src/store.ts:836-920`）无产品调用，`tests/api.test.mjs:971` 反而断言 store 端口不得暴露它们。
 - **仍在用的兼容层**：`legacyViewOf`/`applyLegacyView`（`src/store-migration.ts`）、legacy 字段（`legacyStatus`/`lastHandoffAt`/`reviewRequestedAt`/`reviewedAt`/`latestReviewPath`/`legacyCheckoutPath`）与 `ProjectStore.readIndex`/`mutateIndex`/`updateThread` 仍是活路径（`tool-runtime.ts:300`、`project-tools.ts:177`、`checkout-tools.ts:524/546`），KI-18 只把它们指派到 V0.3，没有"移除时同步什么"的清单。
 - **版本别名与阶段探针**：`cowork_thread_*` 与 `cowork-thread` preset 按"保留一版"存在；`probe-engine.ts`/`s0-probe.ts` 是 M0/M1 阶段探针，产品无依赖，但仍随 dev 门打包。
-- **文档**：`docs/archived/`、M6–M12 的 HANDOFF/RESULT、`.agents/notes` 的 proposed/implemented 迁移已经形成多层历史；`publish.json` 只保证"每个文件被分类"，不回答"这个文件是否还该在"。
+- **文档**：`docs/handoff/`、M6–M12 的 HANDOFF/RESULT、`.agents/notes` 的 proposed/implemented 迁移已经形成多层历史；`publish.json` 只保证"每个文件被分类"，不回答"这个文件是否还该在"。
 
 后果：单文件 51,200 B、AGENTS 80 行与文档预算持续承压；旧驱动/旧证据的"绿"容易被误当现状证据（KI-29 的教训）；没有退役条件与台账，资产会一直保留而无人真跑；删除时又容易伤到仍在用的兼容面或漏改测试与文档指针。
 
@@ -29,7 +29,7 @@ Class: process
 
 **3) 测试与工具规则。** `tests/` 只保留三类：当前行为契约、活兼容守卫、仓库自身规则；为死代码续命的测试随代码一起删；真实 E2E 驱动作为验收 harness 按版本更新或重写，不被单测替代（继承 `docs/testing.md` 的分层）。`tools/` 的维护者工具（panel-fixture、check-evidence-marker、migration drill）登记 owner 与适用版本；drill 类一次性发布工具在对应发布线关闭后归档，除非它已成为低成本的永久回归。
 
-**4) 文档规则。** 遵循 `docs/AGENTS.md` 的 kind 与 one-home：当前行为文档（README/routing/context/glossary）只描述现状；阶段交接/结果与 `docs/archived/` 文档为 `historical`，只允许追加指针或事实更正，不回填交付证据；每个阶段收口（RESULT）做一次台账巡检；`docs/README` 索引不列已删除的 home；`publish.json` 仍只负责分类，不替代生命周期判断（删文档时同步删条目）。
+**4) 文档规则。** 遵循 `docs/AGENTS.md` 的 kind 与 one-home：当前行为文档（README/routing/context/glossary）只描述现状；阶段交接/结果与 `docs/handoff/` 文档为 `historical`，只允许追加指针或事实更正，不回填交付证据；每个阶段收口（RESULT）做一次台账巡检；`docs/README` 索引不列已删除的 home；`publish.json` 仍只负责分类，不替代生命周期判断（删文档时同步删条目）。
 
 **5) 节奏与版本策略。** 每个里程碑收口 + 每次 minor 发布前做一次 prune 巡检（建议 ≤30 分钟：grep 引用、跑 source-budget/packaging、读台账）；版本策略：patch 保留兼容；minor（如 0.3.0）移除已到期的 `compat`/`dev-only` 资产；major 才允许语义重写。巡检结论写进该阶段 RESULT（不新开文档）；未处理项转 KNOWN_ISSUES 并指派完成阶段。
 

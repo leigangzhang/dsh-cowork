@@ -123,7 +123,7 @@ function projectRuleErrors(config) {
     if (!readme.includes(token)) errors.push(`README.md is missing pointer: ${token}`)
   }
   const index = read('docs/README.md')
-  for (const token of ['docs/PLAN.md', 'docs/AGENTS.md', 'docs/testing.md', 'docs/publish.json', 'docs/handoffs/README.md', '.agents/skills/write-docs/SKILL.md', '.agents/skills/prose-standard/SKILL.md', '.agents/skills/trim-cot-leakage/SKILL.md']) {
+  for (const token of ['docs/PLAN.md', 'docs/AGENTS.md', 'docs/testing.md', 'docs/publish.json', 'docs/handoff/README.md', 'docs/design/README.md', '.agents/skills/write-docs/SKILL.md', '.agents/skills/prose-standard/SKILL.md', '.agents/skills/trim-cot-leakage/SKILL.md']) {
     if (!index.includes(token)) errors.push(`docs/README.md is missing pointer: ${token}`)
   }
 

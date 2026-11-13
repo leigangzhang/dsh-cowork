@@ -88,12 +88,12 @@ M11 的验收要求面板显示主题列表/详情/活动、无 thread 行与 re
 ## Testing
 
 - [A1] v2 wire 提供六条路径、13 条上界与 17 个错误码，v1 `PanelThread`/`PanelHandoffRecord`/`HANDOFF_PATH` 不存在 — `tests`：`tests/api-contract.test.mjs`（19/19）
-- [A2] overview 读前在锁内评估生命周期并传真实工作项计数；主题 ≤500、排序正确、无 thread/reviewer/handoff 字段；inbox 只列未投递 — `tests`：`tests/api.test.mjs`（生命周期/上限/排序/键集/inbox 用例）与真实 Chrome overview 200（`docs/archived/results/M11_RESULT.md` A2）
+- [A2] overview 读前在锁内评估生命周期并传真实工作项计数；主题 ≤500、排序正确、无 thread/reviewer/handoff 字段；inbox 只列未投递 — `tests`：`tests/api.test.mjs`（生命周期/上限/排序/键集/inbox 用例）与真实 Chrome overview 200（`docs/handoff/M11_RESULT.md` A2）
 - [A3] activity 默认 50/上限 200/非法 400 且透出 `skippedLines`；topic 详情 workItems ≤50、reviewRequests ≤10、findings ≤20、verification ≤10、changedPaths ≤50、活动 ≤50；评审请求只从 `reviews/*.json` 读取（坏 JSON、文件名不匹配、legacy 判决文件被跳过） — `tests`：`tests/api.test.mjs`（真实 tmpdir 请求文件与截断用例）
-- [A4] resolve/reopen/route.move 只允许 master、要求 `sessionId`、锁内原子且幂等，写对应活动且活动失败不失败请求；415/413/400/403 与错误码可读 — `tests`：`tests/api.test.mjs`（幂等/409/route.move 拒绝/非 master/真实 `ProjectStore` 全链路/安全矩阵）与真实 Chrome 写路由 200 与 403/415/400（`docs/archived/results/M11_RESULT.md` A4）
-- [A5] 主题保留可见、reviewer 不作为行、插件不对主题 `archiveSession`；打开主题只切主区、面包屑回 master；预归档主题才 unarchive — `tests`：`tests/panel-model.test.mjs`（`openTopicSteps`）与真实 Chrome 截图 05/06；unarchive 真机路径未覆盖（`docs/archived/results/M11_RESULT.md` D4）
+- [A4] resolve/reopen/route.move 只允许 master、要求 `sessionId`、锁内原子且幂等，写对应活动且活动失败不失败请求；415/413/400/403 与错误码可读 — `tests`：`tests/api.test.mjs`（幂等/409/route.move 拒绝/非 master/真实 `ProjectStore` 全链路/安全矩阵）与真实 Chrome 写路由 200 与 403/415/400（`docs/handoff/M11_RESULT.md` A4）
+- [A5] 主题保留可见、reviewer 不作为行、插件不对主题 `archiveSession`；打开主题只切主区、面包屑回 master；预归档主题才 unarchive — `tests`：`tests/panel-model.test.mjs`（`openTopicSteps`）与真实 Chrome 截图 05/06；unarchive 真机路径未覆盖（`docs/handoff/M11_RESULT.md` D4）
 - [A6] CoWork 是右侧栏 tab、默认不自动打开、footer 入口可用；列表/详情/活动/操作齐全，已解决主题仍列出并显示来源 — `tests`：`tests/panel-model.test.mjs` 与真实 Chrome 截图 01–04、06
 - [A7] 评审卡来自请求文件（requestId/范围/verdict/findings/verification），legacy `latestReviewPath`/`listReviews`/`latestReviews`/`writeReview` 不再是读取面 — `tests`：`tests/api.test.mjs`、`tests/source-budget.test.mjs`；`grep -n "latestReviewPath\|listReviews\|latestReviews\|writeReview" src/api.ts` 无匹配
-- [A8] 真实 Chrome：已认证同源写路由 200 且回显 body；R8 预算（`bsk_session` 3 次 start、>60 s 等待 0）；R9 fixture apply/restore ≤5 s、真实 index hash 恢复 — `decisions`：`.dsh-cowork/e2e/m11/panel-run.json`、6 张 jpg、`INTEGRATION_READY.json`（gitignored），摘要见 `docs/archived/results/M11_RESULT.md` A8
+- [A8] 真实 Chrome：已认证同源写路由 200 且回显 body；R8 预算（`bsk_session` 3 次 start、>60 s 等待 0）；R9 fixture apply/restore ≤5 s、真实 index hash 恢复 — `decisions`：`.dsh-cowork/e2e/m11/panel-run.json`、6 张 jpg、`INTEGRATION_READY.json`（gitignored），摘要见 `docs/handoff/M11_RESULT.md` A8
 - [A9] `typecheck`/`build`/`check` 通过；`lib/client.js` 由构建产出；`src/**/*.ts` <51,200 B，client 按模块拆分 — `source`：`tests/source-budget.test.mjs`、`scripts/build.sh`；`npm test` 732/732
-- [A10] M11 收口：M11_RESULT/HANDOFF/KNOWN_ISSUES/publish.json/README/PLAN-V0.2 更新；3 份决策记录迁为 implemented；单一评审负责人边界写入文档 — `plan-docs`：`docs/archived/results/M11_RESULT.md`、`docs/PLAN-V0.2.md`、`docs/KNOWN_ISSUES.md`、`docs/publish.json`、`docs/README.md`
+- [A10] M11 收口：M11_RESULT/HANDOFF/KNOWN_ISSUES/publish.json/README/PLAN-V0.2 更新；3 份决策记录迁为 implemented；单一评审负责人边界写入文档 — `plan-docs`：`docs/handoff/M11_RESULT.md`、`docs/PLAN-V0.2.md`、`docs/KNOWN_ISSUES.md`、`docs/publish.json`、`docs/README.md`
