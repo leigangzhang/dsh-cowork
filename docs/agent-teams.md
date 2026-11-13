@@ -65,7 +65,6 @@ For panel fixtures:
 
 - Reviewer method: load [code-review](../.agents/skills/code-review/SKILL.md) before opening the diff; it owns `change-scope`, evidence selection, review priorities, and finding format. This section owns the DAG and verdict only.
 - Review and requirements tasks complete only with `verdict=pass`. `needs_revision` and `reject` fail with findings. Each finding names a relative path and line and the required fix.
-- Merge is a manual, explicit step: no stack/auto-merge skill, no automatic PR merge. A human or the user-authorized delivery agent merges only after review and checks pass, and records the PR URL and final HEAD.
 - Batch all review findings into one repair task. Do not derive a repair task from each low-risk comment, and do not trigger a full re-review for each finding.
 - If the repair batch changes behavior, restart at `integration-ready`, then repeat verification and review. If it changes only comments or documentation, run `npm run check`, the owning targeted tests, and a delta review.
 - After final `integration-ready`, only documentation and records may change. A required behavior change restarts `integration-ready`, then verification, then review.
