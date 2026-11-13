@@ -44,8 +44,9 @@ npm run check:self-test    # prove the guards can fail
 npm test                   # contract and behavior tests
 npm run test:coverage      # node:test coverage floors for host TypeScript
 npm run test:host-smoke    # pack current lib/ and boot a temporary DSH profile
+npm run check:lib-sync     # fail when src changed without rebuilding tracked lib/
 npm run typecheck          # TypeScript check (requires deps installed)
 npm run build              # host build (auto-detects a DSH source checkout for types and the installed app for runtime)
 ```
 
-Build note: `npm run build` types come from a DSH source checkout and runtime links from the installed app, both auto-detected. `lib/` is tracked because tarball install and `test:host-smoke` consume it; after changing `src/`, rebuild and commit the matching `lib/` files.
+Build note: `npm run build` types come from a DSH source checkout and runtime links from the installed app, both auto-detected. `lib/` is tracked because tarball install and `test:host-smoke` consume it; after changing `src/`, rebuild and commit the matching `lib/` files. `npm test` includes the same sourceHash guard, so a stale `lib/` fails the suite.

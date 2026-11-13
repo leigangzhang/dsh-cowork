@@ -57,6 +57,7 @@
         "npm run test:coverage",
         "npm run typecheck",
         "npm run build",
+        "npm run check:lib-sync",
         "npm run test:host-smoke"
       ],
       "why": "Behaviour changes need tests and the real artifact path: coverage protects the host modules, build proves the package compiles, and host-smoke proves the packed bundle loads in a real DSH profile."
@@ -91,6 +92,7 @@
         "npm run typecheck",
         "npm test",
         "npm run build",
+        "npm run check:lib-sync",
         "npm run test:host-smoke"
       ],
       "why": "Manifests, the tracked lib artifact, and lockfiles change the shipped tarball; it must pass the packaging contract and boot in a temporary DSH profile."

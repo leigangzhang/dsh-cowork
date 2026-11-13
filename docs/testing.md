@@ -23,13 +23,14 @@ npm run check:self-test    # prove the guards can fail
 npm test                   # node:test contract and behavior tests
 npm run test:coverage      # node:test coverage floors
 npm run test:host-smoke    # pack current lib/ and boot a temporary DSH profile
+npm run check:lib-sync     # compare lib build-info sourceHash with current src
 npm run typecheck          # TypeScript, when dependencies are installed
 npm run build              # host build (types from a DSH source checkout, runtime from the installed app; no DSH_CHECKOUT needed)
 ```
 
 `test:coverage` counts `src/**/*.ts`, excludes the dev-only probe/E2E drivers named in [scripts/test-coverage.mjs](../scripts/test-coverage.mjs), and does not count the React TSX components. Those need a browser lane rather than a fake Node number. The floors live beside the exclusions; raise them only after the report moves above the new floor.
 
-`lib/` is a tracked build artifact so a fresh clone can `npm pack` and run `test:host-smoke` without first rebuilding. After changing `src/`, run `npm run build` and commit the matching `lib/` files; `test:host-smoke` consumes whatever is currently committed.
+`lib/` is a tracked build artifact so a fresh clone can `npm pack` and run `test:host-smoke` without first rebuilding. After changing `src/`, run `npm run build` and commit the matching `lib/` files; `test:host-smoke` consumes whatever is currently committed. The build writes `lib/build-info.json` with a deterministic source hash; `npm run check:lib-sync` and every `npm test` compare it with the current `src/`, so a source edit without a rebuild fails closed.
 
 `test:host-smoke` uses a temporary `DSH_HOME`, a temporary npm cache, and a random port; it never starts or writes the user's real profile. It is keyless and does not call a model. Missing `dsh` prints a skip; set `DSH_HOST_SMOKE_STRICT=1` when a missing host must fail the run.
 
@@ -52,9 +53,9 @@ A flaky test is not fixed by a longer timeout, a retry, or a weaker assertion. F
 
 Decide the owning surface from `tools/workflow.json`:
 
-- `src/*`, `presets/*`, `scripts/*` → `npm run test:coverage` + typecheck + build + host smoke.
+- `src/*`, `presets/*`, `scripts/*` → `npm run test:coverage` + typecheck + build + `check:lib-sync` + host smoke.
 - `tests/*` → `npm test` + `npm run test:coverage`, and watch the new test fail for the regression it pins.
-- `package.json`, `cordis.patch.yml`, build config → `npm run check` + typecheck + `npm test` + build + host smoke.
+- `package.json`, `lib/*`, `cordis.patch.yml`, build config → `npm run check` + typecheck + `npm test` + build + `check:lib-sync` + host smoke.
 - `tools/workflow.json`, `tools/check-invariants.mjs`, `.gitignore` → `npm run check` + `npm run check:self-test`.
 - `AGENTS.md`, `docs/*` → `npm run check` and read the changed section as its reader.
 

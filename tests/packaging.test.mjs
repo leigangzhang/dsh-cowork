@@ -69,7 +69,7 @@ test('the published file list is exactly lib/, the patch, README and LICENSE', (
 test('the built lib artifact is present and not ignored', () => {
   const ignoreLines = readFileSync(resolve(root, '.gitignore'), 'utf8').split(/\r?\n/)
   assert.equal(ignoreLines.includes('lib/'), false, '.gitignore must not ignore the committed lib artifact')
-  for (const rel of ['lib/index.js', 'lib/client.js', 'lib/types/index.d.ts']) {
+  for (const rel of ['lib/index.js', 'lib/client.js', 'lib/build-info.json', 'lib/types/index.d.ts']) {
     assert.ok(existsSync(resolve(root, rel)), `${rel} must be committed for tarball and host-smoke use`)
   }
 })
