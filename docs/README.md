@@ -13,7 +13,6 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 怎么审查改动、判断 review finding 是否修好 | [code-review](../.agents/skills/code-review/SKILL.md) |
 | 推送前应该选哪些检查、怎么确认 lib 同步 | [pre-push-checks](../.agents/skills/pre-push-checks/SKILL.md) |
 | 怎么写 PR 的动机、改动、测试和证据 | [pr-description](../.agents/skills/pr-description/SKILL.md) |
-| 怎么合并依赖 PR / stacked PR | [merging-stacked-prs](../.agents/skills/merging-stacked-prs/SKILL.md) |
 | 怎么找可安全删除的死代码、重复和遗留义务 | [find-simplifications](../.agents/skills/find-simplifications/SKILL.md) |
 | 这个词在这个仓库里是什么意思 | [glossary.md](glossary.md) |
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |

@@ -16,7 +16,6 @@ An agent loads a skill by name once its `description` matches the work. Skills a
 | I need to review a change or judge whether findings are fixed | [`code-review`](code-review/SKILL.md) | scope report, evidence selection, review priorities, and finding format |
 | Which checks should I run before pushing? | [`pre-push-checks`](pre-push-checks/SKILL.md) | smallest owning evidence, lib sync, safe push, and verification |
 | How do I write a PR description with real evidence? | [`pr-description`](pr-description/SKILL.md) | motivation, interface/behavior changes, test design, entries, and proof |
-| How do I land dependent GitHub PRs? | [`merging-stacked-prs`](merging-stacked-prs/SKILL.md) | native stack linking, preflight, merge, and landed-state verification |
 | What can we safely simplify or remove? | [`find-simplifications`](find-simplifications/SKILL.md) | producer/consumer evidence, maintenance cost, and capability-loss review |
 
 ## Related

@@ -8,14 +8,16 @@ Standing orders for anyone — human or agent — changing this repository. Ever
 - Read [.agents/notes/README.md](.agents/notes/README.md) before writing a decision record. It owns when to write one and what class to use.
 - Read [docs/AGENTS.md](docs/AGENTS.md) before adding, renaming, or reclassifying a document. It owns kinds, one-home-per-fact, budgets, and the publication switch.
 - Load [write-docs](.agents/skills/write-docs/SKILL.md), [prose-standard](.agents/skills/prose-standard/SKILL.md), or [trim-cot-leakage](.agents/skills/trim-cot-leakage/SKILL.md) when writing, judging, or cleaning prose. The skills own the procedure; docs/AGENTS.md owns the rules.
-- Load [code-review](.agents/skills/code-review/SKILL.md), [pre-push-checks](.agents/skills/pre-push-checks/SKILL.md), [pr-description](.agents/skills/pr-description/SKILL.md), [merging-stacked-prs](.agents/skills/merging-stacked-prs/SKILL.md), or [find-simplifications](.agents/skills/find-simplifications/SKILL.md) when their descriptions match; each owns its procedure.
+- Load [code-review](.agents/skills/code-review/SKILL.md), [pre-push-checks](.agents/skills/pre-push-checks/SKILL.md), [pr-description](.agents/skills/pr-description/SKILL.md), or [find-simplifications](.agents/skills/find-simplifications/SKILL.md) when their descriptions match; each owns its procedure.
 - Read [docs/glossary.md](docs/glossary.md) before naming a new concept. One concept, one word; link the term instead of restating it.
 - Read [tools/workflow.json](tools/workflow.json) before adding a rule, a file kind, or a check. A convention without an executable check is prose, not policy.
 
 ## Working rules
 
 - **M0 first.** Before writing product code, prove the five API risks in PLAN.md §3.2 and record the result. Do not skip M0 because an API looks right in source.
-- **Design before build.** A non-trivial capability starts as a proposal in `.agents/notes/proposed/` with `Alternatives considered` and acceptance criteria that name the check that will go red. Implementation follows.
+- **Design records are opt-in.** Create a decision record only when the user explicitly asks, or when a substantial public tool/format/preset/architecture contract needs one; one record per workflow, never per commit or subtask. A non-trivial capability still starts with a proposal when a record is authorized, with `Alternatives considered` and a check that will go red.
+- **One workstream branch.** Keep one `agent/<topic>` branch for one authorized workstream; do not create a branch per commit, review round, or subtask. Create a new branch only on user request or for an independently isolated workstream.
+- **Manual merge.** PR merging is manual and explicit; do not add stack/auto-merge machinery or merge a PR without review and passing checks.
 - **A decision is not editable in place.** Move the proposal to `.agents/notes/implemented/` in the same delivery that lands the work and rewrite it in the present tense; overturning it means a new record.
 - **One home per fact.** The plan owns scope and architecture; AGENTS.md owns pointers; tests and evidence own verification. Do not copy a fact into two files.
 - **Docs are code.** Every Markdown file is classified exactly once in `docs/publish.json`; publication is a per-file promise, not a directory guess. No hand-copied interfaces or generated pages.

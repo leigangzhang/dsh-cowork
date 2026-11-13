@@ -182,9 +182,10 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(skills.includes('write-docs'), 'write-docs skill is missing')
   assert.ok(skills.includes('prose-standard'), 'prose-standard skill is missing')
   assert.ok(skills.includes('trim-cot-leakage'), 'trim-cot-leakage skill is missing')
-  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'merging-stacked-prs', 'find-simplifications']) {
+  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'find-simplifications']) {
     assert.ok(skills.includes(name), `${name} skill is missing`)
   }
+  assert.ok(!skills.includes('merging-stacked-prs'), 'stacked PR automation is manual; the skill must stay removed')
   assert.equal(skills.some((name) => name.startsWith('dsh-')), false, 'skill directories must not use a dsh- prefix')
   assert.ok(!skills.includes('trim-prose'), 'trim-prose must be renamed, not duplicated')
   assert.ok(existsSync(resolve(skillsDir, 'prose-standard', 'references', 'examples.md')), 'prose-standard examples are missing')
@@ -202,11 +203,11 @@ test('skills carry a load trigger, four sections, and an index entry', () => {
   assert.ok(index.includes('.agents/skills/write-docs/SKILL.md'), 'docs index does not route to write-docs')
   assert.ok(index.includes('.agents/skills/prose-standard/SKILL.md'), 'docs index does not route to prose-standard')
   assert.ok(index.includes('.agents/skills/trim-cot-leakage/SKILL.md'), 'docs index does not route to trim-cot-leakage')
-  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'merging-stacked-prs', 'find-simplifications']) {
+  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'find-simplifications']) {
     assert.ok(index.includes(`.agents/skills/${name}/SKILL.md`), `docs index does not route to ${name}`)
   }
   const skillsIndex = read('.agents/skills/README.md')
-  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'merging-stacked-prs', 'find-simplifications']) {
+  for (const name of ['code-review', 'pre-push-checks', 'pr-description', 'find-simplifications']) {
     assert.ok(skillsIndex.includes(`(${name}/SKILL.md)`), `skills index does not route to ${name}`)
   }
 })
