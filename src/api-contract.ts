@@ -348,7 +348,7 @@ export type PanelErrorCode =
  * HTTP status per stable error code. It lives in the contract module (not in
  * `src/api.ts`) because the write surface outgrew the 50 KiB read cap: the
  * host's `panelErrorStatus` re-exports this one table, and
- * `tests/api.test.mjs` pins every status here.
+ * `tests/api-read.test.mjs` pins every status here.
  *
  * Typed as a complete `Record`, so adding a code to {@link PanelErrorCode}
  * without deciding its status is a compile error.
