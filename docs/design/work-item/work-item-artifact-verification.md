@@ -73,10 +73,10 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 - 工具名和参数：
   - `write`：`packages/fs/tool-fs/src/write.ts:73`，参数 `file_path`、`content`，整篇覆盖。
   - `edit`：`packages/fs/tool-fs/src/edit.ts:85`，参数 `file_path`、`old_string`、`new_string`、`replace_all`。
-  - `str_replace_editor`：`packages/fs/tool-str-replace-editor/src/index.ts:430`，命令 `create` / `str_replace` / `insert`。
-- `tools.guard` 类型和注册：`packages/core/tools/src/index.ts:731`、`:1136`；执行上下文带 `name`、`arguments`、`agent`（`:326-352`、`:393-398`）。
-- 拒绝结果：`packages/core/tools/src/index.ts:1519-1530`，返回 `Error: <reason>`，`isError: true`，模型能看到原因。
-- 工作项相关的主题会话确实有 `tool-fs` 和 `tool-bash`（`src/presets.ts` 的 `topicRows`）；master 没有 `tool-fs`，reviewer 没有 `tool-fs`、只有 bash。
+  - `str_replace_editor`：`packages/fs/tool-str-replace-editor/src/app/apply.ts:430`，命令 `create` / `str_replace` / `insert`。
+- `tools.guard` 类型和注册：`packages/core/tools/src/app/apply.ts:731`、`:1136`；执行上下文带 `name`、`arguments`、`agent`（`:326-352`、`:393-398`）。
+- 拒绝结果：`packages/core/tools/src/app/apply.ts:1519-1530`，返回 `Error: <reason>`，`isError: true`，模型能看到原因。
+- 工作项相关的主题会话确实有 `tool-fs` 和 `tool-bash`（`src/platform/presets.ts` 的 `topicRows`）；master 没有 `tool-fs`，reviewer 没有 `tool-fs`、只有 bash。
 - 缺口：topic 的 `tool-bash` 可以改文件，`tools.guard` 看不到 bash 内部的写入。第一版只能在提示词里要求用 `edit`/`write`，并在文件变化后做冲突/范围校验，不能完全阻止 bash 绕过。
 
 结论：同行锁能用 `tools.guard` 对 `write`、`edit`、`str_replace_editor` 落地；bash 是残余风险，需要在实现期决定是否对主题会话收紧 bash 或增加写入后的二次校验。
@@ -184,7 +184,7 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 ### V15 模型回复工具与多模态
 
 - 会话 prompt 支持 `image` content part（`packages/api/session-controller/src/types.ts:89-97`），带图片时校验模型输入能力（`src/commands.ts:336-348`）。
-- 图片可以持久保存（`ctx.attachments.saveImages`，`packages/attachment/attachment/src/index.ts:98`）。
+- 图片可以持久保存（`ctx.attachments.saveImages`，`packages/attachment/attachment/src/app/apply.ts:98`）。
 - 回复工具本身还没实现；“模型是否稳定调用回复工具、是否按批注编号回复”必须等实现后用真实模型跑 E2E；这次不能验证。
 - 结论：输入侧和存储侧有依据；模型行为是剩余风险。
 

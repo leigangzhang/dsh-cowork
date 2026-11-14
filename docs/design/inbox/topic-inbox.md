@@ -200,7 +200,7 @@ Cowork tab（< 620px）
 | `src/client/panel.tsx` | 加载 overview + inbox；`ResizeObserver` 宽度；宽/窄布局；主题栏固定；收件箱独立滚动；筛选状态 |
 | `src/client/list.tsx` | 主题卡主按钮保持打开会话；新增兄弟筛选按钮、active 状态、`aria-pressed` 和回调 |
 | `src/client/styles.ts` | 收件箱、卡片、对话、注释、窄栏样式；公开主题 token + fallback |
-| `tests/inbox-model.test.mjs` | 排序、筛选、计数、动作规则、对话可见性、窄栏文案 |
+| `tests/client/inbox-model.test.mjs` | 排序、筛选、计数、动作规则、对话可见性、窄栏文案 |
 
 ### 6.2 状态
 
@@ -334,7 +334,7 @@ interface PlanPayload {
 
 ### 7.4 解决服务
 
-`src/request-service.ts` 是入口，实现按职责拆在 `src/request-lifecycle.ts`（创建/解决/唤醒/授权桥）、`src/authorization-decision.ts`（授权决策与旧路由结算）、`src/request-open.ts`（文件打开）和 `src/request-support.ts`（共享错误与成员守卫）。API 路由和授权路由共享同一套入口：
+`src/domains/requests/request-service.ts` 是入口，实现按职责拆在 `src/domains/requests/request-lifecycle.ts`（创建/解决/唤醒/授权桥）、`src/domains/requests/authorization-decision.ts`（授权决策与旧路由结算）、`src/platform/request-open.ts`（文件打开）和 `src/domains/requests/request-support.ts`（共享错误与成员守卫）。API 路由和授权路由共享同一套入口：
 
 1. 读取请求文件，校验 `pending`。
 2. 校验 caller 是 master 或该 topic 会话。
@@ -361,7 +361,7 @@ interface PlanPayload {
 
 ## 8. 读接口
 
-新增 `src/inbox-contract.ts` 和 `src/inbox-api.ts`，避免把接近 50 KiB 的 `src/api.ts` 继续变大：
+新增 `src/panel/inbox-contract.ts` 和 `src/panel/inbox-api.ts`，避免把接近 50 KiB 的 `src/panel/api.ts` 继续变大：
 
 ```text
 GET  /api/cowork.inbox?sessionId&topicId?
@@ -480,7 +480,7 @@ sequenceDiagram
 
 ### 阶段 2：只读 API 与前端
 
-- `inbox-contract.ts`、`inbox-api.ts`、`src/index.ts` 接线。
+- `inbox-contract.ts`、`inbox-api.ts`、`src/app/apply.ts` 接线。
 - `client/api.ts`、`inbox-model.ts`、`inbox.tsx`。
 - `panel.tsx` 宽/窄布局、主题栏固定、收件箱滚动、横幅；`list.tsx` 主题卡筛选按钮。
 - 先渲染 pending 卡片和通知，不接动作。
@@ -504,12 +504,12 @@ sequenceDiagram
 ## 11. 测试与验收
 
 - [D1] 四类请求都有 schema、工具、API、前端卡和动作；无落点项 — `plan-docs` + 实现期 `tests/request-*.test.mjs`
-- [D2] 请求记录持久化左右消息、状态、payload；刷新后恢复 — `tests/request-store.test.mjs`
-- [D3] resolve 幂等、冲突、角色校验、prompt 失败不回滚 — `tests/request-service.test.mjs`
-- [D4] 收件箱宽/窄、固定主题栏、独立滚动、主题卡筛选按钮、计数 — `tests/inbox-model.test.mjs` + GUI
-- [D5] PLAN/提案只按请求 id 打开仓库内文件；宿主缺失时明确失败 — `tests/inbox-api.test.mjs` + GUI
-- [D6] authorization 仍阻塞/解锁、通知更新且不重复卡片 — `tests/request-tools.test.mjs` + `tests/notices.test.mjs`
-- [D7] 通知注释（含自动评审结果）不进入待处理计数、无动作；旧 `.dsh-cowork/inbox.json` 不被读写 — `tests/inbox-api.test.mjs`
+- [D2] 请求记录持久化左右消息、状态、payload；刷新后恢复 — `tests/store/request-store.test.mjs`
+- [D3] resolve 幂等、冲突、角色校验、prompt 失败不回滚 — `tests/domains/requests/request-service.test.mjs`
+- [D4] 收件箱宽/窄、固定主题栏、独立滚动、主题卡筛选按钮、计数 — `tests/client/inbox-model.test.mjs` + GUI
+- [D5] PLAN/提案只按请求 id 打开仓库内文件；宿主缺失时明确失败 — `tests/panel/inbox-api.test.mjs` + GUI
+- [D6] authorization 仍阻塞/解锁、通知更新且不重复卡片 — `tests/tools/request.test.mjs` + `tests/domains/notices/notices.test.mjs`
+- [D7] 通知注释（含自动评审结果）不进入待处理计数、无动作；旧 `.dsh-cowork/inbox.json` 不被读写 — `tests/panel/inbox-api.test.mjs`
 - [D8] `npm run check`、`typecheck`、`build`、`test` 通过；真实 GUI 证据记录 — `plan-docs` / 实现期门禁
 
 ## 12. 风险与未决
@@ -536,9 +536,9 @@ sequenceDiagram
 
 落点：
 
-- 后端：`src/request-schema.ts`、`src/request-store.ts`、`src/request-service.ts`、`src/request-tools.ts`、`src/inbox-contract.ts`、`src/inbox-api.ts`、`src/activity.ts`、`src/store-schema.ts`、`src/topic-tools.ts`、`src/tool-runtime.ts`、`src/tools.ts`、`src/api.ts`、`src/api-contract.ts`、`src/index.ts`。
+- 后端：`src/domains/requests/request-schema.ts`、`src/store/request-store.ts`、`src/domains/requests/request-service.ts`、`src/tools/request.ts`、`src/panel/inbox-contract.ts`、`src/panel/inbox-api.ts`、`src/store/activity.ts`、`src/store/schema.ts`、`src/tools/topic.ts`、`src/platform/tool-runtime.ts`、`src/app/tools.ts`、`src/panel/api.ts`、`src/panel/api-contract.ts`、`src/app/apply.ts`。
 - 前端：`src/client/inbox-model.ts`、`src/client/inbox.tsx`、`src/client/api.ts`、`src/client/panel.tsx`、`src/client/list.tsx`、`src/client/styles.ts`。
-- 测试：`tests/request-{schema,store,service,tools}.test.mjs`、`tests/inbox-api.test.mjs`、`tests/inbox-contract.test.mjs`、`tests/inbox-model.test.mjs`、`tests/open-port.test.mjs`，以及既有 `api`/`api-contract`/`activity`/`store-schema`/`dev-gate`/`project-tools`/`source-budget`/`panel-model` 的更新。
+- 测试：`tests/request-{schema,store,service,tools}.test.mjs`、`tests/panel/inbox-api.test.mjs`、`tests/panel/inbox-contract.test.mjs`、`tests/client/inbox-model.test.mjs`、`tests/app/open-port.test.mjs`，以及既有 `api`/`api-contract`/`activity`/`store-schema`/`dev-gate`/`project-tools`/`source-budget`/`panel-model` 的更新。
 
 真实 GUI 证据（专用 `inboxqa` profile + 隔离 fixture repo + 真实 Chrome）：三档宽度（面板内容宽 630 / 900 / 400）下主题列固定、收件箱独立滚动、窄栏横幅与面板内全宽收件箱；四类请求由真实 cowork 工具创建并逐类解决，右侧回复出现、请求记录 `delivery.promptedAt` 非空、主题会话随后继续；主题卡筛选只过滤收件箱；刷新后左右消息、状态与筛选保留。PLAN「查看全文」在补齐宿主 `openWorkspacePath(request, AbortSignal)` 双参契约后真实桌面打开成功；修复前的 501 已记录在交接的偏差段。
 

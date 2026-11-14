@@ -1,8 +1,8 @@
 # 工具 → 领域模块：Stage 0 前置核查与去向登记
 
 - 状态：**Stage 0 完成（2026-11-14）**。本文件是 [TOOL_DOMAIN_MODULES_HANDOFF.md](TOOL_DOMAIN_MODULES_HANDOFF.md) 要求的执行前置：登记 `src`/`tests`/`scripts` 每个文件的去向，并记录可复核的门禁基线。执行事实以本文件与各 Stage 的 commit/证据为准。
-- 提案：[2026-11-13-tool-domain-modules.md](../../.agents/notes/proposed/architecture/2026-11-13-tool-domain-modules.md)。
-- 基线：`origin/main` `9231d565ed9ce13df7c75187178696ec0726aafa`（PR #33、#34、#35 均已合并）；工作分支 `agent/tool-domain-modules`；工作树干净（`git status --porcelain` 0 行）。
+- 提案：[2026-11-13-tool-domain-modules.md](../../.agents/notes/implemented/architecture/2026-11-13-tool-domain-modules.md)。
+- 基线：`origin/main` `9231d565ed9ce13df7c75187178696ec072a6afa`（PR #33、#34、#35 均已合并）；工作分支 `agent/tool-domain-modules`；工作树干净（`git status --porcelain` 0 行）。
 - 基线空 diff：`git diff --binary origin/main..HEAD | shasum -a 256` = `e3b0c442…b855`（空输入哈希）。
 
 ## 前置条件核查

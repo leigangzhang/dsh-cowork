@@ -177,7 +177,7 @@ cowork_decision_propose({
   "subject": "主题标题",
   "summary": "这次完成的是一段可读的说明，不是文件清单。",
   "decisions": ["需要 master 知道的选择"],
-  "changedPaths": ["src/topic-tools.ts"],
+  "changedPaths": ["src/tools/topic.ts"],
   "artifacts": ["docs/decision-and-handoff.md"],
   "verification": [
     {
@@ -242,7 +242,7 @@ cowork_handoff({
   verification: [
     { command: "npm test", exitCode: 0, evidence: "全部通过" }
   ],
-  changedPaths: ["src/topic-tools.ts", "src/notices.ts"],
+  changedPaths: ["src/tools/topic.ts", "src/domains/notices/notices.ts"],
   decisions: ["通知按事件一一对应写入账本"],
   openIssues: ["会话提醒卡等宿主提供通道后再补"]
 })
@@ -332,17 +332,17 @@ flowchart TD
 
 | 部分 | 文件 | 入口 |
 |---|---|---|
-| 工具注册与参数 | [src/topic-tools.ts](../src/tools/topic.ts#L716-L818) | `cowork_handoff`、`cowork_decision_propose`、`cowork_notices` |
-| 决策记录写入 | [src/topic-tools.ts](../src/tools/topic.ts#L453-L525) | `proposeDecision` |
-| 交接校验与记录格式 | [src/handoff.ts](../src/domains/topic/handoff.ts#L156-L235) | `validateHandoff`、`buildHandoffRecord` |
-| 交接文件写入 | [src/store.ts](../src/store/project-store.ts#L842-L863) | `writeHandoff` |
-| 主题状态变化 | [src/topic.ts](../src/domains/topic/topic.ts#L88-L173) | `noteTopicActivity`、`blockTopic`、`unblockTopic` |
-| 事件构造 | [src/activity.ts](../src/store/activity.ts#L131-L188) | `topicReportedActivity`、`decisionProposedActivity` |
-| 通知模型与账本 | [src/notices.ts](../src/domains/notices/notices.ts#L242-L482) | `noticeFor`、`recordNoticesForEvent` |
-| 投递调度 | [src/notices.ts](../src/domains/notices/notices.ts#L631-L724) | `TopicNoticeDispatcher` |
-| master 读取通知 | [src/topic-tools.ts](../src/tools/topic.ts#L577-L611) | `listNotices` |
-| 插件装配 | [src/index.ts](../src/app/apply.ts#L890-L907) | 当前使用 `NoopTopicNoticePort` |
-| 测试 | [tests/topic-tools.test.mjs](../tests/tools/topic.test.mjs#L346-L675)、[tests/handoff.test.mjs](../tests/domains/topic/handoff.test.mjs)、[tests/notices.test.mjs](../tests/domains/notices/notices.test.mjs) | 工具、交接格式和通知账本 |
+| 工具注册与参数 | [src/tools/topic.ts](../src/tools/topic.ts#L716-L818) | `cowork_handoff`、`cowork_decision_propose`、`cowork_notices` |
+| 决策记录写入 | [src/tools/topic.ts](../src/tools/topic.ts#L453-L525) | `proposeDecision` |
+| 交接校验与记录格式 | [src/domains/topic/handoff.ts](../src/domains/topic/handoff.ts#L156-L235) | `validateHandoff`、`buildHandoffRecord` |
+| 交接文件写入 | [src/store/project-store.ts](../src/store/project-store.ts#L842-L863) | `writeHandoff` |
+| 主题状态变化 | [src/domains/topic/topic.ts](../src/domains/topic/topic.ts#L88-L173) | `noteTopicActivity`、`blockTopic`、`unblockTopic` |
+| 事件构造 | [src/store/activity.ts](../src/store/activity.ts#L131-L188) | `topicReportedActivity`、`decisionProposedActivity` |
+| 通知模型与账本 | [src/domains/notices/notices.ts](../src/domains/notices/notices.ts#L242-L482) | `noticeFor`、`recordNoticesForEvent` |
+| 投递调度 | [src/domains/notices/notices.ts](../src/domains/notices/notices.ts#L631-L724) | `TopicNoticeDispatcher` |
+| master 读取通知 | [src/tools/topic.ts](../src/tools/topic.ts#L577-L611) | `listNotices` |
+| 插件装配 | [src/app/apply.ts](../src/app/apply.ts#L890-L907) | 当前使用 `NoopTopicNoticePort` |
+| 测试 | [tests/tools/topic.test.mjs](../tests/tools/topic.test.mjs#L346-L675)、[tests/domains/topic/handoff.test.mjs](../tests/domains/topic/handoff.test.mjs)、[tests/domains/notices/notices.test.mjs](../tests/domains/notices/notices.test.mjs) | 工具、交接格式和通知账本 |
 
 更完整的设计取舍记录在仓库内的 `.agents/notes/implemented/feature/2026-11-10-topic-page-backend.md` 和 `2026-11-10-topic-page-frontend.md`，本文不展开。
 

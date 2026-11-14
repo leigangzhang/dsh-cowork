@@ -155,15 +155,15 @@ resolved → active（菜单恢复 / reopen）
 
 | 能力 | 事实 | 证据 |
 |---|---|---|
-| 创建会话 | `sessionController.create({ workspaceId, agentPreset })` 创建普通会话并挂到 workspace | M0 结果、`src/session-slice.ts` |
+| 创建会话 | `sessionController.create({ workspaceId, agentPreset })` 创建普通会话并挂到 workspace | M0 结果、`src/platform/session-slice.ts` |
 | 唤醒会话 | `sessionController.prompt({ sessionId, mode:'queue', content })` | M0/M1 E2E |
-| 重命名 | `sessionController.rename` | `src/session-slice.ts` |
+| 重命名 | `sessionController.rename` | `src/platform/session-slice.ts` |
 | 归档/隐藏 | `archiveSession` 是展示过滤且 `archivedSessionIds` 可读，但归档后 `prompt` 的 turn 以 `blocked` 结束、消息不落盘；unarchive 才恢复 | `dsh-workspace/lib/index.js`、[M6 探针结果](handoff/M6_PROBE_RESULT.md) §3 |
 | 打开会话 | 客户端 `uiWorkspace.openSession(sessionId)` 切换主区 | `src/client/contracts.ts` |
 | 面板 | 右侧栏 tab、`sidebar.right.pane.tab`、footer action 已可用 | `docs/handoff/PANEL_RESULT.md` |
 | 会话事件 | 插件可订阅 `session/event`（E2E 已用） | `src/m3-e2e.ts` |
 | 模型调用 | `ctx.llm.prepareCall` 已由 `dsh-session-title-llm` 使用；可设 `maxTokens`、`reasoningEffort`、超时 | `dsh-session-title-llm/lib/index.js` |
-| 隔离 clone | 现有 per-thread clone 可用，路径在仓库内，reviewer 可读 | M2 结果、`src/checkout.ts` |
+| 隔离 clone | 现有 per-thread clone 可用，路径在仓库内，reviewer 可读 | M2 结果、`src/domains/isolation/checkout.ts` |
 
 ### 3.2 M6 探针问题（结论见 [M6 探针结果](handoff/M6_PROBE_RESULT.md)）
 
@@ -304,7 +304,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 ### 5.2 store v2 与迁移
 
-- `src/store-schema.ts`：v2 类型、状态/标记校验、未知字段容忍策略；`src/store-migration.ts`：v1→v2 纯函数。
+- `src/store/schema.ts`：v2 类型、状态/标记校验、未知字段容忍策略；`src/store/migration.ts`：v1→v2 纯函数。
 - 映射：`new/active`→`active`；`awaiting_review`→`active` 且取消在途评审（归档旧 reviewer，`awaitingReview=false`，`reviewStatus=null`）；`blocked`→`active`+`blocked`；`done/archived`→`resolved`（`resolvedBy='master'`，`resolvedAt=updatedAt`，`lastDeliveryConfirmedAt=updatedAt`）；`threadId`→`topicId`；`subject`→`title`；`checkoutPath`→`legacyCheckoutPath`。
 - 迁移前复制 `index.v1.backup.json`；迁移失败保留备份并报 `store/corrupt`，不静默重建。
 - 写只写 v2；读兼容 v1。
@@ -435,69 +435,69 @@ master → 插件：cowork_checkout_merge(workItemId)
 
 ### M7 数据模型与迁移
 
-- 范围：`src/store-schema.ts`、`src/store-migration.ts`、`src/store.ts`；v1→v2 映射；备份；activity/inbox 文件读写；类型与 store 测试。
+- 范围：`src/store/schema.ts`、`src/store/migration.ts`、`src/store/project-store.ts`；v1→v2 映射；备份；activity/inbox 文件读写；类型与 store 测试。
 - 依赖：M6（顺序）。
 - 完成标准：
   - v1 六态全部可迁移；`awaiting_review` 在途评审被取消并归档旧 reviewer；`done/archived` 转 resolved。
   - 迁移前写 `index.v1.backup.json`；损坏/未知状态 fail closed。
   - `npm test` 中 store-migration/round-trip 通过；`npm run typecheck`/`build` 通过。
-- 证据：`tests/store-migration.test.mjs`、`tests/store.test.mjs`。
+- 证据：`tests/store/store-migration.test.mjs`、`tests/store/store.test.mjs`。
 - 不做：不改工具、不改 UI、不切默认行为。
 
 ### M8 主题生命周期、活动、收件箱
 
-- 范围：`src/topic.ts`、`src/topic-events.ts`、`src/activity.ts`、`src/inbox.ts`；三态、标记、已解决五条件、3 天/2 小时、重开、活动裁剪、收件箱合并/重放。
+- 范围：`src/domains/topic/topic.ts`、`src/platform/topic-events.ts`、`src/store/activity.ts`、`src/store/inbox.ts`；三态、标记、已解决五条件、3 天/2 小时、重开、活动裁剪、收件箱合并/重放。
 - 依赖：M7。
 - 完成标准：
   - 五条件逐条缺失都不自动标记；3 天边界正确；无撤销；重开清空 resolved 字段。
   - `turn/end` 更新 `lastActiveAt`；已解决主题收到用户输入回到 active；锁内重读避免竞争。
   - 活动流上限与损坏行处理；收件箱投递失败保留并可重放。
   - 测试通过；`npm run typecheck`/`build` 通过。
-- 证据：`tests/topic.test.mjs`、`tests/activity.test.mjs`、`tests/inbox.test.mjs`。
+- 证据：`tests/domains/topic/topic.test.mjs`、`tests/store/activity.test.mjs`、`tests/store/inbox.test.mjs`。
 - 不做：不接模型路由，不改工具。
 
 ### M9 路由、工具、预设
 
-- 范围：重写 `src/router.ts` → `src/routing.ts`；新增 `src/router-model.ts`；新增 `src/project-tools.ts`/`topic-tools.ts`/`route-tools.ts`，`src/tools.ts` 只编排；`src/presets.ts`、`src/memory-prompt.ts`；工具别名。
+- 范围：重写 `src/router.ts` → `src/domains/routing/routing.ts`；新增 `src/domains/routing/router-model.ts`；新增 `src/tools/project.ts`/`topic-tools.ts`/`route-tools.ts`，`src/app/tools.ts` 只编排；`src/platform/presets.ts`、`src/platform/memory-prompt.ts`；工具别名。
 - 依赖：M7、M8、M6 探针 1/2。
 - 完成标准：
   - 三层路由；低置信不弹窗；模型失败回退；resolved 不自动接；别名纠正写入。
   - 工具名/角色/别名按 §5.7；master preset 去 fs/bash；topic/thread 别名可用；memory 注入识别。
   - `project_status` 有界；`cowork_route` 返回可解释原因。
   - 测试通过；source budget 通过。
-- 证据：`tests/router*.test.mjs`、`tests/tools.test.mjs`、`tests/presets.test.mjs`、`npm test`。
+- 证据：`tests/router*.test.mjs`、`tests/domains/isolation/teardown.test.mjs`、`tests/platform/presets.test.mjs`、`npm test`。
 - 不做：不实现评审请求与合并；不接面板。
 
 ### M10 评审请求、reviewer、隔离、合并
 
-- 范围：`src/review-request.ts`、`src/review-tools.ts`、`src/review.ts`、`src/work-item.ts`、`src/checkout.ts`、`src/session-visibility.ts`；请求校验、reviewer 生命周期、隐藏、合并。
+- 范围：`src/domains/review/review-request.ts`、`src/tools/review.ts`、`src/review.ts`、`src/domains/isolation/work-item.ts`、`src/domains/isolation/checkout.ts`、`src/platform/session-visibility.ts`；请求校验、reviewer 生命周期、隐藏、合并。
 - 依赖：M7、M8、M9、M6 探针 3/4。
 - 完成标准：
   - 请求必填校验；base 祖先；脏目录拒绝；路径越界拒绝。
   - 每次新建 reviewer；verdict 绑定 requestId/reviewerSessionId；needs_revision 不唤醒 master；pass/reject 进收件箱；verdict 后归档。
   - 合并要求同一 head 的 pass；串行；冲突保留；清理；main 不动。
   - 测试通过；`npm run typecheck`/`build` 通过。
-- 证据：`tests/review-request.test.mjs`、`tests/work-item.test.mjs`、`tests/checkout.test.mjs`。
+- 证据：`tests/review-request.test.mjs`、`tests/work-item.test.mjs`、`tests/domains/isolation/checkout.test.mjs`。
 - 不做：不写面板；不做 worktree 适配器。
 
 ### M11 HTTP API 与面板
 
 > 历史：M11 交付的是「列表 + 详情 + 评审卡」；2026-11-10 主题页 v2 已改为单列四组列表，本节验收只记录当时的里程碑。
 
-- 范围：`src/api-contract.ts` v2、`src/api.ts` 读写路由、`src/client/*` 重写；左侧栏策略（决策 (b)：主题保留可见、reviewer 隐藏）、CoWork tab、打开/已解决/重开/改投。
+- 范围：`src/panel/api-contract.ts` v2、`src/panel/api.ts` 读写路由、`src/client/*` 重写；左侧栏策略（决策 (b)：主题保留可见、reviewer 隐藏）、CoWork tab、打开/已解决/重开/改投。
 - 依赖：M9、M10、M6 探针 5/6。
 - 完成标准：
   - 面板显示主题列表/详情/活动；无 thread 行、无 reviewer 行；reviewer 评审卡挂详情。
   - 打开主题切换主区；面包屑回 master；打开不新增/移除左侧栏条目；已归档会话先 unarchive 再打开。
   - 写路由同源/loopback 校验；错误状态可读。
   - 真实 Chrome 面板检查通过。
-- 证据：`tests/api-contract.test.mjs`、`tests/panel-model.test.mjs`、面板截图与 run 记录。
+- 证据：`tests/panel/api-contract.test.mjs`、`tests/client/panel-model.test.mjs`、面板截图与 run 记录。
 - 不做：不做主题内嵌多面板；不做移动端新布局。
 - M11 已交付：代码 artifact `6b7beab`，证据与验收见 [M11_RESULT](handoff/M11_RESULT.md)。
 
 ### M12 文档、真实 E2E、0.2.0
 
-- 范围：`README.md`、`docs/routing.md`、`docs/context.md`、`docs/glossary.md`、`docs/KNOWN_ISSUES.md`、`docs/publish.json`、`docs/handoff/M12_RESULT.md`、`docs/handoff/M12_HANDOFF.md`；`src/m12-e2e.ts`、`tests/m12-e2e.test.mjs`；版本 0.2.0；打包与本地安装/卸载。
+- 范围：`README.md`、`docs/routing.md`、`docs/context.md`、`docs/glossary.md`、`docs/KNOWN_ISSUES.md`、`docs/publish.json`、`docs/handoff/M12_RESULT.md`、`docs/handoff/M12_HANDOFF.md`；`src/dev/m12-e2e.ts`、`tests/dev/m12-e2e.test.mjs`；版本 0.2.0；打包与本地安装/卸载。
 - 依赖：M7–M11。
 - 完成标准：
   - 真实 E2E 全链路：master 初始化 → 路由新主题 → 主题在左侧栏可见并经 CoWork 打开（决策 (b)） → 提交评审 → reviewer verdict 后归档 → master 只收合并决定 → 已解决自动标记 → 无撤销 → 手动重开 → 已解决不自动接收 → 活动流 → 隔离 clone 合并。
@@ -518,7 +518,7 @@ master → 插件：cowork_checkout_merge(workItemId)
 - 面板：真实 Chrome；先修宿主健康与 overview API，再驱动 UI；复用浏览器会话；fixture 隔离。
 - 检查：命令与改动应欠的证据以 [testing.md](testing.md) 的 Commands 与 Evidence per change 为准。
 - 证据：`docs/handoff/M6_PROBE_RESULT.md`、`docs/handoff/M12_RESULT.md`、`docs/handoff/M12_HANDOFF.md`、`.dsh-cowork/e2e/M12_E2E.json`、面板截图。
-- source budget：`src/tools.ts` ≤ 49,152 B；所有 `src/**/*.ts` < 51,200 B；拆分为 §4.2 的模块。
+- source budget：`src/app/tools.ts` ≤ 49,152 B；所有 `src/**/*.ts` < 51,200 B；拆分为 §4.2 的模块。
 
 验收编号：
 

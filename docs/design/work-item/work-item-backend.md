@@ -42,16 +42,16 @@ Status: draft（backend design，2026-11-10；仅设计，未实现）
 
 | 能力 | 依据 | 结论 / 限制 |
 |---|---|---|
-| exact fetch 路由 | `src/api.ts:935-1004`：`connection.fetch.register`；`serve()` 先做 `assertSameOrigin` | 新路由沿用同样注册、错误 envelope 和 Host/Origin 校验 |
+| exact fetch 路由 | `src/panel/api.ts:935-1004`：`connection.fetch.register`；`serve()` 先做 `assertSameOrigin` | 新路由沿用同样注册、错误 envelope 和 Host/Origin 校验 |
 | SSE | DSH `packages/client/connection/src/http-bridge.ts:103` 逐块写 `Response.body`；`browser-auth.ts:120-123` 是 HttpOnly/SameSite=Strict cookie | 可走 `connection.fetch`；EventSource 同源带 cookie。真实宿主认证/心跳/续传仍待 E2E（V10） |
 | prompt 队列 | `packages/api/session-controller/src/commands.ts:364-366`：`queue` → `followup`；inbox 持久化（`packages/core/agent/src/types.ts:42-65`） | 同一主题会话天然串行；投递用 `mode:'queue'`，不打断当前回合 |
 | 会话事件 | DSH `packages/core/session/src/types.ts:281-361`：`turn/start`、`turn/end`、`tool/call`、`tool/result`、`assistant/message` | 投递状态机监听 `session/event`，不轮询 |
 | 文件版本 | `packages/fs/fs/src/types.ts:123-154`：`replaceIfVersion`、`expected.version`；`resolve/readText/writeText` | 文本保存可做乐观并发；写失败返回 stale version |
-| 工具守卫 | DSH `packages/core/tools/src/index.ts:731,1136`；`src/tool-model.ts:117-134` 的 `readCaller` 从 `exec.agent.session.header.cwd` 取 cwd | 同行锁可同步解析相对路径；`write/edit/str_replace_editor` 可拦，bash 不可拦 |
-| 图片/附件 | `packages/attachment/attachment/src/index.ts:98`；prompt content 支持 `image`/`file`（`session-controller/src/types.ts:89-97`） | 用户图片可持久化；模型回复附件需工具参数校验 |
-| 在应用中打开 | `session-controller/src/index.ts:319-382`：`canOpenWorkspacePath`/`openWorkspacePath`/`workspacePathApplications` | 宿主校验路径；浏览器不传任意路径 |
-| 存储写模式 | `src/store.ts:1-12`：`withFileLock` + `writeFileAtomic`，读无锁 | artifacts 用独立目录和独立锁，避免改 index v2 |
-| 旧 workItems | `src/work-item.ts`、`src/store-schema.ts:118-152`：clone + 评审状态 | 新 artifacts 完全独立 |
+| 工具守卫 | DSH `packages/core/tools/src/app/apply.ts:731,1136`；`src/platform/tool-model.ts:117-134` 的 `readCaller` 从 `exec.agent.session.header.cwd` 取 cwd | 同行锁可同步解析相对路径；`write/edit/str_replace_editor` 可拦，bash 不可拦 |
+| 图片/附件 | `packages/attachment/attachment/src/app/apply.ts:98`；prompt content 支持 `image`/`file`（`session-controller/src/types.ts:89-97`） | 用户图片可持久化；模型回复附件需工具参数校验 |
+| 在应用中打开 | `session-controller/src/app/apply.ts:319-382`：`canOpenWorkspacePath`/`openWorkspacePath`/`workspacePathApplications` | 宿主校验路径；浏览器不传任意路径 |
+| 存储写模式 | `src/store/project-store.ts:1-12`：`withFileLock` + `writeFileAtomic`，读无锁 | artifacts 用独立目录和独立锁，避免改 index v2 |
+| 旧 workItems | `src/domains/isolation/work-item.ts`、`src/store/schema.ts:118-152`：clone + 评审状态 | 新 artifacts 完全独立 |
 
 **未核实（实现期 E2E 门禁）：**
 
@@ -95,7 +95,7 @@ src/artifact-api.ts（exact fetch、Host/Origin、错误 envelope）
 | `src/artifact-api.ts` | exact fetch handler 和端口 |
 | `src/artifact-tools.ts` | `cowork_artifact_create`、`cowork_artifact_comments`、`cowork_artifact_reply` |
 
-接线：`src/index.ts` 构造 store/hub/dispatcher、注册路由和工具、订阅 `session/event`、注册 `tools.guard`；`src/tools.ts` 只增加 artifact 工具注册；不修改 `src/api.ts`、`src/api-contract.ts` 和 `src/store.ts` 的现有行为。
+接线：`src/app/apply.ts` 构造 store/hub/dispatcher、注册路由和工具、订阅 `session/event`、注册 `tools.guard`；`src/app/tools.ts` 只增加 artifact 工具注册；不修改 `src/panel/api.ts`、`src/panel/api-contract.ts` 和 `src/store/project-store.ts` 的现有行为。
 
 ## 存储
 

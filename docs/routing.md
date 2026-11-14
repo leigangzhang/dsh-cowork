@@ -1,6 +1,6 @@
 # 路由、工作项与评审请求
 
-一个需求从 master 进入、被某个主题会话接走、在隔离工作项里完成、经独立评审请求决定能否合并，最后按生命周期标记已解决。本文只写**顺序、状态归属与失败处置**；判定规则住在 [src/routing.ts](../src/domains/routing/routing.ts) 与 [src/route-tools.ts](../src/tools/route.ts)，评审与合并的契约住在 [src/review-request.ts](../src/domains/review/review-request.ts)，产品意图见 [PLAN-V0.2 §5.3–§5.6](PLAN-V0.2.md#53-路由)。
+一个需求从 master 进入、被某个主题会话接走、在隔离工作项里完成、经独立评审请求决定能否合并，最后按生命周期标记已解决。本文只写**顺序、状态归属与失败处置**；判定规则住在 [src/domains/routing/routing.ts](../src/domains/routing/routing.ts) 与 [src/tools/route.ts](../src/tools/route.ts)，评审与合并的契约住在 [src/domains/review/review-request.ts](../src/domains/review/review-request.ts)，产品意图见 [PLAN-V0.2 §5.3–§5.6](PLAN-V0.2.md#53-路由)。
 
 ## 1. 一个意图落到哪个主题
 
@@ -33,7 +33,7 @@
  reuse : 把意图（与可选 brief）投给主题会话
 ```
 
-- 三层与常量：第一层是会话局部性，第二层是结构化匹配，第三层是模型兜底（[src/routing.ts](../src/domains/routing/routing.ts#L29-L52)、[decideRoute](../src/domains/routing/routing.ts#L305)）。模型参数默认超时 2 秒、`maxTokens` 256、尽量关闭推理；`routing.enabled=false` 时直接走结构化回退（[PLAN-V0.2 §5.3](PLAN-V0.2.md#53-路由)）。
+- 三层与常量：第一层是会话局部性，第二层是结构化匹配，第三层是模型兜底（[src/domains/routing/routing.ts](../src/domains/routing/routing.ts#L29-L52)、[decideRoute](../src/domains/routing/routing.ts#L305)）。模型参数默认超时 2 秒、`maxTokens` 256、尽量关闭推理；`routing.enabled=false` 时直接走结构化回退（[PLAN-V0.2 §5.3](PLAN-V0.2.md#53-路由)）。
 - 新建标题取意图前 24 个字符；主题 id 就是新会话的 session id。新主题写两条活动：`topic-created` 与 `route-created`。
 - `resolved_match` 的语义是“旧主题不再接收”：插件为意图新建主题并返回 `resolvedMatch`，不 prompt 旧主题。
 - 选错由面板“移动到其他主题”纠正：把原意图的 token 追加到目标主题的 `aliases`，写 `route-corrected` 活动；不是删除或重写已有别名（见 §6）。

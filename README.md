@@ -6,9 +6,9 @@ DSH 的项目式主从协作插件。0.2.0 采用**主题会话模型**：master
 
 ## 它提供什么
 
-- **三个 preset**：`cowork-master`（显示为 `Cowork模式`）、`cowork-topic`、`cowork-reviewer`。新建会话只显示 master；topic/reviewer 由插件内部创建，不出现在选择器。定义与工具面见 [src/presets.ts](./src/platform/presets.ts)。
-- **22 个业务工具**：初始化、路由、主题、handoff、上报、决策提案、待授权、通知读取、用户评审请求、提问、计划确认、工作项、评审、合并、记忆；名称与注册顺序见 [src/tools.ts](./src/app/tools.ts)，参数以各工具模块为准。
-- **右侧栏 CoWork 面板**：宽侧栏两列（主题列表 + 请求收件箱），窄侧栏只列主题并在顶部显示“需要你处理 N 项”，点入面板内全宽收件箱。四类请求（用户评审 / 权限审批 / 提问 / PLAN）按“左侧主题消息 + 行动卡 + 解决后的右侧用户回复”展示；分配、上报、决策提案、自动评审结果与归档用居中灰字；主题卡上有独立的收件箱筛选按钮，⋯ 菜单归档/恢复。十条 `/api/cowork.*` 路由见 [src/api-contract.ts](./src/panel/api-contract.ts) 与 [src/inbox-contract.ts](./src/panel/inbox-contract.ts)。
+- **三个 preset**：`cowork-master`（显示为 `Cowork模式`）、`cowork-topic`、`cowork-reviewer`。新建会话只显示 master；topic/reviewer 由插件内部创建，不出现在选择器。定义与工具面见 [src/platform/presets.ts](./src/platform/presets.ts)。
+- **22 个业务工具**：初始化、路由、主题、handoff、上报、决策提案、待授权、通知读取、用户评审请求、提问、计划确认、工作项、评审、合并、记忆；名称与注册顺序见 [src/app/tools.ts](./src/app/tools.ts)，参数以各工具模块为准。
+- **右侧栏 CoWork 面板**：宽侧栏两列（主题列表 + 请求收件箱），窄侧栏只列主题并在顶部显示“需要你处理 N 项”，点入面板内全宽收件箱。四类请求（用户评审 / 权限审批 / 提问 / PLAN）按“左侧主题消息 + 行动卡 + 解决后的右侧用户回复”展示；分配、上报、决策提案、自动评审结果与归档用居中灰字；主题卡上有独立的收件箱筛选按钮，⋯ 菜单归档/恢复。十条 `/api/cowork.*` 路由见 [src/panel/api-contract.ts](./src/panel/api-contract.ts) 与 [src/panel/inbox-contract.ts](./src/panel/inbox-contract.ts)。
 - **项目记忆 / 活动流 / 通知账本 / master 收件箱 / 请求收件箱**：跨会话保留决定与事实，状态变化可审计；主题通知写 `.dsh-cowork/notices.json` 账本，master 可用 `cowork_notices` 读取；请求收件箱的请求记录写在 `.dsh-cowork/requests/<requestId>.json`，不读写旧 `inbox.json`；旧收件箱只保留合入、评审退回和跨主题冲突等既有事件。
 
 角色边界、状态机与生命周期规则由 [PLAN-V0.2](docs/PLAN-V0.2.md) 拥有；一次需求的完整闭环见 [routing.md](docs/routing.md)，上下文共享与记忆注入见 [context.md](docs/context.md)。

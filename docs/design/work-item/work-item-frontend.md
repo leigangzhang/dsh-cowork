@@ -105,7 +105,7 @@ interface ArtifactRecord {
 
 ### 列表/详情/文件/批注/保存
 
-以下路径是拟议接口，全部走 `connection.fetch.register` 的 exact route，沿用 Host/Origin 和浏览器认证；实现时以 `src/api-contract.ts` 的类型为准。
+以下路径是拟议接口，全部走 `connection.fetch.register` 的 exact route，沿用 Host/Origin 和浏览器认证；实现时以 `src/panel/api-contract.ts` 的类型为准。
 
 | 方法/路径 | 用途 | 关键输入/输出 |
 |---|---|---|
