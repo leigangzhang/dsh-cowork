@@ -8,6 +8,7 @@
  * action on a terminal request is `inbox/request-resolved`.
  */
 import { requestCreatedActivity, requestResolvedActivity } from './activity.js'
+import { attemptDelivery } from './delivery.js'
 import { actionForStatus, isTerminalStatus, statusForAction } from './inbox-contract.js'
 import type {
   InboxAnswerInput,
@@ -157,12 +158,57 @@ export async function resolveRequest(input: ResolveRequestInput): Promise<Resolv
       throw new PanelServiceError('inbox/invalid-answer', problems.join('; '))
     }
   }
-  // An authorization decision is the one kind that also changes topic state and
-  // the notice ledger; the shared core below is the only unlock path.
-  const decision = record.kind === 'authorization'
-    ? await decideAuthorization(input, record)
-    : null
   const status = statusForAction(input.action)
+  // An authorization decision is the one kind that also changes topic state and
+  // the notice ledger; the shared core below is the only unlock path, and it
+  // commits the card in the same lock acquisition as the index.
+  const decision = record.kind === 'authorization'
+    ? await decideAuthorization(input, record, comment)
+    : null
+  if (decision !== null) {
+    if (!decision.changed) {
+      // Another writer committed the decision between the read and the lock: the
+      // same action is an idempotent replay, a different one is a conflict.
+      const current = await store.read(input.requestId)
+      if (current === null) {
+        throw new PanelServiceError('inbox/request-not-found', `request ${input.requestId} vanished`)
+      }
+      if (actionForStatus(current.status) === input.action) {
+        return { record: current, changed: false, prompted: false, promptError: null }
+      }
+      throw new PanelServiceError(
+        'inbox/request-resolved',
+        `request ${input.requestId} was resolved concurrently as ${current.status}`,
+      )
+    }
+    const settled = decision.cardRecord
+    if (settled === null) {
+      throw new PanelServiceError(
+        'inbox/request-resolved',
+        `request ${input.requestId} has no card to settle with its authorization decision`,
+      )
+    }
+    const delivered = await promptRequestTopic({
+      repoPath: input.repoPath,
+      requestId: settled.requestId,
+      topicId: settled.topicId,
+      sessionId: input.sessionId,
+      text: decision.promptText,
+      previousPromptedAt: settled.delivery.promptedAt,
+      promptSession: input.promptSession,
+      now: input.now,
+      log: input.log,
+    })
+    const recorded = delivered.prompted || delivered.promptError !== null
+      ? await store.read(settled.requestId)
+      : settled
+    return {
+      record: recorded ?? settled,
+      changed: true,
+      prompted: delivered.prompted,
+      promptError: delivered.promptError,
+    }
+  }
   const next = await store.update(input.requestId, (current) => (
     current.status === 'pending'
       ? applyResolution(current, {
@@ -198,7 +244,9 @@ export async function resolveRequest(input: ResolveRequestInput): Promise<Resolv
     requestId: next.requestId,
     topicId: next.topicId,
     sessionId: input.sessionId,
-    text: decision === null ? resolutionPromptOf(next) : decision.promptText,
+    // Only non-authorization kinds reach this branch; the auth path above
+    // carries the deferred prompt text from the decision core.
+    text: resolutionPromptOf(next),
     previousPromptedAt: next.delivery.promptedAt,
     promptSession: input.promptSession,
     now: input.now,
@@ -226,6 +274,7 @@ function resolutionPromptOf(record: RequestRecordV1): string {
 async function decideAuthorization(
   input: ResolveRequestInput,
   record: RequestRecordV1,
+  comment: string | null,
 ): Promise<AuthorizationDecisionOutcome> {
   const decision = input.action === 'allow' ? 'allow' : 'deny'
   try {
@@ -242,6 +291,13 @@ async function decideAuthorization(
       promptSession: input.promptSession,
       noticePort: input.noticePort,
       kickNotices: input.kickNotices,
+      // The inbox resolution owns the comment; the status comes from the core.
+      settleCard: (current, status) => applyResolution(current, {
+        status,
+        ...(comment === null ? {} : { comment }),
+        resolvedBy: 'user',
+        now: input.now,
+      }),
       log: input.log,
     })
   } catch (error) {
@@ -303,17 +359,20 @@ export async function promptRequestTopic(
 ): Promise<PromptRequestTopicOutcome> {
   // A caller that is the topic session already has the decision; prompting
   // itself would be a duplicate turn.
-  if (input.text === null || input.sessionId === input.topicId || input.promptSession === undefined) {
+  const text = input.text
+  const promptSession = input.promptSession
+  if (text === null || input.sessionId === input.topicId || promptSession === undefined) {
     return { prompted: false, promptError: null }
   }
-  let prompted = false
-  let promptError: string | null = null
-  try {
-    const result = await input.promptSession(input.topicId, input.text)
-    prompted = result.accepted === true
-    if (!prompted) promptError = 'the host refused the queue prompt'
-  } catch (error) {
-    promptError = clipText(messageOf(error), REQUEST_DELIVERY_ERROR_MAX_CHARS)
+  const delivery = await attemptDelivery(async () => {
+    const result = await promptSession(input.topicId, text)
+    if (result.accepted !== true) throw new Error('the host refused the queue prompt')
+  })
+  const prompted = delivery.delivered
+  const promptError = delivery.delivered
+    ? null
+    : clipText(delivery.error ?? 'the host refused the queue prompt', REQUEST_DELIVERY_ERROR_MAX_CHARS)
+  if (promptError !== null) {
     input.log?.(`request ${input.requestId}: topic ${input.topicId} was not prompted: ${promptError}`)
   }
   const store = new RequestStore({ repoPath: input.repoPath, log: input.log })

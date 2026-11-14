@@ -22,6 +22,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { buildActivityEvent } from './activity.js'
 import type { GitRunner } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
+import { attemptDelivery } from './delivery.js'
 import { Inbox, InboxMarkError } from './inbox.js'
 import {
   buildRejectMessage,
@@ -399,6 +400,7 @@ async function deliverInboxEvent(
       readInbox: () => opened.store.readInbox(),
       writeInbox: (items) => opened.store.writeInbox(items),
     },
+    // `Inbox.flush` runs this callback through the shared attempt primitive.
     deliver: async (summary) => {
       const prompted = await opened.slice.promptSession(masterSessionId, summary)
       if (!prompted.accepted) throw new Error('the master session did not accept the inbox message')
@@ -754,15 +756,12 @@ export function registerReviewTools(ctx: unknown, deps: ReviewToolsDeps): Array<
 
         // The request is recorded; the brief is the last step that can roll back.
         const brief = buildReviewBrief({ request: record, previous })
-        let accepted = false
-        let promptError: string | null = null
-        try {
+        const briefing = await attemptDelivery(async () => {
           const prompted = await opened.slice.promptSession(reviewer.sessionId, brief)
-          accepted = prompted.accepted
-          if (!accepted) promptError = 'the host did not accept the brief'
-        } catch (error) {
-          promptError = describeError(error)
-        }
+          if (!prompted.accepted) throw new Error('the host did not accept the brief')
+        })
+        const accepted = briefing.delivered
+        const promptError = briefing.delivered ? null : briefing.error
         if (!accepted) {
           const cleanupErrors = await rollbackRequest({
             opened,
@@ -968,13 +967,12 @@ export function registerReviewTools(ctx: unknown, deps: ReviewToolsDeps): Array<
           const message = draft.verdict === 'reject'
             ? buildRejectMessage(terminal)
             : buildRevisionMessage(terminal)
-          try {
+          const wake = await attemptDelivery(async () => {
             const prompted = await opened.slice.promptSession(terminal.topicId, message)
-            topicDelivered = prompted.accepted
-            if (!prompted.accepted) topicDeliveryError = 'the host did not accept the review message'
-          } catch (error) {
-            topicDeliveryError = describeError(error)
-          }
+            if (!prompted.accepted) throw new Error('the host did not accept the review message')
+          })
+          topicDelivered = wake.delivered
+          topicDeliveryError = wake.delivered ? null : wake.error
         }
 
         let inbox: InboxOutcome | null = null
