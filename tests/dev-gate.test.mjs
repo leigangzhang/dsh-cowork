@@ -25,19 +25,13 @@ const { OVERVIEW_PATH } = await import('../src/api-contract.ts')
 const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-topic']
 
 /** Probe-only tools, presets, and routes; all gated by `enableDevRoutes`. */
-const DEV_TOOLS = ['cowork_identity_probe', 'cowork_probe']
-const DEV_PRESETS = ['cowork-probe', 'cowork-thread-s0']
+const DEV_TOOLS = ['cowork_probe']
+const DEV_PRESETS = ['cowork-probe']
 const DEV_ROUTES = [
   '/dsh-cowork/e2e/m12/run',
   '/dsh-cowork/e2e/m12/status',
-  '/dsh-cowork/e2e/m2/run',
-  '/dsh-cowork/e2e/m2/status',
-  '/dsh-cowork/e2e/m3/run',
-  '/dsh-cowork/e2e/m3/status',
   '/dsh-cowork/probe/health',
   '/dsh-cowork/probe/run',
-  '/dsh-cowork/probe/s0',
-  '/dsh-cowork/probe/s0-status',
   '/dsh-cowork/probe/status',
 ]
 
@@ -247,12 +241,12 @@ test('the remote roster hides topic/reviewer while registration stays complete',
   )
 })
 
-test('enableDevRoutes=true restores the M0/S0/M2/M3/M12 surface unchanged', async () => {
+test('enableDevRoutes=true restores the M0/M12 surface unchanged', async () => {
   const host = fakeHost()
   apply(host.ctx, config(true))
   await settle()
 
-  // Same eleven loopback-only routes and the same exact-match shape as before.
+  // Same five loopback-only routes and the same exact-match shape as before.
   assert.deepEqual(sorted(host.routes.map((route) => route.path)), DEV_ROUTES)
   assert.equal(host.routes.every((route) => route.kind === 'exact'), true)
   assert.equal(host.routes.every((route) => typeof route.handler === 'function'), true)
@@ -262,9 +256,9 @@ test('enableDevRoutes=true restores the M0/S0/M2/M3/M12 surface unchanged', asyn
   assert.deepEqual(toolNames(host), sorted([...BUSINESS_TOOLS, ...DEV_TOOLS]))
   assert.deepEqual(presetIds(host), sorted([...BUSINESS_PRESETS, ...DEV_PRESETS]))
 
-  // One session/event listener per runner (M0, S0, M2, M3, M12) plus the
-  // business topic lifecycle listener.
-  assert.equal(sessionListeners(host).length, 6)
+  // One session/event listener per runner (M0, M12) plus the business topic
+  // lifecycle listener.
+  assert.equal(sessionListeners(host).length, 3)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 
   // Every dev route and the M12 event feed are fiber-owned effects with a
@@ -322,7 +316,7 @@ test('disposing the plugin releases the dev session listeners', async () => {
   const host = fakeHost()
   apply(host.ctx, config(true))
   await settle()
-  assert.equal(sessionListeners(host).length, 6)
+  assert.equal(sessionListeners(host).length, 3)
 
   await disposeAll(host)
 

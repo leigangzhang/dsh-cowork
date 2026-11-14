@@ -254,10 +254,8 @@ test('KI-25/KI-18: no legacy review writes, and the legacy read-only surface sta
   assert.equal(/allowUnreviewed|overrideReason/.test(source('src/presets.ts')), false)
   assert.equal(/checkLegacyThreadMerge[\s\S]*allowUnreviewed/.test(source('src/review-request.ts')), false)
 
-  // Legacy readers and dev runners stay until M11/M12 replace them.
-  for (const file of ['src/api.ts', 'src/api-contract.ts', 'src/m2-e2e.ts', 'src/m3-e2e.ts', 'src/store-migration.ts']) {
-    assert.equal(existsSync(resolve(root, file)), true, `${file} must stay for M11/M12`)
+  // Legacy readers stay through the 0.2.0 compatibility window (KI-18).
+  for (const file of ['src/api.ts', 'src/api-contract.ts', 'src/store-migration.ts']) {
+    assert.equal(existsSync(resolve(root, file)), true, `${file} must stay for the 0.2.0 window`)
   }
-  assert.match(source('src/tools.ts'), /M11/)
-  assert.match(source('src/tools.ts'), /M12/)
 })
