@@ -69,10 +69,20 @@ const {
 
 const here = dirname(fileURLToPath(import.meta.url))
 const driverPath = join(here, '..', 'src', 'm12-e2e.ts')
+const driverBasePath = join(here, '..', 'src', 'm12-e2e-driver.ts')
 const supportPath = join(here, '..', 'src', 'm12-e2e-support.ts')
+/** The three modules behind the support barrel, in import order. */
+const supportModulePaths = ['m12-e2e-contract.ts', 'm12-e2e-prompts.ts', 'm12-e2e-evidence.ts']
+  .map((name) => join(here, '..', 'src', name))
 
-/** DSH's single-file read ceiling; both halves must stay under it (acceptance: <51,200 B). */
-const FILE_BUDGET_BYTES = 51_200
+/** The 48 KiB split target every M12 source file must keep. */
+const FILE_BUDGET_BYTES = 49_152
+
+/** Every file the split produced; the budget test walks all of them. */
+const M12_SOURCE_PATHS = [driverPath, driverBasePath, supportPath, ...supportModulePaths]
+
+/** Lifecycle and plumbing moved to the driver base module; structure pins read both. */
+const driverBaseSource = () => [readFileSync(driverPath, 'utf8'), readFileSync(driverBasePath, 'utf8')].join('\n')
 
 const CREATED_AT = '2026-11-08T09:00:00.000Z'
 
@@ -380,8 +390,8 @@ test('a terminal run deletes the fixture unless keep mode asked for it', () => {
   assert.equal(shouldRemoveFixture('failed', true), false)
 })
 
-test('the driver persists evidence before deleting the fixture', () => {
-  const source = readFileSync(driverPath, 'utf8')
+test('the driver base persists evidence before deleting the fixture', () => {
+  const source = readFileSync(driverBasePath, 'utf8')
   const finallyAt = source.indexOf('} finally {')
   assert.notEqual(finallyAt, -1, 'execute() must keep a finally block')
   const end = source.indexOf('this.releaseSessions()', finallyAt)
@@ -398,9 +408,9 @@ test('the driver persists evidence before deleting the fixture', () => {
 })
 
 test('the runner exposes start, resolve, attachEvents, dispose, and a fail-fast loop', () => {
-  const source = readFileSync(driverPath, 'utf8')
+  const source = driverBaseSource()
 
-  for (const member of ['start(options', 'resolve(runId', 'attachEvents():', 'dispose():', 'private async execute(', 'private async runStep(']) {
+  for (const member of ['start(options', 'resolve(runId', 'attachEvents():', 'dispose():', 'private async execute(', 'protected async runStep(']) {
     assert.equal(source.includes(member), true, `driver is missing ${member}`)
   }
   assert.match(source, /still running/)
@@ -412,7 +422,7 @@ test('the runner exposes start, resolve, attachEvents, dispose, and a fail-fast 
 })
 
 test('the cleanup plan names every session role the chain creates', () => {
-  const source = readFileSync(driverPath, 'utf8')
+  const source = readFileSync(driverBasePath, 'utf8')
   for (const role of ['master', 'topic', 'reviewer', 'topic-resolved-match']) {
     assert.equal(source.includes(`['${role}'`), true, `cleanup is missing the ${role} role`)
   }
@@ -632,8 +642,8 @@ test('reviewRequestView projects the fields the chain asserts on', () => {
 // file budget and import boundaries
 // ---------------------------------------------------------------------------
 
-test('both M12 driver files stay within the per-file budget', () => {
-  for (const path of [driverPath, supportPath]) {
+test('every M12 driver file stays within the 48 KiB split budget', () => {
+  for (const path of M12_SOURCE_PATHS) {
     const size = statSync(path).size
     assert.ok(size > 0, path)
     assert.ok(size <= FILE_BUDGET_BYTES, `${path} is ${size} bytes, above ${FILE_BUDGET_BYTES}`)
@@ -641,29 +651,53 @@ test('both M12 driver files stay within the per-file budget', () => {
   }
 })
 
-test('the support imports only built-ins and pure plugin modules', () => {
+test('the support barrel only re-exports the split modules', () => {
+  const code = readFileSync(supportPath, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim() !== '' && !/^\s*(\/\*\*|\*|\/\/)/.test(line))
+  assert.deepEqual(code, [
+    "export * from './m12-e2e-contract.js'",
+    "export * from './m12-e2e-prompts.js'",
+    "export * from './m12-e2e-evidence.js'",
+  ])
+})
+
+test('the split modules import only built-ins and pure plugin modules', () => {
   const allowedLocal = new Set([
+    './m12-e2e-contract.js',
     './review-request.js',
     './presets.js',
     './store-schema.js',
   ])
-  const valueImports = [...readFileSync(supportPath, 'utf8').matchAll(/^import\s+(?!type\b)[\s\S]*?from\s+'([^']+)'/gm)]
-    .map((match) => match[1])
-  for (const specifier of valueImports) {
-    const allowed = specifier.startsWith('node:') || allowedLocal.has(specifier)
-    assert.equal(allowed, true, `unexpected runtime import in the M12 support: ${specifier}`)
-  }
-  // No host, store I/O layer, panel API, or runner: the support stays testable.
-  for (const forbidden of ['./m12-e2e.js', './api.js', './store.js', './index.js']) {
-    assert.equal(valueImports.includes(forbidden), false, `support must not import ${forbidden}`)
+  for (const path of supportModulePaths) {
+    const valueImports = [...readFileSync(path, 'utf8').matchAll(/^import\s+(?!type\b)[\s\S]*?from\s+'([^']+)'/gm)]
+      .map((match) => match[1])
+    for (const specifier of valueImports) {
+      const allowed = specifier.startsWith('node:') || allowedLocal.has(specifier)
+      assert.equal(allowed, true, `unexpected runtime import in ${path}: ${specifier}`)
+    }
+    // No host, store I/O layer, panel API, runner, or driver: the support stays testable.
+    for (const forbidden of ['./m12-e2e.js', './m12-e2e-driver.js', './api.js', './store.js', './index.js']) {
+      assert.equal(valueImports.includes(forbidden), false, `${path} must not import ${forbidden}`)
+    }
   }
 })
 
-test('the driver imports only its support module', () => {
+test('the driver imports only its support barrel and the runner base', () => {
   const driver = readFileSync(driverPath, 'utf8')
+  const allowed = new Set(['./m12-e2e-support.js', './m12-e2e-driver.js'])
   for (const line of driver.split('\n').filter((entry) => /^import .* from '\.\//.test(entry))) {
-    assert.match(line, /from '\.\/m12-e2e-support\.js'/, `driver imports another local module: ${line}`)
+    const specifier = line.match(/from '([^']+)'/)?.[1]
+    assert.equal(allowed.has(specifier), true, `driver imports an unexpected local module: ${line}`)
   }
   assert.match(driver, /M12_E2E_RUN_PATH/)
   assert.match(driver, /M12_E2E_STATUS_PATH/)
+})
+
+test('the driver base module keeps the lifecycle and imports only the support barrel', () => {
+  const runner = readFileSync(driverBasePath, 'utf8')
+  for (const line of runner.split('\n').filter((entry) => /^import .* from '\.\//.test(entry))) {
+    assert.match(line, /from '\.\/m12-e2e-support\.js'/, `runner imports another local module: ${line}`)
+  }
+  assert.match(runner, /export abstract class M12E2ERunnerBase/)
 })

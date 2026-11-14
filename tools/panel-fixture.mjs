@@ -393,9 +393,9 @@ function reviewRequest({ repo, topicId, requestId, status, minutes, findings, su
     headCommit: 'c5d6e7f',
     path: repo,
     branch: 'feat/m11-http-api-panel',
-    changedPaths: ['src/api.ts', 'tests/api.test.mjs'],
+    changedPaths: ['src/api.ts', 'tests/api-read.test.mjs'],
     verification: [
-      { command: 'node --test tests/api.test.mjs', exitCode: 0, evidence: '39 passed' },
+      { command: 'node --test tests/api-read.test.mjs', exitCode: 0, evidence: '39 passed' },
       { command: 'node --check tools/panel-fixture.mjs', exitCode: 0, evidence: 'syntax ok' },
     ],
     previousRequestId: null,
@@ -406,7 +406,7 @@ function reviewRequest({ repo, topicId, requestId, status, minutes, findings, su
     summary: reviewed ? summary : null,
     findings: reviewed ? findings : [],
     reviewVerification: reviewed
-      ? [{ command: 'node --test tests/api.test.mjs', exitCode: 0, evidence: '39 passed' }]
+      ? [{ command: 'node --test tests/api-read.test.mjs', exitCode: 0, evidence: '39 passed' }]
       : [],
   }
 }
@@ -455,8 +455,8 @@ function buildReviewRequests({ repo, ids, now }) {
           id: 'F1',
           severity: 'high',
           problem: 'activity 路由的 200 上限没有测试',
-          requiredFix: '在 tests/api.test.mjs 断言 limit=200 与非法 limit',
-          file: 'tests/api.test.mjs',
+          requiredFix: '在 tests/api-read.test.mjs 断言 limit=200 与非法 limit',
+          file: 'tests/api-read.test.mjs',
           line: 120,
         },
         {

@@ -151,18 +151,40 @@ export class RequestStore {
     mutator: (current: RequestRecordV1) => RequestRecordV1 | null,
   ): Promise<RequestRecordV1 | null> {
     if (!isRequestId(requestId)) return null
-    return this.withLock(async () => {
-      const current = await this.read(requestId)
-      if (current === null) return null
-      const next = mutator(current)
-      if (next === null) return current
-      const problems = requestRecordProblems(next)
-      if (problems.length > 0) {
-        throw new Error(`resolved request record is invalid: ${problems.join('; ')}`)
-      }
-      await writeJsonAtomic(join(this.requestsDir, requestFileName(requestId)), next)
-      return next
-    })
+    return this.withWriteLock(() => this.updateUnlocked(requestId, mutator))
+  }
+
+  /**
+   * The no-lock half of {@link update}, for a caller that already holds the
+   * project writer lock and commits the card together with the index (the
+   * authorization decision). The lock is `<repo>/.dsh-cowork/.write.lock`, the
+   * same one the index writer takes, so one acquisition covers both files.
+   */
+  async updateUnlocked(
+    requestId: string,
+    mutator: (current: RequestRecordV1) => RequestRecordV1 | null,
+  ): Promise<RequestRecordV1 | null> {
+    if (!isRequestId(requestId)) return null
+    const current = await this.read(requestId)
+    if (current === null) return null
+    const next = mutator(current)
+    if (next === null) return current
+    const problems = requestRecordProblems(next)
+    if (problems.length > 0) {
+      throw new Error(`resolved request record is invalid: ${problems.join('; ')}`)
+    }
+    await writeJsonAtomic(join(this.requestsDir, requestFileName(requestId)), next)
+    return next
+  }
+
+  /**
+   * Run `operation` while holding the one project writer lock. Exposed because
+   * an authorization decision opens this lock once and writes the index through
+   * `ProjectStore.mutateIndexDocumentUnlocked` plus the card through
+   * {@link updateUnlocked}; both stores share the lock file.
+   */
+  async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    return this.withLock(operation)
   }
 
   /** Locked patch of the delivery block, keeping the terminal state untouched. */

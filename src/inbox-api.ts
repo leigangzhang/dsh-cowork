@@ -48,7 +48,7 @@ import { PanelServiceError, openRequestTarget, resolveRequest } from './request-
 import { RequestStore } from './request-store.js'
 import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
 import type { ActivityEvent, ProjectIndexV2 } from './store-schema.js'
-import type { CoworkApiPorts, CoworkStorePort, PanelFetchRoute } from './api.js'
+import type { CoworkApiPorts, CoworkStorePort, PanelFetchRoute } from './api-types.js'
 
 /** Placeholder topic title for a topic the index no longer lists. */
 export const INBOX_ARCHIVED_TOPIC_TITLE = '已归档主题'
@@ -64,7 +64,8 @@ const REVIEW_VERDICT_LABEL: Readonly<Record<string, string>> = {
  * The route plumbing `src/api.ts` already owns: project discovery from a
  * session id, the bounded JSON body reader, the one JSON response, and the
  * same-origin + error-envelope wrapper. Injected as a value (not imported) so
- * this module never imports `src/api.ts` at runtime and the two stay acyclic.
+ * this module imports neither `src/api.ts` nor its implementation; the shared
+ * port/route types come from `src/api-types.ts`.
  */
 export interface InboxApiKit {
   openProject(sessionId: string): Promise<{ store: CoworkStorePort; repoPath: string }>

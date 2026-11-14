@@ -27,6 +27,15 @@ export class PanelServiceError extends Error {
 export interface RequestServiceStorePort {
   readIndexDocument(): Promise<ProjectIndexV2>
   mutateIndexDocument(mutator: (document: ProjectIndexV2) => ProjectIndexV2 | null): Promise<ProjectIndexV2>
+  /**
+   * The no-lock index write used inside {@link withWriteLock}: the authorization
+   * decision commits the index and its request card in one lock acquisition.
+   */
+  mutateIndexDocumentUnlocked(
+    mutator: (document: ProjectIndexV2) => ProjectIndexV2 | null,
+  ): Promise<ProjectIndexV2>
+  /** The one project writer lock shared with the request store. */
+  withWriteLock<T>(operation: () => Promise<T>): Promise<T>
   appendActivity(event: ActivityEvent): Promise<void>
   readActivity(limit?: number): Promise<ReadActivityResult>
   readNotices?(): Promise<NoticeLedgerV1>

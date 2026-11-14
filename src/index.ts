@@ -1,37 +1,32 @@
 /**
- * @dsh-external/dsh-cowork host plugin.
+ * @dsh-external/dsh-cowork host plugin entry point.
  *
- * The business surface — the panel API, the twenty-two cowork tools, the three
- * presets, and the project-memory prompt section — is always registered. The
- * M0 probe surface (one probe tool, one probe preset, and the loopback-only
- * health/start/status routes) and the M12 E2E run/status routes only exist when
- * `Config.enableDevRoutes` is true, so an installed profile does not expose
- * them to users.
+ * This module assembles the business surface — the panel API, the twenty-two
+ * cowork tools, the three presets, and the project-memory prompt section — and
+ * starts the opt-in dev surface when `Config.enableDevRoutes` is true. The
+ * configuration schema and its one defaults table live in `src/config.ts`; the
+ * dev routes (loopback health plus the M12 E2E run/status pair) live in
+ * `src/dev-surfaces.ts`.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import type { IncomingMessage, ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import z from '@deepseek-ai/schemastery'
-import type { CoworkApiHost, CoworkApiPorts, PanelFetchRoute } from './api.js'
+import type { CoworkApiHost, CoworkApiPorts } from './api.js'
 import { registerCoworkApi } from './api.js'
-import { AUTHORIZATION_RESOLVE_PATH, OVERVIEW_PATH, REOPEN_PATH, RESOLVE_PATH } from './api-contract.js'
-import { panelProbeRequest, panelRoutePathname } from './panel-probe.js'
+import { panelRoutePathname } from './panel-probe.js'
 
 export { panelRoutePathname }
-import type { ProbeConfig, ProbeHost } from './probe-engine.js'
-import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
+export { Config, CONFIG_DEFAULTS, normalizeConfig } from './config.js'
+export type { IsolationConfig, ReviewerConfig, RoutingConfig } from './config.js'
+import { CONFIG_DEFAULTS, normalizeConfig } from './config.js'
+import type { Config } from './config.js'
+import { registerDevSurfaces } from './dev-surfaces.js'
 import { MEMORY_FILES, MEMORY_KINDS, memoryFilePath, parseMemoryFile, renderMemoryBlock } from './memory.js'
 import type { MemoryInjectInput } from './memory.js'
 import { registerMemoryPrompt } from './memory-prompt.js'
 import type { MemoryPromptAgent, MemoryPromptDeps, MemoryPromptHost, MemoryRender } from './memory-prompt.js'
-import { M12E2ERunner, M12_E2E_RUN_PATH, M12_E2E_STATUS_PATH } from './m12-e2e.js'
-import type { M12E2EHost, M12PanelProbe } from './m12-e2e.js'
-import { canonicalRepoPath, isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 import { registerPresets } from './presets.js'
 import { HIDDEN_PRESET_IDS, hidePresetsFromRoster } from './preset-visibility.js'
 import type { PresetRosterService } from './preset-visibility.js'
@@ -39,13 +34,11 @@ import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
 import { SessionSlice } from './session-slice.js'
 import { createLlmRoutingPort } from './llm-port.js'
 import type { HostLlmLike } from './llm-port.js'
-import { DEFAULT_ISOLATION_PROVIDER, DEFAULT_REVIEWER_RECLAIM } from './tool-runtime.js'
 import { NoopTopicNoticePort, TopicNoticeDispatcher } from './notices.js'
 import type { CoworkToolDeps, CurrentModelRoute } from './tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
 import { TopicEvents } from './topic-events.js'
 import type { TopicEventLike, TopicEventSession } from './topic-events.js'
-import { DEFAULT_IDLE_AFTER_MS, DEFAULT_RESOLVE_AFTER_MS } from './topic.js'
 import { repairCoworkWorkspaces } from './workspace-repair.js'
 
 const packageJson = JSON.parse(
@@ -55,179 +48,8 @@ const packageJson = JSON.parse(
 const PLUGIN_NAME = packageJson.name
 const PLUGIN_VERSION = packageJson.version
 
-/** Health route: liveness, plugin identity, and preset registration state. */
-const HEALTH_PATH = '/dsh-cowork/probe/health'
-/** Run route: start one probe run and return its id immediately. */
-const RUN_PATH = '/dsh-cowork/probe/run'
-/** Status route: poll one run's phases, evidence, sessions, and error. */
-const STATUS_PATH = '/dsh-cowork/probe/status'
-
-/** Lossless JSON value accepted by the tool result boundary. */
-type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
-
-/** The third routing layer's knobs (PLAN-V0.2 §5.10, M9.1). */
-export interface RoutingConfig {
-  /** Whether the model fallback may run at all. */
-  enabled: boolean
-  /** Model provider id; empty means "unset". */
-  provider: string
-  /** Model id; empty means "unset". */
-  model: string
-  /** Reasoning effort; empty means "unset". */
-  effort: string
-  /** Model-call timeout in milliseconds. */
-  timeoutMs: number
-  /** Model output cap in tokens. */
-  maxTokens: number
-}
-
-/** Work-item isolation settings (PLAN-V0.2 §4.5); M10 implements `clone`. */
-export interface IsolationConfig {
-  /** Provider that creates an isolated work item; unknown values fail the tool. */
-  provider: string
-}
-
-/** Reviewer lifecycle settings (PLAN-V0.2 §5.4); M10 supports one value. */
-export interface ReviewerConfig {
-  /** When the reviewer session is reclaimed after a verdict. */
-  reclaim: string
-}
-
-/** Working defaults for the fields a caller may omit. */
-const DEFAULT_PROMPT_TIMEOUT_MS = 120_000
-const DEFAULT_STORE_RELATIVE_PATH = '.dsh-cowork/probe/store.json'
-const DEFAULT_WORKTREE_RELATIVE_PATH = '.dsh-cowork/worktrees/probe'
-const DEFAULT_ROUTING_TIMEOUT_MS = 2_000
-const DEFAULT_ROUTING_MAX_TOKENS = 256
-
-/** Plugin configuration; every field has a working default. */
-export interface Config {
-  /** Repository the probe writes under; defaults to this plugin's package root. */
-  repoPath: string
-  /** Upper bound for one prompt's turn and for any bounded wait; M0 pins 120s. */
-  promptTimeoutMs: number
-  /** Probe store path, relative to `repoPath`. */
-  storeRelativePath: string
-  /** Probe worktree path, relative to `repoPath`. */
-  worktreeRelativePath: string
-  /**
-   * Register the M0 probe and M12 E2E surfaces. Off by default: an installed
-   * profile keeps only the business tools, presets, and panel API.
-   */
-  enableDevRoutes: boolean
-  /** Silence after which a topic displays as idle (24h). */
-  idleAfterMs: number
-  /**
-   * Deprecated and ignored: the lifecycle never resolves a topic on its own any
-   * more (archiving is a user action). Kept so an existing profile still loads.
-   */
-  resolveAfterMs: number
-  /** Third-layer model fallback (PLAN §5.10). */
-  routing: RoutingConfig
-  /** Isolation used for work items (PLAN §4.5). */
-  isolation: IsolationConfig
-  /** Reviewer lifecycle (PLAN §5.4). */
-  reviewer: ReviewerConfig
-}
-
-export const Config: z<Config> = z.object({
-  repoPath: z.string().default(''),
-  promptTimeoutMs: z.number().min(30_000).max(600_000).default(DEFAULT_PROMPT_TIMEOUT_MS),
-  storeRelativePath: z.string().default(DEFAULT_STORE_RELATIVE_PATH),
-  worktreeRelativePath: z.string().default(DEFAULT_WORKTREE_RELATIVE_PATH),
-  enableDevRoutes: z.boolean().default(false),
-  idleAfterMs: z.number().min(0).default(DEFAULT_IDLE_AFTER_MS),
-  resolveAfterMs: z.number().min(0).default(DEFAULT_RESOLVE_AFTER_MS),
-  routing: z.object({
-    enabled: z.boolean().default(true),
-    provider: z.string().default(''),
-    model: z.string().default(''),
-    effort: z.string().default(''),
-    timeoutMs: z.number().min(1).default(DEFAULT_ROUTING_TIMEOUT_MS),
-    maxTokens: z.number().min(1).default(DEFAULT_ROUTING_MAX_TOKENS),
-  }),
-  isolation: z.object({
-    provider: z.string().default(DEFAULT_ISOLATION_PROVIDER),
-  }),
-  reviewer: z.object({
-    reclaim: z.string().default(DEFAULT_REVIEWER_RECLAIM),
-  }),
-})
-
-/**
- * Fill every omitted configuration field with its documented default.
- *
- * The host feeds `apply` a schema-validated `Config`, but tests and future
- * embedders construct one by hand; routing must not crash because one nested
- * object is missing. These fallbacks mirror the schema defaults above, and
- * `apply` uses only this result.
- */
-export function normalizeConfig(
-  config: Partial<Config> & {
-    routing?: Partial<RoutingConfig> | null
-    isolation?: Partial<IsolationConfig> | null
-    reviewer?: Partial<ReviewerConfig> | null
-  },
-): Config {
-  return {
-    repoPath: config.repoPath ?? '',
-    promptTimeoutMs: config.promptTimeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS,
-    storeRelativePath: config.storeRelativePath ?? DEFAULT_STORE_RELATIVE_PATH,
-    worktreeRelativePath: config.worktreeRelativePath ?? DEFAULT_WORKTREE_RELATIVE_PATH,
-    enableDevRoutes: config.enableDevRoutes ?? false,
-    idleAfterMs: config.idleAfterMs ?? DEFAULT_IDLE_AFTER_MS,
-    resolveAfterMs: config.resolveAfterMs ?? DEFAULT_RESOLVE_AFTER_MS,
-    routing: {
-      enabled: config.routing?.enabled ?? true,
-      provider: config.routing?.provider ?? '',
-      model: config.routing?.model ?? '',
-      effort: config.routing?.effort ?? '',
-      timeoutMs: config.routing?.timeoutMs ?? DEFAULT_ROUTING_TIMEOUT_MS,
-      maxTokens: config.routing?.maxTokens ?? DEFAULT_ROUTING_MAX_TOKENS,
-    },
-    isolation: {
-      provider: config.isolation?.provider ?? DEFAULT_ISOLATION_PROVIDER,
-    },
-    reviewer: {
-      reclaim: config.reviewer?.reclaim ?? DEFAULT_REVIEWER_RECLAIM,
-    },
-  }
-}
-
 /** Host services this plugin cannot activate without. */
 export const inject = ['webServer', 'tools', 'agentPresets', 'sessionController', 'workspaceRegistry', 'agents']
-
-function sendJson(response: ServerResponse, status: number, payload: unknown): void {
-  const body = JSON.stringify(payload)
-  response.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-    'content-length': Buffer.byteLength(body),
-  })
-  response.end(body)
-}
-
-function loopbackOnly(request: IncomingMessage): boolean {
-  return isLoopbackAddress(request.socket.remoteAddress)
-    && isLoopbackHost(request.headers.host)
-}
-
-function sendMethodNotAllowed(response: ServerResponse, allow: string): void {
-  response.setHeader('allow', allow)
-  sendJson(response, 405, { ok: false, error: 'method not allowed' })
-}
-
-function guard(request: IncomingMessage, response: ServerResponse, allow: string): boolean {
-  if (!loopbackOnly(request)) {
-    sendJson(response, 403, { ok: false, error: 'loopback requests only' })
-    return false
-  }
-  if (request.method !== allow) {
-    sendMethodNotAllowed(response, allow)
-    return false
-  }
-  return true
-}
 
 /** The plugin root (the directory holding package.json), used as the default repo. */
 function defaultRepoPath(): string {
@@ -323,194 +145,6 @@ function renderProjectMemory(repoPath: string): MemoryRender | null {
 interface HostSessionListRow {
   sessionId: string
   cwd?: string
-}
-
-/** Dev-probe knobs, read only when {@link Config.enableDevRoutes} is on. */
-interface DevSurfaceOptions {
-  /** Configured repository path, before symlink canonicalization. */
-  repoPath: string
-  promptTimeoutMs: number
-  storeRelativePath: string
-  worktreeRelativePath: string
-  /** In-process panel API probe the M12 driver uses for its route assertions. */
-  panel: M12PanelProbe
-  /** Configured lifecycle thresholds; the M12 driver refuses anything but the short ones. */
-  idleAfterMs: number
-  resolveAfterMs: number
-}
-
-/**
- * Register the M0 probe and M12 E2E surfaces: one probe tool, one probe preset,
- * the loopback-only health/start/status routes, the M12 run/status routes, and
- * the two session event feeds. Every registration is an effect owned by this
- * fiber, so an unload leaves neither a route nor a listener behind.
- */
-function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
-  const host = ctx as unknown as ProbeHost
-  const probeConfig: ProbeConfig = {
-    // The host canonicalizes a session cwd (/tmp → /private/tmp on macOS); the
-    // probe must compare against the same real path or its assertions fail.
-    repoPath: canonicalRepoPath(options.repoPath),
-    promptTimeoutMs: options.promptTimeoutMs,
-    storeRelativePath: options.storeRelativePath,
-    worktreeRelativePath: options.worktreeRelativePath,
-  }
-  const runner = new ProbeRunner(host, probeConfig, PLUGIN_NAME, PLUGIN_VERSION)
-  // M12 real-host E2E: the 0.2.0 topic-session chain, run in a throwaway
-  // repository under os.tmpdir(); evidence under .dsh-cowork/e2e/M12_E2E.json.
-  const m12e2e = new M12E2ERunner(ctx as unknown as M12E2EHost, {
-    repoPath: probeConfig.repoPath,
-    promptTimeoutMs: probeConfig.promptTimeoutMs,
-    idleAfterMs: options.idleAfterMs,
-    resolveAfterMs: options.resolveAfterMs,
-    pluginName: PLUGIN_NAME,
-    pluginVersion: PLUGIN_VERSION,
-    panel: options.panel,
-    log: (message) => ctx.logger?.info?.(`[${PLUGIN_NAME}] ${message}`),
-  })
-
-  // Risk 3: a preset registered at runtime, owned by this fiber's lifetime.
-  ctx.effect(() => {
-    const registration = host.agentPresets.register({
-      id: PROBE_PRESET_ID,
-      name: 'cowork probe',
-      description: 'M0 probe preset: registered at runtime, mounts no extra plugins.',
-      plugins: [],
-    })
-    void registration.then(
-      () => runner.markPresetRegistered(),
-      () => { /* registration failure surfaces through health and the preset phase */ },
-    )
-    return registration
-  }, 'dsh-cowork: runtime agent preset')
-
-  // One read-only tool: health plus the last run summary.
-  ctx.effect(() => ctx.tools.register(defineTool({
-    name: 'cowork_probe',
-    description: 'Read the dsh-cowork M0 probe health and the last run summary. Starts no work.',
-    parameters: {},
-    output: {
-      schema: { type: 'json' },
-      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
-    },
-    execute: async (): Promise<JsonValue> => {
-      const payload = { health: runner.health(), lastRun: runner.lastRun() ?? null }
-      return JSON.parse(JSON.stringify(payload)) as JsonValue
-    },
-  })), 'dsh-cowork: cowork_probe tool')
-
-  const routes: WebRoute[] = [
-    {
-      kind: 'exact',
-      path: HEALTH_PATH,
-      handler: (request, response) => {
-        if (!guard(request, response, 'GET')) return
-        sendJson(response, 200, runner.health())
-      },
-    },
-    {
-      kind: 'exact',
-      path: RUN_PATH,
-      handler: (request, response) => {
-        if (!guard(request, response, 'POST')) return
-        request.resume()
-        try {
-          const run = runner.start()
-          sendJson(response, 200, { runId: run.runId, state: run.state })
-        } catch (error) {
-          sendJson(response, 409, {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-            lastRunId: runner.lastRun()?.runId ?? null,
-          })
-        }
-      },
-    },
-    {
-      kind: 'exact',
-      path: STATUS_PATH,
-      handler: async (request, response) => {
-        if (!guard(request, response, 'GET')) return
-        let runId: string
-        try {
-          runId = requireRunId(readQuery(request.url, 'runId'))
-        } catch (error) {
-          sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
-          return
-        }
-        const run = await runner.resolve(runId)
-        if (run === undefined) {
-          sendJson(response, 404, { ok: false, error: `unknown runId: ${runId}` })
-          return
-        }
-        sendJson(response, 200, run)
-      },
-    },
-  ]
-  routes.push({
-    kind: 'exact',
-    path: M12_E2E_RUN_PATH,
-    handler: (request, response) => {
-      if (!guard(request, response, 'POST')) return
-      request.resume()
-      try {
-        // `keep=1` keeps the throwaway project for a debug run; `base=<ref>`
-        // names the artifact diff base (the M12 base commit).
-        const keep = readQuery(request.url, 'keep')
-        const run = m12e2e.start({
-          keep: keep === '1' || keep === 'true',
-          baseRef: readQuery(request.url, 'base') ?? '',
-        })
-        sendJson(response, 200, { ok: true, runId: run.runId })
-      } catch (error) {
-        sendJson(response, 409, {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    },
-  }, {
-    kind: 'exact',
-    path: M12_E2E_STATUS_PATH,
-    handler: async (request, response) => {
-      if (!guard(request, response, 'GET')) return
-      let runId: string
-      try {
-        runId = requireRunId(readQuery(request.url, 'runId'))
-      } catch (error) {
-        sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
-        return
-      }
-      const run = await m12e2e.resolve(runId)
-      if (run === undefined) {
-        sendJson(response, 404, { ok: false, error: `unknown M12 E2E runId: ${runId}` })
-        return
-      }
-      sendJson(response, 200, {
-        ok: true,
-        runId: run.runId,
-        state: run.state,
-        startedAt: run.startedAt,
-        ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
-        steps: run.steps,
-        evidenceFile: run.evidenceFile,
-        ...(run.error === undefined ? {} : { error: run.error }),
-      })
-    },
-  })
-
-  for (const route of routes) {
-    ctx.effect(() => ctx.webServer.register(route), `dsh-cowork: route ${readPath(route.path)}`)
-  }
-
-  ctx.effect(() => runner.attachEvents(), 'dsh-cowork: session event feed')
-  ctx.effect(() => m12e2e.attachEvents(), 'dsh-cowork: M12 E2E session event feed')
-  ctx.effect(() => () => {
-    runner.dispose()
-    m12e2e.dispose()
-  }, 'dsh-cowork: probe runners')
-
-  ctx.logger?.info?.(`[${PLUGIN_NAME}] M0 probe ready at ${HEALTH_PATH} (repo ${probeConfig.repoPath})`)
 }
 
 /** The host default-model service slice (M9.3b). */
@@ -644,83 +278,22 @@ function createPanelPorts(
   }
 }
 
-/**
- * In-process probe for the M12 E2E driver. A plugin has no client for the host
- * `connection` channel, so the probe registers the production panel handlers on
- * a private connection and calls them with a real `Request`. The handlers,
- * guards, store, and lifecycle read point are the shipped ones; only the host's
- * HTTP transport is bypassed, and the driver's evidence records the status and
- * body it received.
- */
-function createM12PanelProbe(ports: CoworkApiPorts): M12PanelProbe {
-  const routes = new Map<string, PanelFetchRoute>()
-  const connection = {
-    fetch: {
-      register(route: PanelFetchRoute): () => Promise<void> {
-        routes.set(route.path, route)
-        return async () => {}
-      },
-    },
-  }
-  const host: CoworkApiHost = {
-    get: (name) => (name === 'connection' ? connection : undefined),
-    effect: (execute) => {
-      execute()
-    },
-  }
-  registerCoworkApi(host, ports)
-  const call = async (path: string, init: RequestInit): Promise<{ status: number; body: unknown }> => {
-    const route = routes.get(panelRoutePathname(path))
-    if (route === undefined) throw new Error(`M12 panel probe: no route registered for ${path}`)
-    const response = await route.fetch(panelProbeRequest(path, init))
-    let body: unknown = null
-    try {
-      body = await response.json()
-    } catch {
-      body = null
-    }
-    return { status: response.status, body }
-  }
-  return {
-    overview: (input) => call(
-      `${OVERVIEW_PATH}?sessionId=${encodeURIComponent(input.sessionId)}`,
-      { method: 'GET' },
-    ),
-    reopen: (input) => call(REOPEN_PATH, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: input.sessionId, topicId: input.topicId }),
-    }),
-    resolve: (input) => call(RESOLVE_PATH, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: input.sessionId, topicId: input.topicId }),
-    }),
-    authorizationResolve: (input) => call(AUTHORIZATION_RESOLVE_PATH, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(input),
-    }),
-  }
-}
-
-/** Register the business surface, plus the opt-in dev probe surface when enabled. */
+/** Register the business surface, plus the opt-in dev surface when enabled. */
 export function apply(ctx: Context, config: Config): void {
   // One normalized view of the settings: a hand-built partial config (tests,
   // embedders) must not crash routing because `routing` is absent.
   const settings = normalizeConfig(config)
   // M10 supports exactly one reviewer reclaim mode. Any other value fails
   // startup instead of quietly pretending to support it (PLAN §5.4, M10 §8).
-  if (settings.reviewer.reclaim !== DEFAULT_REVIEWER_RECLAIM) {
+  if (settings.reviewer.reclaim !== CONFIG_DEFAULTS.reviewer.reclaim) {
     throw new Error(
-      `${PLUGIN_NAME}: reviewer.reclaim must be '${DEFAULT_REVIEWER_RECLAIM}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
+      `${PLUGIN_NAME}: reviewer.reclaim must be '${CONFIG_DEFAULTS.reviewer.reclaim}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
     )
   }
   // M1 assembly services: one dependency bag for the presets and the twenty-two tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
-  // Business repo path: identical in both dev modes and unchanged from M0-M3.
-  // Only the dev probe canonicalizes it, because only the probe compares paths
-  // against a host session cwd.
+  // Business repo path: the dev surface canonicalizes its own copy, because
+  // only it compares paths against a host session cwd.
   const repoPath = settings.repoPath === '' ? defaultRepoPath() : resolve(settings.repoPath)
   const workspacePorts = workspacePortsOf(assembly.workspaceRegistry)
   // Topic notices (B mode): the host has no notice channel, so the port reports
@@ -837,17 +410,17 @@ export function apply(ctx: Context, config: Config): void {
     }
   }, 'dsh-cowork: workspace repair')
 
-  // Dev surfaces are opt-in: an installed profile never exposes the probe
-  // routes, the probe tools, the probe presets, or the session event feeds.
+  // Dev surfaces are opt-in: an installed profile never exposes the dev
+  // routes or the M12 session event feed.
   if (settings.enableDevRoutes) {
     registerDevSurfaces(ctx, {
       repoPath,
       promptTimeoutMs: settings.promptTimeoutMs,
-      storeRelativePath: settings.storeRelativePath,
-      worktreeRelativePath: settings.worktreeRelativePath,
-      panel: createM12PanelProbe(panelPorts),
       idleAfterMs: settings.idleAfterMs,
       resolveAfterMs: settings.resolveAfterMs,
+      pluginName: PLUGIN_NAME,
+      pluginVersion: PLUGIN_VERSION,
+      ports: panelPorts,
     })
   }
 

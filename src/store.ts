@@ -516,25 +516,38 @@ export class ProjectStore {
     mutator: (document: ProjectIndexV2) => ProjectIndexV2 | null,
   ): Promise<ProjectIndexV2> {
     await this.ensureProjectDir()
-    return this.withLock(async () => {
-      const base = await this.readIndexForWrite()
-      const next = mutator(base)
-      if (next === null) return base
-      // Normalise before validation and the write: a legacy mutator may hand
-      // back a topic that predates the block/authorization fields, and a written
-      // document must carry every field a reader relies on (write-complete).
-      const document = normalizeProjectIndexV2(next) as ProjectIndexV2
-      const problems = projectIndexV2Problems(document)
-      if (problems.length > 0) {
-        throw new StoreError(
-          'store/invalid',
-          problemMessage('mutated project index is invalid', this.indexFile, problems),
-          this.indexFile,
-        )
-      }
-      await writeJsonAtomic(this.indexFile, document)
-      return document
-    })
+    return this.withLock(() => this.mutateIndexDocumentUnlocked(mutator))
+  }
+
+  /**
+   * The no-lock half of {@link mutateIndexDocument}: the same re-read, migration,
+   * validation and atomic write, for a caller that already holds
+   * {@link withWriteLock} and needs a second file in the same transaction (the
+   * authorization decision writes the index and its request card together).
+   *
+   * The project lock is not reentrant, so this method takes none. Calling it
+   * without the lock is a contract violation, not a race the store can detect.
+   */
+  async mutateIndexDocumentUnlocked(
+    mutator: (document: ProjectIndexV2) => ProjectIndexV2 | null,
+  ): Promise<ProjectIndexV2> {
+    const base = await this.readIndexForWrite()
+    const next = mutator(base)
+    if (next === null) return base
+    // Normalise before validation and the write: a legacy mutator may hand
+    // back a topic that predates the block/authorization fields, and a written
+    // document must carry every field a reader relies on (write-complete).
+    const document = normalizeProjectIndexV2(next) as ProjectIndexV2
+    const problems = projectIndexV2Problems(document)
+    if (problems.length > 0) {
+      throw new StoreError(
+        'store/invalid',
+        problemMessage('mutated project index is invalid', this.indexFile, problems),
+        this.indexFile,
+      )
+    }
+    await writeJsonAtomic(this.indexFile, document)
+    return document
   }
 
   /** Append one thread record; a duplicate `threadId` is rejected. */
