@@ -54,7 +54,7 @@ import {
   type QuestionSpec,
   type RequestAction,
   type ReviewPayload,
-  type ReviewVerification,
+  type InboxReviewVerification,
 } from '../panel/inbox-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 
@@ -269,7 +269,7 @@ export function parseReopen(body: unknown): ReopenResponse {
 }
 
 /** One verification row from untrusted JSON; a row without a command is unusable. */
-function parseVerification(value: unknown): ReviewVerification | null {
+function parseVerification(value: unknown): InboxReviewVerification | null {
   if (!isRecord(value)) return null
   const command = text(value.command)
   if (command.trim() === '') return null
@@ -289,7 +289,7 @@ function parseReviewPayload(value: unknown): ReviewPayload {
     purpose: text(record.purpose),
     changedPaths: stringArray(record.changedPaths),
     verification: Array.isArray(record.verification)
-      ? record.verification.map(parseVerification).filter((row): row is ReviewVerification => row !== null)
+      ? record.verification.map(parseVerification).filter((row): row is InboxReviewVerification => row !== null)
       : [],
   }
   return reviewRequestId === null ? payload : { ...payload, reviewRequestId }

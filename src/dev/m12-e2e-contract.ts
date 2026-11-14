@@ -40,7 +40,7 @@ export const MAX_EVENTS = 4_000
 export const MAX_ASSISTANT_TEXT = 1_000
 export const MAX_GIT_TEXT = 2_000
 export const MAX_FIELD_TEXT = 3_000
-export const GIT_TIMEOUT_MS = 30_000
+export const M12_GIT_TIMEOUT_MS = 30_000
 export const GIT_MAX_BUFFER = 8 * 1024 * 1024
 
 export const PROJECT_INIT_TOOL = 'cowork_project_init'

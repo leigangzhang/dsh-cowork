@@ -43,10 +43,7 @@ import type {
 } from '../store/schema.js'
 import { evaluateTopicLifecycle } from '../domains/topic/topic.js'
 import { ERROR_CODES, failure, readCaller } from './tool-model.js'
-import type { CallerIdentity, ToolFailure } from './tool-model.js'
-
-/** Lossless JSON value accepted by the tool result boundary. */
-export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+import type { CallerIdentity, JsonValue, ToolFailure } from './tool-model.js'
 
 /** The third routing layer's settings as the tools receive them (M9.1/M9.2). */
 export interface RoutingSettings {

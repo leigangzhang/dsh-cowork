@@ -15,17 +15,18 @@
  * This module stays React-free so `node --test` can load it through type
  * stripping.
  */
-import { isNoticeKind, type NoticeKind } from '../panel/notice-contract.ts'
+import {
+  isNoticeKind,
+  NOTICE_STATUSES,
+  NOTICE_SUMMARY_MAX_CHARS,
+  NOTICE_TITLE_MAX_CHARS,
+  type NoticeKind,
+  type NoticeStatus,
+} from '../panel/notice-contract.ts'
 
 
 /** One notice kind, shared with the host through the frozen vocabulary. */
 export type { NoticeKind } from '../panel/notice-contract.ts'
-
-/** The four notice states the contract defines. */
-export const NOTICE_STATUSES = ['pending', 'allowed', 'denied', 'void'] as const
-
-/** One notice state. */
-export type NoticeStatus = (typeof NOTICE_STATUSES)[number]
 
 /** The four actions a notice may carry. */
 export const NOTICE_ACTION_TYPES = ['allow', 'deny', 'open-topic', 'open-work-item'] as const
@@ -68,12 +69,6 @@ export const NOTICE_ACTION_TONES: Record<NoticeActionType, 'success' | 'error' |
   'open-topic': 'neutral',
   'open-work-item': 'neutral',
 }
-
-/** Titles are bounded before they reach a card; the full text stays in the event. */
-export const NOTICE_TITLE_MAX_CHARS = 100
-
-/** Summaries are bounded too: a session card is not a transcript. */
-export const NOTICE_SUMMARY_MAX_CHARS = 200
 
 /** The client seat a host with A2 exposes for conversation nodes. */
 export const NOTICE_SEAT = 'conversation.chat.node'

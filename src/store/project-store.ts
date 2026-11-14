@@ -54,7 +54,7 @@ import type {
   ActivityEvent,
   ActivityType,
   HandoffRecord,
-  InboxItem,
+  InboxRecordV1,
   ProjectIndexV2,
   ReadActivityResult,
   ReviewRecord,
@@ -638,7 +638,7 @@ export class ProjectStore {
   }
 
   /** Every inbox item, oldest first. A damaged file is `store/corrupt`. */
-  async readInbox(): Promise<InboxItem[]> {
+  async readInbox(): Promise<InboxRecordV1[]> {
     const text = await readTextIfPresent(this.inboxFile)
     if (text === undefined) return []
     let parsed: unknown
@@ -658,7 +658,7 @@ export class ProjectStore {
     if (problems.length > 0) {
       throw new StoreError('store/corrupt', problemMessage('inbox is invalid', this.inboxFile, problems), this.inboxFile)
     }
-    return parsed as InboxItem[]
+    return parsed as InboxRecordV1[]
   }
 
   /**
@@ -666,7 +666,7 @@ export class ProjectStore {
    * M7 owns the file only: merging several pending events into one message and
    * replaying an undelivered one are M8 rules and are not implemented here.
    */
-  async writeInbox(items: InboxItem[]): Promise<InboxItem[]> {
+  async writeInbox(items: InboxRecordV1[]): Promise<InboxRecordV1[]> {
     if (!Array.isArray(items)) {
       throw new StoreError('store/invalid-inbox', 'inbox must be an array of items', this.inboxFile)
     }

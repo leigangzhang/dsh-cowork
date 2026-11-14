@@ -21,7 +21,7 @@
  */
 import { isAbsolute, join, normalize, relative } from 'node:path'
 import { ERROR_CODES, M10_ERROR_CODES, failure } from '../../platform/tool-model.js'
-import type { ToolFailure } from '../../platform/tool-model.js'
+import type { JsonValue, ToolFailure } from '../../platform/tool-model.js'
 import { REVIEW_SEVERITIES, REVIEW_STATUSES, REVIEW_VERDICTS } from '../../store/schema.js'
 import type {
   InboxKind,
@@ -91,9 +91,6 @@ const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
 // ---------------------------------------------------------------------------
 // shapes
 // ---------------------------------------------------------------------------
-
-/** Lossless JSON value accepted in `extra`. */
-export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 /** One rejected field of untrusted input. */
 export interface ReviewFieldError {

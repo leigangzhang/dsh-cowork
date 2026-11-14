@@ -223,7 +223,7 @@ export interface ReadActivityResult {
 }
 
 /** One item of `<repo>/.dsh-cowork/inbox.json`. */
-export interface InboxItem {
+export interface InboxRecordV1 {
   id: string
   time: string
   topicId: string

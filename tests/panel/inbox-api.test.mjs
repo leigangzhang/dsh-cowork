@@ -17,6 +17,7 @@ const { recordNoticesForEvent } = await import('../../src/domains/notices/notice
 const { ProjectStore } = await import('../../src/store/project-store.ts')
 const service = await import('../../src/domains/requests/request-service.ts')
 const { RequestStore } = await import('../../src/store/request-store.ts')
+const { INBOX_MAX_ITEMS } = await import('../../src/store/schema.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')
 const NOW_ISO = NOW.toISOString()
@@ -309,7 +310,7 @@ test('the inbox read requires a session and bounds a large merge', async () => {
     assert.equal(missing.status, 400)
     assert.equal(missing.body.error.code, 'request/session-required')
 
-    for (let index = 0; index < inboxContract.INBOX_MAX_ITEMS + 1; index += 1) {
+    for (let index = 0; index < INBOX_MAX_ITEMS + 1; index += 1) {
       await seedRequest(repoPath, store, {
         requestId: `req-${String(index).padStart(3, '0')}`,
         kind: 'user-review',
@@ -319,9 +320,9 @@ test('the inbox read requires a session and bounds a large merge', async () => {
     const { body } = await readResponse(
       await routes.get(inboxContract.INBOX_PATH).fetch(getRequest(inboxContract.INBOX_PATH, inboxQuery())),
     )
-    assert.equal(body.items.length, inboxContract.INBOX_MAX_ITEMS)
+    assert.equal(body.items.length, INBOX_MAX_ITEMS)
     assert.equal(body.truncated, true)
-    assert.equal(body.counts.pending, inboxContract.INBOX_MAX_ITEMS + 1)
+    assert.equal(body.counts.pending, INBOX_MAX_ITEMS + 1)
   })
 })
 

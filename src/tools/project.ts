@@ -15,7 +15,7 @@
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { ActivityEvent, InboxItem, TopicRecordV2, TopicStatus, WorkItemRecordV2 } from '../store/schema.js'
+import type { ActivityEvent, InboxRecordV1, TopicRecordV2, TopicStatus, WorkItemRecordV2 } from '../store/schema.js'
 import type { CoworkToolDeps } from '../platform/tool-runtime.js'
 import {
   callerOf,
@@ -105,10 +105,10 @@ function reviewsPendingOf(topic: TopicRecordV2): number {
 }
 
 /** One bounded undelivered inbox row. */
-function inboxItemView(item: InboxItem): {
+function inboxItemView(item: InboxRecordV1): {
   id: string
   topicId: string
-  kind: InboxItem['kind']
+  kind: InboxRecordV1['kind']
   summary: string
   time: string
 } {

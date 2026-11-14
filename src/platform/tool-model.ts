@@ -8,6 +8,9 @@
  * project index, which keeps every gate unit-testable without a running host.
  */
 
+/** Lossless JSON value accepted by the tool result boundary. */
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+
 /** Stable error codes returned to the model. */
 export const ERROR_CODES = {
   agentUnavailable: 'exec/agent-unavailable',

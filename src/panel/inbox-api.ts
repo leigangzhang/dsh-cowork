@@ -16,7 +16,6 @@
  * with no action and no open target, never a request card.
  */
 import {
-  INBOX_MAX_ITEMS,
   INBOX_OPEN_PATH,
   INBOX_PATH,
   INBOX_RESOLVE_PATH,
@@ -46,7 +45,7 @@ import type { NoticeLedgerV1, NoticeSummary } from '../domains/notices/notices.j
 import type { NoticeKind } from './notice-contract.js'
 import { PanelServiceError, openRequestTarget, resolveRequest } from '../domains/requests/request-service.js'
 import { RequestStore } from '../store/request-store.js'
-import { ACTIVITY_MAX_EVENTS } from '../store/schema.js'
+import { ACTIVITY_MAX_EVENTS, INBOX_MAX_ITEMS } from '../store/schema.js'
 import type { ActivityEvent, ProjectIndexV2 } from '../store/schema.js'
 import type { CoworkApiPorts, CoworkStorePort, PanelFetchRoute } from './api-types.js'
 
