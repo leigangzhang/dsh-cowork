@@ -32,11 +32,13 @@ Run this after the priority pass, before passing the change. A finding here is a
 - **Test split:** did the test and assertion counts actually stay the same, or were assertions copied to pad the split?
 - **Model text:** did persona, tool description, and error text follow the tool or preset change?
 - **Doc links:** do current docs point at existing files, and did historical records only change link targets, not conclusions?
+- **Dead or duplicated surface:** run `fallow dead-code --unused-types`; a new type export with no consumer, a duplicate value/type name, or an unowned `tools/*.mjs` is a finding. Keep `fallow health --baseline tools/fallow-health-baseline.json` green (inherited complexity is baselined; new findings are not).
 
 ## Verification
 
 - Run `npm run change-scope -- --base <verified-base>` and confirm all four path groups are accounted for.
 - Run `npm run check`; for a skill or workflow change also run `npm run check:self-test`.
+- For a code change with `.fallowrc.jsonc` present, run `fallow audit --base <verified-base>` and confirm no new clone group or complexity finding; keep the local CLI version in the report.
 - Select the narrowest tests from `tools/workflow.json`. For a behavior change, run `npm run test:coverage`, `npm run build`, and `npm run test:host-smoke`; for a docs-only change, run `npm run check`.
 - Confirm the final report states commands and results, including checks that did not run.
 - For a PR, use [pr-description](../pr-description/SKILL.md) to write the Motivation / Changes / Testing / Evidence structure with test design, actual test entries, unrun checks, and reviewable evidence.

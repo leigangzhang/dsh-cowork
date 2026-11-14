@@ -1,0 +1,395 @@
+{
+  "kind": "health",
+  "finding_counts": {
+    "scripts/build/build-client.mjs": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "scripts/evidence/host-smoke.mjs": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/app/apply.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/app/config.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/client/inbox-model.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/client/inbox.tsx": {
+      "complexity_high": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "src/client/list.tsx": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/client/notice-model.ts": {
+      "complexity_high": {
+        "count": 1
+      }
+    },
+    "src/client/panel.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 5
+      }
+    },
+    "src/dev/m12-e2e-evidence.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/dev/m12-e2e.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/domains/isolation/checkout-teardown.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/domains/isolation/checkout.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/domains/isolation/work-item.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/domains/memory/memory.ts": {
+      "complexity_high": {
+        "count": 2
+      }
+    },
+    "src/domains/notices/notices.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/domains/requests/authorization-decision.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/domains/requests/request-lifecycle.ts": {
+      "complexity_high": {
+        "count": 1
+      }
+    },
+    "src/domains/requests/request-open.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/domains/requests/request-schema.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/domains/review/review-request.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/domains/routing/router-model.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/domains/routing/routing.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/panel/api-contract.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/panel/api.ts": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/platform/llm-port.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/platform/memory-prompt.ts": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/platform/workspace-repair.ts": {
+      "complexity_high": {
+        "count": 1
+      }
+    },
+    "src/store/migration.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/store/project-store.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/store/schema.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "src/tools/isolation.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "src/tools/project.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/tools/request.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/tools/review.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/tools/route.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 2
+      }
+    },
+    "src/tools/topic.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 5
+      }
+    },
+    "tests/domains/review/review-request-gate.test.mjs": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tests/guards/architecture.test.mjs": {
+      "complexity_high": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "tests/guards/workflow.test.mjs": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tools/check-invariants.mjs": {
+      "complexity_critical": {
+        "count": 3
+      },
+      "crap_critical": {
+        "count": 4
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tools/doc-gate-engine.mjs": {
+      "complexity_critical": {
+        "count": 10
+      },
+      "crap_critical": {
+        "count": 11
+      },
+      "crap_high": {
+        "count": 5
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "tools/m12-migration-drill.mjs": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    }
+  },
+  "runtime_coverage_findings": [],
+  "target_keys": [
+    "src/domains/notices/notices.ts:complexity",
+    "src/client/panel.tsx:complexity",
+    "src/store/schema.ts:complexity",
+    "src/tools/route.ts:complexity",
+    "tools/check-invariants.mjs:complexity",
+    "src/domains/requests/request-schema.ts:high impact",
+    "src/domains/requests/request-lifecycle.ts:complexity",
+    "src/client/api.ts:hidden coupling",
+    "tools/doc-gate-engine.mjs:complexity",
+    "src/panel/probe-model.ts:high impact",
+    "src/domains/review/review-request.ts:complexity",
+    "src/tools/review.ts:complexity",
+    "src/domains/requests/authorization-decision.ts:complexity",
+    "tests/guards/architecture.test.mjs:untested risk",
+    "src/client/model.ts:hidden coupling",
+    "src/client/list.tsx:hidden coupling",
+    "src/dev/m12-e2e.ts:untested risk",
+    "src/platform/workspace-repair.ts:complexity",
+    "src/client/styles.ts:hidden coupling"
+  ]
+}
