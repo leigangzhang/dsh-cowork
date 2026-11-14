@@ -1,12 +1,18 @@
 /**
  * The one authorization decision core: permission, idempotent replay,
  * lock-scoped unlock, `authorization-resolved` activity, notice patch and the
- * legacy route's card settlement.
+ * request-card settlement shared by both routes.
  *
- * Both the legacy `authorization.resolve` route and the inbox resolve route call
- * this module; neither has an unlock path of its own. The prompt itself is
- * deferred to the caller (`deferPrompt`), so the request card can be terminal
- * before the topic is woken.
+ * The index unlock and the request card's terminal state are written while one
+ * project-lock acquisition is held. Both stores use the same
+ * `<repo>/.dsh-cowork/.write.lock`, so the transaction opens it once through
+ * `withWriteLock` and then uses the no-lock writes
+ * (`mutateIndexDocumentUnlocked`, `updateUnlocked`). The lock is not reentrant;
+ * taking it twice would deadlock, which is why no locked store method runs
+ * inside the transaction.
+ *
+ * The prompt itself is deferred to the caller (`deferPrompt`), so the card can
+ * be terminal before the topic is woken.
  */
 import { authorizationResolvedActivity, requestResolvedActivity } from './activity.js'
 import type { RequestRecordV1 } from './inbox-contract.js'
@@ -20,10 +26,27 @@ import { unblockTopic } from './topic.js'
 import { PanelServiceError, clipText, messageOf } from './request-support.js'
 import type { RequestServiceStorePort } from './request-support.js'
 
+/** Card state after one authorization decision. */
+export type SettleAuthorizationOutcome = 'absent' | 'settled' | 'already-resolved' | 'conflict'
+
+/**
+ * The request-card operations the transaction needs. `RequestStore` satisfies
+ * it: `read` is lock-free, `updateUnlocked` requires the caller's lock.
+ */
+export interface RequestCardStorePort {
+  read(requestId: string): Promise<RequestRecordV1 | null>
+  updateUnlocked(
+    requestId: string,
+    mutator: (current: RequestRecordV1) => RequestRecordV1 | null,
+  ): Promise<RequestRecordV1 | null>
+  /** The project writer lock, when the store can take it (standalone settlement). */
+  withWriteLock?<T>(operation: () => Promise<T>): Promise<T>
+}
+
 /** Everything the shared authorization decision core needs. */
 export interface AuthorizationDecisionInput {
   readonly store: RequestServiceStorePort
-  /** Repository root, used only to kick the notice dispatcher after the write. */
+  /** Repository root, used to kick the notice dispatcher after the write. */
   readonly repoPath: string
   readonly topicId: string
   readonly requestId: string
@@ -31,15 +54,23 @@ export interface AuthorizationDecisionInput {
   readonly sessionId: string
   readonly now: Date
   /**
-   * When true, commit the unlock, the notice patch and the activity, but return
-   * the wake-up text in `promptText` instead of prompting. The caller prompts
-   * after the request card is terminal, so a card write failure can never leave
-   * a prompted topic behind a pending card.
+   * When true, commit the unlock, the card, the notice patch and the activity,
+   * but return the wake-up text in `promptText` instead of prompting. The
+   * caller prompts after the request card is terminal, so a card write failure
+   * can never leave a prompted topic behind a pending card.
    */
   readonly deferPrompt?: boolean
   readonly promptSession?: (sessionId: string, text: string) => Promise<{ accepted: boolean }>
   readonly noticePort?: TopicNoticePort
   readonly kickNotices?: (repoPath: string) => void
+  /** Card store override; defaults to a `RequestStore` for `repoPath`. */
+  readonly requestCard?: RequestCardStorePort
+  /**
+   * Terminal state of one pending card. Defaults to the legacy mirror: the
+   * decision's status, `resolvedBy: 'user'` and empty delivery facts (the caller
+   * patches delivery after its deferred prompt).
+   */
+  readonly settleCard?: (current: RequestRecordV1, status: 'allowed' | 'denied') => RequestRecordV1 | null
   readonly log?: (message: string) => void
 }
 
@@ -51,6 +82,10 @@ export interface AuthorizationDecisionOutcome {
   /** The wake-up text when a committed decision still owes a prompt, or null. */
   readonly promptText: string | null
   readonly noticeId: string | null
+  /** How the request card ended up; `absent` when the project has no card. */
+  readonly cardSettled: SettleAuthorizationOutcome
+  /** The card after the transaction, or null when it was absent. */
+  readonly cardRecord: RequestRecordV1 | null
   readonly document: ProjectIndexV2
   readonly topic: TopicRecordV2
   readonly decision: 'allow' | 'deny'
@@ -103,11 +138,61 @@ function authorizationPrompt(summary: string, decision: 'allow' | 'deny'): strin
   return `授权请求已${verb}：${clipText(summary, 200)}。请继续。`
 }
 
+/** Classify a card that was not written: absent, terminal-same or terminal-different. */
+function cardOutcomeOf(
+  current: RequestRecordV1 | null,
+  status: 'allowed' | 'denied',
+): SettleAuthorizationOutcome {
+  if (current === null) return 'absent'
+  if (current.status === status) return 'already-resolved'
+  if (current.status === 'pending') return 'absent'
+  return 'conflict'
+}
+
+/**
+ * Read, classify and (for a pending card) write one authorization card. The
+ * caller already holds the project writer lock, so this never takes it.
+ */
+async function settleCardInLock(
+  cardStore: RequestCardStorePort,
+  requestId: string,
+  topicId: string,
+  status: 'allowed' | 'denied',
+  decide: (current: RequestRecordV1) => RequestRecordV1 | null,
+): Promise<{ outcome: SettleAuthorizationOutcome; record: RequestRecordV1 | null }> {
+  const current = await cardStore.read(requestId)
+  if (current === null) return { outcome: 'absent', record: null }
+  if (current.kind !== 'authorization' || current.topicId !== topicId) {
+    return { outcome: 'absent', record: current }
+  }
+  if (current.status !== 'pending') {
+    return { outcome: cardOutcomeOf(current, status), record: current }
+  }
+  const next = decide(current)
+  if (next === null) return { outcome: 'absent', record: current }
+  const written = await cardStore.updateUnlocked(requestId, (latest) => (
+    latest.kind === 'authorization' && latest.topicId === topicId && latest.status === 'pending'
+      ? next
+      : null
+  ))
+  if (written === null) return { outcome: 'absent', record: null }
+  if (written.status === status) return { outcome: 'settled', record: written }
+  return { outcome: cardOutcomeOf(written, status), record: written }
+}
+
 /**
  * The one authorization decision core: permission, idempotent replay,
- * lock-scoped unlock, `authorization-resolved` activity, notice patch and the
- * topic prompt. Both the legacy `authorization.resolve` route and the inbox
- * resolve route call this function; neither has an unlock path of its own.
+ * lock-scoped unlock and card settlement, `authorization-resolved` activity,
+ * notice patch and the topic prompt. Both the legacy `authorization.resolve`
+ * route and the inbox resolve route call this function; neither has an unlock
+ * path of its own.
+ *
+ * The index and the card are written in one lock acquisition. If the card write
+ * fails after the index write, the index is restored to the document the
+ * mutator saw before the failure and the original error propagates. The residual
+ * window — the restore write itself failing — is logged with the request id; it
+ * can only be closed by an external repair, because both files are separate
+ * atomic writes.
  */
 export async function resolveAuthorizationDecision(
   input: AuthorizationDecisionInput,
@@ -145,6 +230,8 @@ export async function resolveAuthorizationDecision(
       prompted: false,
       promptError: null,
       promptText: null,
+      cardSettled: 'absent',
+      cardRecord: null,
       noticeId: recorded.noticeId,
       document: before,
       topic,
@@ -159,20 +246,85 @@ export async function resolveAuthorizationDecision(
   }
   const noticeId = await authorizationNoticeId(store, topicId, requestId)
   const summary = pending.summary
+  const status = decision === 'allow' ? 'allowed' : 'denied'
+  const cardStore = input.requestCard ?? new RequestStore({ repoPath: input.repoPath, log: input.log })
+  const decideCard = input.settleCard ?? ((current: RequestRecordV1, cardStatus: 'allowed' | 'denied') => ({
+    ...applyResolution(current, { status: cardStatus, resolvedBy: 'user', now }),
+    delivery: { promptedAt: null, lastError: null },
+  }))
   let changed = false
-  const document = await store.mutateIndexDocument((base) => {
-    if (base.masterSessionId !== sessionId && sessionId !== topicId) {
-      throw new PanelServiceError('authorization/not-allowed', `session ${sessionId} may not decide ${topicId}`)
+  // The card outcome is assigned inside the lock callback; a holder keeps the
+  // flow analysis from narrowing it back to the initial value after the await.
+  const card: { settled: SettleAuthorizationOutcome; record: RequestRecordV1 | null } = {
+    settled: 'absent',
+    record: null,
+  }
+  let snapshot: ProjectIndexV2 | null = null
+
+  /** Restore the index the mutator saw; a failed restore is the residual window. */
+  const restoreIndex = async (): Promise<void> => {
+    const target = snapshot
+    if (target === null) return
+    try {
+      await store.mutateIndexDocumentUnlocked(() => target)
+    } catch (restoreError) {
+      input.log?.(
+        `request ${requestId} authorization: index/card transaction failed and the index could not be `
+          + `restored; residual state is "topic unlocked, card pending": ${messageOf(restoreError)}`,
+      )
     }
-    const current = base.topics.find((entry) => entry.topicId === topicId)
-    if (current === undefined || current.authorization === null) return null
-    if (current.authorization.requestId !== requestId) {
-      throw new PanelServiceError('authorization/mismatch', `pending authorization is ${current.authorization.requestId}`)
+  }
+
+  /**
+   * Whether a failed unlocked index write still reached the file. `writeJsonAtomic`
+   * renames before the directory fsync, so a failure can follow a landed write.
+   */
+  const indexMayHaveLanded = async (): Promise<boolean> => {
+    try {
+      const current = await store.readIndexDocument()
+      return current.topics.find((entry) => entry.topicId === topicId)?.authorization == null
+    } catch {
+      return true
     }
-    changed = true
-    const released = unblockTopic(current, now.getTime())
-    const next: TopicRecordV2 = { ...released, lastActiveAt: now.toISOString() }
-    return { ...base, topics: base.topics.map((entry) => (entry.topicId === topicId ? next : entry)) }
+  }
+
+  const document = await store.withWriteLock(async () => {
+    let nextDocument: ProjectIndexV2
+    try {
+      nextDocument = await store.mutateIndexDocumentUnlocked((base) => {
+        snapshot = base
+        if (base.masterSessionId !== sessionId && sessionId !== topicId) {
+          throw new PanelServiceError('authorization/not-allowed', `session ${sessionId} may not decide ${topicId}`)
+        }
+        const current = base.topics.find((entry) => entry.topicId === topicId)
+        if (current === undefined || current.authorization === null) return null
+        if (current.authorization.requestId !== requestId) {
+          throw new PanelServiceError('authorization/mismatch', `pending authorization is ${current.authorization.requestId}`)
+        }
+        changed = true
+        const released = unblockTopic(current, now.getTime())
+        const next: TopicRecordV2 = { ...released, lastActiveAt: now.toISOString() }
+        return { ...base, topics: base.topics.map((entry) => (entry.topicId === topicId ? next : entry)) }
+      })
+    } catch (error) {
+      // The mutation may have thrown before writing, or the write may have
+      // landed and the directory fsync failed afterwards. Restore only when the
+      // file actually shows the unlock; the caller sees the original error.
+      if (changed && snapshot !== null && await indexMayHaveLanded()) await restoreIndex()
+      throw error
+    }
+    if (!changed) return nextDocument
+    try {
+      const settled = await settleCardInLock(cardStore, requestId, topicId, status, (current) => decideCard(current, status))
+      card.settled = settled.outcome
+      card.record = settled.record
+    } catch (error) {
+      // The index is already on disk; take it back so a failed card write cannot
+      // leave a decided topic behind a pending card.
+      await restoreIndex()
+      throw error
+    }
+    return nextDocument
   })
   if (!changed) {
     // The lock re-read found no pending authorization: another decision or an
@@ -201,6 +353,8 @@ export async function resolveAuthorizationDecision(
       prompted: false,
       promptError: null,
       promptText: null,
+      cardSettled: card.settled,
+      cardRecord: card.record,
       noticeId: recorded.noticeId,
       document,
       topic: settled,
@@ -251,6 +405,17 @@ export async function resolveAuthorizationDecision(
     }
   }
   input.kickNotices?.(input.repoPath)
+  // The card and the index were committed together; the inbox activity follows
+  // both, so a replay of the same decision cannot write a second row.
+  if (card.settled === 'settled' && card.record !== null) {
+    try {
+      await store.appendActivity(
+        requestResolvedActivity(card.record, { action: decision === 'allow' ? 'allow' : 'deny' }, now),
+      )
+    } catch (error) {
+      input.log?.(`request ${requestId} settled, activity not recorded: ${messageOf(error)}`)
+    }
+  }
   const current = document.topics.find((entry) => entry.topicId === topicId)
   if (current === undefined) {
     throw new PanelServiceError('internal', `topic disappeared from the index: ${topicId}`)
@@ -260,33 +425,14 @@ export async function resolveAuthorizationDecision(
     prompted,
     promptError,
     promptText: input.deferPrompt === true ? promptText : null,
+    cardSettled: card.settled,
+    cardRecord: card.record,
     noticeId,
     document,
     topic: current,
     decision,
   }
 }
-
-/**
- * Converge the request-inbox record of one authorization decision made through
- * the legacy `authorization.resolve` route.
- *
- * The index, the topic authorization and the notice are already handled by
- * {@link resolveAuthorizationDecision}; this keeps the inbox card in step so
- * the two routes cannot show different states. The legacy route calls it with
- * no delivery facts and patches them after the deferred prompt (see
- * {@link promptRequestTopic}), so the card is terminal before the topic wakes.
- * It is
- * deliberately tolerant: the legacy route must keep its response shape, so a
- * missing record (a topic that never used the request tools), a record of
- * another kind or topic, and a record another writer already settled are all
- * quiet outcomes, and a storage/activity failure is logged rather than thrown.
- *
- * Only a pending record is written; an already-terminal record is never
- * overwritten, so an inbox.resolve that settled first keeps its own delivery
- * facts and its one `request-resolved` activity row.
- */
-export type SettleAuthorizationOutcome = 'absent' | 'settled' | 'already-resolved' | 'conflict'
 
 /** One legacy authorization decision to mirror into the request inbox. */
 export interface SettleAuthorizationRecordInput {
@@ -302,68 +448,54 @@ export interface SettleAuthorizationRecordInput {
   readonly promptError: string | null
   /** The legacy route decides as the user unless told otherwise. */
   readonly resolvedBy?: 'user' | 'master'
+  /** Card store override; defaults to a `RequestStore` for `repoPath`. */
+  readonly requestCard?: RequestCardStorePort
   readonly log?: (message: string) => void
 }
 
+/**
+ * Settle one request card on its own, without an index decision.
+ *
+ * The two routes commit their card inside
+ * {@link resolveAuthorizationDecision}'s transaction; this entry remains for a
+ * caller that only has a card to mirror (and for the regression tests that pin
+ * the tolerant classification). Only a pending record is written; an
+ * already-terminal record is never overwritten, so an inbox.resolve that
+ * settled first keeps its own delivery facts and its one `request-resolved`
+ * activity row.
+ */
 export async function settleAuthorizationRequestRecord(
   input: SettleAuthorizationRecordInput,
 ): Promise<SettleAuthorizationOutcome> {
-  const store = new RequestStore({ repoPath: input.repoPath, log: input.log })
-  let record: RequestRecordV1 | null
-  try {
-    record = await store.read(input.requestId)
-  } catch (error) {
-    input.log?.(`request ${input.requestId} was not read for settlement: ${messageOf(error)}`)
-    return 'absent'
-  }
-  if (record === null) return 'absent'
-  if (record.kind !== 'authorization' || record.topicId !== input.topicId) return 'absent'
+  const cardStore = input.requestCard ?? new RequestStore({ repoPath: input.repoPath, log: input.log })
   const status = input.decision === 'allow' ? 'allowed' : 'denied'
-  if (record.status !== 'pending') {
-    if (record.status === status) return 'already-resolved'
-    input.log?.(
-      `request ${input.requestId} carries ${record.status}, not ${status}; the legacy decision does not rewrite a settled card`,
-    )
-    return 'conflict'
-  }
-  let settled = false
-  let next: RequestRecordV1 | null = null
-  try {
-    next = await store.update(input.requestId, (current) => {
-      if (current.kind !== 'authorization' || current.topicId !== input.topicId) return null
-      if (current.status !== 'pending') return null
-      settled = true
-      const resolved = applyResolution(current, {
-        status,
-        resolvedBy: input.resolvedBy ?? 'user',
-        now: input.now,
-      })
-      return {
-        ...resolved,
-        delivery: {
-          promptedAt: input.promptedAt,
-          lastError: input.promptError === null
-            ? null
-            : clipText(input.promptError, REQUEST_DELIVERY_ERROR_MAX_CHARS),
-        },
-      }
+  const settle = () => settleCardInLock(cardStore, input.requestId, input.topicId, status, (current) => {
+    const resolved = applyResolution(current, {
+      status,
+      resolvedBy: input.resolvedBy ?? 'user',
+      now: input.now,
     })
-  } catch (error) {
-    input.log?.(`request ${input.requestId} was not settled: ${messageOf(error)}`)
-    return 'absent'
+    return {
+      ...resolved,
+      delivery: {
+        promptedAt: input.promptedAt,
+        lastError: input.promptError === null
+          ? null
+          : clipText(input.promptError, REQUEST_DELIVERY_ERROR_MAX_CHARS),
+      },
+    }
+  })
+  const { outcome, record } = cardStore.withWriteLock === undefined
+    ? await settle()
+    : await cardStore.withWriteLock(settle)
+  if (outcome === 'settled' && record !== null) {
+    try {
+      await input.store.appendActivity(
+        requestResolvedActivity(record, { action: input.decision === 'allow' ? 'allow' : 'deny' }, input.now),
+      )
+    } catch (error) {
+      input.log?.(`request ${input.requestId} settled, activity not recorded: ${messageOf(error)}`)
+    }
   }
-  if (!settled || next === null) {
-    // A concurrent writer settled the record after the pre-check. Mirroring is
-    // best-effort: report what the file now says instead of rewriting it.
-    return next !== null && next.status === status ? 'already-resolved' : 'conflict'
-  }
-  try {
-    await input.store.appendActivity(
-      requestResolvedActivity(next, { action: input.decision === 'allow' ? 'allow' : 'deny' }, input.now),
-    )
-  } catch (error) {
-    input.log?.(`request ${input.requestId} settled, activity not recorded: ${messageOf(error)}`)
-  }
-  return 'settled'
+  return outcome
 }
-

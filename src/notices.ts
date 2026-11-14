@@ -20,6 +20,7 @@
  * ledger rows, kick it, and return. A delivery failure is recorded on the row
  * (bounded retries, exponential backoff) and never rolls the topic state back.
  */
+import { attemptDelivery, retryDelaySchedule } from './delivery.js'
 import { isNoticeKind, type NoticeKind } from './notice-contract.js'
 import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
 import type { ActivityEvent, ProjectIndexV2, ReadActivityResult } from './store-schema.js'
@@ -610,15 +611,6 @@ export interface TopicNoticeDispatcherOptions {
   maxAttempts?: number
 }
 
-/** Per-row retry delays for the configured attempt count. */
-function retryDelays(maxAttempts: number): readonly number[] {
-  const delays: number[] = []
-  for (let index = 0; index < maxAttempts - 1; index += 1) {
-    delays.push(NOTICE_RETRY_DELAYS_MS[Math.min(index, NOTICE_RETRY_DELAYS_MS.length - 1)])
-  }
-  return delays
-}
-
 /**
  * Deliver pending notices per project, one event at a time.
  *
@@ -731,22 +723,22 @@ export class TopicNoticeDispatcher {
     record: NoticeLedgerRecord,
   ): Promise<boolean> {
     const maxAttempts = Math.max(1, this.options.maxAttempts ?? NOTICE_MAX_ATTEMPTS)
-    const delays = retryDelays(maxAttempts)
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      record.attempts = attempt
-      record.updatedAt = this.options.clock().toISOString()
-      try {
-        await this.options.port.append(sessionId, notice)
-        return true
-      } catch (error) {
-        record.lastError = error instanceof Error ? error.message : String(error)
-        if (attempt >= maxAttempts) {
-          record.status = 'failed'
-          return false
-        }
-        await this.wait(delays[attempt - 1] ?? NOTICE_RETRY_DELAYS_MS.at(-1) ?? 0)
-      }
-    }
+    const result = await attemptDelivery(
+      () => this.options.port.append(sessionId, notice),
+      {
+        maxAttempts,
+        retryDelaysMs: retryDelaySchedule(maxAttempts, NOTICE_RETRY_DELAYS_MS),
+        sleep: (ms) => this.wait(ms),
+        onAttempt: (attempt) => {
+          record.attempts = attempt
+          record.updatedAt = this.options.clock().toISOString()
+        },
+      },
+    )
+    // `append` resolves with 'delivered' or 'duplicate'; both count as delivery.
+    if (result.delivered) return true
+    record.lastError = result.error
+    record.status = 'failed'
     return false
   }
 

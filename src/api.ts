@@ -21,8 +21,10 @@
  * - A write is one lock-scoped transaction. `mutateIndexDocument` owns the
  *   project lock and its activity row is appended afterwards, in a second
  *   independent lock acquisition: wrapping both in `withWriteLock` would
- *   deadlock on the non-reentrant file lock. An activity failure is logged and
- *   never turns a committed write into an error response.
+ *   deadlock on the non-reentrant file lock. `authorization.resolve` is the one
+ *   exception: the decision core writes the index and the request card under a
+ *   single acquisition through the stores' no-lock writes. An activity failure
+ *   is logged and never turns a committed write into an error response.
  */
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -72,10 +74,18 @@ import {
   type RouteMoveResponse,
   type TopicResponse,
 } from './api-contract.js'
+import type {
+  CoworkApiHost,
+  CoworkApiPorts,
+  CoworkConnection,
+  CoworkStorePort,
+  PanelFetchRoute,
+  PanelSessionRow,
+} from './api-types.js'
 import { buildActivityEvent, topicReopenedActivity } from './activity.js'
 import { inboxPanelRoutes } from './inbox-api.js'
 import type { InboxApiKit } from './inbox-api.js'
-import type { NoticeLedgerV1, TopicNoticePort } from './notices.js'
+import type { TopicNoticePort } from './notices.js'
 import { isLoopbackHost } from './probe-model.js'
 import { parseReviewRequestRecord, reviewRequestFileName } from './review-request.js'
 import type { ReviewRequestRecord } from './review-request.js'
@@ -84,7 +94,6 @@ import type {
   ActivityEvent,
   InboxItem,
   ProjectIndexV2,
-  ReadActivityResult,
   ReviewFinding,
   ReviewVerification,
   TopicRecordV2,
@@ -94,118 +103,29 @@ import {
   PanelServiceError,
   promptRequestTopic,
   resolveAuthorizationDecision,
-  settleAuthorizationRequestRecord,
 } from './request-service.js'
 import { StoreError } from './store.js'
 import { DEFAULT_IDLE_AFTER_MS, reopenResolvedTopic } from './topic.js'
 import { activeWorkItemCount } from './work-item.js'
 import { archiveTopic, evaluateProjectLifecycle } from './tool-runtime.js'
 
-/** One metadata row of the host's session listing; only id and cwd matter here. */
-export interface PanelSessionRow {
-  readonly sessionId: string
-  /** The session's working directory; the only accepted start for project discovery. */
-  readonly cwd?: string
-}
-
-/**
- * Store operations the routes may perform. `ProjectStore` satisfies this
- * structurally. The writer half (`mutateIndexDocument`/`appendActivity`) is used
- * only by the three POST routes; the reads never call a write.
- */
-export interface CoworkStorePort {
-  hasIndex(): Promise<boolean>
-  readIndexDocument(): Promise<ProjectIndexV2>
-  mutateIndexDocument(mutator: (document: ProjectIndexV2) => ProjectIndexV2 | null): Promise<ProjectIndexV2>
-  appendActivity(event: ActivityEvent): Promise<void>
-  readActivity(limit?: number): Promise<ReadActivityResult>
-  readInbox(): Promise<InboxItem[]>
-  /** Raw text read of one project-owned file; `null` when the file is gone. */
-  readText(absPath: string): Promise<string | null>
-  /** The notice ledger; the inbox note stream reads it without writing it. */
-  readNotices?(): Promise<NoticeLedgerV1>
-  /** `<repo>/.dsh-cowork/reviews`, the only home of review-request facts. */
-  readonly reviewsDir: string
-}
-
-/** The host facts a route needs, injected so tests can stand in for the host. */
-export interface CoworkApiPorts {
-  /**
-   * Session metadata, deliberately `list` and not `inspect`: on a live host
-   * `inspect` waits for the session's event log (the panel request hung on
-   * running or large sessions), while the listing is a cheap summary read that
-   * already carries `cwd`.
-   */
-  listSessions(): Promise<{ readonly items: readonly PanelSessionRow[] }>
-  /**
-   * Bound on {@link listSessions}, in milliseconds. Production leaves this
-   * unset and gets {@link LIST_SESSIONS_TIMEOUT_MS}; tests inject a few
-   * milliseconds so the timeout path is deterministic without waiting 30 s.
-   * Not part of the wire contract: it only bounds the host call.
-   */
-  listSessionsTimeoutMs?: number
-  findProjectRoot(startPath: string): Promise<string | null>
-  createStore(repoPath: string): CoworkStorePort
-  /**
-   * Clock for the write routes and the lifecycle read point. Production passes
-   * the same `() => new Date()` that the store stamps with; tests freeze it.
-   */
-  now?(): Date
-  /** Idle threshold for the lifecycle read point; `src/topic.ts` owns the default. */
-  idleAfterMs?: number
-  /** Diagnostic sink for a non-fatal failure (lifecycle/activity write). */
-  log?(message: string): void
-  /** Archive the host session of an archived topic; a failure is logged only. */
-  archiveSession?(sessionId: string, options?: { stopActivity?: boolean }): Promise<void>
-  /** Restore the host session of a reopened topic; a failure is logged only. */
-  unarchiveSession?(sessionId: string): Promise<void>
-  /** Prompt the topic session after an authorization decision. */
-  promptSession?(sessionId: string, text: string): Promise<{ accepted: boolean }>
-  /** Host notice port, used to update the original authorization notice. */
-  noticePort?: TopicNoticePort
-  /**
-   * Host file-browser port for `POST /api/cowork.inbox.open`. Optional: a host
-   * without the desktop capability answers `inbox/open-unsupported` instead of
-   * faking a success.
-   */
-  openWorkspacePath?(path: string): Promise<void>
-  /** Schedule the notice dispatcher for one project after a committed write. */
-  kickNotices?(repoPath: string): void
-}
-
-/** Methods the connection channel supports for a registered route. */
-export type PanelFetchMethod = 'GET' | 'HEAD' | 'POST'
-/** Whether the channel buffers or streams the request body before the handler. */
-export type PanelRequestBodyMode = 'buffered' | 'streaming'
+// The shared port/route types live in a leaf module so `src/inbox-api.ts` can
+// depend on them without importing this module; the names stay exported here
+// for the panel client and every existing importer.
+export type {
+  CoworkApiHost,
+  CoworkApiPorts,
+  CoworkConnection,
+  CoworkStorePort,
+  PanelFetchMethod,
+  PanelFetchRoute,
+  PanelRequestBodyMode,
+  PanelSessionRow,
+} from './api-types.js'
 
 // The status table moved to the contract module with the inbox codes; the host
 // keeps the stable export name the panel tests and the client rely on.
 export { panelErrorStatus, PANEL_ERROR_STATUS } from './api-contract.js'
-
-/** One Exact Fetch route as the host `connection` service declares it. */
-export interface PanelFetchRoute {
-  readonly path: string
-  readonly methods: readonly PanelFetchMethod[]
-  readonly requestBody: PanelRequestBodyMode
-  readonly fetch: (request: Request) => Promise<Response>
-}
-
-/** The slice of the host `connection` service this module registers on. */
-export interface CoworkConnection {
-  readonly fetch: {
-    register(route: PanelFetchRoute): () => Promise<void>
-  }
-}
-
-/**
- * The Cordis context surface used here. `get` mirrors `ctx.get(name)`: it
- * returns `undefined` when the service is absent instead of throwing, which is
- * what keeps the plugin loadable in a host without `connection`.
- */
-export interface CoworkApiHost {
-  get(name: string): unknown
-  effect(execute: () => unknown, label?: string): void
-}
 
 /** The longest `route.move` intent the panel accepts, in code points. */
 const ROUTE_MOVE_INTENT_MAX_CHARS = 500
@@ -927,29 +847,12 @@ async function handleAuthorizationResolve(request: Request, ports: CoworkApiPort
     kickNotices: ports.kickNotices,
     log: (message: string) => ports.log?.(`panel authorization: ${message}`),
   })
-  // Keep the inbox card in step with the legacy route's decision. A missing
-  // request record (a topic that never used the request tools) is a no-op, and
-  // a settlement failure is logged: the response shape of this route never
-  // changes because the inbox file could not be read or written.
-  let settled: 'absent' | 'settled' | 'already-resolved' | 'conflict' = 'absent'
-  try {
-    settled = await settleAuthorizationRequestRecord({
-      store,
-      repoPath,
-      topicId,
-      requestId,
-      decision,
-      now,
-      promptedAt: null,
-      promptError: null,
-      log: (message: string) => ports.log?.(`panel authorization: ${message}`),
-    })
-  } catch (error) {
-    ports.log?.(`panel authorization: inbox card not settled: ${messageOf(error)}`)
-  }
-  // A card another writer already settled (same or different status) owns its
-  // own prompt: replaying it here would wake the topic twice.
-  const ownsPrompt = settled === 'settled' || settled === 'absent'
+  // The decision core commits the index and the inbox card in one lock
+  // acquisition, so this route never has to settle the card afterwards. A
+  // missing card (a topic that never used the request tools) is `absent`; a card
+  // another writer already settled owns its own prompt, so replaying it here
+  // would wake the topic twice.
+  const ownsPrompt = outcome.cardSettled === 'settled' || outcome.cardSettled === 'absent'
   let prompted = false
   if (outcome.changed && ownsPrompt && outcome.promptText !== null) {
     const delivered = await promptRequestTopic({

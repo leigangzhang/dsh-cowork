@@ -280,7 +280,17 @@ test('the test suite keeps one definition of its shared setup', () => {
   const surface = read(join('tests', 'support', 'public-surface.mjs'))
   assert.equal((surface.match(/const PANEL_ROUTES = /g) ?? []).length, 1)
   assert.equal((surface.match(/const BUSINESS_TOOL_ORDER = /g) ?? []).length, 1)
-  for (const name of ['dev-gate.test.mjs', 'api.test.mjs', 'api-contract.test.mjs', 'project-tools.test.mjs', 'source-budget.test.mjs']) {
+  // The panel API suite was split by route family; every split must load the
+  // shared public surface, and the split must keep all three files.
+  const apiRouteTests = testFiles
+    .filter((name) => /^api-(?:read|write|auth)\.test\.mjs$/.test(name))
+    .sort()
+  assert.deepEqual(
+    apiRouteTests,
+    ['api-auth.test.mjs', 'api-read.test.mjs', 'api-write.test.mjs'],
+    'the panel API suite keeps its three route-family files',
+  )
+  for (const name of ['dev-gate.test.mjs', 'api-contract.test.mjs', 'project-tools.test.mjs', 'source-budget.test.mjs', ...apiRouteTests]) {
     assert.match(read(join('tests', name)), /public-surface\.mjs/, `${name} must use the shared public surface`)
   }
 })

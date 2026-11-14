@@ -10,6 +10,7 @@
  * delivery kept for replay instead of dropped.
  */
 import { randomUUID } from 'node:crypto'
+import { attemptDelivery } from './delivery.js'
 import { INBOX_KINDS } from './store-schema.js'
 import type { InboxItem, InboxKind } from './store-schema.js'
 
@@ -149,11 +150,10 @@ export class Inbox {
     let next = 0
     while (next < pending.length) {
       const batch = pending.slice(next, next + INBOX_MAX_BATCH)
-      try {
-        await this.deliver(batch.map(messageLine).join('\n'))
-      } catch {
-        return { delivered, failed: pending.length - next }
-      }
+      // One attempt per flush: a rejected batch stays undelivered for replay,
+      // and the prompt port is never asked twice for the same batch.
+      const delivery = await attemptDelivery(() => this.deliver(batch.map(messageLine).join('\n')))
+      if (!delivery.delivered) return { delivered, failed: pending.length - next }
       // Mark only now: a batch the port rejected stays undelivered. The write is
       // retried immediately because the delivery already happened; a lost mark
       // would deliver the same batch again on the next replay.
