@@ -156,6 +156,71 @@ function projectRuleErrors(config) {
   return errors
 }
 
+/**
+ * Dependency-free source hygiene rules (audit item 9).
+ *
+ * Each rule names the kind of text it forbids and the tree it applies to:
+ * `console` bypasses the host logger, `debugger` ships a pause, `@ts-ignore`
+ * silences a type error instead of narrowing the value, and `test.skip`/
+ * `test.only` narrow the suite silently. Enforced by the gate rather than
+ * ESLint/Prettier so the repository keeps its zero-lint-dependency toolchain.
+ */
+const HYGIENE_RULES = [
+  {
+    id: 'src-console',
+    root: 'src',
+    extensions: ['.ts', '.tsx'],
+    pattern: /\bconsole\s*\./,
+    sample: 'console.log("debug")',
+    message: 'src/ must log through ctx.logger, not console',
+  },
+  {
+    id: 'src-debugger',
+    root: 'src',
+    extensions: ['.ts', '.tsx'],
+    pattern: /\bdebugger\b/,
+    sample: 'debugger',
+    message: 'src/ must not keep a debugger statement',
+  },
+  {
+    id: 'src-ts-ignore',
+    root: 'src',
+    extensions: ['.ts', '.tsx'],
+    pattern: /@ts-ignore\b/,
+    sample: '// @ts-ignore',
+    message: 'src/ must not suppress a type error with @ts-ignore',
+  },
+  {
+    id: 'tests-skip-only',
+    root: 'tests',
+    extensions: ['.mjs'],
+    pattern: /\btest\s*\.\s*(?:skip|only)\b/,
+    sample: 'test.only("narrowed", () => {})',
+    message: 'tests/ must not skip or narrow the suite with test.skip/.only',
+  },
+]
+
+/** Violations of one rule in one file's text. */
+function hygieneRuleErrors(rule, rel, text) {
+  if (!rel.startsWith(`${rule.root}/`) || !rule.extensions.some((extension) => rel.endsWith(extension))) return []
+  const errors = []
+  text.split('\n').forEach((line, index) => {
+    if (rule.pattern.test(line)) errors.push(`${rel}:${index + 1}: ${rule.message}`)
+  })
+  return errors
+}
+
+/** Every source-hygiene violation under the repository root. */
+function hygieneErrors() {
+  const errors = []
+  for (const rule of HYGIENE_RULES) {
+    for (const [rel, text] of iterFiles(root, [`${rule.root}/**`])) {
+      errors.push(...hygieneRuleErrors(rule, rel, text))
+    }
+  }
+  return errors
+}
+
 function projectSelfTest() {
   const cases = [
     {
@@ -190,8 +255,19 @@ function projectSelfTest() {
       failed += 1
     }
   }
+  for (const rule of HYGIENE_RULES) {
+    const rel = `${rule.root}/self-test${rule.extensions[0]}`
+    if (hygieneRuleErrors(rule, rel, `${rule.sample}\n`).length === 0) {
+      console.error(`self-test failed: hygiene rule "${rule.id}" did not go red`)
+      failed += 1
+    }
+    if (hygieneRuleErrors(rule, rel, 'export const clean = 1\n').length !== 0) {
+      console.error(`self-test failed: hygiene rule "${rule.id}" flagged clean source`)
+      failed += 1
+    }
+  }
   if (failed > 0) return false
-  console.log(`PASS project-rules: ${cases.length} negative controls`)
+  console.log(`PASS project-rules: ${cases.length + HYGIENE_RULES.length * 2} negative controls`)
   return true
 }
 
@@ -277,6 +353,15 @@ for (const [id, problems] of runChecks(root, checks)) {
   console.log(`FAIL ${id}`)
   for (const problem of problems) console.log(`  ${problem}`)
   violations += problems.length
+}
+
+const hygiene = hygieneErrors()
+if (hygiene.length > 0) {
+  console.log('FAIL source-hygiene')
+  for (const error of hygiene) console.log(`  ${error}`)
+  violations += hygiene.length
+} else {
+  console.log('PASS source-hygiene')
 }
 
 if (!args.changed) {
