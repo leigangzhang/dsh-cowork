@@ -246,8 +246,9 @@ type HostWorkspaceRegistry = CoworkToolDeps['workspaceRegistry'] & {
 
 /**
  * Host services the M1 assembly reads. The plugin cannot import the app's own
- * types, so these stay structural; the shapes are the ones S0 confirmed
- * (`agentPresets.register`, `sessionController`, `workspaceRegistry`).
+ * types, so these stay structural; the shapes are the ones the M1 S0 probe
+ * confirmed (docs/handoff/M1_S0_RESULT.md): `agentPresets.register`,
+ * `sessionController`, and `workspaceRegistry`.
  */
 interface CoworkAssemblyHost {
   sessionController: CoworkToolDeps['sessionController']

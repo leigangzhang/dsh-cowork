@@ -1,11 +1,9 @@
 /**
  * Pure three-layer routing core (PLAN-V0.2 §5.3, M9.1).
  *
- * This module replaces the keyword-only model of `src/router.ts` (which stays
- * until `src/tools.ts` switches its call site in M9.3b). It owns the decision
- * rules, not the side effects: no I/O, no clock read and no randomness. The
- * caller injects `context.nowMs`, so a decision is reproducible from its
- * inputs alone.
+ * This module replaced the keyword-only router. It owns the decision rules,
+ * not the side effects: no I/O, no clock read and no randomness. The caller
+ * injects `context.nowMs`, so a decision is reproducible from its inputs alone.
  *
  * The three layers:
  *

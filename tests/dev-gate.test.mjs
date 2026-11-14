@@ -197,14 +197,14 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   apply(host.ctx, config(false))
   await settle()
 
-  // No probe/E2E route at all; the panel API still registers its own six.
+  // No probe/E2E route at all; the panel API still registers its own ten.
   assert.deepEqual(host.routes, [])
   assert.deepEqual(fetchPaths(host), sorted(PANEL_PATHS))
 
   // Exactly the twenty-two business tools: the probe tools are absent.
   assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
 
-  // The four runner session feeds are not attached; the business topic
+  // The two runner session feeds are not attached; the business topic
   // lifecycle listener and the memory prompt's agent/created listener are.
   assert.equal(sessionListeners(host).length, 1)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)

@@ -23,7 +23,7 @@ M2 已交付九个工具、记忆注入、thread checkout 隔离与真实宿主 
 
 - `mergeCheckout` 在冲突和 `MERGE_HEAD` 两条路径都检查 `git merge --abort` 的退出码；abort 失败返回 `checkout/git-failed`，`details` 标明 `stage='abort'`、`mergeStage`、双方 stderr 与 exitCode，不谎报清理完成。
 - 所有 `details.stderr` 经统一上限（`STDERR_DETAIL_LIMIT = 2000`）截断并标记 `stderrTruncated`；`mkdirSync` 失败映射为 `checkout/create-failed`。
-- E2E 驱动拆成 [`src/m2-e2e.ts`](../../../../src/m2-e2e.ts) 与 [`src/m2-e2e-support.ts`](../../../../src/m2-e2e-support.ts) 两个文件，各自 ≤50 KB。证据 host 块移除 hostname。
+- E2E 驱动拆成 `src/m2-e2e.ts` 与 `src/m2-e2e-support.ts` 两个文件，各自 ≤50 KB。证据 host 块移除 hostname。
 - 新增第 5 步 `memory-visible`：prompt 只给约束标题与来源说明，不包含期望文本；约束值带固定 nonce `M2-E2E-CONSTRAINT-7F3A`，断言 thread 回复包含该文本且本步工具调用为 0。这样回复只能来自 system prompt 中的记忆块。
 
 **R3：memory-prompt 与契约**
@@ -65,7 +65,7 @@ M2 已交付九个工具、记忆注入、thread checkout 隔离与真实宿主 
 - [F3] memory：来源时间策略写进契约与测试；`MemoryValidationIssue.field` 含 `'kind'` 且无 cast；`renderMemoryEntry` 使用注入时钟 — `source`、`tests`：[`tests/memory.test.mjs`](../../../../tests/memory.test.mjs)。
 - [F4] checkout：abort 失败返回 `checkout/git-failed`；`details.stderr` 截断并标注；`mkdirSync` 失败映射 `checkout/create-failed` — `source`、`tests`：[`tests/checkout.test.mjs`](../../../../tests/checkout.test.mjs)。
 - [F5] memory-prompt：`renderMemory` 返回 null 后缓存清空；`duplicateSkipped` 按 agent 计数 — `source`、`tests`：[`tests/memory-prompt.test.mjs`](../../../../tests/memory-prompt.test.mjs)。
-- [F6] E2E：驱动每个文件 ≤50 KB；证据不含 hostname；新增「模型复述约束」步骤且断言回复包含该约束 — `source`、`tests`：[`tests/m2-e2e.test.mjs`](../../../../tests/m2-e2e.test.mjs) 锁定 11 步顺序、文件预算、host 字段与 prompt 不含答案；真实宿主 run `m2-a91984c0-4840-4bc0-bcd1-74fe22d0e679` 的 `memory-visible` 3/3 断言通过，`toolCalls=0`。
+- [F6] E2E：驱动每个文件 ≤50 KB；证据不含 hostname；新增「模型复述约束」步骤且断言回复包含该约束 — `source`、`tests`：`tests/m2-e2e.test.mjs` 锁定 11 步顺序、文件预算、host 字段与 prompt 不含答案；真实宿主 run `m2-a91984c0-4840-4bc0-bcd1-74fe22d0e679` 的 `memory-visible` 3/3 断言通过，`toolCalls=0`。
 - [F7] 契约与文档：PLAN §5.6 teardown 顺序与实现一致；`PANEL_HANDOFF` 用 `checkoutPath`；M2_RESULT/M2_HANDOFF/KNOWN_ISSUES 交叉链接且无重复 — `publication`：`npm run check` 通过。
 - [F8] 全部门禁与真实宿主 E2E 在最终字节上重跑通过：`npm test` 227/227、`npm run typecheck` exit 0、`npm run build` exit 0、`npm run check` exit 0；E2E 11/11 步通过，最终索引两条 thread 均为 `done`/`checkoutPath=null`，fixture 已清理 — `packaging`、`publication`、`source`。
 

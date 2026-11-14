@@ -4,8 +4,8 @@
  * This module builds the events the lifecycle rules publish. The file layer
  * stays in `src/store.ts`: `appendActivity` validates the event, enforces the
  * 500-event / 512-KiB bounds and repairs damaged lines on its next rewrite, so
- * nothing here re-implements JSON Lines I/O. The event-type vocabulary has one home,
- * `ACTIVITY_TYPES` in `src/store-schema.ts`; this module does not copy it.
+ * nothing here re-implements JSON Lines I/O. The event-type vocabulary has one
+ * home, `ACTIVITY_TYPES` in `src/store-schema.ts`; this module does not copy it.
  */
 import { randomUUID } from 'node:crypto'
 import { NOTICE_SUMMARY_MAX_CHARS, noticeDescriptor } from './notices.js'
@@ -27,7 +27,6 @@ export interface ActivityInput {
   /** Structured detail for the panel; never free-form log text. Defaults to `{}`. */
   details?: Record<string, unknown>
 }
-
 
 /** Build one validated event stamped with the injected clock. */
 export function buildActivityEvent(input: ActivityInput, now: Date): ActivityEvent {

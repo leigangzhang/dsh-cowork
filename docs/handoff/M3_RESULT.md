@@ -15,7 +15,7 @@
 | [`src/presets.ts`](../../src/presets.ts) | `cowork-reviewer` preset（persona + agent-instructions + tool-bash + tool-fs-search，**无 tool-fs**）；master persona 增加 handoff→review、禁 dev_*/host 工具、只 pass 可 merge |
 | [`src/api-contract.ts`](../../src/api-contract.ts) / [`src/api.ts`](../../src/api.ts) | overview thread 行追加 `reviewStatus/reviewedAt/reviewerSessionId`；handoff 追加 `review:{record,filePath}\|null`；仍只读、`no-store`、只按索引指针读 |
 | [`src/client/**`](../../src/client) | review 徽章（审查中/通过/需修改/已拒绝）、审查详情（summary/findings/verifier 验证/review 文件路径）、打开 review 会话 |
-| [`src/m3-e2e.ts`](../../src/m3-e2e.ts) / [`src/m3-e2e-support.ts`](../../src/m3-e2e-support.ts) | 真实宿主 15 步驱动：review pass→合并、needs_revision→修复→复审→合并；证据 `.dsh-cowork/e2e/M3_E2E.json` |
+| `src/m3-e2e.ts` / `src/m3-e2e-support.ts` | 真实宿主 15 步驱动：review pass→合并、needs_revision→修复→复审→合并；证据 `.dsh-cowork/e2e/M3_E2E.json` |
 | [`src/index.ts`](../../src/index.ts) | `/dsh-cowork/e2e/m3/run` / `status` 两条 loopback 路由 |
 | [`tests/`](../../tests) | `review` / `m3-e2e` / store / session-slice / api / panel-model 覆盖；全量 330 用例（M3 交付时 309；M3-FIX 新增 21） |
 
