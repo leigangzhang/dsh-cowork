@@ -73,6 +73,22 @@
 | `npm run check:clean` | exit 0，303 个文件，无 `.dsh-cowork/` 或 `lib/` |
 | `npm run typecheck` / `npm run build` / `npm run test:host-smoke` | 均 exit 0；host smoke 5/5 |
 
-## Stage 3–4 执行记录
+## Stage 3 — 预算与公共面
 
-（随每个 Stage 完成更新；最终 HEAD、diff sha 与各命令结果在第 4 阶段收口。）
+- **文件预算**：所有 `src/**/*.ts(x)` 以 50 KiB 为硬线、48 KiB 为软目标；软目标只打印不失败，硬线失败。当前最大文件 `src/store.ts` 49,983 B，超过软目标 831 B，距硬线 1,217 B；`src/review-request.ts` 48,758 B 在软目标内。
+- **入口预算**：`src/index.ts` 21,830 B ≤ 30 KiB；`src/` 下没有第二个宿主 `index.ts`，公共入口保持唯一（`src/client/index.tsx` 是 client bundle 入口，不是宿主 barrel）。
+- **测试预算**：所有 `tests/**/*.test.mjs` ≤ 1,200 行；当前最大 `tests/checkout.test.mjs` 1,051 行。
+- **工具面**：`tests/tool-schema-budget.test.mjs` 继续锁 22 个工具、16,523 B，并用“第 23 个工具即超”作负例。
+- **公共面快照**：新增 `tests/public-surface.test.mjs`，把 22 工具 / 10 路由 / 3 preset / 3 个 `exports` 键与工具→领域唯一映射放在同一处；任一数量变化都会让这次改动在一个 diff 里需要显式评审。`package.json` 的 exports 键也由该测试精确断言。
+- **负例**：`tests/source-budget.test.mjs` 新增 `budgetProblems` / `lineBudgetProblems` / `hostEntryBarrels` 的合成超限用例（阈值含等号，超 1 B/1 行即红）。
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | 986/986 pass，0 fail |
+| `npm run test:coverage` | 986/986 pass，floors 通过 |
+| `npm run check` / `npm run check:self-test` / `npm run check:clean` | exit 0；self-test 17 条 project 负例；clean 303 文件 |
+| `npm run typecheck` / `npm run build` / `npm run test:host-smoke` | 均 exit 0；host smoke 5/5 |
+
+## Stage 4 — 审查清单与决策记录
+
+（收口阶段；最终 HEAD、diff sha 与各命令结果在此记录。）
