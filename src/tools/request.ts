@@ -37,7 +37,8 @@ import {
   normalizeVerification,
   payloadProblems,
 } from '../domains/requests/request-schema.js'
-import type { CoworkToolDeps, JsonValue, ProjectRuntime } from '../platform/tool-runtime.js'
+import type { CoworkToolDeps, ProjectRuntime } from '../platform/tool-runtime.js'
+import type { JsonValue } from '../platform/tool-model.js'
 import {
   callerOf,
   isFailure,

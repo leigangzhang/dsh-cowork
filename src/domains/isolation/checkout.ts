@@ -58,7 +58,7 @@ export const WORK_ITEM_BRANCH_PREFIX = CHECKOUT_BRANCH_PREFIX
 export const CLONE_ISOLATION_PROVIDER = 'clone'
 
 /** Timeout for one git invocation. No git call is retried automatically. */
-export const GIT_TIMEOUT_MS = 30_000
+export const CHECKOUT_GIT_TIMEOUT_MS = 30_000
 
 /** Ids become path segments and branch suffixes, so keep them narrow. */
 const TARGET_ID_PATTERN = /^[A-Za-z0-9_-]+$/
@@ -822,7 +822,7 @@ export const nodeGitRunner: GitRunner = (args, cwd) =>
     execFile(
       'git',
       [...args],
-      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf8' },
+      { cwd, timeout: CHECKOUT_GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf8' },
       (error, stdout, stderr) => {
         if (error === null) {
           settle({ code: 0, stdout: stdout ?? '', stderr: stderr ?? '' })

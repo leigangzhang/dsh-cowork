@@ -8,12 +8,10 @@
  * home, `ACTIVITY_TYPES` in `src/store/schema.ts`; this module does not copy it.
  */
 import { randomUUID } from 'node:crypto'
-import { NOTICE_SUMMARY_MAX_CHARS, noticeDescriptor } from '../domains/notices/notices.js'
-import type {
-  ActivityNoticeDescriptor,
-  NoticeStatus,
-  NoticeTarget,
-} from '../domains/notices/notices.js'
+import { noticeDescriptor } from '../domains/notices/notices.js'
+import type { ActivityNoticeDescriptor, NoticeTarget } from '../domains/notices/notices.js'
+import { NOTICE_SUMMARY_MAX_CHARS, NOTICE_TITLE_MAX_CHARS } from '../panel/notice-contract.js'
+import type { NoticeStatus } from '../panel/notice-contract.js'
 import { ACTIVITY_TYPES } from './schema.js'
 import type { ActivityEvent, ActivityType, TopicRecordV2, TopicStatus } from './schema.js'
 import type { RequestAction, RequestKind, RequestRecordV1 } from '../panel/inbox-contract.js'
@@ -79,9 +77,6 @@ export function statusChangedActivity(
     now,
   )
 }
-
-/** Longest title a notice descriptor carries, in code points. */
-export const NOTICE_TITLE_MAX_CHARS = 80
 
 /** Both sides of an event; the archive notice goes to the master only. */
 const BOTH_TARGETS: readonly NoticeTarget[] = ['master', 'topic']

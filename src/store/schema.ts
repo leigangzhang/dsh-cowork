@@ -23,8 +23,6 @@ export const ACTIVITY_MAX_EVENTS = 500
 export const ACTIVITY_MAX_BYTES = 524288
 /** Most items `inbox.json` keeps. */
 export const INBOX_MAX_ITEMS = 50
-/** Most records the notice delivery ledger keeps (`notices.json` v1). */
-export const NOTICE_LEDGER_MAX_RECORDS = 200
 
 /** Lifecycle of one topic. */
 export const TOPIC_STATUSES = ['active', 'idle', 'resolved'] as const
@@ -78,12 +76,6 @@ export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number]
 export const REVIEW_SEVERITIES = ['blocker', 'high', 'medium', 'low'] as const
 /** Severity of one review finding. */
 export type ReviewSeverity = (typeof REVIEW_SEVERITIES)[number]
-
-/**
- * Lifecycle of a v1 thread. Moved here from `src/review.ts` so the legacy review
- * model has one home that outlives that module (M10.3 deletes it).
- */
-export type ReviewThreadStatus = 'new' | 'active' | 'awaiting_review' | 'done' | 'blocked' | 'archived'
 
 /** One required fix a legacy review names. */
 export interface ReviewFinding {
@@ -231,7 +223,7 @@ export interface ReadActivityResult {
 }
 
 /** One item of `<repo>/.dsh-cowork/inbox.json`. */
-export interface InboxItem {
+export interface InboxRecordV1 {
   id: string
   time: string
   topicId: string

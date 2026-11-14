@@ -26,9 +26,6 @@ export const INBOX_PATH = '/api/cowork.inbox'
 export const INBOX_RESOLVE_PATH = '/api/cowork.inbox.resolve'
 export const INBOX_OPEN_PATH = '/api/cowork.inbox.open'
 
-/** Most items one `GET /api/cowork.inbox` response carries. */
-export const INBOX_MAX_ITEMS = 50
-
 /** Most request files one inbox read scans; more files report `truncated`. */
 export const INBOX_MAX_REQUEST_FILES = 200
 
@@ -197,7 +194,7 @@ export const INBOX_NOTIFICATION_KINDS = [...INBOX_NOTICE_KINDS, 'review-verdict'
 export type InboxNotificationKind = (typeof INBOX_NOTIFICATION_KINDS)[number]
 
 /** One row a user-review request exposes on the card. */
-export interface ReviewVerification {
+export interface InboxReviewVerification {
   readonly command: string
   readonly exitCode: number
   readonly evidence: string
@@ -207,7 +204,7 @@ export interface ReviewVerification {
 export interface ReviewPayload {
   readonly purpose: string
   readonly changedPaths?: readonly string[]
-  readonly verification?: readonly ReviewVerification[]
+  readonly verification?: readonly InboxReviewVerification[]
   /** Automatic-review request this user review refers to, when any. */
   readonly reviewRequestId?: string
 }

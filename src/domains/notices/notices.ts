@@ -21,7 +21,7 @@
  * (bounded retries, exponential backoff) and never rolls the topic state back.
  */
 import { attemptDelivery, retryDelaySchedule } from './delivery.js'
-import { isNoticeKind, type NoticeKind } from '../../panel/notice-contract.js'
+import { isNoticeKind, NOTICE_STATUSES, NOTICE_SUMMARY_MAX_CHARS, NOTICE_TITLE_MAX_CHARS, type NoticeKind, type NoticeStatus } from '../../panel/notice-contract.js'
 import { ACTIVITY_MAX_EVENTS } from '../../store/schema.js'
 import type { ActivityEvent, ProjectIndexV2, ReadActivityResult } from '../../store/schema.js'
 
@@ -32,15 +32,6 @@ export const DEFAULT_NOTICE_PLUGIN_ID = '@dsh-external/dsh-cowork'
 export const NOTICE_TARGETS = ['master', 'topic'] as const
 /** One side of the 1:1 delivery: the master session or the topic session. */
 export type NoticeTarget = (typeof NOTICE_TARGETS)[number]
-
-/** The notice kinds the topic page emits, re-exported from the shared vocabulary. */
-export { NOTICE_KINDS } from '../../panel/notice-contract.js'
-export type { NoticeKind } from '../../panel/notice-contract.js'
-
-/** The decision state a notice carries. */
-export const NOTICE_STATUSES = ['pending', 'allowed', 'denied', 'void'] as const
-/** Decision state of one notice. */
-export type NoticeStatus = (typeof NOTICE_STATUSES)[number]
 
 /** Actions a rendered notice may offer. */
 export const NOTICE_ACTIONS = ['allow', 'deny', 'open-topic', 'open-work-item'] as const
@@ -60,11 +51,6 @@ export const NOTICE_LEDGER_MAX_RECORDS = 200
 export const NOTICE_MAX_ATTEMPTS = 5
 /** Backoff between failed attempts: 1 s, 5 s, 30 s, 30 s (max 5 attempts). */
 export const NOTICE_RETRY_DELAYS_MS = [1000, 5000, 30000, 30000] as const
-
-/** Longest notice title, in code points. */
-export const NOTICE_TITLE_MAX_CHARS = 80
-/** Longest notice summary, in code points. */
-export const NOTICE_SUMMARY_MAX_CHARS = 200
 
 /** One rendered notice as the port (and a future client card) sees it. */
 export interface TopicNotice {
@@ -647,11 +633,6 @@ export class TopicNoticeDispatcher {
       if (this.chains.get(repoPath) === next) this.chains.delete(repoPath)
     })
     return next
-  }
-
-  /** How many projects currently have a drain in flight or queued. */
-  pending(): number {
-    return this.chains.size
   }
 
   /** Stop scheduling and clear any backoff timer this dispatcher owns. */

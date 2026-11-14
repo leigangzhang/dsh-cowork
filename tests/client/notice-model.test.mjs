@@ -6,8 +6,6 @@ import {
   NOTICE_ACTION_TONES,
   NOTICE_KIND_LABELS,
   NOTICE_STATUS_LABELS,
-  NOTICE_SUMMARY_MAX_CHARS,
-  NOTICE_TITLE_MAX_CHARS,
   buildNoticeCards,
   canRegisterNoticeRenderer,
   isNoticeActionType,
@@ -20,6 +18,7 @@ import {
   noticeStatusLabel,
   upsertNoticeCard,
 } from '../../src/client/notice-model.ts'
+import { NOTICE_SUMMARY_MAX_CHARS, NOTICE_TITLE_MAX_CHARS } from '../../src/panel/notice-contract.ts'
 
 const MASTER = { audience: 'master' }
 const TOPIC = { audience: 'topic' }

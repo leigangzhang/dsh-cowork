@@ -22,6 +22,7 @@ import {
   iterFiles,
   listChecks,
   loadConfig,
+  patternMatches,
   runChecks,
   selectChecks,
   selfTest as engineSelfTest,
@@ -154,6 +155,11 @@ function projectRuleErrors(config) {
     errors.push(...noteErrors(rel, read(rel), declaredSurfaces))
   }
   errors.push(...exportAuditErrors(root))
+  errors.push(...unownedToolErrors(
+    iterFiles(root, ['tools/*.mjs']),
+    (config.surfaces ?? []).flatMap((surface) => surface.patterns ?? []),
+    iterFiles(root, ['tests/**', 'scripts/**', 'tools/**']).filter(([rel]) => /\.(?:mjs|ts|tsx)$/.test(rel)),
+  ))
   errors.push(...staleNameErrors(iterFiles(root, STALE_NAME_SCOPE.patterns, STALE_NAME_SCOPE.exclude)))
   return errors
 }
@@ -367,11 +373,67 @@ function exportAuditErrors(auditRoot) {
   const readBaseline = readExportBaseline()
   if (readBaseline.error !== undefined) return [readBaseline.error]
   const errors = exportAuditProblems(report, readBaseline.baseline)
+  errors.push(...hostReExportErrors(sources, tests))
   if (report.overExported.length > 0) {
     console.log(
       `export-audit: ${report.overExported.length} export(s) are used only inside their own module; ` +
         'drop the export keyword when touching them (`--print-export-audit` lists them)',
     )
+  }
+  return errors
+}
+
+/** Re-export declarations (`export { ... } from '...'`) in the host entry. */
+const HOST_RE_EXPORT = /^export\s+(?:type\s+)?\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/gm
+
+/**
+ * The host entry's own declarations are its public surface, but a re-export is
+ * real only when another module consumes it. Count identifier references in
+ * every source/test file except the host entry and the module it re-exports.
+ *
+ * @param {Array<[string, string]>} sources `src/**` files as [relative path, text].
+ * @param {Array<[string, string]>} tests `tests/**` files as [relative path, text].
+ * @returns {string[]} One message per re-export with no consumer.
+ */
+function hostReExportErrors(sources, tests) {
+  const entry = sources.find(([rel]) => rel === HOST_ENTRY)
+  if (entry === undefined) return [`${HOST_ENTRY}: host entry is missing; the re-export audit has no target`]
+  const others = [...sources.filter(([rel]) => rel !== HOST_ENTRY), ...tests]
+  const errors = []
+  for (const match of entry[1].matchAll(HOST_RE_EXPORT)) {
+    const targetBase = match[2].replace(/^.*\//, '').replace(/\.(?:js|ts|tsx)$/, '')
+    const references = others.filter(([rel]) => rel.split('/').pop().replace(/\.(?:ts|tsx|mjs)$/, '') !== targetBase)
+    for (const raw of match[1].split(',')) {
+      const name = raw.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()
+      if (name === '' || name === undefined) continue
+      const pattern = new RegExp(`\\b${name.replace(/[$]/g, '\\$')}\\b`)
+      if (!references.some(([, text]) => pattern.test(text))) {
+        errors.push(`${HOST_ENTRY}: re-export '${name}' from ${match[2]} has no consumer; remove it or give it a caller`)
+      }
+    }
+  }
+  return errors
+}
+
+/**
+ * Every `tools/*.mjs` is an executable asset and needs an owner. A matching
+ * workflow surface pattern, or another script/test that names it, claims the
+ * file; an unclaimed tool is a stale fixture.
+ *
+ * @param {Array<[string, string]>} toolFiles `tools/*.mjs` files as [relative path, text].
+ * @param {string[]} patterns Every `patterns[]` entry from `tools/workflow.json`.
+ * @param {Array<[string, string]>} references Code files that may import a tool.
+ * @returns {string[]} One message per unowned tool.
+ */
+function unownedToolErrors(toolFiles, patterns, references) {
+  const errors = []
+  for (const [rel] of toolFiles) {
+    const name = rel.split('/').pop()
+    const claimed = patterns.some((pattern) => patternMatches(pattern, rel))
+      || references.some(([other, text]) => other !== rel && text.includes(name))
+    if (!claimed) {
+      errors.push(`${rel}: no owner; add it to a tools/workflow.json surface, import it from a script/test, or delete it`)
+    }
   }
   return errors
 }
@@ -481,6 +543,35 @@ function projectSelfTest() {
         exportAuditCategories([['src/a.ts', 'export const used = 1\n']], []),
         { why: 'self-test', reviewBy: 'self-test', testOnly: ['gone'] },
       ).some((problem) => problem.includes("'gone'")),
+    },
+    {
+      name: 'host re-export: a consumed name is green and an orphan is red',
+      fail: () => {
+        const sources = [
+          ['src/app/apply.ts', "export { kept, orphan } from './config.js'\n"],
+          ['src/app/config.ts', 'export const kept = 1\nexport const orphan = 2\n'],
+          ['src/index.ts', "import { kept } from './app/apply.js'\n"],
+        ]
+        const errors = hostReExportErrors(sources, [])
+        return errors.some((error) => error.includes("'orphan'"))
+          && !errors.some((error) => error.includes("'kept'"))
+      },
+    },
+    {
+      name: 'tools ownership: a pattern or importer claims a tool and an orphan is red',
+      fail: () => {
+        const tools = [
+          ['tools/pattern-tool.mjs', ''],
+          ['tools/imported-tool.mjs', ''],
+          ['tools/orphan.mjs', ''],
+        ]
+        const errors = unownedToolErrors(
+          tools,
+          ['tools/pattern-tool.mjs'],
+          [['tests/a.test.mjs', "import '../tools/imported-tool.mjs'\n"]],
+        )
+        return errors.length === 1 && errors[0].includes('tools/orphan.mjs')
+      },
     },
     {
       name: 'stale name: a removed tool name is red',

@@ -12,7 +12,7 @@
 import { randomUUID } from 'node:crypto'
 import { attemptDelivery } from '../domains/notices/delivery.js'
 import { INBOX_KINDS } from './schema.js'
-import type { InboxItem, InboxKind } from './schema.js'
+import type { InboxRecordV1, InboxKind } from './schema.js'
 
 /** Most items one delivery batch may merge into the master prompt. */
 export const INBOX_MAX_BATCH = 5
@@ -49,8 +49,8 @@ export class InboxMarkError extends Error {
 
 /** The file layer this module needs: read plus the capped atomic rewrite. */
 export interface InboxStore {
-  readInbox(): Promise<InboxItem[]>
-  writeInbox(items: InboxItem[]): Promise<InboxItem[]>
+  readInbox(): Promise<InboxRecordV1[]>
+  writeInbox(items: InboxRecordV1[]): Promise<InboxRecordV1[]>
 }
 
 /** One event waiting for the master, before it becomes an inbox item. */
@@ -74,12 +74,12 @@ export interface InboxOptions {
 }
 
 /** The one line one item becomes inside a delivery batch. */
-function messageLine(item: InboxItem): string {
+function messageLine(item: InboxRecordV1): string {
   return `[${item.kind}] ${item.summary}`
 }
 
 /** Validate one event before anything is read or written. */
-function inboxItemOf(event: InboxEvent, time: string): InboxItem {
+function inboxItemOf(event: InboxEvent, time: string): InboxRecordV1 {
   if (!(INBOX_KINDS as readonly string[]).includes(event.kind)) {
     throw new Error(`inbox.kind must be one of ${INBOX_KINDS.join('|')} (got ${String(event.kind)})`)
   }
@@ -121,7 +121,7 @@ export class Inbox {
    * runs before the read, so one bad event writes nothing; the store keeps the
    * newest 50 and performs the atomic rewrite.
    */
-  async enqueue(events: readonly InboxEvent[]): Promise<InboxItem[]> {
+  async enqueue(events: readonly InboxEvent[]): Promise<InboxRecordV1[]> {
     const time = this.clock().toISOString()
     const created = events.map((event) => inboxItemOf(event, time))
     const current = await this.store.readInbox()

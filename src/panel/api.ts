@@ -92,7 +92,7 @@ import type { ReviewRequestRecord } from '../domains/review/review-request.js'
 import { applyRouteCorrection } from '../domains/routing/routing.js'
 import type {
   ActivityEvent,
-  InboxItem,
+  InboxRecordV1,
   ProjectIndexV2,
   ReviewFinding,
   ReviewVerification,
@@ -358,7 +358,7 @@ function toPanelWorkItem(item: WorkItemRecordV2): PanelWorkItem | null {
 }
 
 /** Project one inbox item onto the wire shape. */
-function toPanelInboxItem(item: InboxItem): PanelInboxItem {
+function toPanelInboxItem(item: InboxRecordV1): PanelInboxItem {
   return {
     id: item.id,
     time: item.time,

@@ -38,7 +38,8 @@ import { REQUEST_TOOL_ERROR_CODES } from './request.js'
 import { TOPIC_PRESET_ID } from '../platform/presets.js'
 import { ACTIVITY_MAX_EVENTS } from '../store/schema.js'
 import type { TopicRecordV2 } from '../store/schema.js'
-import type { CoworkToolDeps, JsonValue, ProjectRuntime } from '../platform/tool-runtime.js'
+import type { CoworkToolDeps, ProjectRuntime } from '../platform/tool-runtime.js'
+import type { JsonValue } from '../platform/tool-model.js'
 import {
   BRIEF_MAX_CHARS,
   archiveTopic,

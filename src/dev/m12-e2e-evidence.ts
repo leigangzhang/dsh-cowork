@@ -19,14 +19,14 @@ import {
 } from '../store/schema.js'
 import type {
   ActivityEvent,
-  InboxItem,
+  InboxRecordV1,
   ProjectIndexV2,
   TopicRecordV2,
   WorkItemRecordV2,
 } from '../store/schema.js'
 import {
   GIT_MAX_BUFFER,
-  GIT_TIMEOUT_MS,
+  M12_GIT_TIMEOUT_MS,
   M12_E2E_POLL_MS,
   M12_E2E_SHORT_IDLE_MS,
   M12_E2E_SHORT_RESOLVE_MS,
@@ -342,7 +342,7 @@ export function runGit(args: readonly string[], cwd: string): Promise<GitOutcome
     execFile(
       'git',
       [...args],
-      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf8' },
+      { cwd, timeout: M12_GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf8' },
       (error, stdout, stderr) => {
         if (error === null) {
           settle({ code: 0, stdout: stdout ?? '', stderr: stderr ?? '' })
@@ -398,14 +398,14 @@ export function parseActivityFile(text: string): ActivityFileRead {
   return { events, skippedLines }
 }
 
-export function parseInboxFile(text: string): InboxItem[] {
+export function parseInboxFile(text: string): InboxRecordV1[] {
   try {
     const parsed: unknown = JSON.parse(text)
     if (!Array.isArray(parsed)) return []
-    const items: InboxItem[] = []
+    const items: InboxRecordV1[] = []
     for (const entry of parsed) {
       if (inboxItemProblems(entry).length > 0) return []
-      items.push(entry as InboxItem)
+      items.push(entry as InboxRecordV1)
     }
     return items
   } catch {
@@ -671,7 +671,7 @@ export interface VerdictFacts {
   topicAwaitingReview: boolean
   indexReviewerSessionId: string | null
   workItemStatus: string
-  inboxItem: InboxItem
+  inboxItem: InboxRecordV1
   reviewerArchived: boolean
 }
 
@@ -734,8 +734,8 @@ export function assertRequestFacts(step: MutableStep, facts: RequestFacts): void
 }
 
 export interface MergeDecisionFacts {
-  inbox: readonly InboxItem[]
-  delivered: readonly InboxItem[]
+  inbox: readonly InboxRecordV1[]
+  delivered: readonly InboxRecordV1[]
   topicId: string
   workItemId: string
   deliveryText: string | null
@@ -865,7 +865,7 @@ export async function readActivityAt(fixturePath: string): Promise<ActivityFileR
   return parseActivityFile(text ?? '')
 }
 
-export async function readInboxAt(fixturePath: string): Promise<InboxItem[]> {
+export async function readInboxAt(fixturePath: string): Promise<InboxRecordV1[]> {
   const text = await readTextIfPresent(join(fixturePath, INBOX_FILE_RELATIVE))
   return text === undefined ? [] : parseInboxFile(text)
 }

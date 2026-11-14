@@ -3,7 +3,7 @@
  * step-id vocabularies, and every evidence, host-port and plan type the driver
  * and its support modules share. Values only: no I/O and no host import.
  */
-export type { ActivityEvent, InboxItem, ProjectIndexV2, TopicRecordV2, WorkItemRecordV2 } from '../store/schema.js'
+export type { ActivityEvent, ProjectIndexV2, WorkItemRecordV2 } from '../store/schema.js'
 export { MASTER_PRESET_ID, REVIEWER_PRESET_ID, TOPIC_PRESET_ID } from '../platform/presets.js'
 
 export const M12_E2E_EVIDENCE_RELATIVE = '.dsh-cowork/e2e/M12_E2E.json'
@@ -40,7 +40,7 @@ export const MAX_EVENTS = 4_000
 export const MAX_ASSISTANT_TEXT = 1_000
 export const MAX_GIT_TEXT = 2_000
 export const MAX_FIELD_TEXT = 3_000
-export const GIT_TIMEOUT_MS = 30_000
+export const M12_GIT_TIMEOUT_MS = 30_000
 export const GIT_MAX_BUFFER = 8 * 1024 * 1024
 
 export const PROJECT_INIT_TOOL = 'cowork_project_init'

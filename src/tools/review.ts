@@ -46,7 +46,7 @@ import type {
 } from '../domains/review/review-request.js'
 import type { SessionSlice } from '../platform/session-slice.js'
 import { archiveReviewerAfterVerdict, createReviewerSession } from '../platform/session-visibility.js'
-import type { ProjectIndex, ProjectStore, ThreadRecord } from '../store/project-store.js'
+import type { ThreadRecord } from '../store/project-store.js'
 import type { ProjectIndexV2, WorkItemRecordV2 } from '../store/schema.js'
 import {
   ERROR_CODES,
@@ -56,20 +56,10 @@ import {
   failure,
   success,
 } from '../platform/tool-model.js'
-import type { CallerIdentity, ToolFailure } from '../platform/tool-model.js'
+import type { CallerIdentity, JsonValue, ToolFailure } from '../platform/tool-model.js'
 import { runGit } from '../platform/tool-runtime.js'
+import type { ProjectRuntime } from '../platform/tool-runtime.js'
 import { ACTIVE_WORK_ITEM_STATUSES, markWorkItem } from '../domains/isolation/work-item.js'
-
-/** Lossless JSON value accepted by the tool result boundary. */
-export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
-
-/** One resolved project plus the collaborators for one tool call. */
-export interface ProjectRuntime {
-  repoPath: string
-  store: ProjectStore
-  slice: SessionSlice
-  index: ProjectIndex
-}
 
 /** The tool-registry slice of the plugin context; the rest of `ctx` stays opaque. */
 export interface ReviewToolsHost {

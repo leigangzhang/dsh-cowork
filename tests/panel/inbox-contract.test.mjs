@@ -6,7 +6,6 @@ import '../support/ts-hook.mjs'
 const {
   AUTHORIZATION_COMMAND_MAX_CHARS,
   INBOX_ERROR_CODES,
-  INBOX_MAX_ITEMS,
   INBOX_MAX_REQUEST_FILES,
   INBOX_NOTIFICATION_KINDS,
   INBOX_OPEN_PATH,
@@ -52,6 +51,7 @@ const {
   statusForAction,
 } = await import('../../src/panel/inbox-contract.ts')
 const { PANEL_ERROR_STATUS } = await import('../../src/panel/api-contract.ts')
+const { INBOX_MAX_ITEMS } = await import('../../src/store/schema.ts')
 
 /** The one place the four kinds are restated: this frozen contract test. */
 const KINDS = ['user-review', 'authorization', 'question', 'plan']

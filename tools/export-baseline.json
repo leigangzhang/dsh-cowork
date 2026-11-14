@@ -62,7 +62,6 @@
     "NOTICE_ACTION_TONES",
     "NOTICE_KIND_LABELS",
     "NOTICE_STATUS_LABELS",
-    "NOTICE_TITLE_MAX_CHARS",
     "noticeActionInputs",
     "noticeActions",
     "noticeDescriptorOf",

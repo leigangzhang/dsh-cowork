@@ -10,7 +10,6 @@ import { PANEL_ROUTES } from '../support/public-surface.mjs'
 import {
   api,
   contract,
-  inboxContract,
   reviewRequest,
   store,
   panelProbe,

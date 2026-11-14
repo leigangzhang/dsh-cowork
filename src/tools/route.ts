@@ -30,7 +30,8 @@ import type { ModelCandidate, ModelOutcome, RoutingModelConfig } from '../domain
 import type { ProjectStore } from '../store/project-store.js'
 import type { ActivityEvent, ProjectIndexV2, TopicRecordV2 } from '../store/schema.js'
 import { DEFAULT_IDLE_AFTER_MS } from '../domains/topic/topic.js'
-import type { CoworkToolDeps, JsonValue } from '../platform/tool-runtime.js'
+import type { CoworkToolDeps } from '../platform/tool-runtime.js'
+import type { JsonValue } from '../platform/tool-model.js'
 import {
   BRIEF_MAX_CHARS,
   callerOf,

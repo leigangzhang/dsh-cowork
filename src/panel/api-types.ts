@@ -11,7 +11,7 @@
 import type { TopicNoticePort, NoticeLedgerV1 } from '../domains/notices/notices.js'
 import type {
   ActivityEvent,
-  InboxItem,
+  InboxRecordV1,
   ProjectIndexV2,
   ReadActivityResult,
 } from '../store/schema.js'
@@ -47,7 +47,7 @@ export interface CoworkStorePort {
   withWriteLock<T>(operation: () => Promise<T>): Promise<T>
   appendActivity(event: ActivityEvent): Promise<void>
   readActivity(limit?: number): Promise<ReadActivityResult>
-  readInbox(): Promise<InboxItem[]>
+  readInbox(): Promise<InboxRecordV1[]>
   /** Raw text read of one project-owned file; `null` when the file is gone. */
   readText(absPath: string): Promise<string | null>
   /** The notice ledger; the inbox note stream reads it without writing it. */

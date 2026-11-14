@@ -57,7 +57,7 @@ import type {
   RequestResolution,
   RequestStatus,
   ReviewPayload,
-  ReviewVerification,
+  InboxReviewVerification,
 } from '../../panel/inbox-contract.js'
 
 /** Directory holding one file per request, below `<repo>/.dsh-cowork`. */
@@ -787,7 +787,7 @@ export function normalizeQuestion(question: unknown, index: number): QuestionSpe
 }
 
 /** A verification row as the record persists it. */
-export function normalizeVerification(row: unknown): ReviewVerification {
+export function normalizeVerification(row: unknown): InboxReviewVerification {
   const record = isRecord(row) ? row : {}
   return {
     command: typeof record.command === 'string' ? record.command.trim() : '',

@@ -77,11 +77,9 @@ import type {
   MutableStep,
 } from './m12-e2e-support.js'
 import { M12E2ERunnerBase } from './m12-e2e-driver.js'
-import type { M12RunOptions } from './m12-e2e-driver.js'
 
 export { M12_E2E_RUN_PATH, M12_E2E_STATUS_PATH } from './m12-e2e-support.js'
 export type { M12E2EHost, M12PanelProbe } from './m12-e2e-support.js'
-export type { M12RunOptions }
 
 /** The M12 chain: one class, one step per method, in `M12_STEP_IDS` order. */
 export class M12E2ERunner extends M12E2ERunnerBase {
