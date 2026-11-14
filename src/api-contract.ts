@@ -6,7 +6,7 @@
  * inbox vocabulary (`src/inbox-contract.ts`), which owns the inbox error codes
  * and their HTTP statuses. The status unions are restated here as the wire
  * schema; `tests/api-contract.test.mjs` pins them to the canonical lists in
- * `src/store-schema.ts`, and the host maps index records into these shapes.
+ * `src/store/schema.ts`, and the host maps index records into these shapes.
  *
  * Every collection is bounded by the constants below, because the panel fetches
  * whole responses and a hand-edited index must not be able to ship the browser

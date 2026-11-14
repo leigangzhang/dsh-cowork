@@ -11,14 +11,14 @@ import './support/ts-hook.mjs'
  * re-implementing it. Cases run on a throwaway repository under os.tmpdir().
  */
 
-const { ProjectStore } = await import('../src/store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
 const {
   buildActivityEvent,
   requestCreatedActivity,
   requestResolvedActivity,
   statusChangedActivity,
   topicReopenedActivity,
-} = await import('../src/activity.ts')
+} = await import('../src/store/activity.ts')
 
 const CREATED_AT = '2026-11-05T03:04:05.006Z'
 const NOW = new Date('2026-11-08T10:11:12.013Z')

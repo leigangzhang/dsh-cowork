@@ -13,9 +13,9 @@ import './support/ts-hook.mjs'
  * under os.tmpdir(); only the prompt port is a fake.
  */
 
-const { ProjectStore } = await import('../src/store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
 const { Inbox, INBOX_MAX_BATCH, INBOX_MARK_ATTEMPTS, INBOX_SUMMARY_MAX_CHARS, InboxMarkError } =
-  await import('../src/inbox.ts')
+  await import('../src/store/inbox.ts')
 
 const CREATED_AT = '2026-11-05T03:04:05.006Z'
 

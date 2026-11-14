@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { REVIEW_TITLE_PREFIX, SessionSlice, THREAD_TITLE_PREFIX } from '../src/session-slice.ts'
+import { REVIEW_TITLE_PREFIX, SessionSlice, THREAD_TITLE_PREFIX } from '../src/platform/session-slice.ts'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

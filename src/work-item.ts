@@ -14,7 +14,7 @@
  * every thread checkout uses), so a work item can never land outside
  * `.dsh-cowork/workitems` and a failed creation leaves no half index record.
  */
-import { buildActivityEvent } from './activity.js'
+import { buildActivityEvent } from './store/activity.js'
 import {
   CHECKOUT_ERROR,
   CLONE_ISOLATION_PROVIDER,
@@ -25,9 +25,9 @@ import {
 } from './checkout.js'
 import type { CheckoutDeps } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
-import { M10_ERROR_CODES, TOPIC_ERROR_CODES } from './tool-model.js'
-import { WORK_ITEM_STATUSES } from './store-schema.js'
-import type { ActivityEvent, ProjectIndexV2, WorkItemRecordV2, WorkItemStatus } from './store-schema.js'
+import { M10_ERROR_CODES, TOPIC_ERROR_CODES } from './platform/tool-model.js'
+import { WORK_ITEM_STATUSES } from './store/schema.js'
+import type { ActivityEvent, ProjectIndexV2, WorkItemRecordV2, WorkItemStatus } from './store/schema.js'
 
 export { WORK_ITEM_STATUSES }
 export type { WorkItemStatus }

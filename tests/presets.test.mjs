@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import './support/ts-hook.mjs'
-// `src/presets.ts` is plain data with no sibling imports, but the rest of the
+// `src/platform/presets.ts` is plain data with no sibling imports, but the rest of the
 // preset/assembly surface it is compared against uses the build's `.js`
 // specifiers. Node's type stripping does not retry relative `.js` as `.ts`, so
 // this test keeps the same small resolve hook tests/api-read.test.mjs uses. No host
@@ -15,7 +15,7 @@ const {
   TOPIC_PERSONA,
   TOPIC_PRESET_ID,
   presetDefinitions,
-} = await import('../src/presets.ts')
+} = await import('../src/platform/presets.ts')
 
 const PERSONA = '@deepseek-ai/dsh-persona'
 const TOOL_ASK_USER = '@deepseek-ai/dsh-tool-ask-user'

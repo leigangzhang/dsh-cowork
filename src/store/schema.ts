@@ -6,11 +6,11 @@
  * is what the store writes; the v1 shapes (`ThreadRecordV1`, `ProjectIndexV1`)
  * stay because `src/tools.ts`, `src/api.ts`, `src/handoff.ts` and
  * `src/review-tools.ts` are still v1-shaped and cannot change in M7. The v1
- * normalizer reproduces `src/store.ts`'s `normalizeThreadDocument` behaviour
+ * normalizer reproduces `src/store/project-store.ts`'s `normalizeThreadDocument` behaviour
  * (pre-M2 `worktreePath` adoption, M3 review fields defaulted to null) so a
  * document read through this module and one read through the old store agree.
  *
- * Nothing here touches the file system: I/O and locking stay in `src/store.ts`.
+ * Nothing here touches the file system: I/O and locking stay in `src/store/project-store.ts`.
  */
 
 /** On-disk index version this module describes: topics + work items. */
@@ -106,7 +106,7 @@ export interface ReviewVerification {
  * One legacy verdict-only review document
  * (`<repo>/.dsh-cowork/reviews/<threadId>-<stamp>.json`). M10 replaced this
  * model with the request file (`src/review-request.ts`); old files stay
- * readable by `src/store.ts` and are never rewritten.
+ * readable by `src/store/project-store.ts` and are never rewritten.
  */
 export interface ReviewRecord {
   version: 1
@@ -315,7 +315,7 @@ function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value
 
 /**
  * Read one v1 thread into the current v1 shape. Mirrors
- * `src/store.ts`'s `normalizeThreadDocument`: the pre-M2 `worktreePath` name is
+ * `src/store/project-store.ts`'s `normalizeThreadDocument`: the pre-M2 `worktreePath` name is
  * adopted only when `checkoutPath` is absent and is never copied forward; the
  * M3 review fields are filled with null so a loaded record always has them.
  */

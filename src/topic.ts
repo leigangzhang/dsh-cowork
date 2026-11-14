@@ -17,7 +17,7 @@
  * - Blocking records the status to restore ({@link blockTopic}), and releasing
  *   the block restores it ({@link unblockTopic}).
  */
-import type { BlockedReason, TopicRecordV2 } from './store-schema.js'
+import type { BlockedReason, TopicRecordV2 } from './store/schema.js'
 
 /** How long an unflagged topic may sit without activity (24 hours). */
 export const DEFAULT_IDLE_AFTER_MS = 24 * 60 * 60 * 1000

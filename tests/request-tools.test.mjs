@@ -9,10 +9,10 @@ import {
 } from './support/inbox-fixtures.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
-const { ProjectStore } = await import('../src/store.ts')
-const { RequestStore } = await import('../src/request-store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
+const { RequestStore } = await import('../src/store/request-store.ts')
 const { REQUEST_TOOL_ERROR_CODES } = await import('../src/request-tools.ts')
-const { ERROR_CODES } = await import('../src/tool-model.ts')
+const { ERROR_CODES } = await import('../src/platform/tool-model.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')
 const NOW_ISO = NOW.toISOString()

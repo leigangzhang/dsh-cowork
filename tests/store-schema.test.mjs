@@ -17,13 +17,13 @@ import {
   normalizeProjectIndexV2,
   projectIndexV1Problems,
   projectIndexV2Problems,
-} from '../src/store-schema.ts'
+} from '../src/store/schema.ts'
 
 /**
  * Contract tests for the v2 index schema and its v1 compatibility layer.
  * Everything here is pure: no file system, no clock, no `.dsh-cowork/`.
  *
- * The v1 expectations mirror `src/store.ts`'s `normalizeThreadDocument` and
+ * The v1 expectations mirror `src/store/project-store.ts`'s `normalizeThreadDocument` and
  * `indexProblems` behaviour: legacy key adoption, M3 review fields defaulted to
  * null, unknown fields tolerated. The v2 expectations follow PLAN-V0.2 §4.3.
  */

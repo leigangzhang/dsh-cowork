@@ -51,7 +51,7 @@ export const CHECKOUT_BRANCH_PREFIX = 'cowork/'
 export const WORK_ITEM_BRANCH_PREFIX = CHECKOUT_BRANCH_PREFIX
 
 /**
- * Isolation provider this module implements. `src/tool-runtime.ts` owns the
+ * Isolation provider this module implements. `src/platform/tool-runtime.ts` owns the
  * configured default; M10 implements `clone` only and `src/work-item.ts`
  * refuses every other value instead of silently falling back.
  */

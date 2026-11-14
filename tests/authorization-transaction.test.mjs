@@ -24,8 +24,8 @@ const api = await import('../src/api.ts')
 const contract = await import('../src/api-contract.ts')
 const inboxContract = await import('../src/inbox-contract.ts')
 
-const { ProjectStore } = await import('../src/store.ts')
-const { RequestStore } = await import('../src/request-store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
+const { RequestStore } = await import('../src/store/request-store.ts')
 
 const NOW = new Date('2026-11-13T10:00:00.000Z')
 const MASTER = 'session-master'

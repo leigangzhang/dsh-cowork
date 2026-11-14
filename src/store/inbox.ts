@@ -2,7 +2,7 @@
  * Master inbox (M8.3): merge pending events into bounded delivery batches and
  * hand them to an injected prompt port.
  *
- * The file layer stays in `src/store.ts`: `readInbox` validates the whole
+ * The file layer stays in `src/store/project-store.ts`: `readInbox` validates the whole
  * document and `writeInbox` rewrites it atomically while keeping the newest 50
  * items. This module owns only the business rules — at most 5 summaries per
  * delivery, at most 200 characters per summary (never silently truncated),
@@ -10,9 +10,9 @@
  * delivery kept for replay instead of dropped.
  */
 import { randomUUID } from 'node:crypto'
-import { attemptDelivery } from './delivery.js'
-import { INBOX_KINDS } from './store-schema.js'
-import type { InboxItem, InboxKind } from './store-schema.js'
+import { attemptDelivery } from '../delivery.js'
+import { INBOX_KINDS } from './schema.js'
+import type { InboxItem, InboxKind } from './schema.js'
 
 /** Most items one delivery batch may merge into the master prompt. */
 export const INBOX_MAX_BATCH = 5

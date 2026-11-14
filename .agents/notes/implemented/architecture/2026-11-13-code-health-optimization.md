@@ -10,7 +10,7 @@ Class: architecture
 
 - **入口过载。** [index.ts](../../../../src/index.ts) 46,369 B / 1,126 行，同时持有 Config schema、`normalizeConfig`、368 行 dev 路由、M12 面板探针、workspace repair 与业务装配；读代码需要先跳过 dev 面。
 - **剩余历史脚手架。** M2/M3/S0 已在上一轮移除，但 M0 run/status、`cowork_probe`、`cowork-probe` preset 仍注册；health 仍是 host-smoke 的必要入口。
-- **文件贴 50 KiB 读上限。** [m12-e2e-support.ts](../../../../src/m12-e2e-support.ts) 51,157 B、[m12-e2e.ts](../../../../src/m12-e2e.ts) 50,942 B、[store.ts](../../../../src/store.ts) 49,435 B、[review-request.ts](../../../../src/review-request.ts) 48,758 B；新增一行就可能越过 DSH 单文件读取上限。
+- **文件贴 50 KiB 读上限。** [m12-e2e-support.ts](../../../../src/m12-e2e-support.ts) 51,157 B、[m12-e2e.ts](../../../../src/m12-e2e.ts) 50,942 B、[store.ts](../../../../src/store/project-store.ts) 49,435 B、[review-request.ts](../../../../src/review-request.ts) 48,758 B；新增一行就可能越过 DSH 单文件读取上限。
 - **投递语义四套。** inbox 批量 + `deliveredAt`、notice 1:1 账本 + 退避、request 卡片 `delivery.lastError`、review verdict 本地 `promptError`；重试/错误记录各写一遍，KI-17/KI-23 的不对称长期存在。
 - **授权跨文件双写。** 主题的 `authorization` 与 `requests/<id>.json` 分两次加锁写；卡片失败会留下「主题已解锁、卡片仍 pending」窗口（KI-45）。
 - **配置默认值两处。** zod schema 的 `.default()` 与 `normalizeConfig` 的 `??` 各维护一套；新增字段要改两处，漂移不会被测试发现。
@@ -30,7 +30,7 @@ Class: architecture
 2. **退役剩余 M0 运行面。** 删除 run/status、`cowork_probe`、`cowork-probe` preset、`probe-engine.ts`、`probe-store.ts`；只保留 `/dsh-cowork/probe/health` 供 host-smoke，dev 面只剩 health + M12 run/status，0 个 dev 工具/preset。
 3. **拆 m12 与测试贴边。** support 拆为 [m12-e2e-contract.ts](../../../../src/m12-e2e-contract.ts)、[m12-e2e-prompts.ts](../../../../src/m12-e2e-prompts.ts)、[m12-e2e-evidence.ts](../../../../src/m12-e2e-evidence.ts)，support 只剩 463 B 再导出；driver 生命周期拆到 [m12-e2e-driver.ts](../../../../src/m12-e2e-driver.ts)。所有 m12 文件 <48 KiB（最大 37,719 B），[m12-e2e.test.mjs](../../../../tests/m12-e2e.test.mjs) 预算改为 49,152。
 4. **统一投递尝试。** 新增 [delivery.ts](../../../../src/delivery.ts)：`attemptDelivery`/`retryDelaySchedule`，唯一重试循环、永不抛异常、返回 `{attempts,delivered,error}`。5 个调用点接入（inbox flush、master verdict、reviewer brief、topic wake、notices dispatcher）；各域账本保留（KI-47）。
-5. **授权单锁事务。** [authorization-decision.ts](../../../../src/authorization-decision.ts) 只开一次 `store.withWriteLock`，内部使用免锁写 `mutateIndexDocumentUnlocked`（[store.ts](../../../../src/store.ts)）与 `RequestStore.updateUnlocked`（[request-store.ts](../../../../src/request-store.ts)）；index 先失败则卡片不动，卡片失败用锁内快照回写 index（补偿），补偿失败记录残余窗口（KI-45）。
+5. **授权单锁事务。** [authorization-decision.ts](../../../../src/authorization-decision.ts) 只开一次 `store.withWriteLock`，内部使用免锁写 `mutateIndexDocumentUnlocked`（[store.ts](../../../../src/store/project-store.ts)）与 `RequestStore.updateUnlocked`（[request-store.ts](../../../../src/store/request-store.ts)）；index 先失败则卡片不动，卡片失败用锁内快照回写 index（补偿），补偿失败记录残余窗口（KI-45）。
 6. **配置默认值单源。** `CONFIG_DEFAULTS` 同时供 schema 与 `normalizeConfig`；`Config({})` 与 `normalizeConfig({})` 深相等，routing 解析不变。
 7. **拆类型循环。** 新增 [api-types.ts](../../../../src/api-types.ts)；[inbox-api.ts](../../../../src/inbox-api.ts) 不再 import `./api.js`；[api.ts](../../../../src/api.ts) 保留全部原名导出。
 8. **teardown 去重。** [checkout-teardown.ts](../../../../src/checkout-teardown.ts) 只剩 `runTeardownSteps` 一份步骤序列，两个公开函数保留同名同签名；workspace 解析先于删 clone，index update 最后。

@@ -32,7 +32,7 @@ import {
   normalizeProjectIndexV1,
   projectIndexV1Problems,
   projectIndexV2Problems,
-} from './store-schema.js'
+} from './schema.js'
 import type {
   LegacyStatusMarker,
   ProjectIndexV1,
@@ -40,7 +40,7 @@ import type {
   ThreadRecordV1,
   ThreadStatusV1,
   TopicRecordV2,
-} from './store-schema.js'
+} from './schema.js'
 
 /** Why a migration stopped. Both codes are terminal: nothing is written. */
 export type MigrationErrorCode = 'migration/unknown-status' | 'migration/invalid'
@@ -87,7 +87,7 @@ export interface PendingReviewerArchive {
 
 /**
  * One reviewer the migration entry could not archive. The migration function
- * itself never archives: `src/store.ts` performs the host call and fills this
+ * itself never archives: `src/store/project-store.ts` performs the host call and fills this
  * list, so a caller can report the failure instead of claiming the review was
  * safely cancelled.
  */

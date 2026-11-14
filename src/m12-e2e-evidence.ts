@@ -9,21 +9,21 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
-import { REVIEWER_PRESET_ID, TOPIC_PRESET_ID } from './presets.js'
+import { REVIEWER_PRESET_ID, TOPIC_PRESET_ID } from './platform/presets.js'
 import { parseReviewRequestRecord } from './review-request.js'
 import {
   activityEventProblems,
   inboxItemProblems,
   normalizeProjectIndexV2,
   projectIndexV2Problems,
-} from './store-schema.js'
+} from './store/schema.js'
 import type {
   ActivityEvent,
   InboxItem,
   ProjectIndexV2,
   TopicRecordV2,
   WorkItemRecordV2,
-} from './store-schema.js'
+} from './store/schema.js'
 import {
   GIT_MAX_BUFFER,
   GIT_TIMEOUT_MS,

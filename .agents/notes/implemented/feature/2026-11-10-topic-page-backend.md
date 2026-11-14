@@ -18,7 +18,7 @@ Class: feature
 
 ## Decision
 
-**状态模型。** `TopicRecordV2`（[src/store-schema.ts](../../../../src/store-schema.ts)）增加：
+**状态模型。** `TopicRecordV2`（[src/store-schema.ts](../../../../src/store/schema.ts)）增加：
 
 - `authorization: { requestId, summary, requestedAt } | null`，摘要上限 200 字符；
 - `blockedReason: 'authorization' | 'handoff' | 'conflict' | null`；
@@ -29,7 +29,7 @@ Class: feature
 
 **生命周期。** [src/topic.ts](../../../../src/topic.ts) 的 `DEFAULT_IDLE_AFTER_MS` 是 24 小时；`evaluateTopicLifecycle` 只做 idle/active 迁移，不再自动 resolved；`DEFAULT_RESOLVE_AFTER_MS` 与配置 `resolveAfterMs` 保留但弃用并忽略。阻塞或待授权时 `isMarked` 阻止 idle；`blockTopic` 第一次阻塞记录 `blockedFromStatus` 与 `blockedAt`；`unblockTopic` 按 `blockedFromStatus` 恢复并清 authorization；`archiveTopicRecord` 归档时清空 block/authorization，`reopenResolvedTopic` 恢复 active。
 
-**事件与通知账本。** `ACTIVITY_TYPES` 增加 `topic-reported`、`decision-proposed`、`authorization-requested`、`authorization-resolved`、`topic-archived`。[src/activity.ts](../../../../src/activity.ts) 在 `details.notice` 写有界描述（kind/title/summary/targets/actions/status）；`authorization-resolved` 用 `details.noticeId` 指向原 authorization 事件 id，不新增卡片。`.dsh-cowork/notices.json` v1（[src/notices.ts](../../../../src/notices.ts)、[src/notice-store.ts](../../../../src/notice-store.ts)）只记投递状态：`{ noticeId, topicId, target, status, attempts, lastError, updatedAt }`，`noticeId = activity.eventId`，最多 200 行，按 `updatedAt` 裁剪；`recordNoticesForEvent` 通过 `ProjectStore.mutateNotices` 做锁内 read-modify-write，按 `(noticeId,target)` upsert。
+**事件与通知账本。** `ACTIVITY_TYPES` 增加 `topic-reported`、`decision-proposed`、`authorization-requested`、`authorization-resolved`、`topic-archived`。[src/activity.ts](../../../../src/store/activity.ts) 在 `details.notice` 写有界描述（kind/title/summary/targets/actions/status）；`authorization-resolved` 用 `details.noticeId` 指向原 authorization 事件 id，不新增卡片。`.dsh-cowork/notices.json` v1（[src/notices.ts](../../../../src/notices.ts)、[src/notice-store.ts](../../../../src/store/notice-store.ts)）只记投递状态：`{ noticeId, topicId, target, status, attempts, lastError, updatedAt }`，`noticeId = activity.eventId`，最多 200 行，按 `updatedAt` 裁剪；`recordNoticesForEvent` 通过 `ProjectStore.mutateNotices` 做锁内 read-modify-write，按 `(noticeId,target)` upsert。
 
 **端口与投递。** `TopicNoticePort` 定义 `append(sessionId, notice)` / `update(sessionId, noticeId, patch)` / `capabilities()`；`NoopTopicNoticePort` 与 `FixtureTopicNoticePort` 都报告 `supported:false`，不声称送达。`TopicNoticeDispatcher` 每个项目串行、按 activity 顺序、失败按 1s/5s/30s 退避、最多 5 次、`replay` 不重复、失败不回滚主题状态、不阻塞工具；`dispose` 清定时器。`store.readActivity(ACTIVITY_MAX_EVENTS)` 覆盖 500 条，账本里更旧的 pending 事件不会因默认 50 条尾部而被误判丢失。
 

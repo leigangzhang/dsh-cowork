@@ -226,19 +226,19 @@ test('the host entry is a sink and only it imports the tool assembly', () => {
 test('the browser half imports only client modules and shared contracts', () => {
   assert.deepEqual(clientBoundaryProblems(graph), [])
   const bad = new Map([
-    ['src/client/api.ts', new Set(['src/client/model.ts', 'src/store.ts', 'src/api-contract.ts'])],
+    ['src/client/api.ts', new Set(['src/client/model.ts', 'src/store/project-store.ts', 'src/api-contract.ts'])],
   ])
-  assert.ok(clientBoundaryProblems(bad).some((problem) => problem.includes('src/store.ts')))
+  assert.ok(clientBoundaryProblems(bad).some((problem) => problem.includes('src/store/project-store.ts')))
 })
 
 test('contract modules do not import host runtime modules', () => {
   assert.deepEqual(contractProblems(graph), [])
   const bad = new Map([
-    ['src/api-contract.ts', new Set(['src/inbox-contract.ts', 'src/store-schema.ts'])],
+    ['src/api-contract.ts', new Set(['src/inbox-contract.ts', 'src/store/schema.ts'])],
     ['src/inbox-contract.ts', new Set()],
     ['src/notice-contract.ts', new Set()],
   ])
-  assert.ok(contractProblems(bad).some((problem) => problem.includes('src/store-schema.ts')))
+  assert.ok(contractProblems(bad).some((problem) => problem.includes('src/store/schema.ts')))
 })
 
 test('every registered tool has exactly one domain module and one assembly call', () => {

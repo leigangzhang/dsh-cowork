@@ -11,13 +11,13 @@ import './support/ts-hook.mjs'
  * compatibility view over v2, and the activity/inbox file I/O. Pure file-system
  * cases run on a throwaway repository under os.tmpdir().
  *
- * `src/store.ts` value-imports `./store-schema.js` and `./store-migration.js`,
+ * `src/store/project-store.ts` value-imports `./store-schema.js` and `./store-migration.js`,
  * and Node's type stripping does not retry a `.js` sibling as `.ts`; this is the
  * same resolve hook tests/review-verdict.test.mjs uses.
  */
 
-const { ProjectStore, StoreError } = await import('../src/store.ts')
-const { legacyViewOf } = await import('../src/store-migration.ts')
+const { ProjectStore, StoreError } = await import('../src/store/project-store.ts')
+const { legacyViewOf } = await import('../src/store/migration.ts')
 
 const CREATED_AT = '2026-11-05T03:04:05.006Z'
 

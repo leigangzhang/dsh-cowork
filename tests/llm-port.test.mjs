@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
  * array. These cases pin that shape with a fake service; no host module is
  * imported.
  */
-const { buildRoutingStreamOptions, createLlmRoutingPort } = await import('../src/llm-port.ts')
+const { buildRoutingStreamOptions, createLlmRoutingPort } = await import('../src/platform/llm-port.ts')
 
 const REQUEST = {
   provider: 'provider-a',

@@ -18,8 +18,8 @@ import { join } from 'node:path'
 import { withRepo } from './support/inbox-fixtures.mjs'
 
 const { registerReviewTools } = await import('../src/review-tools.ts')
-const { ProjectStore } = await import('../src/store.ts')
-const { failure, readCaller } = await import('../src/tool-model.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
+const { failure, readCaller } = await import('../src/platform/tool-model.ts')
 const {
   buildReviewRequestRecord,
   parseReviewRequestRecord,

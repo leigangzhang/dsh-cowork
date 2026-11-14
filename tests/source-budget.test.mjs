@@ -212,13 +212,13 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
 
   const budgets = [
     ['src/tools.ts', TOOLS_SPLIT_HEADROOM_BYTES],
-    ['src/tool-runtime.ts', READ_LIMIT_BYTES],
-    ['src/llm-port.ts', READ_LIMIT_BYTES],
+    ['src/platform/tool-runtime.ts', READ_LIMIT_BYTES],
+    ['src/platform/llm-port.ts', READ_LIMIT_BYTES],
     ['src/project-tools.ts', READ_LIMIT_BYTES],
     ['src/topic-tools.ts', READ_LIMIT_BYTES],
     ['src/request-tools.ts', READ_LIMIT_BYTES],
     ['src/request-service.ts', READ_LIMIT_BYTES],
-    ['src/request-store.ts', READ_LIMIT_BYTES],
+    ['src/store/request-store.ts', READ_LIMIT_BYTES],
     ['src/request-schema.ts', READ_LIMIT_BYTES],
     ['src/inbox-api.ts', READ_LIMIT_BYTES],
     ['src/route-tools.ts', READ_LIMIT_BYTES],
@@ -228,7 +228,7 @@ test('the tool split owns every tool name and keeps tools.ts orchestration-only'
     ['src/work-item.ts', READ_LIMIT_BYTES],
     ['src/review-request.ts', READ_LIMIT_BYTES],
     ['src/review-tools.ts', READ_LIMIT_BYTES],
-    ['src/session-visibility.ts', READ_LIMIT_BYTES],
+    ['src/platform/session-visibility.ts', READ_LIMIT_BYTES],
   ]
   for (const [file, limit] of budgets) {
     const bytes = bytesOf(file)
@@ -244,7 +244,7 @@ test('the request-service split keeps its entry point a thin re-export', () => {
     `src/request-service.ts is ${Buffer.byteLength(entry, 'utf8')} B; the split target is 30 KiB`,
   )
   const lifecycle = readFileSync(resolve(root, 'src/request-lifecycle.ts'), 'utf8')
-  const open = readFileSync(resolve(root, 'src/request-open.ts'), 'utf8')
+  const open = readFileSync(resolve(root, 'src/platform/request-open.ts'), 'utf8')
   const decision = readFileSync(resolve(root, 'src/authorization-decision.ts'), 'utf8')
   assert.match(lifecycle, /export async function createRequest\(/)
   assert.match(lifecycle, /export async function resolveRequest\(/)
@@ -271,7 +271,7 @@ test('the legacy keyword router is gone and nothing imports it', () => {
 test('the host LLM adapter lives in src/llm-port.ts', () => {
   const source = (file) => readFileSync(resolve(root, file), 'utf8')
   const indexSource = source('src/index.ts')
-  const portSource = source('src/llm-port.ts')
+  const portSource = source('src/platform/llm-port.ts')
 
   assert.match(indexSource, /createLlmRoutingPort\(/, 'src/index.ts must use the extracted adapter')
   assert.ok(
@@ -292,7 +292,7 @@ test('the work-item, review-request, and session modules own rules, not tool nam
   const ownerships = [
     ['src/work-item.ts', ['createWorkItem', 'captureWorkItemHead', 'activeWorkItemCount']],
     ['src/review-request.ts', ['validateReviewRequestInput', 'mergeGate', 'buildReviewBrief']],
-    ['src/session-visibility.ts', ['createReviewerSession', 'archiveReviewerAfterVerdict', 'reviewerSessionIds']],
+    ['src/platform/session-visibility.ts', ['createReviewerSession', 'archiveReviewerAfterVerdict', 'reviewerSessionIds']],
   ]
   for (const [file, symbols] of ownerships) {
     const text = source(file)
@@ -326,12 +326,12 @@ test('KI-25/KI-18: no legacy review writes, and the legacy read-only surface sta
   // review orchestration or merge override.
   assert.match(source('src/topic-tools.ts'), /enum: \['blocked', 'done'\]/)
   assert.equal(/awaiting_review/.test(source('src/topic-tools.ts')), false)
-  assert.equal(/awaiting_review/.test(source('src/presets.ts')), false)
-  assert.equal(/allowUnreviewed|overrideReason/.test(source('src/presets.ts')), false)
+  assert.equal(/awaiting_review/.test(source('src/platform/presets.ts')), false)
+  assert.equal(/allowUnreviewed|overrideReason/.test(source('src/platform/presets.ts')), false)
   assert.equal(/checkLegacyThreadMerge[\s\S]*allowUnreviewed/.test(source('src/review-request.ts')), false)
 
   // Legacy readers stay through the 0.2.0 compatibility window (KI-18).
-  for (const file of ['src/api.ts', 'src/api-contract.ts', 'src/store-migration.ts']) {
+  for (const file of ['src/api.ts', 'src/api-contract.ts', 'src/store/migration.ts']) {
     assert.equal(existsSync(resolve(root, file)), true, `${file} must stay for the 0.2.0 window`)
   }
 })

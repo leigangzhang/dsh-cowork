@@ -7,7 +7,7 @@
  * `request-lifecycle.ts` and `request-open.ts` stay acyclic.
  */
 import type { PanelErrorCode } from './api-contract.js'
-import type { ProjectIndexV2, ActivityEvent, ReadActivityResult } from './store-schema.js'
+import type { ProjectIndexV2, ActivityEvent, ReadActivityResult } from './store/schema.js'
 import type { NoticeLedgerV1 } from './notices.js'
 
 /** A failure the panel routes answer with a stable code and status. */

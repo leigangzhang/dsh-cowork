@@ -18,9 +18,9 @@
  * the `user/message` fields at the top level and the `userMessageSeen` helper
  * unreliable, so nothing here inspects message payloads.
  */
-import { topicReopenedActivity } from './activity.js'
-import { noteTopicActivity, reopenResolvedTopic } from './topic.js'
-import type { ActivityEvent, ProjectIndexV2, TopicRecordV2 } from './store-schema.js'
+import { topicReopenedActivity } from '../store/activity.js'
+import { noteTopicActivity, reopenResolvedTopic } from '../topic.js'
+import type { ActivityEvent, ProjectIndexV2, TopicRecordV2 } from '../store/schema.js'
 
 /** The host Session as far as this module reads it. */
 export interface TopicEventSession {

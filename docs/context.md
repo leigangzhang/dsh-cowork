@@ -8,9 +8,9 @@
 
 | 文件 | 内容 | 权威定义 |
 |---|---|---|
-| `index.json` | v2 项目索引：master、主题、工作项、路由目标 | [ProjectIndexV2](../src/store-schema.ts#L194) |
-| `activity.jsonl` | 状态、路由、评审、合并、主题上报、决策提案、待授权、归档与错误的事件流（证据，不是状态源） | [ActivityEvent](../src/store-schema.ts#L211) |
-| `inbox.json` | master 必须决定的事；投递后写 `deliveredAt` | [InboxItem](../src/store-schema.ts#L232) |
+| `index.json` | v2 项目索引：master、主题、工作项、路由目标 | [ProjectIndexV2](../src/store/schema.ts#L194) |
+| `activity.jsonl` | 状态、路由、评审、合并、主题上报、决策提案、待授权、归档与错误的事件流（证据，不是状态源） | [ActivityEvent](../src/store/schema.ts#L211) |
+| `inbox.json` | master 必须决定的事；投递后写 `deliveredAt` | [InboxItem](../src/store/schema.ts#L232) |
 | `requests/<requestId>.json` | 用户请求记录：四类请求、左右消息、状态与投递错误 | [RequestRecordV1](../src/inbox-contract.ts#L265) |
 | `handoffs/` | topic 的 handoff 审计文件 | [buildHandoffRecord](../src/handoff.ts#L214) |
 | `proposals/` | topic 的决策记录文件 | [DecisionProposalV1](../src/topic-tools.ts#L443) |
@@ -18,7 +18,7 @@
 | `reviews/` | 每次评审请求的 pending/verdict 记录 | [ReviewRequestRecord](../src/review-request.ts#L121) |
 | `workitems/` | 隔离工作项 clone 与 `cowork/<workItemId>` 分支 | [checkout.ts](../src/checkout.ts#L45-L58) |
 | `memory/` | `constraints/decisions/facts` 三份项目记忆 | [memory.ts](../src/memory.ts) |
-| `.write.lock` | 上述写入共用的项目锁 | [store.ts](../src/store.ts#L338) |
+| `.write.lock` | 上述写入共用的项目锁 | [store.ts](../src/store/project-store.ts#L338) |
 
 ```mermaid
 flowchart TD
@@ -60,7 +60,7 @@ flowchart TD
 
 ## 2. 记忆注入
 
-`cowork:memory` 是 agent 作用域的 system prompt 段落，`order=900`（[memory-prompt.ts](../src/memory-prompt.ts#L19)）。注册条件是 preset 为 `cowork-master` 或 `cowork-topic`，且会话 cwd 向上能找到 `.dsh-cowork/index.json`；reviewer 不注入（[COWORK_MEMORY_PRESETS](../src/memory-prompt.ts#L28)、[注册点](../src/memory-prompt.ts#L93-L145)）。
+`cowork:memory` 是 agent 作用域的 system prompt 段落，`order=900`（[memory-prompt.ts](../src/platform/memory-prompt.ts#L19)）。注册条件是 preset 为 `cowork-master` 或 `cowork-topic`，且会话 cwd 向上能找到 `.dsh-cowork/index.json`；reviewer 不注入（[COWORK_MEMORY_PRESETS](../src/platform/memory-prompt.ts#L28)、[注册点](../src/platform/memory-prompt.ts#L93-L145)）。
 
 - 记忆是**拉取式快照**：写入不推送；下一次 prompt assembly 才重新读取。按 agent 的 digest 缓存决定是否重渲染。
 - 渲染顺序、整条拼接与截断的实现在 [renderMemoryBlock](../src/memory.ts#L434)；预算与截断规则以 [PLAN.md](PLAN.md) §5.5 为准。
@@ -71,7 +71,7 @@ flowchart TD
 
 **下行（master / 插件 → topic）**
 
-- 新建主题：`cowork_route` 用 `brief` 作为第一条消息，未给时用 [buildThreadBrief](../src/tool-model.ts#L220) 生成（携带主题 id、标题、意图、工作区与 handoff 义务，不粘贴完整仓库）；`cowork_topic_create` 只投递显式给出的 brief。
+- 新建主题：`cowork_route` 用 `brief` 作为第一条消息，未给时用 [buildThreadBrief](../src/platform/tool-model.ts#L220) 生成（携带主题 id、标题、意图、工作区与 handoff 义务，不粘贴完整仓库）；`cowork_topic_create` 只投递显式给出的 brief。
 - 复用主题：把用户原话（与可选 brief）直接投给主题会话。
 - 评审退回：`needs_revision` / `reject` 时把 findings 投回主题（[buildRevisionMessage](../src/review-request.ts#L1211)、[buildRejectMessage](../src/review-request.ts#L1220)），不唤醒 master。
 
@@ -85,7 +85,7 @@ flowchart TD
 - `cowork_handoff(blocked)`：置 `blocked` 标记并记住阻塞前的状态，写一条 `topic-reported` 事件和对应通知；不写收件箱，不 prompt master。
 - `cowork_topic_report` / `cowork_decision_propose` / `cowork_authorization_request`：写活动和通知账本；`authorization_request` 会把主题置为待授权阻塞；都不唤醒 master。
 - 评审 `pass`（有工作项）：写 `merge-needed` 收件箱，master 被唤醒后决定是否合并；`reject`：主题置 blocked，写 `review-reject` 收件箱。
-- 收件箱仍是唯一会启动 master 一轮对话的推送：多条待办合并成一批（≤5 条），投递成功写 `deliveredAt`，失败保留并由 `cowork_project_status` 重放（[deliverInbox](../src/tool-runtime.ts#L178)、[inbox.ts](../src/inbox.ts#L17-L30)）。
+- 收件箱仍是唯一会启动 master 一轮对话的推送：多条待办合并成一批（≤5 条），投递成功写 `deliveredAt`，失败保留并由 `cowork_project_status` 重放（[deliverInbox](../src/platform/tool-runtime.ts#L178)、[inbox.ts](../src/store/inbox.ts#L17-L30)）。
 - master 不接收完整 handoff、评审请求或 findings 文本；它读 `cowork_project_status` / `cowork_topic_list` 的有界摘要、收件箱、活动尾部，以及 `cowork_notices` 的通知摘要。
 
 完整的决策记录与会话交接流程见 [decision-and-handoff.md](decision-and-handoff.md)。
@@ -116,7 +116,7 @@ sequenceDiagram
 
 ## 4. 隔离矩阵
 
-隔离方式与工具面的来源：[presets.ts](../src/presets.ts#L121-L166) 与 [PLAN-V0.2 §4.5/§5.5](PLAN-V0.2.md#45-会话与隔离)。
+隔离方式与工具面的来源：[presets.ts](../src/platform/presets.ts#L121-L166) 与 [PLAN-V0.2 §4.5/§5.5](PLAN-V0.2.md#45-会话与隔离)。
 
 | 会话 | 工作目录与可见代码 | 写权限 | `cowork:memory` | 与其他会话共享 |
 |---|---|---|---|---|

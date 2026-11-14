@@ -35,9 +35,9 @@ const {
   serializeReviewRequestRecord,
   validateReviewRequestInput,
 } = await import('../src/review-request.ts')
-const { ERROR_CODES, M10_ERROR_CODES } = await import('../src/tool-model.ts')
-const { REVIEWER_PRESET_ID: PRESETS_REVIEWER_ID } = await import('../src/presets.ts')
-const schema = await import('../src/store-schema.ts')
+const { ERROR_CODES, M10_ERROR_CODES } = await import('../src/platform/tool-model.ts')
+const { REVIEWER_PRESET_ID: PRESETS_REVIEWER_ID } = await import('../src/platform/presets.ts')
+const schema = await import('../src/store/schema.ts')
 
 /**
  * Contract tests for the pure M10 review-request model (`src/review-request.ts`):

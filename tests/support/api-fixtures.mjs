@@ -20,7 +20,7 @@ export const api = await import('../../src/api.ts')
 export const contract = await import('../../src/api-contract.ts')
 export const inboxContract = await import('../../src/inbox-contract.ts')
 export const reviewRequest = await import('../../src/review-request.ts')
-export const store = await import('../../src/store.ts')
+export const store = await import('../../src/store/project-store.ts')
 export const panelProbe = await import('../../src/panel-probe.ts')
 export const requestService = await import('../../src/request-service.ts')
 

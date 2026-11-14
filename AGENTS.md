@@ -36,7 +36,7 @@ lib/          local build output; gitignored, consumed by tarball and host smoke
 - **Registrations are effects.** Tools, routes, presets, listeners, and prompt sections must be owned by a disposer; a registry registration is not complete until teardown is proven ([src/index.ts](src/index.ts), [tests/dev-gate.test.mjs](tests/dev-gate.test.mjs)).
 - **Config is explicit.** Deployment-varying values are validated `Config` fields, not hidden defaults inside operations ([src/index.ts](src/index.ts)).
 - **Validate at trust boundaries.** Parsers, files, tool JSON, wire input, subprocesses, and external APIs are untrusted; typed same-process values trust TypeScript instead of adding redundant runtime checks.
-- **Errors stay owned.** Do not swallow failures; expected tool failures carry a stable code and actionable context ([src/tool-model.ts](src/tool-model.ts)).
+- **Errors stay owned.** Do not swallow failures; expected tool failures carry a stable code and actionable context ([src/tool-model.ts](./src/platform/tool-model.ts)).
 - **Tests describe behavior.** A change to tested behavior updates its test deliberately; never weaken or delete an assertion merely to get green ([docs/testing.md](docs/testing.md)).
 - **Code health is executable.** Exports, stale names, ignored-evidence links, budgets, architecture, and `noUnused*` are gates in `npm run check` / `check:clean` / `typecheck`; the judgement checklist is [code-review](.agents/skills/code-review/SKILL.md).
 - **Source plane and artifact plane stay separate.** Tests resolve `src`; built-artifact smoke consumes the local `lib/`. Do not mix them to hide a missing build ([docs/testing.md](docs/testing.md)).

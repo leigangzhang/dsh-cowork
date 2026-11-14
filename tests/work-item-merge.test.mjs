@@ -15,7 +15,7 @@ import './support/ts-hook.mjs'
  */
 const { nodeGitRunner } = await import('../src/checkout.ts')
 const { registerCheckoutTools, registerWorkItemTools } = await import('../src/checkout-tools.ts')
-const { ProjectStore } = await import('../src/store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
 const {
   buildReviewRequestRecord,
   reviewRequestFileName,

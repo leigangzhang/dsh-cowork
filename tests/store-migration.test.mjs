@@ -5,20 +5,20 @@ import './support/ts-hook.mjs'
  * Contract tests for the v1 → v2 index migration and the v1 compatibility view
  * the unchanged v1 tools keep using (PLAN-V0.2 §5.2, A1).
  *
- * `src/store-migration.ts` value-imports `./store-schema.js`, so this test
+ * `src/store/migration.ts` value-imports `./store-schema.js`, so this test
  * installs the same resolve hook tests/review-verdict.test.mjs uses. Every
  * fixture is an in-memory object: nothing here touches `.dsh-cowork/`.
  */
 
 const { MigrationError, applyLegacyView, isLegacyIndexDocument, legacyViewOf, migrateV1ToV2 } =
-  await import('../src/store-migration.ts')
+  await import('../src/store/migration.ts')
 
 const CREATED_AT = '2026-11-05T03:04:05.006Z'
 const UPDATED_AT = '2026-11-07T09:00:00.000Z'
 const LATER_AT = '2026-11-07T11:22:33.444Z'
 const CHECKOUT = '/repo/.dsh-cowork/threads/session-a'
 
-/** One v1 thread with the shape `src/store.ts` writes today. */
+/** One v1 thread with the shape `src/store/project-store.ts` writes today. */
 const threadV1 = (overrides = {}) => ({
   threadId: 'session-a',
   subject: 'wire the store',

@@ -1,14 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import './support/ts-hook.mjs'
-// `src/preset-visibility.ts` imports `./presets.js` with the build's extension.
+// `src/platform/preset-visibility.ts` imports `./presets.js` with the build's extension.
 // Node's type stripping does not retry `.js` as `.ts`, so use the same tiny
 // resolve hook as the other source-level tests.
 
 const {
   HIDDEN_PRESET_IDS,
   hidePresetsFromRoster,
-} = await import('../src/preset-visibility.ts')
+} = await import('../src/platform/preset-visibility.ts')
 
 const ALL_IDS = ['cowork-master', 'cowork-topic', 'cowork-reviewer', 'standard']
 

@@ -2,10 +2,10 @@
  * `requests/` storage of the Cowork request inbox.
  *
  * One request per JSON file under `<repo>/.dsh-cowork/requests/`. The directory
- * is its own module for the same reason `src/notice-store.ts` is: `src/store.ts`
+ * is its own module for the same reason `src/store/notice-store.ts` is: `src/store/project-store.ts`
  * sits at the repository's 50 KiB read cap, and the request files are a small,
  * orthogonal document set. Writes take the shared project writer lock
- * (`src/atomic-json.ts`, `<repo>/.dsh-cowork/.write.lock`) and go through
+ * (`src/store/atomic-json.ts`, `<repo>/.dsh-cowork/.write.lock`) and go through
  * `writeJsonAtomic`, so a request write can never interleave with an index or
  * ledger writer, and a reader observes either the old or the new complete
  * file. Reads stay lock-free, like every other store read.
@@ -25,8 +25,8 @@ import {
 } from './atomic-json.js'
 import {
   INBOX_MAX_REQUEST_FILES,
-} from './inbox-contract.js'
-import type { RequestRecordV1 } from './inbox-contract.js'
+} from '../inbox-contract.js'
+import type { RequestRecordV1 } from '../inbox-contract.js'
 import {
   REQUEST_DIR_NAME,
   REQUEST_FILE_SUFFIX,
@@ -35,8 +35,8 @@ import {
   parseRequestRecordText,
   requestFileName,
   requestRecordProblems,
-} from './request-schema.js'
-import type { ParsedRequestRecord } from './request-schema.js'
+} from '../request-schema.js'
+import type { ParsedRequestRecord } from '../request-schema.js'
 
 /** What one scan of the request directory found. */
 export interface RequestScan {

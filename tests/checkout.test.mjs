@@ -28,7 +28,7 @@ import {
 // installs the same small resolve hook the other tool tests use.
 
 const { registerCheckoutTools, serializeMerge } = await import('../src/checkout-tools.ts')
-const { ProjectStore } = await import('../src/store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
 
 /** A real temporary repository root; cleanup is registered on the test. */
 function makeRepo(t) {

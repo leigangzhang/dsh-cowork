@@ -23,10 +23,10 @@ import { makeSeedProject, makeTopicFixture, withRepo } from './support/inbox-fix
 import { BUSINESS_TOOL_ORDER } from './support/public-surface.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
-const { ProjectStore } = await import('../src/store.ts')
-const { Inbox } = await import('../src/inbox.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
+const { Inbox } = await import('../src/store/inbox.ts')
 const { STATUS_ACTIVITY_LIMIT, STATUS_INBOX_LIMIT, STATUS_TOPIC_LIMIT } = await import('../src/project-tools.ts')
-const { ERROR_CODES } = await import('../src/tool-model.ts')
+const { ERROR_CODES } = await import('../src/platform/tool-model.ts')
 
 const NOW_ISO = '2026-11-07T10:00:00.000Z'
 const NOW_MS = Date.parse(NOW_ISO)
@@ -438,7 +438,7 @@ test('project_init no longer reconciles a stale handoff into the index', async (
 test('the compatibility handoff replay is gone from the sources', () => {
   const projectSource = readFileSync(new URL('../src/project-tools.ts', import.meta.url), 'utf8')
   const routeSource = readFileSync(new URL('../src/route-tools.ts', import.meta.url), 'utf8')
-  const runtimeSource = readFileSync(new URL('../src/tool-runtime.ts', import.meta.url), 'utf8')
+  const runtimeSource = readFileSync(new URL('../src/platform/tool-runtime.ts', import.meta.url), 'utf8')
 
   assert.equal(/reconcileIndex|replayPendingHandoffs|handoffReplay/.test(projectSource), false)
   assert.equal(/export async function reconcileIndex/.test(runtimeSource), false)

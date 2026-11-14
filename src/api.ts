@@ -82,7 +82,7 @@ import type {
   PanelFetchRoute,
   PanelSessionRow,
 } from './api-types.js'
-import { buildActivityEvent, topicReopenedActivity } from './activity.js'
+import { buildActivityEvent, topicReopenedActivity } from './store/activity.js'
 import { inboxPanelRoutes } from './inbox-api.js'
 import type { InboxApiKit } from './inbox-api.js'
 import type { TopicNoticePort } from './notices.js'
@@ -98,16 +98,16 @@ import type {
   ReviewVerification,
   TopicRecordV2,
   WorkItemRecordV2,
-} from './store-schema.js'
+} from './store/schema.js'
 import {
   PanelServiceError,
   promptRequestTopic,
   resolveAuthorizationDecision,
 } from './request-service.js'
-import { StoreError } from './store.js'
+import { StoreError } from './store/project-store.js'
 import { DEFAULT_IDLE_AFTER_MS, reopenResolvedTopic } from './topic.js'
 import { activeWorkItemCount } from './work-item.js'
-import { archiveTopic, evaluateProjectLifecycle } from './tool-runtime.js'
+import { archiveTopic, evaluateProjectLifecycle } from './platform/tool-runtime.js'
 
 // The shared port/route types live in a leaf module so `src/inbox-api.ts` can
 // depend on them without importing this module; the names stay exported here

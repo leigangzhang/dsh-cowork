@@ -30,7 +30,7 @@
  * repair, never fail to start because of it.
  */
 import { resolve, sep } from 'node:path'
-import { describeError } from './checkout-teardown.js'
+import { describeError } from '../checkout-teardown.js'
 
 /** Most session rows one repair may read. */
 export const REPAIR_MAX_SESSIONS = 500

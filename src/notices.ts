@@ -22,8 +22,8 @@
  */
 import { attemptDelivery, retryDelaySchedule } from './delivery.js'
 import { isNoticeKind, type NoticeKind } from './notice-contract.js'
-import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
-import type { ActivityEvent, ProjectIndexV2, ReadActivityResult } from './store-schema.js'
+import { ACTIVITY_MAX_EVENTS } from './store/schema.js'
+import type { ActivityEvent, ProjectIndexV2, ReadActivityResult } from './store/schema.js'
 
 /** Default plugin id stamped on every notice. */
 export const DEFAULT_NOTICE_PLUGIN_ID = '@dsh-external/dsh-cowork'

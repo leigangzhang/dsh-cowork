@@ -2,21 +2,21 @@
  * Business activity events (M8.3).
  *
  * This module builds the events the lifecycle rules publish. The file layer
- * stays in `src/store.ts`: `appendActivity` validates the event, enforces the
+ * stays in `src/store/project-store.ts`: `appendActivity` validates the event, enforces the
  * 500-event / 512-KiB bounds and repairs damaged lines on its next rewrite, so
  * nothing here re-implements JSON Lines I/O. The event-type vocabulary has one
- * home, `ACTIVITY_TYPES` in `src/store-schema.ts`; this module does not copy it.
+ * home, `ACTIVITY_TYPES` in `src/store/schema.ts`; this module does not copy it.
  */
 import { randomUUID } from 'node:crypto'
-import { NOTICE_SUMMARY_MAX_CHARS, noticeDescriptor } from './notices.js'
+import { NOTICE_SUMMARY_MAX_CHARS, noticeDescriptor } from '../notices.js'
 import type {
   ActivityNoticeDescriptor,
   NoticeStatus,
   NoticeTarget,
-} from './notices.js'
-import { ACTIVITY_TYPES } from './store-schema.js'
-import type { ActivityEvent, ActivityType, TopicRecordV2, TopicStatus } from './store-schema.js'
-import type { RequestAction, RequestKind, RequestRecordV1 } from './inbox-contract.js'
+} from '../notices.js'
+import { ACTIVITY_TYPES } from './schema.js'
+import type { ActivityEvent, ActivityType, TopicRecordV2, TopicStatus } from './schema.js'
+import type { RequestAction, RequestKind, RequestRecordV1 } from '../inbox-contract.js'
 
 /** Everything one business activity event is built from. */
 export interface ActivityInput {

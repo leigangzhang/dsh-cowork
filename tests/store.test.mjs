@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import './support/ts-hook.mjs'
 /**
- * `src/store.ts` value-imports `./store-schema.js` and `./store-migration.js`
+ * `src/store/project-store.ts` value-imports `./store-schema.js` and `./store-migration.js`
  * (the v2 index schema and the v1→v2 migration), and Node's type stripping does
  * not retry a `.js` sibling as `.ts`. This is the same resolve hook
  * tests/review-verdict.test.mjs uses.
@@ -22,7 +22,7 @@ const {
   handoffFileName,
   projectIdFor,
   reviewFileName,
-} = await import('../src/store.ts')
+} = await import('../src/store/project-store.ts')
 
 const execFileAsync = promisify(execFile)
 

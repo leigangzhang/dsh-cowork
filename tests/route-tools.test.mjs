@@ -18,9 +18,9 @@ import { join } from 'node:path'
 import { makeSeedProject, makeTopicFixture, withRepo } from './support/inbox-fixtures.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
-const { ProjectStore } = await import('../src/store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
 const { applyRouteCorrectionToStore } = await import('../src/route-tools.ts')
-const { ERROR_CODES, TOPIC_ERROR_CODES } = await import('../src/tool-model.ts')
+const { ERROR_CODES, TOPIC_ERROR_CODES } = await import('../src/platform/tool-model.ts')
 
 const NOW_ISO = '2026-11-07T10:00:00.000Z'
 const NOW_MS = Date.parse(NOW_ISO)

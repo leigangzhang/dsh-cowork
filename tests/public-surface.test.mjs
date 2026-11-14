@@ -17,7 +17,7 @@ import {
  */
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
-const { presetDefinitions } = await import('../src/presets.ts')
+const { presetDefinitions } = await import('../src/platform/presets.ts')
 
 test('the public surface stays at 22 tools, 10 routes, 3 presets, and 3 exports', () => {
   assert.equal(BUSINESS_TOOL_ORDER.length, 22)

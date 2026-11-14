@@ -666,8 +666,8 @@ test('the split modules import only built-ins and pure plugin modules', () => {
   const allowedLocal = new Set([
     './m12-e2e-contract.js',
     './review-request.js',
-    './presets.js',
-    './store-schema.js',
+    './platform/presets.js',
+    './store/schema.js',
   ])
   for (const path of supportModulePaths) {
     const valueImports = [...readFileSync(path, 'utf8').matchAll(/^import\s+(?!type\b)[\s\S]*?from\s+'([^']+)'/gm)]

@@ -40,10 +40,10 @@ const {
 const {
 } = await import('../src/inbox-contract.ts')
 
-const STORE_SCHEMA_SOURCE = fileURLToPath(new URL('../src/store-schema.ts', import.meta.url))
+const STORE_SCHEMA_SOURCE = fileURLToPath(new URL('../src/store/schema.ts', import.meta.url))
 const CONTRACT_SOURCE = fileURLToPath(new URL('../src/api-contract.ts', import.meta.url))
 
-/** Read `src/store-schema.ts` once; it is the canonical home of the lifecycle lists. */
+/** Read `src/store/schema.ts` once; it is the canonical home of the lifecycle lists. */
 let schemaText
 async function storeSchemaText() {
   if (schemaText === undefined) schemaText = await readFile(STORE_SCHEMA_SOURCE, 'utf8')
@@ -58,7 +58,7 @@ async function storeSchemaText() {
 async function storeList(name) {
   const source = await storeSchemaText()
   const match = new RegExp(`export const ${name} = \\[([^\\]]*)\\] as const`).exec(source)
-  assert.ok(match, `src/store-schema.ts must declare export const ${name} = [...] as const`)
+  assert.ok(match, `src/store/schema.ts must declare export const ${name} = [...] as const`)
   return [...match[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1])
 }
 

@@ -17,31 +17,31 @@
  * a test can register the tools against recording fakes.
  */
 import { execFile } from 'node:child_process'
-import { requestResolvedActivity, statusChangedActivity, topicArchivedActivity } from './activity.js'
-import { CLONE_ISOLATION_PROVIDER } from './checkout.js'
-import type { GitResult, GitRunner } from './checkout.js'
-import { describeError } from './checkout-teardown.js'
-import { Inbox, InboxMarkError } from './inbox.js'
-import { RequestStore } from './request-store.js'
-import { findAuthorizationNoticeId, recordNoticesForEvent, voidAuthorizationNotice } from './notices.js'
-import type { NoticeLedgerStorePort, NoticeLedgerV1, TopicNoticePort } from './notices.js'
-import type { InboxEvent, InboxStore } from './inbox.js'
-import type { MemoryIo } from './memory.js'
+import { requestResolvedActivity, statusChangedActivity, topicArchivedActivity } from '../store/activity.js'
+import { CLONE_ISOLATION_PROVIDER } from '../checkout.js'
+import type { GitResult, GitRunner } from '../checkout.js'
+import { describeError } from '../checkout-teardown.js'
+import { Inbox, InboxMarkError } from '../store/inbox.js'
+import { RequestStore } from '../store/request-store.js'
+import { findAuthorizationNoticeId, recordNoticesForEvent, voidAuthorizationNotice } from '../notices.js'
+import type { NoticeLedgerStorePort, NoticeLedgerV1, TopicNoticePort } from '../notices.js'
+import type { InboxEvent, InboxStore } from '../store/inbox.js'
+import type { MemoryIo } from '../memory.js'
 import type { PresetRegistryPort } from './presets.js'
 import { SessionSlice } from './session-slice.js'
 import type { SessionSlicePorts } from './session-slice.js'
-import type { LlmRoutingPort } from './router-model.js'
-import { ProjectStore, StoreError, findProjectRoot } from './store.js'
-import { archiveTopicRecord } from './topic.js'
-import type { ProjectIndex, ThreadRecord } from './store.js'
+import type { LlmRoutingPort } from '../router-model.js'
+import { ProjectStore, StoreError, findProjectRoot } from '../store/project-store.js'
+import { archiveTopicRecord } from '../topic.js'
+import type { ProjectIndex, ThreadRecord } from '../store/project-store.js'
 import type {
   ActivityEvent,
   ProjectIndexV2,
   ReadActivityResult,
   TopicRecordV2,
   TopicStatus,
-} from './store-schema.js'
-import { evaluateTopicLifecycle } from './topic.js'
+} from '../store/schema.js'
+import { evaluateTopicLifecycle } from '../topic.js'
 import { ERROR_CODES, failure, readCaller } from './tool-model.js'
 import type { CallerIdentity, ToolFailure } from './tool-model.js'
 

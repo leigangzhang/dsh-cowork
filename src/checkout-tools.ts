@@ -14,7 +14,7 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { buildActivityEvent } from './activity.js'
+import { buildActivityEvent } from './store/activity.js'
 import {
   CHECKOUT_ERROR,
   inspectCheckout,
@@ -36,8 +36,8 @@ import {
   reviewRequestFileName,
 } from './review-request.js'
 import type { ReviewRequestRecord } from './review-request.js'
-import type { ThreadRecord } from './store.js'
-import type { CoworkToolDeps, ProjectRuntime } from './tool-runtime.js'
+import type { ThreadRecord } from './store/project-store.js'
+import type { CoworkToolDeps, ProjectRuntime } from './platform/tool-runtime.js'
 import {
   DEFAULT_ISOLATION_PROVIDER,
   callerOf,
@@ -49,9 +49,9 @@ import {
   runGit,
   threadView,
   toJson,
-} from './tool-runtime.js'
-import { ERROR_CODES, M10_ERROR_CODES, TOPIC_ERROR_CODES, checkRole, failure, success } from './tool-model.js'
-import type { ToolFailure } from './tool-model.js'
+} from './platform/tool-runtime.js'
+import { ERROR_CODES, M10_ERROR_CODES, TOPIC_ERROR_CODES, checkRole, failure, success } from './platform/tool-model.js'
+import type { ToolFailure } from './platform/tool-model.js'
 import { captureWorkItemHead, createWorkItem, markWorkItem, workItemView } from './work-item.js'
 import type { WorkItemView } from './work-item.js'
 

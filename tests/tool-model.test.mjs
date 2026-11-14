@@ -8,7 +8,7 @@ import {
   failure,
   readCaller,
   success,
-} from '../src/tool-model.ts'
+} from '../src/platform/tool-model.ts'
 
 const execWith = ({ id, cwd, agentPreset } = {}) => ({
   agent: {

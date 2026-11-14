@@ -19,7 +19,7 @@ The project's main session. It routes user requirements, records decisions, deci
 
 ### topic
 
-One project subject with its own DSH session, created by `cowork_route` / `cowork_topic_create` with the `cowork-topic` preset. A topic owns its work items, requests its own reviews, and reports through `cowork_handoff`. The topic id is the session id. Write `topic` (主题会话 only as the reader-facing expansion), never `thread` for the current model. Source: [TopicRecordV2](../src/store-schema.ts#L148-L178).
+One project subject with its own DSH session, created by `cowork_route` / `cowork_topic_create` with the `cowork-topic` preset. A topic owns its work items, requests its own reviews, and reports through `cowork_handoff`. The topic id is the session id. Write `topic` (主题会话 only as the reader-facing expansion), never `thread` for the current model. Source: [TopicRecordV2](../src/store/schema.ts#L148-L178).
 
 ### thread (removed)
 
@@ -27,7 +27,7 @@ The 0.1.0 name for what 0.2.0 calls a [topic](#topic). The `cowork-thread` prese
 
 ### work item
 
-One isolated execution scope of a topic: a local clone at `<repo>/.dsh-cowork/workitems/<workItemId>` on branch `cowork/<workItemId>`. Parallel work items are merged serially by master. Write `work item` (工作项). Source: [WorkItemRecordV2](../src/store-schema.ts#L181-L192), [checkout.ts](../src/checkout.ts#L45-L58).
+One isolated execution scope of a topic: a local clone at `<repo>/.dsh-cowork/workitems/<workItemId>` on branch `cowork/<workItemId>`. Parallel work items are merged serially by master. Write `work item` (工作项). Source: [WorkItemRecordV2](../src/store/schema.ts#L181-L192), [checkout.ts](../src/checkout.ts#L45-L58).
 
 ### review request
 
@@ -47,11 +47,11 @@ The per-project store under `<repo>/.dsh-cowork/memory/` that keeps constraints,
 
 ### preset
 
-A DSH agent preset that sets persona, tools, and rules; it does not own session topology. The three ids are `cowork-master` (displayed as `Cowork模式`), `cowork-topic`, and `cowork-reviewer`. Topic and reviewer stay registered for plugin-created sessions but are filtered from the remote new-session roster; only master is a manual entry point. Source: [presets.ts](../src/presets.ts#L121-L199) and [preset-visibility.ts](../src/preset-visibility.ts#L1-L70).
+A DSH agent preset that sets persona, tools, and rules; it does not own session topology. The three ids are `cowork-master` (displayed as `Cowork模式`), `cowork-topic`, and `cowork-reviewer`. Topic and reviewer stay registered for plugin-created sessions but are filtered from the remote new-session roster; only master is a manual entry point. Source: [presets.ts](../src/platform/presets.ts#L121-L199) and [preset-visibility.ts](../src/platform/preset-visibility.ts#L1-L70).
 
 ### inbox
 
-The legacy master-only decision queue at `<repo>/.dsh-cowork/inbox.json`. The current review flow writes `merge-needed` and `review-reject`; `blocked` and `cross-topic-conflict` remain legal for older records. Delivery is batched and marked with `deliveredAt`. Write `master inbox` (主收件箱) when the sidebar request inbox is also in scope. Source: [INBOX_KINDS](../src/store-schema.ts#L63), [InboxItem](../src/store-schema.ts#L232), [inbox.ts](../src/inbox.ts#L17-L30).
+The legacy master-only decision queue at `<repo>/.dsh-cowork/inbox.json`. The current review flow writes `merge-needed` and `review-reject`; `blocked` and `cross-topic-conflict` remain legal for older records. Delivery is batched and marked with `deliveredAt`. Write `master inbox` (主收件箱) when the sidebar request inbox is also in scope. Source: [INBOX_KINDS](../src/store/schema.ts#L63), [InboxItem](../src/store/schema.ts#L232), [inbox.ts](../src/store/inbox.ts#L17-L30).
 
 ### request inbox
 
@@ -75,11 +75,11 @@ A non-actionable inbox row for assignment, report, decision proposal, automated 
 
 ### activity
 
-The append-only event stream at `<repo>/.dsh-cowork/activity.jsonl`: state changes, routes, reviews, merges, topic reports, decision proposals, authorizations, archives, and errors. It is evidence, not a state source; readers take the tail. Write `activity` (活动流). Source: [ActivityEvent](../src/store-schema.ts#L211), [activity.ts](../src/activity.ts#L31).
+The append-only event stream at `<repo>/.dsh-cowork/activity.jsonl`: state changes, routes, reviews, merges, topic reports, decision proposals, authorizations, archives, and errors. It is evidence, not a state source; readers take the tail. Write `activity` (活动流). Source: [ActivityEvent](../src/store/schema.ts#L211), [activity.ts](../src/store/activity.ts#L31).
 
 ### resolved / reopen
 
-`resolved` is the third topic state, set by the user's archive action (`cowork_topic_resolve` or the topic-page menu); there is no automatic resolution and `resolveAfterMs` is deprecated. Archiving clears any block or pending authorization, records a master-only `topic-archived` notice, and archives the host topic session. `reopen` is the explicit user action that returns a resolved topic to `active`, clears `resolvedAt` / `resolvedBy`, and records `topic-reopened` without a notice; the panel reopen route also unarchives the host session. Source: [topic.ts](../src/topic.ts#L154-L173), [tool-runtime.ts](../src/tool-runtime.ts#L280), [PLAN-V0.2 §5.1](PLAN-V0.2.md#51-主题生命周期与已解决).
+`resolved` is the third topic state, set by the user's archive action (`cowork_topic_resolve` or the topic-page menu); there is no automatic resolution and `resolveAfterMs` is deprecated. Archiving clears any block or pending authorization, records a master-only `topic-archived` notice, and archives the host topic session. `reopen` is the explicit user action that returns a resolved topic to `active`, clears `resolvedAt` / `resolvedBy`, and records `topic-reopened` without a notice; the panel reopen route also unarchives the host session. Source: [topic.ts](../src/topic.ts#L154-L173), [tool-runtime.ts](../src/platform/tool-runtime.ts#L280), [PLAN-V0.2 §5.1](PLAN-V0.2.md#51-主题生命周期与已解决).
 
 ### route correction
 

@@ -10,13 +10,13 @@
  * no longer repaired into the index from a status read. It never returns the
  * full index, the full handoff/review set, or checkout rows.
  *
- * Everything host-specific lives in `src/tool-runtime.ts`; this module only
+ * Everything host-specific lives in `src/platform/tool-runtime.ts`; this module only
  * declares the two tools and the shapes they return.
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { ActivityEvent, InboxItem, TopicRecordV2, TopicStatus, WorkItemRecordV2 } from './store-schema.js'
-import type { CoworkToolDeps } from './tool-runtime.js'
+import type { ActivityEvent, InboxItem, TopicRecordV2, TopicStatus, WorkItemRecordV2 } from './store/schema.js'
+import type { CoworkToolDeps } from './platform/tool-runtime.js'
 import {
   callerOf,
   deliverInbox,
@@ -29,10 +29,10 @@ import {
   projectStoreFor,
   renderJson,
   toJson,
-} from './tool-runtime.js'
+} from './platform/tool-runtime.js'
 import { DEFAULT_IDLE_AFTER_MS } from './topic.js'
 import { activeWorkItemCount } from './work-item.js'
-import { checkRole, claimMaster, success } from './tool-model.js'
+import { checkRole, claimMaster, success } from './platform/tool-model.js'
 
 /** Most topics one status response lists. */
 export const STATUS_TOPIC_LIMIT = 50

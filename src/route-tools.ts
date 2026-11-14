@@ -15,8 +15,8 @@
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { assignmentNotice, buildActivityEvent } from './activity.js'
-import { TOPIC_PRESET_ID } from './presets.js'
+import { assignmentNotice, buildActivityEvent } from './store/activity.js'
+import { TOPIC_PRESET_ID } from './platform/presets.js'
 import {
   applyRouteCorrection,
   decideExplicitRoute,
@@ -27,10 +27,10 @@ import {
 import type { RouteCandidate, RouteDecision } from './routing.js'
 import { recommendWithModel } from './router-model.js'
 import type { ModelCandidate, ModelOutcome, RoutingModelConfig } from './router-model.js'
-import type { ProjectStore } from './store.js'
-import type { ActivityEvent, ProjectIndexV2, TopicRecordV2 } from './store-schema.js'
+import type { ProjectStore } from './store/project-store.js'
+import type { ActivityEvent, ProjectIndexV2, TopicRecordV2 } from './store/schema.js'
 import { DEFAULT_IDLE_AFTER_MS } from './topic.js'
-import type { CoworkToolDeps, JsonValue } from './tool-runtime.js'
+import type { CoworkToolDeps, JsonValue } from './platform/tool-runtime.js'
 import {
   BRIEF_MAX_CHARS,
   callerOf,
@@ -44,8 +44,8 @@ import {
   toJson,
   topicView,
   truncateText,
-} from './tool-runtime.js'
-import { ERROR_CODES, TOPIC_ERROR_CODES, buildThreadBrief, checkRole, failure, success } from './tool-model.js'
+} from './platform/tool-runtime.js'
+import { ERROR_CODES, TOPIC_ERROR_CODES, buildThreadBrief, checkRole, failure, success } from './platform/tool-model.js'
 
 /** Most candidates the route payload and its activity details carry. */
 const ROUTE_PAYLOAD_CANDIDATES = 3

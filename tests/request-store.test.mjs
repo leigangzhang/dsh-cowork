@@ -7,10 +7,10 @@ import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import './support/ts-hook.mjs'
 import { withRepo } from './support/inbox-fixtures.mjs'
 
-// `src/request-store.ts` imports its siblings with the build's `.js`
+// `src/store/request-store.ts` imports its siblings with the build's `.js`
 // specifiers; the shared hook makes them importable here.
 const { INBOX_MAX_REQUEST_FILES, REQUEST_RECORD_VERSION } = await import('../src/inbox-contract.ts')
-const { RequestStore } = await import('../src/request-store.ts')
+const { RequestStore } = await import('../src/store/request-store.ts')
 const { applyResolution, buildRequestRecord } = await import('../src/request-schema.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')

@@ -12,7 +12,7 @@
  * or a system-role message would be rejected by the real adapter, which is why
  * M9.3b's inline version failed in a real host.
  */
-import type { LlmRoutingPort, RoutingModelRequest } from './router-model.js'
+import type { LlmRoutingPort, RoutingModelRequest } from '../router-model.js'
 
 /** The host `llm` slice this adapter needs; the real service satisfies it structurally. */
 export interface HostLlmLike {

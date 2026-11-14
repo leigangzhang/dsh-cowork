@@ -17,8 +17,8 @@ import { join } from 'node:path'
 import { withRepo } from './support/inbox-fixtures.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
-const { ProjectStore } = await import('../src/store.ts')
-const { ERROR_CODES } = await import('../src/tool-model.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
+const { ERROR_CODES } = await import('../src/platform/tool-model.ts')
 
 const CLOCK = () => new Date('2026-11-07T10:00:00.000Z')
 

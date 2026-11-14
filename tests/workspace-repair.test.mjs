@@ -11,7 +11,7 @@ import './support/ts-hook.mjs'
  * other source-level tests do.
  */
 
-const { repairCoworkWorkspaces } = await import('../src/workspace-repair.ts')
+const { repairCoworkWorkspaces } = await import('../src/platform/workspace-repair.ts')
 
 /**
  * Recording ports. `projectRoots` maps a session cwd to the Cowork project root

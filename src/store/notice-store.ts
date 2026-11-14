@@ -1,13 +1,13 @@
 /**
  * The notice delivery ledger file (`<repo>/.dsh-cowork/notices.json`).
  *
- * Its own module on purpose: `src/store.ts` sits at the repository's 50 KiB
+ * Its own module on purpose: `src/store/project-store.ts` sits at the repository's 50 KiB
  * read cap, and the ledger is a small, orthogonal document. The file lives
  * under the same project lock and atomic-write helper as the index, so a ledger
  * write can never interleave with another writer; the reader stays lock-free
  * like every other store read.
  *
- * Errors are values with a stable code; `src/store.ts` maps them onto its own
+ * Errors are values with a stable code; `src/store/project-store.ts` maps them onto its own
  * `StoreError`, which is what the tool and route layers already understand.
  */
 import {
@@ -15,8 +15,8 @@ import {
   withProjectLock,
   writeJsonAtomic,
 } from './atomic-json.js'
-import { emptyNoticeLedger, parseNoticeLedgerText, prepareNoticeLedger } from './notices.js'
-import type { NoticeLedgerV1 } from './notices.js'
+import { emptyNoticeLedger, parseNoticeLedgerText, prepareNoticeLedger } from '../notices.js'
+import type { NoticeLedgerV1 } from '../notices.js'
 
 /** A ledger read/write failure carrying a stable code and the offending file. */
 export class NoticeFileError extends Error {

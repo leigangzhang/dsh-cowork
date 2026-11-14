@@ -6,9 +6,9 @@ import {
   COWORK_MEMORY_PRESETS,
   COWORK_MEMORY_SECTION,
   registerMemoryPrompt,
-} from '../src/memory-prompt.ts'
+} from '../src/platform/memory-prompt.ts'
 
-const SOURCE_URL = new URL('../src/memory-prompt.ts', import.meta.url)
+const SOURCE_URL = new URL('../src/platform/memory-prompt.ts', import.meta.url)
 
 /**
  * Fake agent whose `ctx.systemPrompt.section()` records the descriptor and

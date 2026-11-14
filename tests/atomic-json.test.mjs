@@ -13,7 +13,7 @@ const {
   readTextIfPresent,
   withProjectLock,
   writeJsonAtomic,
-} = await import('../src/atomic-json.ts')
+} = await import('../src/store/atomic-json.ts')
 
 /** One throwaway directory, removed even when the test fails. */
 async function withTmp(run) {
@@ -73,7 +73,7 @@ test('withProjectLock serializes concurrent read-modify-write cycles', async () 
 
 test('the stores import the shared layer instead of restating it', async () => {
   // The retired M0 probe store is gone; every remaining store is listed here.
-  const files = ['src/store.ts', 'src/notice-store.ts', 'src/request-store.ts']
+  const files = ['src/store/project-store.ts', 'src/store/notice-store.ts', 'src/store/request-store.ts']
   for (const file of files) {
     const source = await readFile(new URL(`../${file}`, import.meta.url), 'utf8')
     assert.match(source, /atomic-json\.js/, `${file} must import the shared atomic layer`)

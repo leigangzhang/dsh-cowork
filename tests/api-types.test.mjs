@@ -70,7 +70,7 @@ test('the request/panel module graph has no import cycle', () => {
     'src/request-lifecycle.ts',
     'src/authorization-decision.ts',
     'src/request-support.ts',
-    'src/request-store.ts',
+    'src/store/request-store.ts',
     'src/request-schema.ts',
   ]
   const known = new Set(nodes.map((node) => node.replace(/^src\//, '').replace(/\.ts$/, '')))

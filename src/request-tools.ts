@@ -37,7 +37,7 @@ import {
   normalizeVerification,
   payloadProblems,
 } from './request-schema.js'
-import type { CoworkToolDeps, JsonValue, ProjectRuntime } from './tool-runtime.js'
+import type { CoworkToolDeps, JsonValue, ProjectRuntime } from './platform/tool-runtime.js'
 import {
   callerOf,
   isFailure,
@@ -47,9 +47,9 @@ import {
   renderJson,
   toJson,
   topicView,
-} from './tool-runtime.js'
-import type { TopicRecordV2 } from './store-schema.js'
-import { TOPIC_ERROR_CODES, checkRole, failure, success } from './tool-model.js'
+} from './platform/tool-runtime.js'
+import type { TopicRecordV2 } from './store/schema.js'
+import { TOPIC_ERROR_CODES, checkRole, failure, success } from './platform/tool-model.js'
 
 /** Wire codes owned by the request tools. */
 export const REQUEST_TOOL_ERROR_CODES = {

@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import './ts-hook.mjs'
 
-const { ProjectStore } = await import('../../src/store.ts')
+const { ProjectStore } = await import('../../src/store/project-store.ts')
 const requestService = await import('../../src/request-service.ts')
 
 /**

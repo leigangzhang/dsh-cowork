@@ -12,8 +12,8 @@ const {
   archiveReviewerAfterVerdict,
   createReviewerSession,
   reviewerSessionIds,
-} = await import('../src/session-visibility.ts')
-const { REVIEWER_PRESET_ID } = await import('../src/presets.ts')
+} = await import('../src/platform/session-visibility.ts')
+const { REVIEWER_PRESET_ID } = await import('../src/platform/presets.ts')
 
 /** A session-slice fake that records create/archive calls. */
 function fakePorts(options = {}) {

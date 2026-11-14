@@ -3,7 +3,7 @@
  * every handoff file under `<repo>/.dsh-cowork/handoffs/`, and of every review
  * file under `<repo>/.dsh-cowork/reviews/`.
  *
- * Writers serialize through the shared project lock in `src/atomic-json.ts`;
+ * Writers serialize through the shared project lock in `src/store/atomic-json.ts`;
  * each JSON replacement goes through `writeJsonAtomic` (exclusive-create
  * random-suffix sibling + rename, mode 0600, then an explicit parent-directory
  * fsync, because the host helper documents crash durability as out of scope).
@@ -36,7 +36,7 @@ import {
   serializeActivityEvents,
   threadV1Problems,
   trimActivityEvents,
-} from './store-schema.js'
+} from './schema.js'
 import {
   DIR_MODE,
   FILE_MODE,
@@ -47,9 +47,9 @@ import {
   writeJsonAtomic,
   writeTextAtomic as writeAtomicText,
 } from './atomic-json.js'
-import { MigrationError, applyLegacyView, legacyViewOf, migrateV1ToV2 } from './store-migration.js'
+import { MigrationError, applyLegacyView, legacyViewOf, migrateV1ToV2 } from './migration.js'
 import { NoticeFileError, NoticeLedgerFile } from './notice-store.js'
-import type { NoticeLedgerV1 } from './notices.js'
+import type { NoticeLedgerV1 } from '../notices.js'
 import type {
   ActivityEvent,
   ActivityType,
@@ -58,13 +58,13 @@ import type {
   ReadActivityResult,
   ReviewRecord,
   ReviewStatus,
-} from './store-schema.js'
-export type { ReadActivityResult } from './store-schema.js'
+} from './schema.js'
+export type { ReadActivityResult } from './schema.js'
 import type {
   ArchiveFailure,
   MigrationReport,
   PendingReviewerArchive,
-} from './store-migration.js'
+} from './migration.js'
 
 const execFileAsync = promisify(execFile)
 

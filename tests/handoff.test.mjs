@@ -22,7 +22,7 @@ const input = (overrides = {}) => ({
   status: 'blocked',
   summary: 'implemented the project store and its tests',
   decisions: ['keep the store as the only writer'],
-  changedPaths: ['src/store.ts', 'tests/store.test.mjs'],
+  changedPaths: ['src/store/project-store.ts', 'tests/store.test.mjs'],
   artifacts: ['.dsh-cowork/handoffs/session-a-20261105T030405006Z.json'],
   verification: [{ command: 'node --test tests/store.test.mjs', exitCode: 0, evidence: 'pass 11' }],
   openIssues: [],
@@ -133,7 +133,7 @@ test('buildHandoffRecord stamps version, createdAt and the undelivered state', (
   assert.deepEqual(record.verification, input().verification)
   // Arrays are copied, so a later edit of the draft cannot rewrite the record.
   draft.value.changedPaths.push('src/late.ts')
-  assert.deepEqual(record.changedPaths, ['src/store.ts', 'tests/store.test.mjs'])
+  assert.deepEqual(record.changedPaths, ['src/store/project-store.ts', 'tests/store.test.mjs'])
 
   // Missing optional arrays normalize instead of throwing.
   const normalized = buildHandoffRecord(
@@ -168,7 +168,7 @@ test('formatMasterMessage is readable text with the handoff facts, not JSON', ()
     'node --test tests/store.test.mjs (exit 0)',
     'pass 11',
     'node --test tests/handoff.test.mjs (exit 1)',
-    'src/store.ts',
+    'src/store/project-store.ts',
     'tests/store.test.mjs',
     'worktree cleanup is manual',
     '/repo/.dsh-cowork/handoffs/h.json',

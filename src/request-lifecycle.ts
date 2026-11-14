@@ -7,7 +7,7 @@
  * the decision back. A replay of the same action is idempotent; a different
  * action on a terminal request is `inbox/request-resolved`.
  */
-import { requestCreatedActivity, requestResolvedActivity } from './activity.js'
+import { requestCreatedActivity, requestResolvedActivity } from './store/activity.js'
 import { attemptDelivery } from './delivery.js'
 import { actionForStatus, isTerminalStatus, statusForAction } from './inbox-contract.js'
 import type {
@@ -30,8 +30,8 @@ import {
   resolutionMessage,
   resolutionPrompt,
 } from './request-schema.js'
-import { RequestStore } from './request-store.js'
-import type { ProjectIndexV2, TopicRecordV2 } from './store-schema.js'
+import { RequestStore } from './store/request-store.js'
+import type { ProjectIndexV2, TopicRecordV2 } from './store/schema.js'
 import { resolveAuthorizationDecision } from './authorization-decision.js'
 import type { AuthorizationDecisionOutcome } from './authorization-decision.js'
 import { PanelServiceError, assertMember, clipText, messageOf } from './request-support.js'

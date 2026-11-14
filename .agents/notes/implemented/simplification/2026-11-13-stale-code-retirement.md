@@ -53,7 +53,7 @@ Class: simplification
 ## Testing
 
 - [A1] M2/M3/S0 驱动、`src/probe-engine.ts`、`src/probe-store.ts` 与对应测试已删除；dev 面只剩 health + M12 run/status — `source`：[index.ts](../../../../src/index.ts)、[dev-gate.test.mjs](../../../../tests/dev-gate.test.mjs)
-- [A2] `noUnusedLocals`/`noUnusedParameters` 在 host 开启且 17 处未用符号清零；`recordActivity`/`errorActivity`/`checkoutDeps`/`TOPIC_STATUS_VALUES`/`review/override-reason-required` 无生产引用 — `source`：[tsconfig.json](../../../../tsconfig.json)、[tool-runtime.ts](../../../../src/tool-runtime.ts)、[tool-model.ts](../../../../src/tool-model.ts)
+- [A2] `noUnusedLocals`/`noUnusedParameters` 在 host 开启且 17 处未用符号清零；`recordActivity`/`errorActivity`/`checkoutDeps`/`TOPIC_STATUS_VALUES`/`review/override-reason-required` 无生产引用 — `source`：[tsconfig.json](../../../../tsconfig.json)、[tool-runtime.ts](../../../../src/platform/tool-runtime.ts)、[tool-model.ts](../../../../src/platform/tool-model.ts)
 - [A3] 940 个测试通过；coverage 66.42/83.11/83.19（floor 65/82/80）；typecheck/build 通过 — `tests`、`packaging`
 - [A4] 无 `.dsh-cowork` 的干净 worktree 上 `npm run check` 通过；`host-smoke` 5/5 通过 — `workflow`、`packaging`
 - [A5] 本记录落在 `.agents/notes/implemented/simplification/` 并通过 `npm run check` 的 decisions 规则 — `decisions`：[stale-code-retirement.md](2026-11-13-stale-code-retirement.md)

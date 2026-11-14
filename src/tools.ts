@@ -23,7 +23,7 @@
  * Host services arrive through `CoworkToolDeps`; nothing throws across the tool
  * boundary, and the review tools keep receiving their helpers by injection so
  * the dependency stays one-way. The v1 read-only compatibility surface
- * (`src/store-migration.ts` and the legacy store view) stays through 0.3.0
+ * (`src/store/migration.ts` and the legacy store view) stays through 0.3.0
  * (KI-18); this assembly writes canonical v2 state only.
  */
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -33,7 +33,7 @@ import { registerProjectTools } from './project-tools.js'
 import { registerRequestTools } from './request-tools.js'
 import { registerReviewTools } from './review-tools.js'
 import { registerRouteTools } from './route-tools.js'
-import type { CoworkToolDeps } from './tool-runtime.js'
+import type { CoworkToolDeps } from './platform/tool-runtime.js'
 import {
   callerOf,
   isFailure,
@@ -43,7 +43,7 @@ import {
   renderJson,
   threadView,
   toJson,
-} from './tool-runtime.js'
+} from './platform/tool-runtime.js'
 import { registerTopicTools } from './topic-tools.js'
 
 /** The tool-registry slice of the plugin context. */

@@ -20,9 +20,9 @@
  * module only produces and checks the text.
  */
 import { isAbsolute, join, normalize, relative } from 'node:path'
-import { ERROR_CODES, M10_ERROR_CODES, failure } from './tool-model.js'
-import type { ToolFailure } from './tool-model.js'
-import { REVIEW_SEVERITIES, REVIEW_STATUSES, REVIEW_VERDICTS } from './store-schema.js'
+import { ERROR_CODES, M10_ERROR_CODES, failure } from './platform/tool-model.js'
+import type { ToolFailure } from './platform/tool-model.js'
+import { REVIEW_SEVERITIES, REVIEW_STATUSES, REVIEW_VERDICTS } from './store/schema.js'
 import type {
   InboxKind,
   ReviewFinding,
@@ -31,7 +31,7 @@ import type {
   ReviewVerdict,
   ReviewVerification,
   WorkItemStatus,
-} from './store-schema.js'
+} from './store/schema.js'
 import { isMergeableWorkItemStatus, isValidWorkItemId } from './work-item.js'
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@
  * ({@link routeCreateTitle}) are pure too, so the write path can call them
  * inside the project lock without re-reading anything.
  */
-import type { ProjectIndexV2, TopicRecordV2 } from './store-schema.js'
+import type { ProjectIndexV2, TopicRecordV2 } from './store/schema.js'
 
 /** A candidate must reach this score before it can be reused. */
 export const ROUTE_THRESHOLD = 4

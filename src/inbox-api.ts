@@ -45,9 +45,9 @@ import { emptyNoticeLedger, noticeSummaries } from './notices.js'
 import type { NoticeLedgerV1, NoticeSummary } from './notices.js'
 import type { NoticeKind } from './notice-contract.js'
 import { PanelServiceError, openRequestTarget, resolveRequest } from './request-service.js'
-import { RequestStore } from './request-store.js'
-import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
-import type { ActivityEvent, ProjectIndexV2 } from './store-schema.js'
+import { RequestStore } from './store/request-store.js'
+import { ACTIVITY_MAX_EVENTS } from './store/schema.js'
+import type { ActivityEvent, ProjectIndexV2 } from './store/schema.js'
 import type { CoworkApiPorts, CoworkStorePort, PanelFetchRoute } from './api-types.js'
 
 /** Placeholder topic title for a topic the index no longer lists. */

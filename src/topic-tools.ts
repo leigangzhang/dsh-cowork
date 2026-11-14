@@ -29,16 +29,16 @@ import {
   buildActivityEvent,
   decisionProposedActivity,
   topicReportedActivity,
-} from './activity.js'
+} from './store/activity.js'
 import { buildHandoffRecord, validateHandoff } from './handoff.js'
 import { noticeSummaries } from './notices.js'
 import { AUTHORIZATION_COMMAND_MAX_CHARS, REQUEST_SUMMARY_MAX_CHARS } from './inbox-contract.js'
 import { createRequest } from './request-service.js'
 import { REQUEST_TOOL_ERROR_CODES } from './request-tools.js'
-import { TOPIC_PRESET_ID } from './presets.js'
-import { ACTIVITY_MAX_EVENTS } from './store-schema.js'
-import type { TopicRecordV2 } from './store-schema.js'
-import type { CoworkToolDeps, JsonValue, ProjectRuntime } from './tool-runtime.js'
+import { TOPIC_PRESET_ID } from './platform/presets.js'
+import { ACTIVITY_MAX_EVENTS } from './store/schema.js'
+import type { TopicRecordV2 } from './store/schema.js'
+import type { CoworkToolDeps, JsonValue, ProjectRuntime } from './platform/tool-runtime.js'
 import {
   BRIEF_MAX_CHARS,
   archiveTopic,
@@ -52,8 +52,8 @@ import {
   toJson,
   topicView,
   truncateText,
-} from './tool-runtime.js'
-import { ERROR_CODES, TOPIC_ERROR_CODES, checkRole, failure, success } from './tool-model.js'
+} from './platform/tool-runtime.js'
+import { ERROR_CODES, TOPIC_ERROR_CODES, checkRole, failure, success } from './platform/tool-model.js'
 import { blockTopic, noteTopicActivity, unblockTopic } from './topic.js'
 
 /** Most topics `cowork_topic_list` returns (and its deprecated alias). */

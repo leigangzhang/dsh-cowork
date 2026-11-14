@@ -3,8 +3,8 @@
  * step-id vocabularies, and every evidence, host-port and plan type the driver
  * and its support modules share. Values only: no I/O and no host import.
  */
-export type { ActivityEvent, InboxItem, ProjectIndexV2, TopicRecordV2, WorkItemRecordV2 } from './store-schema.js'
-export { MASTER_PRESET_ID, REVIEWER_PRESET_ID, TOPIC_PRESET_ID } from './presets.js'
+export type { ActivityEvent, InboxItem, ProjectIndexV2, TopicRecordV2, WorkItemRecordV2 } from './store/schema.js'
+export { MASTER_PRESET_ID, REVIEWER_PRESET_ID, TOPIC_PRESET_ID } from './platform/presets.js'
 
 export const M12_E2E_EVIDENCE_RELATIVE = '.dsh-cowork/e2e/M12_E2E.json'
 

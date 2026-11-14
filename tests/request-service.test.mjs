@@ -10,10 +10,10 @@ import {
   withRepo,
 } from './support/inbox-fixtures.mjs'
 
-const { ProjectStore } = await import('../src/store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
 const service = await import('../src/request-service.ts')
-const { RequestStore } = await import('../src/request-store.ts')
-const { archiveTopic } = await import('../src/tool-runtime.ts')
+const { RequestStore } = await import('../src/store/request-store.ts')
+const { archiveTopic } = await import('../src/platform/tool-runtime.ts')
 const { OPEN_FILE_MAX_BYTES } = await import('../src/inbox-contract.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')

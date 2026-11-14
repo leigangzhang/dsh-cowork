@@ -9,14 +9,14 @@
  * The module owns no I/O: validation and formatting are pure, and the tool
  * layer supplies the store. The accepted write statuses are `blocked` and
  * `done` only. Reading is deliberately wider — `handoffRecordProblems` in
- * `src/store-schema.ts` still accepts the historical `awaiting_review` value so
+ * `src/store/schema.ts` still accepts the historical `awaiting_review` value so
  * old files stay readable.
  */
 import type {
   HandoffRecord,
   HandoffStatus,
   HandoffVerification,
-} from './store.js'
+} from './store/project-store.js'
 
 /** The validated handoff a thread submits. */
 export interface HandoffDraft {
@@ -46,7 +46,7 @@ export type HandoffValidation =
 
 /**
  * Statuses a handoff may be *written* with (M10). The read-side vocabulary in
- * `src/store-schema.ts` keeps `awaiting_review` so old files stay readable.
+ * `src/store/schema.ts` keeps `awaiting_review` so old files stay readable.
  */
 const HANDOFF_STATUSES: readonly HandoffStatus[] = ['blocked', 'done']
 

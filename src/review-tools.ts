@@ -6,9 +6,9 @@
  * pending, replace with the verdict), the canonical index updates, the reviewer
  * brief, the verdict notifications, and the reviewer archive. The pure request
  * model (validation, records, brief, gates) lives in `src/review-request.ts`;
- * the reviewer lifecycle lives in `src/session-visibility.ts`.
+ * the reviewer lifecycle lives in `src/platform/session-visibility.ts`.
  *
- * File I/O uses the store's text port and the project lock, so `src/store.ts`
+ * File I/O uses the store's text port and the project lock, so `src/store/project-store.ts`
  * grows no business code. Request files are read through the same directory the
  * legacy verdict files live in; only files that parse as the request model take
  * part in de-duplication, so an old verdict-only file is never mistaken for a
@@ -19,11 +19,11 @@ import { readdir, unlink } from 'node:fs/promises'
 import { join, normalize } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { buildActivityEvent } from './activity.js'
+import { buildActivityEvent } from './store/activity.js'
 import type { GitRunner } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
 import { attemptDelivery } from './delivery.js'
-import { Inbox, InboxMarkError } from './inbox.js'
+import { Inbox, InboxMarkError } from './store/inbox.js'
 import {
   buildRejectMessage,
   buildReviewBrief,
@@ -44,10 +44,10 @@ import type {
   ReviewRequestRecord,
   ReviewRequestValidationOptions,
 } from './review-request.js'
-import type { SessionSlice } from './session-slice.js'
-import { archiveReviewerAfterVerdict, createReviewerSession } from './session-visibility.js'
-import type { ProjectIndex, ProjectStore, ThreadRecord } from './store.js'
-import type { ProjectIndexV2, WorkItemRecordV2 } from './store-schema.js'
+import type { SessionSlice } from './platform/session-slice.js'
+import { archiveReviewerAfterVerdict, createReviewerSession } from './platform/session-visibility.js'
+import type { ProjectIndex, ProjectStore, ThreadRecord } from './store/project-store.js'
+import type { ProjectIndexV2, WorkItemRecordV2 } from './store/schema.js'
 import {
   ERROR_CODES,
   M10_ERROR_CODES,
@@ -55,9 +55,9 @@ import {
   REVIEW_VERIFICATION_PARAMETER,
   failure,
   success,
-} from './tool-model.js'
-import type { CallerIdentity, ToolFailure } from './tool-model.js'
-import { runGit } from './tool-runtime.js'
+} from './platform/tool-model.js'
+import type { CallerIdentity, ToolFailure } from './platform/tool-model.js'
+import { runGit } from './platform/tool-runtime.js'
 import { ACTIVE_WORK_ITEM_STATUSES, markWorkItem } from './work-item.js'
 
 /** Lossless JSON value accepted by the tool result boundary. */

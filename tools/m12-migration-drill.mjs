@@ -71,14 +71,14 @@ const HOOK_SOURCE = [
 ].join('\n')
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
-const { ProjectStore } = await import(new URL('../src/store.ts', import.meta.url).href)
+const { ProjectStore } = await import(new URL('../src/store/project-store.ts', import.meta.url).href)
 const {
   INDEX_VERSION_V1,
   INDEX_VERSION_V2,
   normalizeProjectIndexV1,
   projectIndexV1Problems,
   projectIndexV2Problems,
-} = await import(new URL('../src/store-schema.ts', import.meta.url).href)
+} = await import(new URL('../src/store/schema.ts', import.meta.url).href)
 const { reviewRequestRecordProblems, serializeReviewRequestRecord } = await import(
   new URL('../src/review-request.ts', import.meta.url).href
 )

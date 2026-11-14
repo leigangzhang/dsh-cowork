@@ -6,11 +6,11 @@ import './support/ts-hook.mjs'
  * topic activity fresh and reopens resolved topics. The event source, repo
  * resolution, store, and clock are all fakes, so no host is involved.
  *
- * `src/topic-events.ts` value-imports `./topic.js`, so this test installs the
+ * `src/platform/topic-events.ts` value-imports `./topic.js`, so this test installs the
  * same resolve hook tests/store-v2.test.mjs uses.
  */
 
-const { TopicEvents } = await import('../src/topic-events.ts')
+const { TopicEvents } = await import('../src/platform/topic-events.ts')
 
 const NOW_ISO = '2026-11-07T12:00:00.000Z'
 const NOW = new Date(NOW_ISO)

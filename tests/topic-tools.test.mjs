@@ -16,12 +16,12 @@ import { join } from 'node:path'
 import { makeSeedProject, makeTopicFixture, withRepo } from './support/inbox-fixtures.mjs'
 
 const { registerCoworkTools } = await import('../src/tools.ts')
-const { ProjectStore } = await import('../src/store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
 const { TOPIC_LIST_LIMIT, TOPIC_PAGE_ERROR_CODES } = await import('../src/topic-tools.ts')
-const { authorizationResolvedActivity, decisionProposedActivity } = await import('../src/activity.ts')
-const { ERROR_CODES, TOPIC_ERROR_CODES } = await import('../src/tool-model.ts')
-const { INBOX_SUMMARY_MAX_CHARS } = await import('../src/inbox.ts')
-const { deliverInbox } = await import('../src/tool-runtime.ts')
+const { authorizationResolvedActivity, decisionProposedActivity } = await import('../src/store/activity.ts')
+const { ERROR_CODES, TOPIC_ERROR_CODES } = await import('../src/platform/tool-model.ts')
+const { INBOX_SUMMARY_MAX_CHARS } = await import('../src/store/inbox.ts')
+const { deliverInbox } = await import('../src/platform/tool-runtime.ts')
 
 const NOW_ISO = '2026-11-07T10:00:00.000Z'
 const NOW_MS = Date.parse(NOW_ISO)

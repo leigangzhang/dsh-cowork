@@ -44,7 +44,7 @@ const topicV2 = (overrides = {}) => ({
   blockedAt: null,
   authorization: null,
   scope: 'store',
-  ownedPaths: ['src/store.ts'],
+  ownedPaths: ['src/store/project-store.ts'],
   aliases: [],
   digest: 'store v2 is delivered',
   cwd: '/repo',

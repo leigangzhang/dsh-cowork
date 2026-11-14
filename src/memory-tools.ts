@@ -2,7 +2,7 @@
  * Project-memory tools (`cowork_memory_write`, `cowork_memory_search`).
  *
  * Behaviour is unchanged from the M2 implementation that lived in
- * `src/tools.ts`; only the shared helpers moved to `src/tool-runtime.ts`. The
+ * `src/tools.ts`; only the shared helpers moved to `src/platform/tool-runtime.ts`. The
  * file layer is the memory module's injected IO port, backed by the project
  * store's lock and atomic write.
  */
@@ -17,7 +17,7 @@ import {
   validateMemoryEntry,
 } from './memory.js'
 import { tokenize } from './routing.js'
-import type { CoworkToolDeps } from './tool-runtime.js'
+import type { CoworkToolDeps } from './platform/tool-runtime.js'
 import {
   callerOf,
   isFailure,
@@ -27,8 +27,8 @@ import {
   openProject,
   renderJson,
   toJson,
-} from './tool-runtime.js'
-import { ERROR_CODES, checkRole, failure, success } from './tool-model.js'
+} from './platform/tool-runtime.js'
+import { ERROR_CODES, checkRole, failure, success } from './platform/tool-model.js'
 
 /** The two memory tools, registered in the documented order. */
 export function registerMemoryTools(ctx: unknown, deps: CoworkToolDeps): Array<() => void> {

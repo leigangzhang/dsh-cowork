@@ -16,7 +16,7 @@ import './support/ts-hook.mjs'
 import { makeTopicFixture, withRepo } from './support/inbox-fixtures.mjs'
 
 const notices = await import('../src/notices.ts')
-const { ProjectStore } = await import('../src/store.ts')
+const { ProjectStore } = await import('../src/store/project-store.ts')
 const {
   assignmentNotice,
   authorizationRequestedActivity,
@@ -25,7 +25,7 @@ const {
   decisionProposedActivity,
   topicArchivedActivity,
   topicReportedActivity,
-} = await import('../src/activity.ts')
+} = await import('../src/store/activity.ts')
 
 const NOW = new Date('2026-11-10T10:00:00.000Z')
 const NOW_ISO = NOW.toISOString()

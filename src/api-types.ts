@@ -14,7 +14,7 @@ import type {
   InboxItem,
   ProjectIndexV2,
   ReadActivityResult,
-} from './store-schema.js'
+} from './store/schema.js'
 
 /** One metadata row of the host's session listing; only id and cwd matter here. */
 export interface PanelSessionRow {

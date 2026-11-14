@@ -19,7 +19,7 @@ export const TOPIC_PRESET_ID = 'cowork-topic'
 /**
  * Preset id of the read-only reviewer session. M10.1 moved the definition here
  * from the removed `src/review.ts`; the legacy review types now live in
- * `src/store-schema.ts`.
+ * `src/store/schema.ts`.
  */
 export const REVIEWER_PRESET_ID = 'cowork-reviewer'
 
