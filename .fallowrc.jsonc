@@ -1,0 +1,23 @@
+{
+  // tools/check-invariants.mjs already owns exports used only inside their own
+  // module and keeps the reviewed ratchet; fallow must not report that class twice.
+  "ignoreExportsUsedInFile": true,
+  // The client bundle keeps react external (scripts/build/build-client.mjs) and
+  // the DSH host supplies it at runtime; package.json intentionally declares no dependency.
+  "ignoreDependencies": ["react"],
+  // Host-provided peer dependencies are not installed into the local node_modules.
+  "ignoreUnresolvedImports": [
+    "@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-atomic-write",
+    "@deepseek-ai/dsh-host-webserver",
+    "@deepseek-ai/dsh-tools",
+    "@deepseek-ai/schemastery"
+  ],
+  // Fallow's built-in **/build/** ignore would hide scripts/build; the client
+  // build script is first-party source and stays in scope.
+  "ignorePatterns": ["!scripts/build/**"],
+  // apply.ts:56 computes a repo-relative path with new URL(..., import.meta.url);
+  // fallow treats it as a lazy module edge. architecture.test.mjs proves the
+  // static import graph has no cycle.
+  "circularDependencies": { "ignoreLazyImports": true }
+}
