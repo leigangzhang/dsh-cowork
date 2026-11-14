@@ -21,6 +21,15 @@ const srcRoot = resolve(root, 'src')
 /** DSH's single-file read ceiling, in bytes (50 KiB). */
 const READ_LIMIT_BYTES = 51_200
 
+/** Soft target for source files: at or below this, the file is comfortable to read. */
+const SOURCE_SOFT_TARGET_BYTES = 49_152
+
+/** The host entry point budget; a bigger entry means the assembly is doing work. */
+const HOST_ENTRY_LIMIT_BYTES = 30_720
+
+/** Test files stop being readable in one agent context above this many lines. */
+const TEST_FILE_MAX_LINES = 1_200
+
 /** Headroom the tools split must keep on src/tools.ts; 48 KiB leaves 2 KiB. */
 const TOOLS_SPLIT_HEADROOM_BYTES = 49_152
 
@@ -43,23 +52,90 @@ function sourceFiles(dir) {
   return found.sort()
 }
 
+/** Every `*.test.mjs` under `tests/`, recursively, as repo-relative POSIX paths. */
+function testFiles() {
+  const found = []
+  const visit = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) visit(full)
+      else if (entry.isFile() && entry.name.endsWith('.test.mjs')) {
+        found.push(relative(root, full).split(sep).join('/'))
+      }
+    }
+  }
+  visit(resolve(root, 'tests'))
+  return found.sort()
+}
+
 /** Bytes on disk for one repo-relative path. */
 function bytesOf(file) {
   return statSync(resolve(root, file)).size
 }
 
+/** Line count for a text, counting a missing trailing newline as one line. */
+function linesOf(text) {
+  if (text === '') return 0
+  return (text.match(/\n/g) ?? []).length + (text.endsWith('\n') ? 0 : 1)
+}
+
+/** Files over a byte limit, as human-readable violations. */
+function budgetProblems(entries, limit) {
+  return entries
+    .filter(({ bytes }) => bytes > limit)
+    .map(({ file, bytes }) => `${file}: ${bytes} B, over ${limit} B`)
+}
+
+/** Files over a line limit, as human-readable violations. */
+function lineBudgetProblems(entries, limit) {
+  return entries
+    .filter(({ lines }) => lines > limit)
+    .map(({ file, lines }) => `${file}: ${lines} lines, over ${limit}`)
+}
+
+/** Nested host `index.ts` files: the public entry is `src/index.ts` and only it. */
+function hostEntryBarrels(files) {
+  return files.filter((file) => file !== 'src/index.ts' && file.endsWith('/index.ts'))
+}
+
 test('every src/**/*.ts and src/**/*.tsx file stays under the 50 KiB read limit', () => {
   const files = sourceFiles(srcRoot)
   assert.ok(files.length > 0, 'no .ts/.tsx files found under src/')
-  const over = files
-    .map((file) => ({ file, bytes: bytesOf(file) }))
-    .filter(({ bytes }) => bytes > READ_LIMIT_BYTES)
-  const detail = over.map(({ file, bytes }) => `${file}: ${bytes} B`).join(', ')
-  assert.deepEqual(
-    over.map(({ file }) => file),
-    [],
-    `${over.length} source file(s) exceed the ${READ_LIMIT_BYTES} B read limit: ${detail}`,
-  )
+  const entries = files.map((file) => ({ file, bytes: bytesOf(file) }))
+  const soft = budgetProblems(entries, SOURCE_SOFT_TARGET_BYTES)
+  // Visible on every run: the soft target is a nudge to split, not a failure.
+  if (soft.length > 0) {
+    console.log(`# above the ${SOURCE_SOFT_TARGET_BYTES} B soft target (hard line ${READ_LIMIT_BYTES} B): ${soft.join(', ')}`)
+  }
+  assert.deepEqual(budgetProblems(entries, READ_LIMIT_BYTES), [])
+})
+
+test('the host entry stays at or below 30 KiB', () => {
+  const bytes = bytesOf('src/index.ts')
+  console.log(`# src/index.ts: ${bytes} B / ${HOST_ENTRY_LIMIT_BYTES} B`)
+  assert.ok(bytes <= HOST_ENTRY_LIMIT_BYTES, `src/index.ts is ${bytes} B, over the ${HOST_ENTRY_LIMIT_BYTES} B budget`)
+})
+
+test('test files stay at or below 1,200 lines', () => {
+  const entries = testFiles().map((file) => ({ file, lines: linesOf(readFileSync(resolve(root, file), 'utf8')) }))
+  assert.ok(entries.length > 0, 'no test files found under tests/')
+  assert.deepEqual(lineBudgetProblems(entries, TEST_FILE_MAX_LINES), [])
+})
+
+test('the host has one index.ts entry and no nested index barrels', () => {
+  const files = sourceFiles(srcRoot)
+  assert.ok(files.includes('src/index.ts'), 'src/index.ts must stay the host entry')
+  assert.deepEqual(hostEntryBarrels(files), [])
+})
+
+test('the budget helpers reject synthetic overruns', () => {
+  // A limit is inclusive: a file exactly at the budget passes, one byte over fails.
+  assert.deepEqual(budgetProblems([{ file: 'src/fits.ts', bytes: READ_LIMIT_BYTES }], READ_LIMIT_BYTES), [])
+  assert.equal(budgetProblems([{ file: 'src/over.ts', bytes: READ_LIMIT_BYTES + 1 }], READ_LIMIT_BYTES).length, 1)
+  assert.deepEqual(lineBudgetProblems([{ file: 'tests/fits.test.mjs', lines: TEST_FILE_MAX_LINES }], TEST_FILE_MAX_LINES), [])
+  assert.equal(lineBudgetProblems([{ file: 'tests/over.test.mjs', lines: TEST_FILE_MAX_LINES + 1 }], TEST_FILE_MAX_LINES).length, 1)
+  assert.deepEqual(hostEntryBarrels(['src/index.ts', 'src/client/index.tsx']), [])
+  assert.deepEqual(hostEntryBarrels(['src/index.ts', 'src/feature/index.ts']), ['src/feature/index.ts'])
 })
 
 test('every src/m12-e2e module stays under the 48 KiB split target', () => {

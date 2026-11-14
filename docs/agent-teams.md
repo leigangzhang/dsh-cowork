@@ -25,7 +25,8 @@ Give every required contributor a task or an explicit message. When a profile al
 
 - Readiness comes from task completion or a direct message, not a 10-second file poll. If a readiness marker must be polled, cap the wait at 60 seconds and record why. The DAG must show `verification` depending on `integration-ready`.
 - Implementation tasks run only their targeted `verify`. The four repository checks (check, test, typecheck, and build) run once at `integration-ready`; the verifier independently runs them once, then one real E2E. Do not run the full suite in every worktree, feature branch, or member before that gate.
-- The first verification run records a gate artifact: candidate HEAD, the SHA-256 of the `base..HEAD` diff, and porcelain status. Reuse evidence while that identity is unchanged; rerun when the artifact changes.
+- The first verification run records a gate artifact with `npm run gate-artifact -- --base <verified-base>`: candidate HEAD, the SHA-256 of the `base..HEAD` binary diff, porcelain status, and the four `change-scope` path groups. Reuse evidence while that identity is unchanged; rerun when any field changes.
+- Reconcile the artifact's committed, staged, unstaged, and untracked path groups against every implementation task's `inScope` union. An out-of-scope path is allowed only as an explicit exception named in the task contract; the reviewer checks the exception, not the member's summary.
 - In an isolated copy or worktree, a reviewer may execute commands through a read-only policy such as `verify-only`. If the reviewer cannot execute, report a static review and never present the verifier's results as its own run.
 - Build incrementally, and inject or reload once per gate. Use a fixed test host and port, and use health or readiness state rather than blind re-injection. If a stale fiber appears, record the evidence; perform one clean re-injection only when necessary and record why. Do not let the stale fiber keep serving.
 - A member report is evidence, not fact. The captain rechecks critical claims against the artifact or command output before acting on them.
@@ -70,6 +71,7 @@ For panel fixtures:
 - After final `integration-ready`, only documentation and records may change. A required behavior change restarts `integration-ready`, then verification, then review.
 - Final integration runs the four checks for a behavior change. Otherwise it runs `npm run check` and a delta review. Do not start delivery until review passes and final integration completes.
 - Close a failed task with `supersededBy` or an output summary. Use the quality kinds `verification`, `review`, `repair`, and `integration` for their named stages; do not substitute `work`.
+- When a gate fails, decide whether the contract or the code is wrong. If the objective, acceptance, `verify`, or `inScope` cannot be satisfied honestly, amend the task contract and record the reason; never bypass the gate, weaken a check, or rerun the same evidence hoping for a different result.
 
 ## Closeout records (R7)
 

@@ -38,6 +38,7 @@ lib/          local build output; gitignored, consumed by tarball and host smoke
 - **Validate at trust boundaries.** Parsers, files, tool JSON, wire input, subprocesses, and external APIs are untrusted; typed same-process values trust TypeScript instead of adding redundant runtime checks.
 - **Errors stay owned.** Do not swallow failures; expected tool failures carry a stable code and actionable context ([src/tool-model.ts](src/tool-model.ts)).
 - **Tests describe behavior.** A change to tested behavior updates its test deliberately; never weaken or delete an assertion merely to get green ([docs/testing.md](docs/testing.md)).
+- **Code health is executable.** Exports, stale names, ignored-evidence links, budgets, architecture, and `noUnused*` are gates in `npm run check` / `check:clean` / `typecheck`; the judgement checklist is [code-review](.agents/skills/code-review/SKILL.md).
 - **Source plane and artifact plane stay separate.** Tests resolve `src`; built-artifact smoke consumes the local `lib/`. Do not mix them to hide a missing build ([docs/testing.md](docs/testing.md)).
 - **Topic = native DSH session.** Create topics only through `sessionController.create`; never expose a spawn/fork subagent as a user-openable session. `thread` is only the 0.1.0 alias.
 - **No multi-orchestrator.** Do not add AgentTeams, `dsh-agent-hub`, `dsh-forge`, or `dsh-team-conductor` as runtime dependencies; borrow semantics, not packages.

@@ -55,12 +55,24 @@ export function coverageArgs(testFiles) {
   ]
 }
 
-/** Test files are passed explicitly so a shell cannot silently drop one. */
+/**
+ * Every `*.test.mjs` below `directory`, recursively, as sorted absolute paths.
+ *
+ * This mirrors `node --test tests/`: moving a test into a subdirectory must not
+ * silently drop it from the coverage lane. Support modules are not test files
+ * and stay excluded by the `*.test.mjs` suffix.
+ */
 export function testFilesIn(directory) {
-  return readdirSync(directory)
-    .filter((name) => name.endsWith('.mjs'))
-    .sort()
-    .map((name) => join(directory, name))
+  const found = []
+  const visit = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) visit(full)
+      else if (entry.isFile() && entry.name.endsWith('.test.mjs')) found.push(full)
+    }
+  }
+  visit(directory)
+  return found.sort()
 }
 
 function main() {

@@ -153,6 +153,8 @@ function projectRuleErrors(config) {
   for (const rel of noteRecords) {
     errors.push(...noteErrors(rel, read(rel), declaredSurfaces))
   }
+  errors.push(...exportAuditErrors(root))
+  errors.push(...staleNameErrors(iterFiles(root, STALE_NAME_SCOPE.patterns, STALE_NAME_SCOPE.exclude)))
   return errors
 }
 
@@ -221,6 +223,212 @@ function hygieneErrors() {
   return errors
 }
 
+/**
+ * Runtime exports used only outside their own file, measured by identifier
+ * occurrence rather than by a TypeScript parse.
+ *
+ * Textual counting is deliberate: this is an advisory audit for dead and
+ * test-only surface, not a type checker. A mention in a comment counts as a
+ * reference, so the audit can miss a dead export; it cannot invent one in a
+ * tree where the name does not occur at all. Type-only exports are out of
+ * scope; `tsc --noEmit` owns type usage, and this audit owns the values a
+ * runtime module exposes to another module.
+ */
+const EXPORT_BASELINE_PATH = 'tools/export-baseline.json'
+const HOST_ENTRY = 'src/index.ts'
+const RUNTIME_EXPORT_DECLARATION = /^export\s+(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z_$][\w$]*)/gm
+
+function escapeName(name) {
+  return name.replace(/[$]/g, '\\$')
+}
+
+function nameOccurrences(text, name) {
+  return (text.match(new RegExp(`\\b${escapeName(name)}\\b`, 'g')) ?? []).length
+}
+
+function runtimeDeclarationCount(text, name) {
+  const pattern = new RegExp(
+    `^export\\s+(?:async\\s+)?(?:function|const|let|var|class)\\s+${escapeName(name)}\\b`,
+    'gm',
+  )
+  return (text.match(pattern) ?? []).length
+}
+
+/**
+ * Categorize runtime exports from `sources` ([relative path, text] pairs) and
+ * `tests` (same shape).
+ *
+ * @returns {{dead: Array<{name: string, files: string[]}>, testOnly: Array<{name: string, files: string[]}>, overExported: Array<{name: string, files: string[]}>}}
+ *   Dead: never referenced beyond the declaration. Test-only: referenced only
+ *   by tests. Over-exported: referenced only inside the declaring file, so the
+ *   `export` keyword can be dropped on the next touch.
+ */
+function exportAuditCategories(sources, tests) {
+  const owners = new Map()
+  for (const [rel, text] of sources) {
+    if (rel === HOST_ENTRY) continue
+    for (const match of text.matchAll(RUNTIME_EXPORT_DECLARATION)) {
+      if (!owners.has(match[1])) owners.set(match[1], new Set())
+      owners.get(match[1]).add(rel)
+    }
+  }
+  const report = { dead: [], testOnly: [], overExported: [] }
+  for (const [name, ownerFiles] of owners) {
+    let declarations = 0
+    let inOwnerFiles = 0
+    for (const rel of ownerFiles) {
+      const text = sources.find(([file]) => file === rel)?.[1] ?? ''
+      declarations += runtimeDeclarationCount(text, name)
+      inOwnerFiles += nameOccurrences(text, name)
+    }
+    let total = inOwnerFiles
+    const external = []
+    for (const [rel, text] of sources) {
+      if (ownerFiles.has(rel)) continue
+      const count = nameOccurrences(text, name)
+      total += count
+      if (count > 0) external.push(rel)
+    }
+    let testReferences = 0
+    for (const [, text] of tests) testReferences += nameOccurrences(text, name)
+    total += testReferences
+    const entry = { name, files: [...ownerFiles].sort() }
+    if (external.length > 0) continue
+    if (testReferences > 0) report.testOnly.push(entry)
+    else if (total > declarations) report.overExported.push(entry)
+    else report.dead.push(entry)
+  }
+  const byName = (a, b) => a.name.localeCompare(b.name)
+  report.dead.sort(byName)
+  report.testOnly.sort(byName)
+  report.overExported.sort(byName)
+  return report
+}
+
+/** Problems from comparing one audit report with the reviewed baseline. */
+function exportAuditProblems(report, baseline) {
+  const errors = []
+  const listed = new Set(baseline.testOnly)
+  for (const entry of report.dead) {
+    errors.push(
+      `${entry.files.join(', ')}: export '${entry.name}' is referenced nowhere; delete it or give it a production caller`,
+    )
+  }
+  for (const entry of report.testOnly) {
+    if (listed.has(entry.name)) continue
+    errors.push(
+      `${entry.files.join(', ')}: export '${entry.name}' is referenced only by tests and is not in ${EXPORT_BASELINE_PATH}; ` +
+        'add a reason there or give production code a caller',
+    )
+  }
+  for (const name of listed) {
+    if (report.testOnly.some((entry) => entry.name === name)) continue
+    errors.push(`${EXPORT_BASELINE_PATH}: '${name}' is no longer a test-only export; shrink the baseline`)
+  }
+  return errors
+}
+
+/** Validate the reviewed export baseline; a malformed file cannot be an allowlist. */
+function exportBaselineProblems(baseline) {
+  const problems = []
+  if (typeof baseline !== 'object' || baseline === null || Array.isArray(baseline)) return ['baseline must be an object']
+  if (typeof baseline.why !== 'string' || baseline.why.trim() === '') problems.push('baseline needs a non-empty why')
+  if (typeof baseline.reviewBy !== 'string' || baseline.reviewBy.trim() === '') problems.push('baseline needs a non-empty reviewBy')
+  if (!Array.isArray(baseline.testOnly)) {
+    problems.push('baseline needs a testOnly array')
+    return problems
+  }
+  const seen = new Set()
+  baseline.testOnly.forEach((name, index) => {
+    if (typeof name !== 'string' || name.trim() === '') problems.push(`baseline testOnly[${index}] must be a non-empty string`)
+    else if (seen.has(name)) problems.push(`baseline lists '${name}' twice`)
+    else seen.add(name)
+  })
+  return problems
+}
+
+/** Read the export baseline; a missing or malformed baseline is a gate defect. */
+function readExportBaseline() {
+  if (!exists(EXPORT_BASELINE_PATH)) return { error: `${EXPORT_BASELINE_PATH} is missing; the export audit has no reviewed allowlist` }
+  let baseline
+  try {
+    baseline = JSON.parse(read(EXPORT_BASELINE_PATH))
+  } catch (error) {
+    return { error: `cannot read ${EXPORT_BASELINE_PATH}: ${error.message}` }
+  }
+  const problems = exportBaselineProblems(baseline)
+  return problems.length > 0 ? { error: problems.join('; ') } : { baseline }
+}
+
+function exportAuditErrors(auditRoot) {
+  const sources = iterFiles(auditRoot, ['src/**']).filter(([rel]) => /\.(ts|tsx)$/.test(rel))
+  const tests = iterFiles(auditRoot, ['tests/**']).filter(([rel]) => rel.endsWith('.mjs'))
+  const report = exportAuditCategories(sources, tests)
+  const readBaseline = readExportBaseline()
+  if (readBaseline.error !== undefined) return [readBaseline.error]
+  const errors = exportAuditProblems(report, readBaseline.baseline)
+  if (report.overExported.length > 0) {
+    console.log(
+      `export-audit: ${report.overExported.length} export(s) are used only inside their own module; ` +
+        'drop the export keyword when touching them (`--print-export-audit` lists them)',
+    )
+  }
+  return errors
+}
+
+/**
+ * Names and counts that stopped being true. The scope is current-state prose:
+ * source, the root guides, the docs root (except the two plan/history files and
+ * the glossary of retired wording), and the skills. Historical records under
+ * `docs/handoff/` and `.agents/notes/` keep their old names, and tests keep
+ * negative assertions.
+ */
+const STALE_NAME_RULES = [
+  { pattern: /\bcowork_probe\b/, message: 'the M0 cowork_probe tool was removed' },
+  { pattern: /\bcowork_identity_probe\b/, message: 'the M0 cowork_identity_probe tool was removed' },
+  { pattern: /\bcowork-probe\b/, message: 'the M0 cowork-probe preset was removed' },
+  { pattern: /\bprobe-engine\.ts\b/, message: 'src/probe-engine.ts was removed' },
+  { pattern: /\bprobe-store\.ts\b/, message: 'src/probe-store.ts was removed' },
+  { pattern: /\bsrc\/router\.ts\b/, message: 'src/router.ts was replaced by src/routing.ts' },
+  { pattern: /\bcowork-thread\b/, message: 'the cowork-thread preset was removed' },
+  { pattern: /(?:19|十五)\s*(?:个工具|tools)\b/i, message: 'the tool count is 22, not 19' },
+  { pattern: /(?:15|十五)\s*(?:个工具|tools)\b/i, message: 'the tool count is 22, not 15' },
+  { pattern: /(?:4|四)\s*(?:个|个\s*)?presets?\b/i, message: 'there are three presets, not four' },
+  { pattern: /(?:6|六)\s*(?:条)?\s*(?:路由|routes)\b/i, message: 'the panel API has ten routes, not six' },
+]
+const STALE_NAME_SCOPE = {
+  patterns: ['src/**', 'README.md', 'AGENTS.md', '.agents/skills/**', 'docs/*.md'],
+  exclude: [
+    // Plan files are milestone records; their completed sections cite old names.
+    'docs/PLAN.md',
+    'docs/PLAN-V0.2.md',
+    // Historical delivery records.
+    'docs/handoff/*',
+    'docs/design/*',
+    // The plain-language table quotes retired wording on purpose.
+    'docs/plain-language.md',
+  ],
+}
+
+const REMOVAL_MARKER = /(?:已删除|已移除|删除|removed|retired|退役)/i
+
+function staleNameErrors(files) {
+  const errors = []
+  for (const [rel, text] of files) {
+    text.split('\n').forEach((line, index) => {
+      // A line that explicitly marks the name as removed is a true migration
+      // note, not a stale instruction; only unflagged mentions are red.
+      if (REMOVAL_MARKER.test(line)) return
+      for (const rule of STALE_NAME_RULES) {
+        if (rule.pattern.test(line)) {
+          errors.push(`${rel}:${index + 1}: ${rule.message}: ${line.trim().slice(0, 120)}`)
+        }
+      }
+    })
+  }
+  return errors
+}
+
 function projectSelfTest() {
   const cases = [
     {
@@ -246,6 +454,45 @@ function projectSelfTest() {
         '# Decision: x\n\nStatus: implemented\nDate: 2026-01-01\nClass: architecture\n\n## Problem\n\np\n\n## Decision\n\nd\n\n## Alternatives considered\n\na\n\n## Consequences\n\nc\n\n## Testing\n\n- [A1] no owner here\n',
         new Set(['source']),
       ).some((error) => error.includes('declared surface')),
+    },
+    {
+      name: 'export audit: a dead export is red',
+      fail: () => exportAuditCategories(
+        [['src/a.ts', 'export function dead() { return 1 }\n']],
+        [],
+      ).dead.some((entry) => entry.name === 'dead'),
+    },
+    {
+      name: 'export audit: a new test-only export is red while a baselined one stays green',
+      fail: () => {
+        const sources = [['src/a.ts', 'export function pinned() { return 1 }\nexport function fresh() { return 2 }\n']]
+        const tests = [['tests/a.test.mjs', "import { pinned, fresh } from '../src/a.ts'\n"]]
+        const problems = exportAuditProblems(
+          exportAuditCategories(sources, tests),
+          { why: 'self-test', reviewBy: 'self-test', testOnly: ['pinned'] },
+        )
+        return problems.some((problem) => problem.includes("'fresh'"))
+          && !problems.some((problem) => problem.includes("'pinned'"))
+      },
+    },
+    {
+      name: 'export audit: a stale baseline entry is red',
+      fail: () => exportAuditProblems(
+        exportAuditCategories([['src/a.ts', 'export const used = 1\n']], []),
+        { why: 'self-test', reviewBy: 'self-test', testOnly: ['gone'] },
+      ).some((problem) => problem.includes("'gone'")),
+    },
+    {
+      name: 'stale name: a removed tool name is red',
+      fail: () => staleNameErrors([['src/a.ts', "export const label = 'cowork_probe'\n"]]).length > 0,
+    },
+    {
+      name: 'stale name: a current tool name is green',
+      fail: () => staleNameErrors([['src/a.ts', "export const label = 'cowork_project_init'\n"]]).length === 0,
+    },
+    {
+      name: 'stale name: an explicit removal note is green',
+      fail: () => staleNameErrors([['README.md', '- `cowork-thread` 已删除，改用 `cowork-topic`。\n']]).length === 0,
     },
   ]
   let failed = 0
@@ -276,15 +523,17 @@ function usage() {
   node tools/check-invariants.mjs
   node tools/check-invariants.mjs --self-test
   node tools/check-invariants.mjs --list
+  node tools/check-invariants.mjs --print-export-audit
   node tools/check-invariants.mjs --changed BASE [--worktree-only]`)
 }
 
 function parseArgs(argv) {
-  const args = { selfTest: false, list: false, changed: null, worktreeOnly: false, help: false }
+  const args = { selfTest: false, list: false, printExportAudit: false, changed: null, worktreeOnly: false, help: false }
   for (let i = 0; i < argv.length; i += 1) {
     const value = argv[i]
     if (value === '--self-test') args.selfTest = true
     else if (value === '--list') args.list = true
+    else if (value === '--print-export-audit') args.printExportAudit = true
     else if (value === '--worktree-only') args.worktreeOnly = true
     else if (value === '--help' || value === '-h') args.help = true
     else if (value === '--changed') {
@@ -310,6 +559,19 @@ try {
 
 if (args.help) {
   usage()
+  process.exit(0)
+}
+
+if (args.printExportAudit) {
+  const report = exportAuditCategories(
+    iterFiles(root, ['src/**']).filter(([rel]) => /\.(ts|tsx)$/.test(rel)),
+    iterFiles(root, ['tests/**']).filter(([rel]) => rel.endsWith('.mjs')),
+  )
+  console.log(JSON.stringify({
+    dead: report.dead.map((entry) => entry.name),
+    testOnly: report.testOnly.map((entry) => entry.name),
+    overExported: report.overExported.map((entry) => entry.name),
+  }, null, 2))
   process.exit(0)
 }
 

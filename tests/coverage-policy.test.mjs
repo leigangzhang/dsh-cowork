@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -49,11 +49,42 @@ test('coverage args carry the include, every exclusion, and every floor', () => 
   assert.deepEqual(args.slice(-2), ['/tmp/a.test.mjs', '/tmp/b.test.mjs'])
 })
 
-test('testFilesIn finds exactly the sorted mjs tests', () => {
+test('testFilesIn finds only .test.mjs below tests/, recursively', () => {
   const files = testFilesIn(resolve(root, 'tests'))
   assert.ok(files.length > 0)
   assert.deepEqual(files, [...files].sort())
-  assert.ok(files.every((path) => path.endsWith('.mjs')))
+  assert.ok(files.every((path) => path.endsWith('.test.mjs')))
+  // The suite is flat today; this assertion is what makes a future move into a
+  // subdirectory visible instead of silently dropping the file.
+  assert.ok(files.some((path) => path === join(root, 'tests', 'source-budget.test.mjs')))
+})
+
+test('testFilesIn discovers a nested test and ignores non-test modules in its directory', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cowork-test-discovery-'))
+  try {
+    mkdirSync(join(dir, 'nested', 'deeper'), { recursive: true })
+    writeFileSync(join(dir, 'top.test.mjs'), "import test from 'node:test'\n")
+    writeFileSync(join(dir, 'nested', 'alpha.test.mjs'), "import test from 'node:test'\n")
+    writeFileSync(join(dir, 'nested', 'deeper', 'beta.test.mjs'), "import test from 'node:test'\n")
+    writeFileSync(join(dir, 'nested', 'helper.mjs'), 'export const helper = 1\n')
+    writeFileSync(join(dir, 'nested', 'support.mjs'), 'export const support = 1\n')
+
+    assert.deepEqual(testFilesIn(dir), [
+      join(dir, 'nested', 'alpha.test.mjs'),
+      join(dir, 'nested', 'deeper', 'beta.test.mjs'),
+      join(dir, 'top.test.mjs'),
+    ].sort())
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('npm test points at a recursive test glob, not one top-level level', () => {
+  const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
+  assert.equal(pkg.scripts?.test, 'node --test "tests/**/*.test.mjs"')
+  // Node expands the quoted glob itself; a shell-expanded `tests/*.mjs` stops at
+  // the first level, and a test placed in tests/<subdir>/ would silently not run.
+  assert.doesNotMatch(pkg.scripts.test, /tests\/\*\.mjs/)
 })
 
 test('the coverage floor mechanism can fail', () => {
