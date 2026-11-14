@@ -15,7 +15,7 @@ Commit `.fallowrc.jsonc` with one reviewed reason per ignore, keep fallow as the
 1. Extend the existing export audit to audit re-exports from the host entry (`src/app/apply.ts`); keep its declarations exempt.
 2. Keep the 72 over-exported exports as an advisory warning; do not add a ratchet.
 3. Use `fallow dead-code --unused-types` only as review evidence; do not extend the textual audit or add a type gate.
-4. Apply fallow's default health thresholds (CC > 20, cognitive > 15, CRAP > 30, unit > 60) to all functions, with the 123-finding run as the reviewed baseline; duplication stays a change-level rule.
+4. Apply fallow's default health thresholds (CC > 20, cognitive > 15, CRAP > 30, unit > 60) to all functions, with the opening 123-finding run as the reviewed baseline (117 after the Phase 1 cleanup); duplication stays a change-level rule.
 5. Analyse `scripts/build/` with `"ignorePatterns": ["!scripts/build/**"]`.
 6. Unify `NOTICE_TITLE_MAX_CHARS` at 100 in its three homes.
 7. Run `fallow audit --base <verified-base>` when reviewing a change, and re-baseline after a fallow upgrade.
@@ -32,7 +32,7 @@ Commit `.fallowrc.jsonc` with one reviewed reason per ignore, keep fallow as the
 
 - [A1] `.fallowrc.jsonc` is committed with one reason per ignore; `fallow doctor` reports no failing check. — `workflow`
 - [A2] With the config, `fallow dead-code` opens at 32 findings; after the Phase 1 cleanup it reports no unused exports, types, or unresolved imports, with zero circular and zero unlisted dependencies. — `source`
-- [A3] `fallow health` reports 123 full-function findings at 83.9/B, and the count does not grow. — `source`
+- [A3] `fallow health` reports at most 123 full-function findings at adoption and 117 after the Phase 1 cleanup (84.4/B), and the count does not grow. — `source`
 - [A4] The Phase 1 dead set (5 exports, 8 types, 2 private methods, `tools/panel-fixture.mjs`) is removed, and `NOTICE_TITLE_MAX_CHARS` is 100 in all three homes. — `source`
 - [A5] `npm run check`, `npm run check:self-test`, `npm run typecheck`, and the affected test lanes pass. — `workflow`
 
@@ -45,8 +45,8 @@ Commit `.fallowrc.jsonc` with one reviewed reason per ignore, keep fallow as the
 
 ## Delivery stages
 
-1. Config and record — no code change; verify the 32/123 baselines.
+1. Config and record — no code change; verify the 32/123 baselines (13/117 after Phase 1).
 2. Mechanical cleanup — remove the stale fixture, 5 exports, 8 types, and 2 unused private methods.
 3. Symbol consolidation — unify duplicated names and `NOTICE_TITLE_MAX_CHARS`.
-4. Complexity and duplication — burn down the 123-finding baseline from the top.
+4. Complexity and duplication — burn down the 117-finding baseline from the top.
 5. Review loop — keep the local CLI check in code review and re-baseline after upgrades.
