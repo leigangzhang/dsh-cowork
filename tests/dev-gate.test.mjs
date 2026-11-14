@@ -13,7 +13,7 @@ import { join } from 'node:path'
 //  (b) the runners it constructs use TypeScript parameter properties, which
 //      strip-only mode rejects — transform mode is required.
 // Everything else (dsh-tools, schemastery) resolves from the links that
-// `npm run build` creates, like tests/api.test.mjs already relies on.
+// `npm run build` creates, like tests/api-read.test.mjs already relies on.
 
 const { apply, Config, normalizeConfig, panelRoutePathname } = await import('../src/index.ts')
 const { CONFIG_DEFAULTS } = await import('../src/config.ts')

@@ -362,7 +362,7 @@ export function makeReviewRequest(overrides = {}) {
     path: '/repo',
     branch: 'feat/m11',
     changedPaths: ['src/api.ts'],
-    verification: [{ command: 'node --test tests/api.test.mjs', exitCode: 0, evidence: '21 passed' }],
+    verification: [{ command: 'node --test tests/api-read.test.mjs', exitCode: 0, evidence: '21 passed' }],
     previousRequestId: null,
     status: 'pending',
     reviewerSessionId: 'reviewer-session',
