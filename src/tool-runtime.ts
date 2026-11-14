@@ -19,7 +19,7 @@
 import { execFile } from 'node:child_process'
 import { requestResolvedActivity, statusChangedActivity, topicArchivedActivity } from './activity.js'
 import { CLONE_ISOLATION_PROVIDER } from './checkout.js'
-import type { CheckoutDeps, GitResult, GitRunner } from './checkout.js'
+import type { GitResult, GitRunner } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
 import { Inbox, InboxMarkError } from './inbox.js'
 import { RequestStore } from './request-store.js'
@@ -99,8 +99,6 @@ export interface CoworkToolDeps {
   log?: (message: string) => void
   /** Silence after which a topic becomes idle; defaults to `DEFAULT_IDLE_AFTER_MS`. */
   idleAfterMs?: number
-  /** Silence after which a resolvable topic is resolved; defaults to `DEFAULT_RESOLVE_AFTER_MS`. */
-  resolveAfterMs?: number
   /** Work-item isolation provider; defaults to {@link DEFAULT_ISOLATION_PROVIDER}. */
   isolationProvider?: string
   /** Reviewer reclaim mode; defaults to {@link DEFAULT_REVIEWER_RECLAIM}. */
@@ -438,9 +436,6 @@ export const runGit: GitRunner = (args, cwd) =>
     )
   })
 
-/** The checkout module's only dependency is the git runner. */
-export const checkoutDeps: CheckoutDeps = { runGit }
-
 /** The memory module's IO port, backed by the project store's lock and atomic write. */
 export function memoryIo(store: ProjectStore): MemoryIo {
   return {
@@ -583,16 +578,7 @@ export interface LifecycleEvaluation {
 /** Everything the read point needs; the defaults live at the call site. */
 export interface LifecycleOptions {
   idleAfterMs: number
-  /** Deprecated and ignored; kept so older callers still typecheck. */
-  resolveAfterMs?: number
   now: Date
-  /**
-   * Per-topic in-flight work-item count (M10, KI-24). It is called with the
-   * document re-read inside the project lock, so a topic cannot be resolved from
-   * a stale snapshot that predates a concurrent work-item creation. Absent means
-   * "no work items", which keeps unit fixtures without a work-item model valid.
-   */
-  activeWorkItemsOf?: (topicId: string, document: ProjectIndexV2) => number
 }
 
 /** The narrow store port the read point needs; `ProjectStore` satisfies it. */
@@ -616,7 +602,6 @@ export async function evaluateProjectLifecycle(
   options: LifecycleOptions,
 ): Promise<LifecycleEvaluation> {
   const nowMs = options.now.getTime()
-  const activeWorkItemsOf = options.activeWorkItemsOf ?? (() => 0)
   const changes: LifecycleChange[] = []
   let evaluated = 0
 
@@ -629,8 +614,6 @@ export async function evaluateProjectLifecycle(
       const transition = evaluateTopicLifecycle(topic, {
         nowMs,
         idleAfterMs: options.idleAfterMs,
-        resolveAfterMs: options.resolveAfterMs,
-        activeWorkItems: activeWorkItemsOf(topic.topicId, document),
       })
       if (transition.kind === 'none') {
         topics.push(topic)

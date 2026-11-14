@@ -58,11 +58,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Whether a value is a string that `Date.parse` accepts. */
-function isIsoDate(value: unknown): value is string {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value))
-}
-
 /**
  * Read one optional string-array field.
  *

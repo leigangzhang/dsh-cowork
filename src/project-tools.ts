@@ -30,7 +30,7 @@ import {
   renderJson,
   toJson,
 } from './tool-runtime.js'
-import { DEFAULT_IDLE_AFTER_MS, DEFAULT_RESOLVE_AFTER_MS } from './topic.js'
+import { DEFAULT_IDLE_AFTER_MS } from './topic.js'
 import { activeWorkItemCount } from './work-item.js'
 import { checkRole, claimMaster, success } from './tool-model.js'
 
@@ -232,9 +232,7 @@ export function registerProjectTools(ctx: unknown, deps: CoworkToolDeps): Array<
         const now = nowOf(deps)
         const lifecycle = await evaluateProjectLifecycle(opened.store, {
           idleAfterMs: deps.idleAfterMs ?? DEFAULT_IDLE_AFTER_MS,
-          resolveAfterMs: deps.resolveAfterMs ?? DEFAULT_RESOLVE_AFTER_MS,
           now,
-          activeWorkItemsOf: (topicId, document) => activeWorkItemCount(document, topicId),
         })
 
         const document = await opened.store.readIndexDocument()

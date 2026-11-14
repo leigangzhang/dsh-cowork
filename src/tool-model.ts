@@ -36,7 +36,6 @@ export const ERROR_CODES = {
   reviewSelfReview: 'review/self-review',
   reviewVerdictInvalid: 'review/verdict-invalid',
   reviewNotPassed: 'review/not-passed',
-  reviewOverrideReasonRequired: 'review/override-reason-required',
   reviewSessionFailed: 'review/session-failed',
   reviewPromptFailed: 'review/prompt-failed',
   reviewWriteFailed: 'review/write-failed',

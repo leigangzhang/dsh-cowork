@@ -14,7 +14,6 @@ import {
   M12_E2E_TOPIC_INTENT,
   M12_E2E_WORK_CONTENT,
   M12_E2E_WORK_FILE,
-  M12_STEP_IDS,
   MASTER_PRESET_ID,
   MAX_EVENTS,
   MAX_GIT_TEXT,
@@ -57,7 +56,6 @@ import {
   messageOf,
   obs,
   parseInboxFile,
-  parseProjectIndexV2,
   persistEvidenceDocument,
   planMergePrompt,
   planRequestReview,
@@ -625,7 +623,7 @@ export class M12E2ERunner {
     const inbox = await this.readInbox()
     const delivered = inbox.filter((entry) => entry.deliveredAt !== null)
     const delivery = await this.poll('the merge decision delivered to the master session', async () =>
-      deliveryEventSince(this.master(), this.eventsOf(this.master()), this.masterSeqAtVerdict, 'merge-needed'))
+      deliveryEventSince(this.eventsOf(this.master()), this.masterSeqAtVerdict, 'merge-needed'))
     const after = eventsSince(this.eventsOf(this.master()), this.masterSeqAtVerdict)
     const summary = this.requestSummary
     const leaked = summary === null || summary.length < 20 ? [] : after.filter((event) => stableJson(event.data).includes(summary))
@@ -772,7 +770,7 @@ export class M12E2ERunner {
     recordCheck(step, 'the tool result names the new topic', payload?.topicId === created.topicId, `${String(payload?.topicId)} == ${created.topicId}`)
     recordCheck(step, 'the new topic is live', isLiveTopicStatus(created.status), created.status)
     recordCheck(step, 'the old topic stays resolved', topicOf(await this.readIndex(), topic)?.status === 'resolved', String(topicOf(await this.readIndex(), topic)?.status))
-    const received = deliveryEventSince(topic, this.eventsOf(topic), topicSeq, M12_E2E_TOPIC_INTENT)
+    const received = deliveryEventSince(this.eventsOf(topic), topicSeq, M12_E2E_TOPIC_INTENT)
     recordCheck(step, 'the resolved topic received no intent', received === undefined, 'no delivery event after the resolved route')
     await this.waitIdle(created.topicId)
   }

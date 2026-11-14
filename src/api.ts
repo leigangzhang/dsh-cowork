@@ -153,11 +153,6 @@ export interface CoworkApiPorts {
   now?(): Date
   /** Idle threshold for the lifecycle read point; `src/topic.ts` owns the default. */
   idleAfterMs?: number
-  /**
-   * Deprecated and ignored: the lifecycle no longer resolves a topic on its
-   * own. Kept so a caller wired for the old `resolveAfterMs` still typechecks.
-   */
-  resolveAfterMs?: number
   /** Diagnostic sink for a non-fatal failure (lifecycle/activity write). */
   log?(message: string): void
   /** Archive the host session of an archived topic; a failure is logged only. */
@@ -380,16 +375,14 @@ async function openProject(ports: CoworkApiPorts, sessionId: string): Promise<Op
 }
 
 /**
- * The M9/M10 lifecycle read point, now on the panel's read path: evaluate every
- * topic inside the project lock with real in-flight work-item counts (KI-24),
- * so a topic whose work is still running is never auto-resolved. A failing
- * activity row is reported to the host log; the panel request still serves.
+ * The lifecycle read point on the panel's read path: evaluate every topic
+ * inside the project lock. A failing activity row is reported to the host log;
+ * the panel request still serves.
  */
 async function runLifecycle(store: CoworkStorePort, ports: CoworkApiPorts): Promise<void> {
   const evaluation = await evaluateProjectLifecycle(store, {
     now: ports.now?.() ?? new Date(),
     idleAfterMs: ports.idleAfterMs ?? DEFAULT_IDLE_AFTER_MS,
-    activeWorkItemsOf: (topicId, document) => activeWorkItemCount(document, topicId),
   })
   for (const failure of evaluation.activityErrors) {
     ports.log?.(`panel overview: lifecycle activity not recorded: ${failure}`)
@@ -958,7 +951,6 @@ async function handleAuthorizationResolve(request: Request, ports: CoworkApiPort
   // own prompt: replaying it here would wake the topic twice.
   const ownsPrompt = settled === 'settled' || settled === 'absent'
   let prompted = false
-  let promptError: string | null = null
   if (outcome.changed && ownsPrompt && outcome.promptText !== null) {
     const delivered = await promptRequestTopic({
       repoPath,
@@ -972,7 +964,6 @@ async function handleAuthorizationResolve(request: Request, ports: CoworkApiPort
       log: (message: string) => ports.log?.(`panel authorization: ${message}`),
     })
     prompted = delivered.prompted
-    promptError = delivered.promptError
   }
   const response: AuthorizationResolveResponse = {
     ok: true,
@@ -1057,7 +1048,6 @@ async function handleRouteMove(request: Request, ports: CoworkApiPorts): Promise
 
 /** One handler plus the guards every panel route shares. */
 function serve(
-  ports: CoworkApiPorts,
   handler: (request: Request) => Promise<Response>,
 ): (request: Request) => Promise<Response> {
   return async (request) => {
@@ -1091,50 +1081,50 @@ export function registerCoworkApi(host: CoworkApiHost, ports: CoworkApiPorts): v
     openProject: (sessionId) => openProject(ports, sessionId),
     readJsonBody,
     jsonResponse,
-    serve: (handler) => serve(ports, handler),
+    serve: (handler) => serve(handler),
   }
   const routes: readonly PanelFetchRoute[] = [
     {
       path: OVERVIEW_PATH,
       methods: ['GET'],
       requestBody: 'buffered',
-      fetch: serve(ports, (request) => handleOverview(request, ports)),
+      fetch: serve((request) => handleOverview(request, ports)),
     },
     {
       path: ACTIVITY_PATH,
       methods: ['GET'],
       requestBody: 'buffered',
-      fetch: serve(ports, (request) => handleActivity(request, ports)),
+      fetch: serve((request) => handleActivity(request, ports)),
     },
     {
       path: TOPIC_PATH,
       methods: ['GET'],
       requestBody: 'buffered',
-      fetch: serve(ports, (request) => handleTopic(request, ports)),
+      fetch: serve((request) => handleTopic(request, ports)),
     },
     {
       path: RESOLVE_PATH,
       methods: ['POST'],
       requestBody: 'buffered',
-      fetch: serve(ports, (request) => handleResolve(request, ports)),
+      fetch: serve((request) => handleResolve(request, ports)),
     },
     {
       path: REOPEN_PATH,
       methods: ['POST'],
       requestBody: 'buffered',
-      fetch: serve(ports, (request) => handleReopen(request, ports)),
+      fetch: serve((request) => handleReopen(request, ports)),
     },
     {
       path: ROUTE_MOVE_PATH,
       methods: ['POST'],
       requestBody: 'buffered',
-      fetch: serve(ports, (request) => handleRouteMove(request, ports)),
+      fetch: serve((request) => handleRouteMove(request, ports)),
     },
     {
       path: AUTHORIZATION_RESOLVE_PATH,
       methods: ['POST'],
       requestBody: 'buffered',
-      fetch: serve(ports, (request) => handleAuthorizationResolve(request, ports)),
+      fetch: serve((request) => handleAuthorizationResolve(request, ports)),
     },
     ...inboxPanelRoutes(ports, inboxKit),
   ]

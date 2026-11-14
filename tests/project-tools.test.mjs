@@ -77,7 +77,6 @@ function fakeDeps() {
     agentPresets: {},
     clock: () => new Date(NOW_ISO),
     idleAfterMs: 2 * HOUR_MS,
-    resolveAfterMs: 3 * DAY_MS,
   }
 }
 
@@ -436,15 +435,11 @@ test('project_init no longer reconciles a stale handoff into the index', async (
   })
 })
 
-test('the compatibility replay and the fixed work-item count are gone from the sources', () => {
+test('the compatibility handoff replay is gone from the sources', () => {
   const projectSource = readFileSync(new URL('../src/project-tools.ts', import.meta.url), 'utf8')
   const routeSource = readFileSync(new URL('../src/route-tools.ts', import.meta.url), 'utf8')
   const runtimeSource = readFileSync(new URL('../src/tool-runtime.ts', import.meta.url), 'utf8')
 
   assert.equal(/reconcileIndex|replayPendingHandoffs|handoffReplay/.test(projectSource), false)
   assert.equal(/export async function reconcileIndex/.test(runtimeSource), false)
-  assert.equal(/activeWorkItems: 0/.test(runtimeSource), false)
-  assert.equal(/activeWorkItems\?: number/.test(runtimeSource), false)
-  assert.match(projectSource, /activeWorkItemsOf/)
-  assert.match(routeSource, /activeWorkItemsOf/)
 })

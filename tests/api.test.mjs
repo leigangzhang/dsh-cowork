@@ -237,7 +237,6 @@ function fakePorts(options = {}) {
     },
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.idleAfterMs === undefined ? {} : { idleAfterMs: options.idleAfterMs }),
-    ...(options.resolveAfterMs === undefined ? {} : { resolveAfterMs: options.resolveAfterMs }),
     log: (message) => state.logs.push(message),
     ...(options.noArchive === true
       ? {}

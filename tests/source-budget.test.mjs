@@ -220,21 +220,6 @@ test('the work-item, review-request, and session modules own rules, not tool nam
   assert.match(source('src/checkout-tools.ts'), /export function registerCheckoutTools\(/)
 })
 
-test('KI-24: the read point counts real work items, not a fixed zero', () => {
-  const source = (file) => readFileSync(resolve(root, file), 'utf8')
-  const projectSource = source('src/project-tools.ts')
-  const routeSource = source('src/route-tools.ts')
-  const runtimeSource = source('src/tool-runtime.ts')
-
-  assert.match(projectSource, /activeWorkItemsOf/)
-  assert.match(routeSource, /activeWorkItemsOf/)
-  assert.match(runtimeSource, /activeWorkItemsOf/)
-  for (const [file, text] of [['src/project-tools.ts', projectSource], ['src/route-tools.ts', routeSource], ['src/tool-runtime.ts', runtimeSource]]) {
-    assert.equal(/activeWorkItems: 0/.test(text), false, `${file} must not pass a fixed zero`)
-    assert.equal(/activeWorkItems\?: number/.test(text), false, `${file} must not take a fixed count option`)
-  }
-})
-
 test('KI-25/KI-18: no legacy review writes, and the legacy read-only surface stays', () => {
   const source = (file) => readFileSync(resolve(root, file), 'utf8')
   const reviewTools = source('src/review-tools.ts')

@@ -978,7 +978,7 @@ export function toolCallsSince(events: readonly SessionEvent[], fromSeq: number,
   return [...calls.values()]
 }
 
-export function deliveryEventSince(sessionId: string, events: readonly SessionEvent[], fromSeq: number, needle: string): DeliveryEvent | undefined {
+export function deliveryEventSince(events: readonly SessionEvent[], fromSeq: number, needle: string): DeliveryEvent | undefined {
   const matches: DeliveryEvent[] = []
   for (const event of events) {
     if (event.seq <= fromSeq) continue
