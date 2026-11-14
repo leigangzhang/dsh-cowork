@@ -1,18 +1,16 @@
 /**
  * Business activity events (M8.3).
  *
- * This module builds the events the lifecycle rules publish and records them
- * through the store's append port. The file layer stays in `src/store.ts`:
- * `appendActivity` validates the event, enforces the 500-event / 512-KiB bounds
- * and repairs damaged lines on its next rewrite, so nothing here re-implements
- * JSON Lines I/O. The event-type vocabulary has one home,
- * `ACTIVITY_TYPES` in `src/store-schema.ts`; this module does not copy it.
+ * This module builds the events the lifecycle rules publish. The file layer
+ * stays in `src/store.ts`: `appendActivity` validates the event, enforces the
+ * 500-event / 512-KiB bounds and repairs damaged lines on its next rewrite, so
+ * nothing here re-implements JSON Lines I/O. The event-type vocabulary has one
+ * home, `ACTIVITY_TYPES` in `src/store-schema.ts`; this module does not copy it.
  */
 import { randomUUID } from 'node:crypto'
 import { NOTICE_SUMMARY_MAX_CHARS, noticeDescriptor } from './notices.js'
 import type {
   ActivityNoticeDescriptor,
-  NoticeAction,
   NoticeStatus,
   NoticeTarget,
 } from './notices.js'
@@ -28,11 +26,6 @@ export interface ActivityInput {
   summary: string
   /** Structured detail for the panel; never free-form log text. Defaults to `{}`. */
   details?: Record<string, unknown>
-}
-
-/** The narrow append port this module needs from the store. */
-export interface ActivitySink {
-  appendActivity(event: ActivityEvent): Promise<void>
 }
 
 /** Build one validated event stamped with the injected clock. */
@@ -51,20 +44,6 @@ export function buildActivityEvent(input: ActivityInput, now: Date): ActivityEve
     summary: input.summary,
     details: input.details ?? {},
   }
-}
-
-/**
- * Build one event and append it through the store's validated file layer.
- * Returns the event that was written, so a caller can report the same id.
- */
-export async function recordActivity(
-  sink: ActivitySink,
-  input: ActivityInput,
-  now: Date,
-): Promise<ActivityEvent> {
-  const event = buildActivityEvent(input, now)
-  await sink.appendActivity(event)
-  return event
 }
 
 /**
@@ -99,16 +78,6 @@ export function statusChangedActivity(
     },
     now,
   )
-}
-
-/** The event one failure records; `details` carries the structured cause. */
-export function errorActivity(
-  topicId: string | null,
-  summary: string,
-  now: Date,
-  details: Record<string, unknown> = {},
-): ActivityEvent {
-  return buildActivityEvent({ type: 'error', topicId, summary, details }, now)
 }
 
 /** Longest title a notice descriptor carries, in code points. */

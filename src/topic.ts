@@ -34,10 +34,6 @@ export interface TopicLifecycleContext {
   nowMs: number
   /** Silence after which an unflagged topic is idle. */
   idleAfterMs: number
-  /** Deprecated and ignored: the lifecycle has no resolve threshold. */
-  resolveAfterMs?: number
-  /** Kept for the read point's signature; resolution is not automatic any more. */
-  activeWorkItems?: number
 }
 
 /** The lifecycle change an evaluation asks for; `none` means write nothing. */

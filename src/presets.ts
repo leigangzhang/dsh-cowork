@@ -2,17 +2,14 @@
  * The three runtime presets this plugin owns: `cowork-master`, `cowork-topic`,
  * and `cowork-reviewer`.
  *
- * Each preset is an explicit list of plugin rows, because S0 proved an empty
- * `plugins` list mounts no tools at all (docs/handoff/M1_S0_RESULT.md §1): the
- * rows are the same ones the S0 thread-smoke preset used successfully, extended
- * with the job/ask-user/todo/present rows a topic needs. M9 removes the file,
- * shell, job, and present rows from the master (M6 probe 5 proved fs/bash are
- * not needed there) and introduces `cowork-topic`; the old `cowork-thread`
- * alias is gone. The reviewer deliberately gets a narrower surface: shell and
- * search, never `tool-fs`, so it has no read/write/edit tool and cannot change
- * the code it votes on. Registration is at runtime (no profile patch), so the
- * rows live here as data and the host registry is injected through
- * {@link PresetRegistryPort}.
+ * Each preset is an explicit list of plugin rows: the M1 S0 probe proved an
+ * empty `plugins` list mounts no tools at all
+ * (docs/handoff/M1_S0_RESULT.md §1), and the rows it validated are extended
+ * with the job/ask-user/todo/present rows a topic needs. The master keeps only
+ * the routing/decision rows; the reviewer gets shell and search but never
+ * `tool-fs`, so it cannot change the code it votes on. Registration is at
+ * runtime (no profile patch), so the rows live here as data and the host
+ * registry is injected through {@link PresetRegistryPort}.
  */
 
 /** Preset id of the master session that routes and accepts work. */
@@ -21,8 +18,8 @@ export const MASTER_PRESET_ID = 'cowork-master'
 export const TOPIC_PRESET_ID = 'cowork-topic'
 /**
  * Preset id of the read-only reviewer session. M10.1 moved the definition here
- * from `src/review.ts` (deleted in M10.3); `src/review.ts` still re-exports a
- * type-pinned shadow for the legacy review-tool tests.
+ * from the removed `src/review.ts`; the legacy review types now live in
+ * `src/store-schema.ts`.
  */
 export const REVIEWER_PRESET_ID = 'cowork-reviewer'
 
@@ -41,7 +38,7 @@ export const MASTER_PERSONA = [
   'When you need to know what happened, read the recent topic notices with cowork_notices (master-only) instead of polling the sessions; the topic page and the notice cards are the user-facing view, not a queue for you.',
   'Never use dev_* tools, host-management tools, or plugin-management tools from a master session: they change the environment and are not part of cowork work.',
   'Call cowork_checkout_merge only when the topic reviewStatus is pass: the plugin refuses an unreviewed range and never merges into main — a human closes the default branch.',
-  'Review verdicts still arrive as messages; blocked and progress reports are read with cowork_notices (the topic page is the user-facing view), and do not poll or wait silently. On pass, merge the thread when it has a clone (cowork_checkout_merge) or accept the shared-tree work; on reject, report that the topic is blocked and decide whether to replan. A needs_revision verdict goes back to the topic, which requests its own next review.',
+  'Review verdicts still arrive as messages; blocked and progress reports are read with cowork_notices (the topic page is the user-facing view), and do not poll or wait silently. On pass, merge the work item when it has a clone (cowork_checkout_merge) or accept the shared-tree work; on reject, report that the topic is blocked and decide whether to replan. A needs_revision verdict goes back to the topic, which requests its own next review.',
   'Answer in the language the user writes in. Be brief and state which topic you routed to and why.',
 ].join(' ')
 
@@ -71,7 +68,7 @@ export const TOPIC_PERSONA = [
 export const REVIEWER_PERSONA = [
   'You are the independent reviewer of one cowork review request in this repository.',
   'You are read-only with respect to the implementation: never edit, stage, or commit files, and never create or prompt other sessions.',
-  'Read the review request (requestId, scope, base and head commits, changed paths) and the actual code with bash and the search tools; do not read the handoff in full — the request is your scope, and the thread self-report is evidence, not truth.',
+  'Read the review request (requestId, scope, base and head commits, changed paths) and the actual code with bash and the search tools; do not read the handoff in full — the request is your scope, and the topic handoff is evidence, not truth.',
   'Run the verification commands yourself and judge what you actually observed.',
   'Scope boundary: look only at the requested review scope — never merge and never resolve conflicts (只看请求范围，不合并、不解决冲突).',
   'Call cowork_review_verdict exactly once when the review is finished; needs_revision and reject must name concrete findings with the required fix.',

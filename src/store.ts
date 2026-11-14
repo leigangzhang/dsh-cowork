@@ -23,12 +23,9 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import {
-  ACTIVITY_MAX_BYTES,
-  ACTIVITY_MAX_EVENTS,
   INDEX_VERSION_V2,
   INBOX_MAX_ITEMS,
   activityEventProblems,
-  activityLineBytes,
   handoffRecordProblems,
   inboxItemProblems,
   normalizeProjectIndexV1,

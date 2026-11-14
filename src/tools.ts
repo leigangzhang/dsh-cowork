@@ -22,10 +22,9 @@
  *
  * Host services arrive through `CoworkToolDeps`; nothing throws across the tool
  * boundary, and the review tools keep receiving their helpers by injection so
- * the dependency stays one-way. The legacy read-only surface — the M2/M3 dev
- * runners, `src/api.ts`/`src/api-contract.ts`, and `src/store-migration.ts` — is
- * kept for M11's panel switch and M12's real-host replacement; this assembly
- * writes canonical v2 state only.
+ * the dependency stays one-way. The v1 read-only compatibility surface
+ * (`src/store-migration.ts` and the legacy store view) stays through 0.3.0
+ * (KI-18); this assembly writes canonical v2 state only.
  */
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { registerCheckoutTools, registerWorkItemTools } from './checkout-tools.js'

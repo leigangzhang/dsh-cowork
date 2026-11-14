@@ -13,7 +13,7 @@
  * and the list/detail split are gone by design; nothing here can bring them
  * back.
  */
-import type { PanelTopic, PanelTopicStatus } from '../api-contract.ts'
+import type { PanelTopic } from '../api-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 
 /** How often relative timestamps are recomputed while the panel is open. */
@@ -513,5 +513,3 @@ export function placeCardMenu(anchor: MenuAnchorRect, viewport: ViewportSize): M
   return { top, left, flipped }
 }
 
-/** Topic status values the page understands, in contract order. */
-export const TOPIC_STATUS_VALUES: readonly PanelTopicStatus[] = ['active', 'idle', 'resolved']

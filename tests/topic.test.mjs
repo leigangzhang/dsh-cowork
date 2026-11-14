@@ -114,11 +114,6 @@ test('the lifecycle never resolves a topic on its own, however stale it is', () 
     context(),
   )
   assert.deepEqual(idle, { kind: 'none' }, 'a stale idle topic stays idle')
-  // Even a context that still carries the deprecated threshold cannot resolve.
-  assert.equal(
-    evaluateTopicLifecycle(topicV2({ lastActiveAt: ago(RESOLVE_AFTER_MS) }), context({ resolveAfterMs: RESOLVE_AFTER_MS })).kind,
-    'idle',
-  )
 })
 
 test('awaitingReview, a block, and a pending authorization suppress idle', () => {

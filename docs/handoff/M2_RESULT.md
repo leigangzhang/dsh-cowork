@@ -18,7 +18,7 @@
 | [`src/store.ts`](../../src/store.ts) | 索引唯一写者；`checkoutPath` 是 checkout 唯一事实源，旧索引 `worktreePath` 读兼容；记忆文件复用项目锁与原子写。 |
 | [`src/session-slice.ts`](../../src/session-slice.ts) | 显式 sessionId + clone workspace 建会话；宿主返回不同 sessionId 时 fail-closed；删除 workspace、归档会话。 |
 | [`src/index.ts`](../../src/index.ts) | 装配记忆注入、注册工具与 9 个工具面。 |
-| [`src/m2-e2e.ts`](../../src/m2-e2e.ts) / [`src/m2-e2e-support.ts`](../../src/m2-e2e-support.ts) | 真实宿主 E2E 驱动：11 步、证据原子写 `.dsh-cowork/e2e/M2_E2E.json`；两个文件均 ≤50 KB，证据 host 块不含 hostname。 |
+| `src/m2-e2e.ts` / `src/m2-e2e-support.ts` | 真实宿主 E2E 驱动：11 步、证据原子写 `.dsh-cowork/e2e/M2_E2E.json`；两个文件均 ≤50 KB，证据 host 块不含 hostname。 |
 
 ### 工具面
 

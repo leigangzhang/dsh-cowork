@@ -220,21 +220,6 @@ test('the work-item, review-request, and session modules own rules, not tool nam
   assert.match(source('src/checkout-tools.ts'), /export function registerCheckoutTools\(/)
 })
 
-test('KI-24: the read point counts real work items, not a fixed zero', () => {
-  const source = (file) => readFileSync(resolve(root, file), 'utf8')
-  const projectSource = source('src/project-tools.ts')
-  const routeSource = source('src/route-tools.ts')
-  const runtimeSource = source('src/tool-runtime.ts')
-
-  assert.match(projectSource, /activeWorkItemsOf/)
-  assert.match(routeSource, /activeWorkItemsOf/)
-  assert.match(runtimeSource, /activeWorkItemsOf/)
-  for (const [file, text] of [['src/project-tools.ts', projectSource], ['src/route-tools.ts', routeSource], ['src/tool-runtime.ts', runtimeSource]]) {
-    assert.equal(/activeWorkItems: 0/.test(text), false, `${file} must not pass a fixed zero`)
-    assert.equal(/activeWorkItems\?: number/.test(text), false, `${file} must not take a fixed count option`)
-  }
-})
-
 test('KI-25/KI-18: no legacy review writes, and the legacy read-only surface stays', () => {
   const source = (file) => readFileSync(resolve(root, file), 'utf8')
   const reviewTools = source('src/review-tools.ts')
@@ -254,10 +239,8 @@ test('KI-25/KI-18: no legacy review writes, and the legacy read-only surface sta
   assert.equal(/allowUnreviewed|overrideReason/.test(source('src/presets.ts')), false)
   assert.equal(/checkLegacyThreadMerge[\s\S]*allowUnreviewed/.test(source('src/review-request.ts')), false)
 
-  // Legacy readers and dev runners stay until M11/M12 replace them.
-  for (const file of ['src/api.ts', 'src/api-contract.ts', 'src/m2-e2e.ts', 'src/m3-e2e.ts', 'src/store-migration.ts']) {
-    assert.equal(existsSync(resolve(root, file)), true, `${file} must stay for M11/M12`)
+  // Legacy readers stay through the 0.2.0 compatibility window (KI-18).
+  for (const file of ['src/api.ts', 'src/api-contract.ts', 'src/store-migration.ts']) {
+    assert.equal(existsSync(resolve(root, file)), true, `${file} must stay for the 0.2.0 window`)
   }
-  assert.match(source('src/tools.ts'), /M11/)
-  assert.match(source('src/tools.ts'), /M12/)
 })

@@ -2,9 +2,9 @@
  * Handoff module: validate a topic's report and format the record it persists.
  *
  * M10 removed the legacy submit/replay path: the `cowork_handoff` tool writes
- * the file as an audit record, updates the canonical topic, and (for `blocked`)
- * delivers one bounded inbox item. The full handoff text is no longer prompted
- * into the master turn, and nothing rewrites an old handoff file.
+ * the file as an audit record, updates the canonical topic, and reports the
+ * event through activity and topic notices. The full handoff text is no longer
+ * prompted into the master turn, and nothing rewrites an old handoff file.
  *
  * The module owns no I/O: validation and formatting are pure, and the tool
  * layer supplies the store. The accepted write statuses are `blocked` and
@@ -56,11 +56,6 @@ const STRING_ARRAY_FIELDS = ['decisions', 'changedPaths', 'artifacts', 'openIssu
 /** Whether a value is a JSON object (not null, not an array). */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-/** Whether a value is a string that `Date.parse` accepts. */
-function isIsoDate(value: unknown): value is string {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value))
 }
 
 /**

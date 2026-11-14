@@ -1,12 +1,12 @@
 /**
  * @dsh-external/dsh-cowork host plugin.
  *
- * The business surface — the panel API, the nineteen cowork tools, the three
+ * The business surface — the panel API, the twenty-two cowork tools, the three
  * presets, and the project-memory prompt section — is always registered. The
- * M0/S0/M2/M3 probe and E2E surfaces (two probe tools, two probe presets, the
- * loopback-only start/status routes, and four session event feeds) only exist
- * when `Config.enableDevRoutes` is true, so an installed profile does not
- * expose them to users.
+ * M0 probe surface (one probe tool, one probe preset, and the loopback-only
+ * health/start/status routes) and the M12 E2E run/status routes only exist when
+ * `Config.enableDevRoutes` is true, so an installed profile does not expose
+ * them to users.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -23,24 +23,18 @@ import { AUTHORIZATION_RESOLVE_PATH, OVERVIEW_PATH, REOPEN_PATH, RESOLVE_PATH } 
 import { panelProbeRequest, panelRoutePathname } from './panel-probe.js'
 
 export { panelRoutePathname }
-import type { HealthView, ProbeConfig, ProbeHost } from './probe-engine.js'
+import type { ProbeConfig, ProbeHost } from './probe-engine.js'
 import { PROBE_PRESET_ID, ProbeRunner } from './probe-engine.js'
 import { MEMORY_FILES, MEMORY_KINDS, memoryFilePath, parseMemoryFile, renderMemoryBlock } from './memory.js'
 import type { MemoryInjectInput } from './memory.js'
 import { registerMemoryPrompt } from './memory-prompt.js'
 import type { MemoryPromptAgent, MemoryPromptDeps, MemoryPromptHost, MemoryRender } from './memory-prompt.js'
-import { M2E2ERunner } from './m2-e2e.js'
-import type { M2E2EHost } from './m2-e2e.js'
-import { M3E2ERunner, M3_E2E_RUN_PATH, M3_E2E_STATUS_PATH } from './m3-e2e.js'
-import type { M3E2EHost } from './m3-e2e.js'
 import { M12E2ERunner, M12_E2E_RUN_PATH, M12_E2E_STATUS_PATH } from './m12-e2e.js'
 import type { M12E2EHost, M12PanelProbe } from './m12-e2e.js'
 import { canonicalRepoPath, isLoopbackAddress, isLoopbackHost, readPath, readQuery, requireRunId } from './probe-model.js'
 import { registerPresets } from './presets.js'
 import { HIDDEN_PRESET_IDS, hidePresetsFromRoster } from './preset-visibility.js'
 import type { PresetRosterService } from './preset-visibility.js'
-import type { S0Host, S0Identity } from './s0-probe.js'
-import { EMPTY_PRESET_ID, S0Runner, THREAD_SMOKE_PRESET_ID } from './s0-probe.js'
 import { ProjectStore, findProjectRoot, findProjectRootSync } from './store.js'
 import { SessionSlice } from './session-slice.js'
 import { createLlmRoutingPort } from './llm-port.js'
@@ -67,14 +61,6 @@ const HEALTH_PATH = '/dsh-cowork/probe/health'
 const RUN_PATH = '/dsh-cowork/probe/run'
 /** Status route: poll one run's phases, evidence, sessions, and error. */
 const STATUS_PATH = '/dsh-cowork/probe/status'
-/** S0 run route: start one M1 S0 probe run and return its id immediately. */
-const S0_RUN_PATH = '/dsh-cowork/probe/s0'
-/** S0 status route: poll one S0 run. */
-const S0_STATUS_PATH = '/dsh-cowork/probe/s0-status'
-/** M2 E2E run route: start one real-host run and return its id immediately. */
-const M2_E2E_RUN_PATH = '/dsh-cowork/e2e/m2/run'
-/** M2 E2E status route: poll one run's steps, evidence, and error. */
-const M2_E2E_STATUS_PATH = '/dsh-cowork/e2e/m2/status'
 
 /** Lossless JSON value accepted by the tool result boundary. */
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
@@ -125,8 +111,8 @@ export interface Config {
   /** Probe worktree path, relative to `repoPath`. */
   worktreeRelativePath: string
   /**
-   * Register the M0/S0/M2/M3 probe and E2E surfaces. Off by default: an
-   * installed profile keeps only the business tools, presets, and panel API.
+   * Register the M0 probe and M12 E2E surfaces. Off by default: an installed
+   * profile keeps only the business tools, presets, and panel API.
    */
   enableDevRoutes: boolean
   /** Silence after which a topic displays as idle (24h). */
@@ -173,8 +159,8 @@ export const Config: z<Config> = z.object({
  *
  * The host feeds `apply` a schema-validated `Config`, but tests and future
  * embedders construct one by hand; routing must not crash because one nested
- * object is missing. This is the single place that knows the defaults, and
- * `apply` uses only its result.
+ * object is missing. These fallbacks mirror the schema defaults above, and
+ * `apply` uses only this result.
  */
 export function normalizeConfig(
   config: Partial<Config> & {
@@ -260,8 +246,9 @@ type HostWorkspaceRegistry = CoworkToolDeps['workspaceRegistry'] & {
 
 /**
  * Host services the M1 assembly reads. The plugin cannot import the app's own
- * types, so these stay structural; the shapes are the ones S0 confirmed
- * (`agentPresets.register`, `sessionController`, `workspaceRegistry`).
+ * types, so these stay structural; the shapes are the ones the M1 S0 probe
+ * confirmed (docs/handoff/M1_S0_RESULT.md): `agentPresets.register`,
+ * `sessionController`, and `workspaceRegistry`.
  */
 interface CoworkAssemblyHost {
   sessionController: CoworkToolDeps['sessionController']
@@ -353,10 +340,10 @@ interface DevSurfaceOptions {
 }
 
 /**
- * Register the M0/S0/M2/M3 probe and E2E surfaces: two probe tools, two probe
- * presets, the loopback-only start/status routes, and the four session event
- * feeds. Every registration is an effect owned by this fiber, so an unload
- * leaves neither a route nor a listener behind.
+ * Register the M0 probe and M12 E2E surfaces: one probe tool, one probe preset,
+ * the loopback-only health/start/status routes, the M12 run/status routes, and
+ * the two session event feeds. Every registration is an effect owned by this
+ * fiber, so an unload leaves neither a route nor a listener behind.
  */
 function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
   const host = ctx as unknown as ProbeHost
@@ -369,27 +356,6 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
     worktreeRelativePath: options.worktreeRelativePath,
   }
   const runner = new ProbeRunner(host, probeConfig, PLUGIN_NAME, PLUGIN_VERSION)
-  const s0 = new S0Runner(ctx as unknown as S0Host, {
-    repoPath: probeConfig.repoPath,
-    promptTimeoutMs: probeConfig.promptTimeoutMs,
-  })
-  // M2 real-host E2E: loopback-only start/status routes, evidence under .dsh-cowork/e2e/.
-  const m2e2e = new M2E2ERunner(ctx as unknown as M2E2EHost, {
-    repoPath: probeConfig.repoPath,
-    promptTimeoutMs: probeConfig.promptTimeoutMs,
-    pluginName: PLUGIN_NAME,
-    pluginVersion: PLUGIN_VERSION,
-    log: (message) => ctx.logger?.info?.(`[${PLUGIN_NAME}] ${message}`),
-  })
-  // M3 real-host E2E: independent review gate, two review rounds, evidence under
-  // .dsh-cowork/e2e/M3_E2E.json. Same loopback-only start/status shape as M2.
-  const m3e2e = new M3E2ERunner(ctx as unknown as M3E2EHost, {
-    repoPath: probeConfig.repoPath,
-    promptTimeoutMs: probeConfig.promptTimeoutMs,
-    pluginName: PLUGIN_NAME,
-    pluginVersion: PLUGIN_VERSION,
-    log: (message) => ctx.logger?.info?.(`[${PLUGIN_NAME}] ${message}`),
-  })
   // M12 real-host E2E: the 0.2.0 topic-session chain, run in a throwaway
   // repository under os.tmpdir(); evidence under .dsh-cowork/e2e/M12_E2E.json.
   const m12e2e = new M12E2ERunner(ctx as unknown as M12E2EHost, {
@@ -417,55 +383,6 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
     )
     return registration
   }, 'dsh-cowork: runtime agent preset')
-
-  // S0: explicit plugin rows prove whether a thread-smoke preset can carry tools.
-  ctx.effect(() => host.agentPresets.register({
-    id: THREAD_SMOKE_PRESET_ID,
-    name: 'cowork thread s0',
-    description: 'M1 S0 probe preset: persona plus explicit tool rows.',
-    plugins: [
-      {
-        id: 'persona',
-        name: '@deepseek-ai/dsh-persona',
-        config: { prefix: 'You are a cowork thread probe. Use your tools to inspect the repository when asked.' },
-      },
-      { id: 'agent-instructions', name: '@deepseek-ai/dsh-agent-instructions', config: { maxBytes: 65536 } },
-      { id: 'tool-bash', name: '@deepseek-ai/dsh-tool-bash' },
-      { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' },
-      { id: 'tool-fs-search', name: '@deepseek-ai/dsh-tool-fs-search', config: { sampleOverCapGlobResults: false } },
-    ],
-  }), 'dsh-cowork: S0 thread preset')
-
-  // S0: report the calling session identity to answer whether `exec.agent` exists.
-  ctx.effect(() => ctx.tools.register(defineTool({
-    name: 'cowork_identity_probe',
-    description: 'Temporary M1 S0 probe: report the calling session id, cwd, preset, and execution keys. Read-only.',
-    parameters: {
-      token: { type: 'string', required: true, description: 'Evidence label, e.g. "master" or "thread".' },
-    },
-    output: {
-      schema: { type: 'json' },
-      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
-    },
-    execute: async (args: { token: string }, exec): Promise<JsonValue> => {
-      const caller = exec as unknown as {
-        agent?: {
-          id?: string
-          session?: { header?: { cwd?: string; agentPreset?: string } }
-        }
-      }
-      const identity: S0Identity = {
-        token: args.token,
-        agentId: caller.agent?.id ?? null,
-        cwd: caller.agent?.session?.header?.cwd ?? null,
-        agentPreset: caller.agent?.session?.header?.agentPreset ?? null,
-        execKeys: Object.keys(exec).sort(),
-        hasAgent: caller.agent !== undefined,
-      }
-      s0.recordIdentity(identity)
-      return JSON.parse(JSON.stringify(identity)) as JsonValue
-    },
-  })), 'dsh-cowork: S0 identity probe tool')
 
   // One read-only tool: health plus the last run summary.
   ctx.effect(() => ctx.tools.register(defineTool({
@@ -532,129 +449,6 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
   ]
   routes.push({
     kind: 'exact',
-    path: S0_RUN_PATH,
-    handler: (request, response) => {
-      if (!guard(request, response, 'POST')) return
-      request.resume()
-      try {
-        const run = s0.start()
-        sendJson(response, 200, { runId: run.runId, state: run.state })
-      } catch (error) {
-        sendJson(response, 409, {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    },
-  }, {
-    kind: 'exact',
-    path: S0_STATUS_PATH,
-    handler: async (request, response) => {
-      if (!guard(request, response, 'GET')) return
-      let runId: string
-      try {
-        runId = requireRunId(readQuery(request.url, 'runId'))
-      } catch (error) {
-        sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
-        return
-      }
-      const run = await s0.resolve(runId)
-      if (run === undefined) {
-        sendJson(response, 404, { ok: false, error: `unknown S0 runId: ${runId}` })
-        return
-      }
-      sendJson(response, 200, run)
-    },
-  }, {
-    kind: 'exact',
-    path: M2_E2E_RUN_PATH,
-    handler: (request, response) => {
-      if (!guard(request, response, 'POST')) return
-      request.resume()
-      try {
-        const run = m2e2e.start()
-        sendJson(response, 200, { ok: true, runId: run.runId })
-      } catch (error) {
-        sendJson(response, 409, {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    },
-  }, {
-    kind: 'exact',
-    path: M2_E2E_STATUS_PATH,
-    handler: async (request, response) => {
-      if (!guard(request, response, 'GET')) return
-      let runId: string
-      try {
-        runId = requireRunId(readQuery(request.url, 'runId'))
-      } catch (error) {
-        sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
-        return
-      }
-      const run = await m2e2e.resolve(runId)
-      if (run === undefined) {
-        sendJson(response, 404, { ok: false, error: `unknown M2 E2E runId: ${runId}` })
-        return
-      }
-      sendJson(response, 200, {
-        ok: true,
-        runId: run.runId,
-        state: run.state,
-        startedAt: run.startedAt,
-        ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
-        steps: run.steps,
-        evidenceFile: run.evidenceFile,
-        ...(run.error === undefined ? {} : { error: run.error }),
-      })
-    },
-  }, {
-    kind: 'exact',
-    path: M3_E2E_RUN_PATH,
-    handler: (request, response) => {
-      if (!guard(request, response, 'POST')) return
-      request.resume()
-      try {
-        const run = m3e2e.start()
-        sendJson(response, 200, { ok: true, runId: run.runId })
-      } catch (error) {
-        sendJson(response, 409, {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    },
-  }, {
-    kind: 'exact',
-    path: M3_E2E_STATUS_PATH,
-    handler: async (request, response) => {
-      if (!guard(request, response, 'GET')) return
-      let runId: string
-      try {
-        runId = requireRunId(readQuery(request.url, 'runId'))
-      } catch (error) {
-        sendJson(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
-        return
-      }
-      const run = await m3e2e.resolve(runId)
-      if (run === undefined) {
-        sendJson(response, 404, { ok: false, error: `unknown M3 E2E runId: ${runId}` })
-        return
-      }
-      sendJson(response, 200, {
-        ok: true,
-        runId: run.runId,
-        state: run.state,
-        startedAt: run.startedAt,
-        ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
-        steps: run.steps,
-        evidenceFile: run.evidenceFile,
-        ...(run.error === undefined ? {} : { error: run.error }),
-      })
-    },
-  }, {
-    kind: 'exact',
     path: M12_E2E_RUN_PATH,
     handler: (request, response) => {
       if (!guard(request, response, 'POST')) return
@@ -710,20 +504,13 @@ function registerDevSurfaces(ctx: Context, options: DevSurfaceOptions): void {
   }
 
   ctx.effect(() => runner.attachEvents(), 'dsh-cowork: session event feed')
-  ctx.effect(() => s0.attachEvents(), 'dsh-cowork: S0 session event feed')
-  ctx.effect(() => m2e2e.attachEvents(), 'dsh-cowork: M2 E2E session event feed')
-  ctx.effect(() => m3e2e.attachEvents(), 'dsh-cowork: M3 E2E session event feed')
   ctx.effect(() => m12e2e.attachEvents(), 'dsh-cowork: M12 E2E session event feed')
   ctx.effect(() => () => {
     runner.dispose()
-    s0.dispose()
-    m2e2e.dispose()
-    m3e2e.dispose()
     m12e2e.dispose()
   }, 'dsh-cowork: probe runners')
 
   ctx.logger?.info?.(`[${PLUGIN_NAME}] M0 probe ready at ${HEALTH_PATH} (repo ${probeConfig.repoPath})`)
-  ctx.logger?.info?.(`[${PLUGIN_NAME}] M1 S0 probe ready at ${S0_RUN_PATH}`)
 }
 
 /** The host default-model service slice (M9.3b). */
@@ -828,9 +615,9 @@ function createPanelPorts(
       clock: () => new Date(),
       archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
     }),
-    // M11: the panel's lifecycle read point uses the same clock and threshold
-    // as the tool layer, and logs a failed activity row instead of failing the
-    // request. `resolveAfterMs` is no longer read: nothing auto-resolves.
+    // M11: the panel's lifecycle read point uses the same clock and idle
+    // threshold as the tool layer, and logs a failed activity row instead of
+    // failing the request.
     now: () => new Date(),
     idleAfterMs: settings.idleAfterMs,
     // The topic page's archive/reopen/authorization semantics need the host
@@ -862,7 +649,8 @@ function createPanelPorts(
  * `connection` channel, so the probe registers the production panel handlers on
  * a private connection and calls them with a real `Request`. The handlers,
  * guards, store, and lifecycle read point are the shipped ones; only the host's
- * HTTP transport is bypassed, which the evidence document states.
+ * HTTP transport is bypassed, and the driver's evidence records the status and
+ * body it received.
  */
 function createM12PanelProbe(ports: CoworkApiPorts): M12PanelProbe {
   const routes = new Map<string, PanelFetchRoute>()
@@ -928,7 +716,7 @@ export function apply(ctx: Context, config: Config): void {
       `${PLUGIN_NAME}: reviewer.reclaim must be '${DEFAULT_REVIEWER_RECLAIM}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
     )
   }
-  // M1 assembly services: one dependency bag for the presets and the nineteen tools.
+  // M1 assembly services: one dependency bag for the presets and the twenty-two tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: identical in both dev modes and unchanged from M0-M3.
   // Only the dev probe canonicalizes it, because only the probe compares paths
@@ -967,7 +755,6 @@ export function apply(ctx: Context, config: Config): void {
     // M9.1/M9.3a: the tool layer owns the lifecycle read point. The values come
     // from the normalized config, never from a second set of defaults here.
     idleAfterMs: settings.idleAfterMs,
-    resolveAfterMs: settings.resolveAfterMs,
     isolationProvider: settings.isolation.provider,
     reviewerReclaim: settings.reviewer.reclaim,
     routing: settings.routing,
@@ -1064,7 +851,7 @@ export function apply(ctx: Context, config: Config): void {
     })
   }
 
-  // M1: the three runtime presets and the eleven cowork tools, owned by this fiber.
+  // M1: the three runtime presets and the twenty-two cowork tools, owned by this fiber.
   ctx.effect(() => registerPresets(coworkDeps.agentPresets).then((disposers) => async () => {
     for (const dispose of disposers) await dispose()
   }), 'dsh-cowork: cowork presets')

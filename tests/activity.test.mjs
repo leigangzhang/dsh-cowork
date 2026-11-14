@@ -14,8 +14,6 @@ import './support/ts-hook.mjs'
 const { ProjectStore } = await import('../src/store.ts')
 const {
   buildActivityEvent,
-  errorActivity,
-  recordActivity,
   requestCreatedActivity,
   requestResolvedActivity,
   statusChangedActivity,
@@ -113,36 +111,6 @@ test('buildActivityEvent refuses an unknown type or a blank summary', () => {
   }
 })
 
-test('recordActivity appends through the sink and returns the written event', async () => {
-  const appended = []
-  const sink = {
-    async appendActivity(event) {
-      appended.push(event)
-    },
-  }
-  const event = await recordActivity(
-    sink,
-    { type: 'review-verdict', topicId: 'session-a', summary: 'review passed' },
-    NOW,
-  )
-  assert.deepEqual(appended, [event], 'the returned event is the appended one')
-  assert.equal(appended[0].time, NOW_ISO)
-})
-
-test('recordActivity appends nothing when the input is invalid', async () => {
-  const appended = []
-  const sink = {
-    async appendActivity(event) {
-      appended.push(event)
-    },
-  }
-  await assert.rejects(
-    recordActivity(sink, { type: 'not-a-type', topicId: null, summary: 'x' }, NOW),
-    /activity\.type/,
-  )
-  assert.deepEqual(appended, [])
-})
-
 test('topicReopenedActivity records the resolution the reopen cleared', () => {
   const topic = topicV2({
     status: 'resolved',
@@ -162,20 +130,12 @@ test('topicReopenedActivity records the resolution the reopen cleared', () => {
   })
 })
 
-test('statusChangedActivity and errorActivity are thin, structured builders', () => {
+test('statusChangedActivity is a thin, structured builder', () => {
   const topic = topicV2()
   const changed = statusChangedActivity(topic, { from: 'active', to: 'idle' }, NOW)
   assert.equal(changed.type, 'status-changed')
   assert.equal(changed.topicId, 'session-a')
   assert.deepEqual(changed.details, { topicId: 'session-a', from: 'active', to: 'idle' })
-
-  const failed = errorActivity('session-a', 'could not archive reviewer', NOW, {
-    reviewerSessionId: 'session-reviewer',
-  })
-  assert.equal(failed.type, 'error')
-  assert.equal(failed.topicId, 'session-a')
-  assert.equal(failed.summary, 'could not archive reviewer')
-  assert.deepEqual(failed.details, { reviewerSessionId: 'session-reviewer' })
 })
 
 test('a topic-reopened event is accepted by the real activity stream', async () => {
@@ -206,11 +166,11 @@ test('recording reuses the 500-event bound and repairs damaged lines', async () 
     assert.equal(before.skippedLines, 2, 'a damaged line is skipped, not fatal')
     assert.equal(before.events.length, 500)
 
-    const written = await recordActivity(
-      store,
+    const written = buildActivityEvent(
       { type: 'status-changed', topicId: 'session-a', summary: 'newest' },
       NOW,
     )
+    await store.appendActivity(written)
     const after = await store.readActivity(1000)
     assert.equal(after.skippedLines, 0, 'the append repairs the stream')
     assert.equal(after.events.length, 500)
@@ -227,7 +187,9 @@ test('recording reuses the 512-KiB bound', async () => {
     const seeded = `${big('big-1')}\n${big('big-2')}\n`
     await writeFile(store.activityFile, seeded, 'utf8')
 
-    await recordActivity(store, { type: 'status-changed', topicId: null, summary: 'small' }, NOW)
+    await store.appendActivity(
+      buildActivityEvent({ type: 'status-changed', topicId: null, summary: 'small' }, NOW),
+    )
 
     const size = (await stat(store.activityFile)).size
     assert.ok(size <= 524288, `activity file is ${size} bytes`)

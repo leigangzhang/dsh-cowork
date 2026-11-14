@@ -32,13 +32,8 @@ export const COVERAGE_FLOORS = Object.freeze({
  * the ordinary unit suite pins their pure contracts separately.
  */
 export const DEV_ONLY_COVERAGE_EXCLUDES = Object.freeze([
-  'src/m2-e2e.ts',
-  'src/m2-e2e-support.ts',
-  'src/m3-e2e.ts',
-  'src/m3-e2e-support.ts',
   'src/m12-e2e.ts',
   'src/m12-e2e-support.ts',
-  'src/s0-probe.ts',
   'src/probe-engine.ts',
   'src/probe-store.ts',
   'src/panel-probe.ts',

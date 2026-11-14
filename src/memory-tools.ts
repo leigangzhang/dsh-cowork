@@ -49,7 +49,7 @@ export function registerMemoryTools(ctx: unknown, deps: CoworkToolDeps): Array<(
       },
       title: { type: 'string', required: true, description: 'One-line title; duplicate titles are allowed.' },
       text: { type: 'string', required: true, description: 'The entry body, at most 8000 characters.' },
-      source: { type: 'string', required: true, description: 'Where this came from, e.g. the thread id.' },
+      source: { type: 'string', required: true, description: 'Where this came from, e.g. the topic id.' },
     },
     output: { schema: { type: 'json' }, render: renderJson },
     execute: async (args, exec) => {
