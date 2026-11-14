@@ -42,6 +42,7 @@ npm run gate-artifact -- --base <verified-base>  # record HEAD, binary diff SHA-
 - No fixed waits (`setTimeout`, `sleep`) for readiness. Wait on state or a bounded retry loop with a deadline. The host smoke waits for the printed URL and the server's response.
 - Tests allocate temporary files under `os.tmpdir()` and remove them. Package tests pass their own `npm_config_cache`; the host smoke passes its own `DSH_HOME` and npm cache. Never write into `~/.dsh` or a real profile.
 - Every guard must have a negative control: `npm run check:self-test` must show synthetic violations go red, and the coverage test includes a deliberately under-covered fixture that must fail a 100% function floor.
+- Structural guards carry their negative controls in the owning test: [tests/architecture.test.mjs](../tests/architecture.test.mjs) feeds each rule a synthetic bad graph, and [tests/typecheck-policy.test.mjs](../tests/typecheck-policy.test.mjs) makes the compiler reject an unused local and parameter.
 
 ## Blocking and observational lanes
 

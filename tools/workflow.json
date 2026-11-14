@@ -113,13 +113,16 @@
         "tools/workflow.json",
         "tools/check-invariants.mjs",
         "tools/doc-gate-engine.mjs",
+        "tools/export-baseline.json",
+        "scripts/clean-check.mjs",
         ".gitignore"
       ],
       "evidence": [
         "npm run check",
-        "npm run check:self-test"
+        "npm run check:self-test",
+        "npm run check:clean"
       ],
-      "why": "A guard is only real if a violation makes it red; the workflow surface proves the guards can fail."
+      "why": "A guard is only real if a violation makes it red and it still runs without local runtime data; the workflow surface proves both."
     },
     {
       "name": "drill",
@@ -366,7 +369,7 @@
         "tools/*.md"
       ],
       "regex": [
-        "散文"
+        "\u6563\u6587"
       ],
       "why": "A retronym list: each entry is a spelling this repository has stopped using, and a ban is added only after the corpus is clean."
     },
@@ -421,6 +424,17 @@
       ],
       "maxBytes": 51200,
       "why": "No Markdown file may exceed the 50 KiB single-file read limit; oversized pages must be split or relocated."
+    },
+    {
+      "id": "no-ignored-evidence-links",
+      "kind": "forbidden-regex",
+      "patterns": [
+        "*.md"
+      ],
+      "regex": [
+        "\\]\\([^)]*\\.dsh-cowork/"
+      ],
+      "why": "Document evidence must link a tracked file; .dsh-cowork is gitignored runtime data that does not exist in a clean checkout or CI."
     }
   ]
 }

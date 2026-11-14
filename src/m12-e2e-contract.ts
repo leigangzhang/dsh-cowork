@@ -38,7 +38,6 @@ export const M12_E2E_DONE = 'Reply DONE.'
 
 export const MAX_EVENTS = 4_000
 export const MAX_ASSISTANT_TEXT = 1_000
-export const MAX_FILE_TEXT = 2_000
 export const MAX_GIT_TEXT = 2_000
 export const MAX_FIELD_TEXT = 3_000
 export const GIT_TIMEOUT_MS = 30_000

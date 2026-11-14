@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-cowork",
   "version": "0.2.0",
-  "description": "DSH 项目式主从协作插件：master 主会话 + 主题会话 + 项目记忆 + 工作项 + 评审请求 + 活动流",
+  "description": "DSH \u9879\u76ee\u5f0f\u4e3b\u4ece\u534f\u4f5c\u63d2\u4ef6\uff1amaster \u4e3b\u4f1a\u8bdd + \u4e3b\u9898\u4f1a\u8bdd + \u9879\u76ee\u8bb0\u5fc6 + \u5de5\u4f5c\u9879 + \u8bc4\u5ba1\u8bf7\u6c42 + \u6d3b\u52a8\u6d41",
   "private": true,
   "type": "module",
   "engines": {
@@ -33,6 +33,7 @@
     "typecheck": "bash scripts/build.sh --no-emit",
     "check": "node tools/check-invariants.mjs",
     "check:self-test": "node tools/check-invariants.mjs --self-test",
+    "check:clean": "node scripts/clean-check.mjs",
     "change-scope": "node scripts/change-scope.mjs",
     "gate-artifact": "node scripts/gate-artifact.mjs",
     "test": "node --test \"tests/**/*.test.mjs\"",

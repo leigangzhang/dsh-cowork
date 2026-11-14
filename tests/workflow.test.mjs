@@ -88,7 +88,7 @@ test('executable test lanes are wired to scripts, workflow evidence, and the tes
   const pkg = JSON.parse(read('package.json'))
   const workflow = JSON.parse(read('tools/workflow.json'))
   const testing = read('docs/testing.md')
-  for (const script of ['test', 'test:coverage', 'test:host-smoke', 'change-scope', 'typecheck', 'build']) {
+  for (const script of ['test', 'test:coverage', 'test:host-smoke', 'check:clean', 'change-scope', 'typecheck', 'build']) {
     assert.equal(typeof pkg.scripts?.[script], 'string', `package.json is missing script ${script}`)
   }
   const source = workflow.surfaces.find((surface) => surface.name === 'source')
@@ -139,6 +139,20 @@ test('note templates use the lifecycle header', () => {
     assert.match(doc, /^Status: /m)
     assert.match(doc, /^Date: /m)
     assert.match(doc, /^Class: /m)
+  }
+})
+
+test('document evidence cannot link gitignored runtime data', () => {
+  const workflow = JSON.parse(read('tools/workflow.json'))
+  const check = workflow.checks.find((entry) => entry.id === 'no-ignored-evidence-links')
+  assert.ok(check, 'workflow must declare the ignored-evidence link check')
+  assert.equal(check.kind, 'forbidden-regex')
+  assert.deepEqual(check.patterns, ['*.md'])
+  for (const pattern of check.regex) {
+    const regex = new RegExp(pattern)
+    assert.ok(regex.test('proof: [run](.dsh-cowork/e2e/M12_E2E.json)'), `pattern ${pattern} must reject an ignored link`)
+    assert.ok(regex.test('proof: [run](../.dsh-cowork/e2e/M12_E2E.json)'), `pattern ${pattern} must reject a parent-relative ignored link`)
+    assert.equal(regex.test('runtime data lives in `.dsh-cowork/e2e/`'), false, `pattern ${pattern} must allow a plain code mention`)
   }
 })
 

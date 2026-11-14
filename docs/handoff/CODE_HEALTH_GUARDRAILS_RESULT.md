@@ -55,6 +55,24 @@
 | `npm run check` / `npm run check:self-test` | exit 0；self-test 10 kinds + 11 project controls |
 | `npm run typecheck` / `npm run build` / `npm run test:host-smoke` | 均 exit 0；host smoke 5/5 |
 
-## Stage 2–4 执行记录
+## Stage 2 — 硬门禁试点
+
+试点就是本工作流：规则只在这一个分支上先跑通，同批没有目录迁移，也没有把 tool-domain 提案的 import 方向提前落实。误报与 allowlist 记录如下。
+
+- **导出审计**（`tools/check-invariants.mjs`）：运行时导出分 `dead` / `testOnly` / `overExported` 三档，类型导出不参与。`dead` 与新增 `testOnly` 直接红；`testOnly` 用 `tools/export-baseline.json` 做 ratchet 基线（文件内写 `why` 与 `reviewBy`，共 142 条），基线条目失效也红；`overExported` 只报告（当前 72 条）。`--print-export-audit` 只读输出当前分类，避免写一个会自我放行的生成器。审计按标识符文本计数，注释命中会算引用，因此它可能漏报、不会凭空判定；类型使用由 `tsc` 负责。首次运行时删除唯一真正死导出 `MAX_FILE_TEXT`（`src/m12-e2e-contract.ts`）。
+- **陈旧名称**（同一 runner 的 `STALE_NAME_RULES`）：覆盖已删工具/preset/模块、`src/router.ts`、旧工具数（19/15）、旧 preset 数（4）与旧路由数（6）。扫描面是 `src`、根 `README.md`/`AGENTS.md`、`.agents/skills` 和 `docs/*.md`；排除两份 plan、`docs/handoff/`、`docs/design/` 与 `docs/plain-language.md`（后者刻意引用退役措辞）。首次运行发现 README 与 glossary 的 “已删除” 说明被误报，因此新增规则：同一行显式标注 `已删除/removed/retired` 的是迁移说明，放行；自检各有一条命中与放行负例。
+- **干净树**：`npm run check:clean` 把 tracked + 未忽略的 untracked 文件复制到临时目录（或 `--ref` 解包 `git archive`），确认没有 `.dsh-cowork/`、`lib/`、`node_modules/` 后在那里跑 `npm run check`；同时新增 `no-ignored-evidence-links` 检查，Markdown 链接指向 `.dsh-cowork/` 即红。负例在 `tests/workflow.test.mjs`（链接命中 vs 纯代码提法）。
+- **架构方向**：`tests/architecture.test.mjs` 断言行内 import 全部可解析、无环、`src/index.ts` 是汇点、只有入口 import `src/tools.ts`、client 只 import client 与三个 contract、contract 不 import 宿主运行时、22 个工具各由唯一领域模块注册且 register 函数各被调用一次。每条规则都用合成坏图证明会红。
+- **noUnused 负例**：`tests/typecheck-policy.test.mjs` 先在临时目录编译一个含未用局部与未用参数的文件，断言失败且输出含 `never read`，再用同样 flags 编译干净文件断言成功；另一个测试锁住两份 tsconfig 的开关。
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | 980/980 pass，0 fail |
+| `npm run test:coverage` | 980/980 pass，all files 69.15 / 83.50 / 84.27 |
+| `npm run check` / `npm run check:self-test` | exit 0；self-test 17 条 project 负例 |
+| `npm run check:clean` | exit 0，303 个文件，无 `.dsh-cowork/` 或 `lib/` |
+| `npm run typecheck` / `npm run build` / `npm run test:host-smoke` | 均 exit 0；host smoke 5/5 |
+
+## Stage 3–4 执行记录
 
 （随每个 Stage 完成更新；最终 HEAD、diff sha 与各命令结果在第 4 阶段收口。）
