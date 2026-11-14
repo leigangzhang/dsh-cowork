@@ -20,8 +20,8 @@ M1 交付 host-only 闭环（client 面板仍属 M3），由纯模块与薄宿�
 - [`src/session-slice.ts`](../../../../src/platform/session-slice.ts) 封装 `sessionController` 的 create/prompt/rename/list 与 workspace 解析；索引不缓存 workspaceId。
 - [`src/routing.ts`](../../../../src/domains/routing/routing.ts) 是纯函数关键词路由，无 I/O、无内部时钟。
 - [`src/handoff.ts`](../../../../src/domains/topic/handoff.ts) 负责 handoff 校验、落盘、索引更新、投递与重放，只以类型方式引用 store。
-- [`src/tool-model.ts`](../../../../src/platform/tool-model.ts) 负责调用者身份、角色校验与错误包络；[`src/tools.ts`](../../../../src/tools.ts) 提供六个工具。
-- [`src/presets.ts`](../../../../src/platform/presets.ts) 注册两个运行时 preset；[`src/index.ts`](../../../../src/index.ts) 装配工具、preset 与既有探针。
+- [`src/tool-model.ts`](../../../../src/platform/tool-model.ts) 负责调用者身份、角色校验与错误包络；[`src/tools.ts`](../../../../src/app/tools.ts) 提供六个工具。
+- [`src/presets.ts`](../../../../src/platform/presets.ts) 注册两个运行时 preset；[`src/index.ts`](../../../../src/app/apply.ts) 装配工具、preset 与既有探针。
 
 **数据模型（v1）**
 

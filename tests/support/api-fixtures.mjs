@@ -10,18 +10,18 @@ import './ts-hook.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-// `src/api.ts` imports its siblings with the build's `.js` specifiers, and
+// `src/panel/api.ts` imports its siblings with the build's `.js` specifiers, and
 // Node's type stripping does not rewrite those to `.ts`. The rest of the repo's
 // tested modules avoid runtime imports entirely; this route module cannot, so
 // the test installs a resolve hook that only retries relative `.js` specifiers
 // as `.ts` (and falls back to the real `.js` when there is no source sibling).
 
-export const api = await import('../../src/api.ts')
-export const contract = await import('../../src/api-contract.ts')
-export const inboxContract = await import('../../src/inbox-contract.ts')
+export const api = await import('../../src/panel/api.ts')
+export const contract = await import('../../src/panel/api-contract.ts')
+export const inboxContract = await import('../../src/panel/inbox-contract.ts')
 export const reviewRequest = await import('../../src/domains/review/review-request.ts')
 export const store = await import('../../src/store/project-store.ts')
-export const panelProbe = await import('../../src/panel-probe.ts')
+export const panelProbe = await import('../../src/dev/panel-probe.ts')
 export const requestService = await import('../../src/domains/requests/request-service.ts')
 
 export const CREATED_AT = '2026-01-01T00:00:00.000Z'
@@ -47,7 +47,7 @@ export function makeTopic(overrides = {}) {
     blockedAt: null,
     authorization: null,
     scope: 'scope one',
-    ownedPaths: ['src/api.ts'],
+    ownedPaths: ['src/panel/api.ts'],
     aliases: [],
     digest: 'did the work',
     cwd: '/repo',
@@ -361,7 +361,7 @@ export function makeReviewRequest(overrides = {}) {
     headCommit: 'bbbbbbb',
     path: '/repo',
     branch: 'feat/m11',
-    changedPaths: ['src/api.ts'],
+    changedPaths: ['src/panel/api.ts'],
     verification: [{ command: 'node --test tests/api-read.test.mjs', exitCode: 0, evidence: '21 passed' }],
     previousRequestId: null,
     status: 'pending',

@@ -32,13 +32,13 @@ export const COVERAGE_FLOORS = Object.freeze({
  * the ordinary unit suite pins their pure contracts separately.
  */
 export const DEV_ONLY_COVERAGE_EXCLUDES = Object.freeze([
-  'src/m12-e2e.ts',
-  'src/m12-e2e-contract.ts',
-  'src/m12-e2e-evidence.ts',
-  'src/m12-e2e-prompts.ts',
-  'src/m12-e2e-driver.ts',
-  'src/m12-e2e-support.ts',
-  'src/panel-probe.ts',
+  'src/dev/m12-e2e.ts',
+  'src/dev/m12-e2e-contract.ts',
+  'src/dev/m12-e2e-evidence.ts',
+  'src/dev/m12-e2e-prompts.ts',
+  'src/dev/m12-e2e-driver.ts',
+  'src/dev/m12-e2e-support.ts',
+  'src/dev/panel-probe.ts',
 ])
 
 /** Build the node argv without relying on shell glob expansion. */

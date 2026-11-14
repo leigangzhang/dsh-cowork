@@ -94,7 +94,7 @@ const PROJECT_ID_HASH_LENGTH = 12
 /** How many activity events a read returns when the caller does not say. */
 const ACTIVITY_READ_LIMIT = 50
 
-/** Every lifecycle a thread may carry; `tests/api-contract.test.mjs` pins this list. */
+/** Every lifecycle a thread may carry; `tests/panel/api-contract.test.mjs` pins this list. */
 const THREAD_STATUSES: readonly ThreadStatus[] = [
   'new',
   'active',
@@ -194,8 +194,8 @@ export interface ProjectStoreOptions {
   projectId?: string
   /**
    * Host port used to archive the reviewer of an in-flight v1 review while the
-   * index migrates. M7 wires no host into the store (`src/tools.ts` and
-   * `src/index.ts` are frozen), so a migration records `archiveFailures` and
+   * index migrates. M7 wires no host into the store (`src/app/tools.ts` and
+   * `src/app/apply.ts` are frozen), so a migration records `archiveFailures` and
    * still writes v2 instead of claiming the review was safely cancelled.
    */
   archiveSession?: (sessionId: string, options?: { stopActivity?: boolean }) => Promise<void>

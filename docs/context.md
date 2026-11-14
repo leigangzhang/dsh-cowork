@@ -11,9 +11,9 @@
 | `index.json` | v2 项目索引：master、主题、工作项、路由目标 | [ProjectIndexV2](../src/store/schema.ts#L194) |
 | `activity.jsonl` | 状态、路由、评审、合并、主题上报、决策提案、待授权、归档与错误的事件流（证据，不是状态源） | [ActivityEvent](../src/store/schema.ts#L211) |
 | `inbox.json` | master 必须决定的事；投递后写 `deliveredAt` | [InboxItem](../src/store/schema.ts#L232) |
-| `requests/<requestId>.json` | 用户请求记录：四类请求、左右消息、状态与投递错误 | [RequestRecordV1](../src/inbox-contract.ts#L265) |
+| `requests/<requestId>.json` | 用户请求记录：四类请求、左右消息、状态与投递错误 | [RequestRecordV1](../src/panel/inbox-contract.ts#L265) |
 | `handoffs/` | topic 的 handoff 审计文件 | [buildHandoffRecord](../src/domains/topic/handoff.ts#L214) |
-| `proposals/` | topic 的决策记录文件 | [DecisionProposalV1](../src/topic-tools.ts#L443) |
+| `proposals/` | topic 的决策记录文件 | [DecisionProposalV1](../src/tools/topic.ts#L443) |
 | `notices.json` | 主题通知账本：每条通知送到哪个会话、是否送达 | [NoticeLedgerV1](../src/domains/notices/notices.ts#L95) |
 | `reviews/` | 每次评审请求的 pending/verdict 记录 | [ReviewRequestRecord](../src/domains/review/review-request.ts#L121) |
 | `workitems/` | 隔离工作项 clone 与 `cowork/<workItemId>` 分支 | [checkout.ts](../src/domains/isolation/checkout.ts#L45-L58) |

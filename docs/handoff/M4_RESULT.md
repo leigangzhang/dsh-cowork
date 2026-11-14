@@ -12,11 +12,11 @@
 | [`package.json`](../../package.json) | `version: 0.1.0`、`dsh.bundle.patch: ./cordis.patch.yml`、`files: [lib, cordis.patch.yml, README.md, LICENSE]`；`private: true`（不发布 npm）；`dsh.client` 仍只声明 `web` |
 | [`cordis.patch.yml`](../../cordis.patch.yml) | 唯一一行 `insert`：`id: dsh-cowork` / `name: '@dsh-external/dsh-cowork'`；id 与工具、preset、client 共用同一实例，不新增行名 |
 | [`README.md`](../../README.md) | 面向用户的安装（build → pack → 新 profile → add → 重启）、选择 preset、使用流程、数据落点、卸载与升级、限制与前提 |
-| [`src/index.ts`](../../src/index.ts) | `Config.enableDevRoutes`（`z.boolean().default(false)`，[L87](../../src/index.ts#L87)）；默认不注册探针/E2E 路由、两个探针工具与 M0/S0/M2/M3 runner 监听（[L532](../../src/index.ts#L532)）；dev 配置的 `repoPath` 启动时经 `canonicalRepoPath` 规范化（[L202](../../src/index.ts#L202)） |
-| [`src/probe-model.ts`](../../src/probe-model.ts) | `canonicalRepoPath`：存在则 `realpath`，缺失原样返回（[L54](../../src/probe-model.ts#L54)） |
-| [`tests/packaging.test.mjs`](../../tests/packaging.test.mjs) | 钉住安装契约：身份与入口、`dsh.client` 平台与注入、`dsh.bundle.patch` 指向仓库内文件、`files` 恰好 lib/patch/README/LICENSE、patch 只有一行 insert、`npm pack` 只含运行时文件 |
-| [`tests/dev-gate.test.mjs`](../../tests/dev-gate.test.mjs) | 钉住 dev 门：默认 `false`；`false` 保留业务面且不注册 dev 面；`true` 还原 M0/S0/M2/M3；软链 `repoPath` 规范化；dispose 释放 dev 监听 |
-| [`tests/presets.test.mjs`](../../tests/presets.test.mjs) | 钉住三个 preset 的 id 与顺序、reviewer 无 `@deepseek-ai/dsh-tool-fs`、master/thread 有、row id 唯一与 persona prefix 非空（4 个用例） |
+| [`src/index.ts`](../../src/app/apply.ts) | `Config.enableDevRoutes`（`z.boolean().default(false)`，[L87](../../src/app/apply.ts#L87)）；默认不注册探针/E2E 路由、两个探针工具与 M0/S0/M2/M3 runner 监听（[L532](../../src/app/apply.ts#L532)）；dev 配置的 `repoPath` 启动时经 `canonicalRepoPath` 规范化（[L202](../../src/app/apply.ts#L202)） |
+| [`src/probe-model.ts`](../../src/panel/probe-model.ts) | `canonicalRepoPath`：存在则 `realpath`，缺失原样返回（[L54](../../src/panel/probe-model.ts#L54)） |
+| [`tests/packaging.test.mjs`](../../tests/guards/packaging.test.mjs) | 钉住安装契约：身份与入口、`dsh.client` 平台与注入、`dsh.bundle.patch` 指向仓库内文件、`files` 恰好 lib/patch/README/LICENSE、patch 只有一行 insert、`npm pack` 只含运行时文件 |
+| [`tests/dev-gate.test.mjs`](../../tests/guards/dev-gate.test.mjs) | 钉住 dev 门：默认 `false`；`false` 保留业务面且不注册 dev 面；`true` 还原 M0/S0/M2/M3；软链 `repoPath` 规范化；dispose 释放 dev 监听 |
+| [`tests/presets.test.mjs`](../../tests/platform/presets.test.mjs) | 钉住三个 preset 的 id 与顺序、reviewer 无 `@deepseek-ai/dsh-tool-fs`、master/thread 有、row id 唯一与 persona prefix 非空（4 个用例） |
 
 ## 验收对照
 
@@ -44,7 +44,7 @@
 ## 默认配置（产品面）
 
 - 证据：仓库根 `.dsh-cowork/e2e/m4/02-default-config-routes.txt`（gitignored，下同）。产品默认（`enableDevRoutes` 缺省 => `false`）下，`/dsh-cowork/probe/*` 与 `/dsh-cowork/e2e/*` **全部 404**；`/api/cowork.overview` **401**（路由存在，trust fence 生效，不是 404）。
-- 默认阶段用的 profile patch 只覆盖 `repoPath`（不设 `enableDevRoutes`），见 `/private/tmp/m4-e2e/profile-default.patch.yml`；`repoPath` 不是产品工具的项目发现入口——业务工具按调用者 cwd 找项目（[`src/tools.ts:181`](../../src/tools.ts#L181)），只在失败提示里回显插件默认仓库，dev runner 才用它定位 fixture 与证据。
+- 默认阶段用的 profile patch 只覆盖 `repoPath`（不设 `enableDevRoutes`），见 `/private/tmp/m4-e2e/profile-default.patch.yml`；`repoPath` 不是产品工具的项目发现入口——业务工具按调用者 cwd 找项目（[`src/tools.ts:181`](../../src/app/tools.ts#L181)），只在失败提示里回显插件默认仓库，dev runner 才用它定位 fixture 与证据。
 - 门在哪：`src/index.ts` 的 `Config.enableDevRoutes` 默认 `false`，探针/E2E 路由、`cowork_probe`/`cowork_identity_probe` 与 runner 监听都包在开关内；`tests/dev-gate.test.mjs` 同时钉住两态。
 
 ## 面板（真实 Chrome）

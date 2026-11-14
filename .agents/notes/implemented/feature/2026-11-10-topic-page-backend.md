@@ -33,7 +33,7 @@ Class: feature
 
 **端口与投递。** `TopicNoticePort` 定义 `append(sessionId, notice)` / `update(sessionId, noticeId, patch)` / `capabilities()`；`NoopTopicNoticePort` 与 `FixtureTopicNoticePort` 都报告 `supported:false`，不声称送达。`TopicNoticeDispatcher` 每个项目串行、按 activity 顺序、失败按 1s/5s/30s 退避、最多 5 次、`replay` 不重复、失败不回滚主题状态、不阻塞工具；`dispose` 清定时器。`store.readActivity(ACTIVITY_MAX_EVENTS)` 覆盖 500 条，账本里更旧的 pending 事件不会因默认 50 条尾部而被误判丢失。
 
-**工具与路由。** [src/topic-tools.ts](../../../../src/topic-tools.ts) 新增：
+**工具与路由。** [src/topic-tools.ts](../../../../src/tools/topic.ts) 新增：
 
 - `cowork_topic_report({summary, kind?: 'progress'|'blocked'})`：更新 digest/lastActiveAt；`blocked` 设 `blockedReason='handoff'` 与 `blockedFromStatus`；每事件一条 `topic-reported` 通知。
 - `cowork_decision_propose({title, summary})`：写 `.dsh-cowork/proposals/<proposalId>.json`（`DecisionProposalV1`）并写 `decision-proposed` 事件与通知；主题页只拿摘要。
@@ -42,9 +42,9 @@ Class: feature
 
 `cowork_handoff` 的 `blocked/done` 改走 `topic-reported` 通知，不再写 inbox；inbox 只保留 merge-needed / review-reject / cross-topic 等既有事件。`cowork_route` 新建主题与 `cowork_topic_create` 共享 `assignmentNotice`（master+topic）；复用已有主题不重复发分配通知。
 
-[src/api.ts](../../../../src/api.ts) 新增 `POST /api/cowork.authorization.resolve`（body：sessionId/topicId/requestId/decision=allow|deny）：调用方必须是 master 或该 topic 自己的会话；requestId 幂等，同一决定重放 200、不同决定 `authorization/mismatch`；清 authorization、按 `blockedFromStatus` 恢复、写 `authorization-resolved`、更新原 notice，并在 master 决定时给 topic 一条短 prompt，主会话不新增消息。`resolve` 路由改为归档语义：master-only、幂等、清 block/authorization、写 `topic-archived`（只给 master 通知）、通过 `workspaceRegistry.archiveSession(topicId,{stopActivity:true})` 归档宿主主题会话（失败只记日志）；`reopen` 清 resolved、status=active、`workspaceRegistry.unarchiveSession(topicId)`、写 `topic-reopened` 不产生通知。`cowork_topic_resolve` 工具共享 archive 核心并同样归档宿主会话。
+[src/api.ts](../../../../src/panel/api.ts) 新增 `POST /api/cowork.authorization.resolve`（body：sessionId/topicId/requestId/decision=allow|deny）：调用方必须是 master 或该 topic 自己的会话；requestId 幂等，同一决定重放 200、不同决定 `authorization/mismatch`；清 authorization、按 `blockedFromStatus` 恢复、写 `authorization-resolved`、更新原 notice，并在 master 决定时给 topic 一条短 prompt，主会话不新增消息。`resolve` 路由改为归档语义：master-only、幂等、清 block/authorization、写 `topic-archived`（只给 master 通知）、通过 `workspaceRegistry.archiveSession(topicId,{stopActivity:true})` 归档宿主主题会话（失败只记日志）；`reopen` 清 resolved、status=active、`workspaceRegistry.unarchiveSession(topicId)`、写 `topic-reopened` 不产生通知。`cowork_topic_resolve` 工具共享 archive 核心并同样归档宿主会话。
 
-**Panel 契约。** `PanelTopic`（[src/api-contract.ts](../../../../src/api-contract.ts)）增加 `awaitingAuthorization` 与 `blockedReason`；`PanelCounts` 增加 `awaitingAuthorization`；`sortTopicsForPanel` 先 blocked、再 awaitingAuthorization，然后 active/idle/resolved，`awaitingReview` 不再置前；错误码增加 `authorization/not-found`、`authorization/mismatch`、`authorization/not-allowed`。主题页不读 `awaitingReview`/`reviewStatus`，这两个字段保留给现有评审流程。
+**Panel 契约。** `PanelTopic`（[src/api-contract.ts](../../../../src/panel/api-contract.ts)）增加 `awaitingAuthorization` 与 `blockedReason`；`PanelCounts` 增加 `awaitingAuthorization`；`sortTopicsForPanel` 先 blocked、再 awaitingAuthorization，然后 active/idle/resolved，`awaitingReview` 不再置前；错误码增加 `authorization/not-found`、`authorization/mismatch`、`authorization/not-allowed`。主题页不读 `awaitingReview`/`reviewStatus`，这两个字段保留给现有评审流程。
 
 **A2 / B 选择：B。** 本阶段没有宿主 notice 通道，`TopicNoticePort` 用 Noop，账本照写并保持 `pending`，主会话/主题会话没有提醒卡；`cowork_notices` 是 master 读取通知的唯一入口。宿主 A2 版发布后只需替换端口适配器并按 noticeId 更新/void 原通知，不需要改状态模型和工具契约。A1（复用 plugin record）不采用：宿主只授权 `packages/experimental/` 调用 `appendPluginRecord`。
 

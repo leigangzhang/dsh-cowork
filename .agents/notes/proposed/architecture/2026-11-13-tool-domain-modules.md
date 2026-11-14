@@ -8,7 +8,7 @@ Class: architecture
 
 当前 `src/` 按文件名平铺混合了四类职责：公共工具定义、领域规则、宿主适配、持久化。工具模块与领域模块没有目录边界，测试与脚本也按实现文件而不是工具/领域命名。具体成本：
 
-- [tools.ts](../../../../src/tools.ts) 只做装配，但 22 个工具分散在 7 个 `*-tools.ts` 中，其中 `topic-tools.ts` 同时注册 topic、handoff、decision、authorization、notices 五类工具；`checkout-tools.ts` 同时拥有 work-item 与 merge。看一个工具的完整路径要在 3–5 个平铺文件之间跳转。
+- [tools.ts](../../../../src/app/tools.ts) 只做装配，但 22 个工具分散在 7 个 `*-tools.ts` 中，其中 `topic-tools.ts` 同时注册 topic、handoff、decision、authorization、notices 五类工具；`checkout-tools.ts` 同时拥有 work-item 与 merge。看一个工具的完整路径要在 3–5 个平铺文件之间跳转。
 - 领域规则没有独立目录：`topic.ts`、`routing.ts`、`review-request.ts`、`work-item.ts`、`checkout.ts`、`notices.ts`、`memory.ts` 与工具文件和宿主适配同层；`domains` 没有可执行的 import 方向约束。
 - 测试按实现文件命名（`topic-tools.test.mjs`、`project-tools.test.mjs`、`request-service.test.mjs`），无法从目录看出“哪个工具、哪个领域”；repo 级守卫（`dev-gate`、`source-budget`、`coverage-policy`、`packaging`、`workflow`）与单元/契约测试混在 `tests/` 顶层。
 - `scripts/` 平铺 5 个文件，名字按产物而非证据面（`build.sh`、`test-coverage.mjs`、`host-smoke.mjs`、`change-scope.mjs`），新增一个 gate 只能继续往同一层堆。
@@ -134,7 +134,7 @@ PR #33 的 `config.ts`、`dev-surfaces.ts`、`delivery.ts`、`api-types.ts`、`m
 
 ## Acceptance criteria
 
-- [A1] 目标树、工具 → 领域映射和当前每个文件的去向已登记；没有“未分类”文件 — `source`：[tools.ts](../../../../src/tools.ts)、`decisions`
+- [A1] 目标树、工具 → 领域映射和当前每个文件的去向已登记；没有“未分类”文件 — `source`：[tools.ts](../../../../src/app/tools.ts)、`decisions`
 - [A2] 新增 import 方向测试：`tools → domains/platform`、`domains` 不依赖宿主/store/tools/panel、`platform → domains/store`、无环 — `tests`：[tests/support/public-surface.mjs](../../../../tests/support/public-surface.mjs)
 - [A3] 22 个工具名与注册顺序、10 条面板路由、3 个 preset、3 个 `exports` 键在移动前后完全一致 — `tests`、`packaging`：[package.json](../../../../package.json)
 - [A4] 测试发现改为递归后，`npm test` 与 `npm run test:coverage` 仍覆盖全部测试；顶层 glob 遗漏一条测试即失败 — `tests`：[scripts/test-coverage.mjs](../../../../scripts/test-coverage.mjs)

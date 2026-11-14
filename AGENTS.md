@@ -33,8 +33,8 @@ lib/          local build output; gitignored, consumed by tarball and host smoke
 - **One workstream branch.** Keep one `agent/<topic>` branch for one authorized workflow; do not create a branch per commit, review round, or subtask.
 - **Manual merge.** PR merging is explicit and manual; do not add stack/auto-merge machinery or merge before review and checks pass.
 - **One home per fact; docs are code.** The plan owns scope, source owns interfaces, tests own evidence, and every Markdown file is classified once in [docs/publish.json](docs/publish.json).
-- **Registrations are effects.** Tools, routes, presets, listeners, and prompt sections must be owned by a disposer; a registry registration is not complete until teardown is proven ([src/index.ts](src/index.ts), [tests/dev-gate.test.mjs](tests/dev-gate.test.mjs)).
-- **Config is explicit.** Deployment-varying values are validated `Config` fields, not hidden defaults inside operations ([src/index.ts](src/index.ts)).
+- **Registrations are effects.** Tools, routes, presets, listeners, and prompt sections must be owned by a disposer; a registry registration is not complete until teardown is proven ([src/index.ts](./src/app/apply.ts), [tests/dev-gate.test.mjs](./tests/guards/dev-gate.test.mjs)).
+- **Config is explicit.** Deployment-varying values are validated `Config` fields, not hidden defaults inside operations ([src/index.ts](./src/app/apply.ts)).
 - **Validate at trust boundaries.** Parsers, files, tool JSON, wire input, subprocesses, and external APIs are untrusted; typed same-process values trust TypeScript instead of adding redundant runtime checks.
 - **Errors stay owned.** Do not swallow failures; expected tool failures carry a stable code and actionable context ([src/tool-model.ts](./src/platform/tool-model.ts)).
 - **Tests describe behavior.** A change to tested behavior updates its test deliberately; never weaken or delete an assertion merely to get green ([docs/testing.md](docs/testing.md)).

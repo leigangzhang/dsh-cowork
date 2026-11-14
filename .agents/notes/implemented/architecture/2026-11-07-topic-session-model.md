@@ -10,7 +10,7 @@ M4 的插件已经能在真实宿主上运行，但两次真实使用暴露了�
 
 同时，thread 被当成任务单位：每个任务新建会话，重复加载 preset、项目记忆和代码；`done` 被路由硬排除，同主题续做只能新开。界面又把 thread 和 reviewer 当普通会话平铺，两个使用 case 就留下 3 个主题会话和 2 个评审会话，用户注意力被分散。
 
-这些问题的共同原因是角色边界不清：master 既做决定又做流程，thread 既是会话又是任务，reviewer 既做质量判断又被 master 调度。M4 之后的讨论已经确定：master 只做决定，插件推进流程，主题会话承载任务，reviewer 由评审请求触发。本记录固定这个角色模型，M6–M12 都以它为前提落地。详细架构与阶段见 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md)，V0.1 实现见 [PLAN V0.1](../../../../docs/PLAN.md) 与 [src/tools.ts](../../../../src/tools.ts)。
+这些问题的共同原因是角色边界不清：master 既做决定又做流程，thread 既是会话又是任务，reviewer 既做质量判断又被 master 调度。M4 之后的讨论已经确定：master 只做决定，插件推进流程，主题会话承载任务，reviewer 由评审请求触发。本记录固定这个角色模型，M6–M12 都以它为前提落地。详细架构与阶段见 [PLAN-V0.2](../../../../docs/PLAN-V0.2.md)，V0.1 实现见 [PLAN V0.1](../../../../docs/PLAN.md) 与 [src/tools.ts](../../../../src/app/tools.ts)。
 
 ## Decision
 

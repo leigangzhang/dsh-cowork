@@ -18,7 +18,7 @@ Class: simplification
 
 ## Decision
 
-**1. 退役 M2/M3 与 S0 开发面。** 删除 `src/m2-e2e.ts`、`src/m2-e2e-support.ts`、`src/m3-e2e.ts`、`src/m3-e2e-support.ts`、`src/s0-probe.ts` 及 3 个对应测试；[index.ts](../../../../src/index.ts) 去掉对应路由、事件流、`cowork_identity_probe` 与 S0 preset。保留 M0 health/run/status 与 M12 run/status；`host-smoke` 继续消费 health。
+**1. 退役 M2/M3 与 S0 开发面。** 删除 `src/m2-e2e.ts`、`src/m2-e2e-support.ts`、`src/m3-e2e.ts`、`src/m3-e2e-support.ts`、`src/s0-probe.ts` 及 3 个对应测试；[index.ts](../../../../src/app/apply.ts) 去掉对应路由、事件流、`cowork_identity_probe` 与 S0 preset。保留 M0 health/run/status 与 M12 run/status；`host-smoke` 继续消费 health。
 
 **2. 删除死代码并打开静态门禁。** 删除只被测试使用的 activity helper、零引用导出与错误码、未用导入/局部变量；移除已失效的 `resolveAfterMs`/`activeWorkItemsOf`/`activeWorkItems` 读点传参。[tsconfig.json](../../../../tsconfig.json) 对 host 开启 `noUnusedLocals`/`noUnusedParameters`，与 client 半边一致。
 
@@ -52,7 +52,7 @@ Class: simplification
 
 ## Testing
 
-- [A1] M2/M3/S0 驱动、`src/probe-engine.ts`、`src/probe-store.ts` 与对应测试已删除；dev 面只剩 health + M12 run/status — `source`：[index.ts](../../../../src/index.ts)、[dev-gate.test.mjs](../../../../tests/dev-gate.test.mjs)
+- [A1] M2/M3/S0 驱动、`src/probe-engine.ts`、`src/probe-store.ts` 与对应测试已删除；dev 面只剩 health + M12 run/status — `source`：[index.ts](../../../../src/app/apply.ts)、[dev-gate.test.mjs](../../../../tests/guards/dev-gate.test.mjs)
 - [A2] `noUnusedLocals`/`noUnusedParameters` 在 host 开启且 17 处未用符号清零；`recordActivity`/`errorActivity`/`checkoutDeps`/`TOPIC_STATUS_VALUES`/`review/override-reason-required` 无生产引用 — `source`：[tsconfig.json](../../../../tsconfig.json)、[tool-runtime.ts](../../../../src/platform/tool-runtime.ts)、[tool-model.ts](../../../../src/platform/tool-model.ts)
 - [A3] 940 个测试通过；coverage 66.42/83.11/83.19（floor 65/82/80）；typecheck/build 通过 — `tests`、`packaging`
 - [A4] 无 `.dsh-cowork` 的干净 worktree 上 `npm run check` 通过；`host-smoke` 5/5 通过 — `workflow`、`packaging`

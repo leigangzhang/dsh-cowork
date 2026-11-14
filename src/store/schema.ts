@@ -4,8 +4,8 @@
  *
  * Two vocabularies live here on purpose. v2 (`TopicRecordV2`, `WorkItemRecordV2`)
  * is what the store writes; the v1 shapes (`ThreadRecordV1`, `ProjectIndexV1`)
- * stay because `src/tools.ts`, `src/api.ts`, `src/domains/topic/handoff.ts` and
- * `src/review-tools.ts` are still v1-shaped and cannot change in M7. The v1
+ * stay because `src/app/tools.ts`, `src/panel/api.ts`, `src/domains/topic/handoff.ts` and
+ * `src/tools/review.ts` are still v1-shaped and cannot change in M7. The v1
  * normalizer reproduces `src/store/project-store.ts`'s `normalizeThreadDocument` behaviour
  * (pre-M2 `worktreePath` adoption, M3 review fields defaulted to null) so a
  * document read through this module and one read through the old store agree.

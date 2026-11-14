@@ -14,10 +14,10 @@
 | [`src/checkout-teardown.ts`](../../src/domains/isolation/checkout-teardown.ts) | merge 成功后的 teardown 编排：workspace resolve、clone 删除、workspace 删除、会话归档、索引更新各自独立捕获；索引更新最后且无条件执行。 |
 | [`src/memory-prompt.ts`](../../src/platform/memory-prompt.ts) | 在 agent 作用域注册 `cowork:memory` system prompt 段落（order 900、`interpolate:false`、按轮求值、digest 缓存）；null 渲染清空缓存，duplicate 计数按唯一 agent。 |
 | [`src/tool-model.ts`](../../src/platform/tool-model.ts) | 调用者身份、角色校验、错误包络、brief；M2 新增 13 个稳定错误码。 |
-| [`src/tools.ts`](../../src/tools.ts) | 9 个 `cowork_*` 工具，含 `isolated` 创建与 `cowork_checkout_merge`；冲突状态更新错误进入 `statusUpdateError`。 |
+| [`src/tools.ts`](../../src/app/tools.ts) | 9 个 `cowork_*` 工具，含 `isolated` 创建与 `cowork_checkout_merge`；冲突状态更新错误进入 `statusUpdateError`。 |
 | [`src/store.ts`](../../src/store/project-store.ts) | 索引唯一写者；`checkoutPath` 是 checkout 唯一事实源，旧索引 `worktreePath` 读兼容；记忆文件复用项目锁与原子写。 |
 | [`src/session-slice.ts`](../../src/platform/session-slice.ts) | 显式 sessionId + clone workspace 建会话；宿主返回不同 sessionId 时 fail-closed；删除 workspace、归档会话。 |
-| [`src/index.ts`](../../src/index.ts) | 装配记忆注入、注册工具与 9 个工具面。 |
+| [`src/index.ts`](../../src/app/apply.ts) | 装配记忆注入、注册工具与 9 个工具面。 |
 | `src/m2-e2e.ts` / `src/m2-e2e-support.ts` | 真实宿主 E2E 驱动：11 步、证据原子写 `.dsh-cowork/e2e/M2_E2E.json`；两个文件均 ≤50 KB，证据 host 块不含 hostname。 |
 
 ### 工具面

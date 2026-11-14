@@ -23,16 +23,16 @@ Class: process
 
 ### A. 硬门禁（机器可判红）
 
-1. **`noUnused*` 全覆盖。** 两份 `tsconfig` 开启 `noUnusedLocals`/`noUnusedParameters`，由 `npm run typecheck` 执行；[tests/typecheck-policy.test.mjs](../../../../tests/typecheck-policy.test.mjs) 让编译器真的拒绝未用局部与未用参数，并锁住两份配置的开关。
+1. **`noUnused*` 全覆盖。** 两份 `tsconfig` 开启 `noUnusedLocals`/`noUnusedParameters`，由 `npm run typecheck` 执行；[tests/typecheck-policy.test.mjs](../../../../tests/guards/typecheck-policy.test.mjs) 让编译器真的拒绝未用局部与未用参数，并锁住两份配置的开关。
 2. **导出使用审计。** [tools/check-invariants.mjs](../../../../tools/check-invariants.mjs) 只审计运行时导出：仓库内零引用的 `dead` 直接红；只被测试引用的 `testOnly` 必须出现在 [tools/export-baseline.json](../../../../tools/export-baseline.json) 的 ratchet 基线里，新增或失效都红；只在本文件内使用的 `overExported` 只报告。类型导出不参与，类型使用由 `tsc` 负责。
 3. **陈旧名称与模型文本。** 同一 runner 的 `STALE_NAME_RULES` 扫描当前事实面：已删工具/preset/模块、`src/router.ts`、旧工具数、旧 preset 数与旧路由数。`docs/handoff/`、`.agents/notes/`、两份 plan 与测试负向断言不在扫描面；同一行显式标注“已删除/removed/retired”的迁移说明放行。
 4. **干净 worktree 门禁。** `npm run check:clean` 把 tracked 与未忽略的 untracked 文件复制到临时目录（或 `--ref` 解包 `git archive`），确认没有 `.dsh-cowork/`、`lib/`、`node_modules/` 后运行 `npm run check`。`no-ignored-evidence-links` 检查同时禁止 Markdown 链接指向 `.dsh-cowork/`。
-5. **预算门禁。** [tests/source-budget.test.mjs](../../../../tests/source-budget.test.mjs) 覆盖全部 `src/**/*.ts(x)`：50 KiB 硬线、48 KiB 软目标（只报告）、`src/index.ts` ≤30 KiB、测试文件 ≤1,200 行、宿主 `index.ts` 入口唯一；预算 helper 用合成超限条目自证会红。
-6. **架构方向测试。** [tests/architecture.test.mjs](../../../../tests/architecture.test.mjs) 解析 `src` 的相对 import：全部可解析、无环、`src/index.ts` 是汇点、只有入口 import `src/tools.ts`、client 只 import client 与三个 contract、contract 不 import 宿主运行时、22 个工具各由唯一领域模块注册且 `register*Tools` 各被调用一次。每条规则都有合成坏图负例。
-7. **测试发现负例。** `npm test` 用 `node --test "tests/**/*.test.mjs"`（引号让 Node 自己递归展开），`scripts/test-coverage.mjs` 的 `testFilesIn` 递归收集同一集合；[tests/coverage-policy.test.mjs](../../../../tests/coverage-policy.test.mjs) 证明子目录测试会被发现、support 模块不会被当作测试。
-8. **公共面快照。** [tests/public-surface.test.mjs](../../../../tests/public-surface.test.mjs) 锁住 22 个业务工具、10 条面板路由、3 个 preset、3 个 `exports` 键与工具→领域唯一映射；[tests/support/public-surface.mjs](../../../../tests/support/public-surface.mjs) 仍是唯一列表来源。
+5. **预算门禁。** [tests/source-budget.test.mjs](../../../../tests/guards/source-budget.test.mjs) 覆盖全部 `src/**/*.ts(x)`：50 KiB 硬线、48 KiB 软目标（只报告）、`src/index.ts` ≤30 KiB、测试文件 ≤1,200 行、宿主 `index.ts` 入口唯一；预算 helper 用合成超限条目自证会红。
+6. **架构方向测试。** [tests/architecture.test.mjs](../../../../tests/guards/architecture.test.mjs) 解析 `src` 的相对 import：全部可解析、无环、`src/index.ts` 是汇点、只有入口 import `src/tools.ts`、client 只 import client 与三个 contract、contract 不 import 宿主运行时、22 个工具各由唯一领域模块注册且 `register*Tools` 各被调用一次。每条规则都有合成坏图负例。
+7. **测试发现负例。** `npm test` 用 `node --test "tests/**/*.test.mjs"`（引号让 Node 自己递归展开），`scripts/test-coverage.mjs` 的 `testFilesIn` 递归收集同一集合；[tests/coverage-policy.test.mjs](../../../../tests/guards/coverage-policy.test.mjs) 证明子目录测试会被发现、support 模块不会被当作测试。
+8. **公共面快照。** [tests/public-surface.test.mjs](../../../../tests/guards/public-surface.test.mjs) 锁住 22 个业务工具、10 条面板路由、3 个 preset、3 个 `exports` 键与工具→领域唯一映射；[tests/support/public-surface.mjs](../../../../tests/support/public-surface.mjs) 仍是唯一列表来源。
 9. **gate artifact 与 scope 对账。** `npm run gate-artifact -- --base <verified-base>` 输出 HEAD、`base..HEAD` binary diff 的 SHA-256、porcelain 与 `change-scope` 四组路径；[docs/agent-teams.md](../../../../docs/agent-teams.md) 拥有复用与 `inScope` 并集对账规则，[pr-description](../../../../.agents/skills/pr-description/SKILL.md) 引用同一命令。
-10. **工具面预算。** [tests/tool-schema-budget.test.mjs](../../../../tests/tool-schema-budget.test.mjs) 继续锁 22 个工具、16,523 B 序列化 schema；“第 23 个工具即超”是它的负例。
+10. **工具面预算。** [tests/tool-schema-budget.test.mjs](../../../../tests/guards/tool-schema-budget.test.mjs) 继续锁 22 个工具、16,523 B 序列化 schema；“第 23 个工具即超”是它的负例。
 
 ### B. 审查清单（纯判断）
 
@@ -71,13 +71,13 @@ Class: process
 
 ## Testing
 
-- [A1] 两份 tsconfig 的 `noUnused*` 开启，编译器会拒绝未用局部与参数 — `source`：[tsconfig.json](../../../../tsconfig.json)、[tsconfig.client.json](../../../../tsconfig.client.json)、[tests/typecheck-policy.test.mjs](../../../../tests/typecheck-policy.test.mjs)
+- [A1] 两份 tsconfig 的 `noUnused*` 开启，编译器会拒绝未用局部与参数 — `source`：[tsconfig.json](../../../../tsconfig.json)、[tsconfig.client.json](../../../../tsconfig.client.json)、[tests/typecheck-policy.test.mjs](../../../../tests/guards/typecheck-policy.test.mjs)
 - [A2] 导出审计的 dead、新增 testOnly、失效基线三类都能红；`--print-export-audit` 只读输出 — `workflow`：[tools/check-invariants.mjs](../../../../tools/check-invariants.mjs)、[tools/export-baseline.json](../../../../tools/export-baseline.json)
 - [A3] 陈旧名称扫描命中已删工具/模块/旧计数会红，显式 removed 的迁移说明与历史记录放行 — `workflow`：[tools/check-invariants.mjs](../../../../tools/check-invariants.mjs)、`npm run check:self-test`
-- [A4] 干净副本里 `npm run check` 通过，Markdown 链接指向 `.dsh-cowork/` 会红 — `workflow`：[scripts/clean-check.mjs](../../../../scripts/clean-check.mjs)、[tests/workflow.test.mjs](../../../../tests/workflow.test.mjs)
-- [A5] 50 KiB 硬线、30 KiB 入口、1,200 行测试与唯一入口都有可失败的断言 — `tests`：[tests/source-budget.test.mjs](../../../../tests/source-budget.test.mjs)
-- [A6] import 环、client 越界、入口反向依赖与工具映射不一致都会红 — `tests`：[tests/architecture.test.mjs](../../../../tests/architecture.test.mjs)
-- [A7] 子目录测试被 `npm test` 与 coverage 发现；删除临时探针后测试数回到基线 — `tests`：[tests/coverage-policy.test.mjs](../../../../tests/coverage-policy.test.mjs)
-- [A8] 22 工具/10 路由/3 preset/3 exports 的快照与映射一致 — `tests`：[tests/public-surface.test.mjs](../../../../tests/public-surface.test.mjs)、[tests/support/public-surface.mjs](../../../../tests/support/public-surface.mjs)
-- [A9] gate artifact 在真实临时仓库中核对 HEAD、diff SHA、porcelain 与四组路径 — `decisions`：[docs/agent-teams.md](../../../../docs/agent-teams.md)、[tests/gate-artifact.test.mjs](../../../../tests/gate-artifact.test.mjs)
-- [A10] 22 工具 16,523 B schema 预算与第 23 个工具负例 — `tests`：[tests/tool-schema-budget.test.mjs](../../../../tests/tool-schema-budget.test.mjs)
+- [A4] 干净副本里 `npm run check` 通过，Markdown 链接指向 `.dsh-cowork/` 会红 — `workflow`：[scripts/clean-check.mjs](../../../../scripts/clean-check.mjs)、[tests/workflow.test.mjs](../../../../tests/guards/workflow.test.mjs)
+- [A5] 50 KiB 硬线、30 KiB 入口、1,200 行测试与唯一入口都有可失败的断言 — `tests`：[tests/source-budget.test.mjs](../../../../tests/guards/source-budget.test.mjs)
+- [A6] import 环、client 越界、入口反向依赖与工具映射不一致都会红 — `tests`：[tests/architecture.test.mjs](../../../../tests/guards/architecture.test.mjs)
+- [A7] 子目录测试被 `npm test` 与 coverage 发现；删除临时探针后测试数回到基线 — `tests`：[tests/coverage-policy.test.mjs](../../../../tests/guards/coverage-policy.test.mjs)
+- [A8] 22 工具/10 路由/3 preset/3 exports 的快照与映射一致 — `tests`：[tests/public-surface.test.mjs](../../../../tests/guards/public-surface.test.mjs)、[tests/support/public-surface.mjs](../../../../tests/support/public-surface.mjs)
+- [A9] gate artifact 在真实临时仓库中核对 HEAD、diff SHA、porcelain 与四组路径 — `decisions`：[docs/agent-teams.md](../../../../docs/agent-teams.md)、[tests/gate-artifact.test.mjs](../../../../tests/guards/gate-artifact.test.mjs)
+- [A10] 22 工具 16,523 B schema 预算与第 23 个工具负例 — `tests`：[tests/tool-schema-budget.test.mjs](../../../../tests/guards/tool-schema-budget.test.mjs)

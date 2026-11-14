@@ -16,7 +16,7 @@ import type {
 } from '../domains/notices/notices.js'
 import { ACTIVITY_TYPES } from './schema.js'
 import type { ActivityEvent, ActivityType, TopicRecordV2, TopicStatus } from './schema.js'
-import type { RequestAction, RequestKind, RequestRecordV1 } from '../inbox-contract.js'
+import type { RequestAction, RequestKind, RequestRecordV1 } from '../panel/inbox-contract.js'
 
 /** Everything one business activity event is built from. */
 export interface ActivityInput {

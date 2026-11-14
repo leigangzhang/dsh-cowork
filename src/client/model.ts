@@ -4,7 +4,7 @@
  * Everything here is a plain function over values: the four-group view model,
  * marker and action rules, time formatting, menu placement, error mapping and
  * action receipts. The React components consume it and
- * `tests/panel-model.test.mjs` pins it without rendering anything, so this
+ * `tests/client/panel-model.test.mjs` pins it without rendering anything, so this
  * module must stay React-free (no JSX, no `react` import) to stay loadable by
  * `node --test` through type stripping.
  *
@@ -13,7 +13,7 @@
  * and the list/detail split are gone by design; nothing here can bring them
  * back.
  */
-import type { PanelTopic } from '../api-contract.ts'
+import type { PanelTopic } from '../panel/api-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 
 /** How often relative timestamps are recomputed while the panel is open. */

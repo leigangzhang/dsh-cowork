@@ -39,7 +39,7 @@ An independent session created per review request with the `cowork-reviewer` pre
 
 ### handoff
 
-The structured report a topic writes when it finishes or blocks. Only `blocked` and `done` are legal in 0.2.0: both write a `handoffs/` audit file and one `topic-reported` event with a notice per target; `done` updates the digest and `lastDeliveryConfirmedAt`, `blocked` sets the block and remembers the status to restore. Neither wakes master through the inbox. Write `handoff`; `交接单` is the plain-language form. Source: [topic-tools.ts](../src/topic-tools.ts#L301), [handoff.ts](../src/domains/topic/handoff.ts#L214).
+The structured report a topic writes when it finishes or blocks. Only `blocked` and `done` are legal in 0.2.0: both write a `handoffs/` audit file and one `topic-reported` event with a notice per target; `done` updates the digest and `lastDeliveryConfirmedAt`, `blocked` sets the block and remembers the status to restore. Neither wakes master through the inbox. Write `handoff`; `交接单` is the plain-language form. Source: [topic-tools.ts](../src/tools/topic.ts#L301), [handoff.ts](../src/domains/topic/handoff.ts#L214).
 
 ### project memory
 

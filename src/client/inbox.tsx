@@ -14,7 +14,7 @@
  */
 import { useId, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
-import type { InboxAnswerInput, RequestAction } from '../inbox-contract.ts'
+import type { InboxAnswerInput, RequestAction } from '../panel/inbox-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 import {
   INBOX_ALL_TOPICS_LABEL,

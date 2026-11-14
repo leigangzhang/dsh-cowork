@@ -9,8 +9,8 @@
  */
 import './ts-hook.mjs'
 
-const contract = await import('../../src/api-contract.ts')
-const inbox = await import('../../src/inbox-contract.ts')
+const contract = await import('../../src/panel/api-contract.ts')
+const inbox = await import('../../src/panel/inbox-contract.ts')
 
 /** Every panel route in registration order, with its HTTP method. */
 export const PANEL_ROUTES = [
@@ -60,8 +60,8 @@ export const BUSINESS_TOOLS = [...BUSINESS_TOOL_ORDER].sort()
 
 /** Which domain module registers which tool, for the ownership tests. */
 export const TOOL_DOMAINS = [
-  ['src/project-tools.ts', ['cowork_project_init', 'cowork_project_status']],
-  ['src/topic-tools.ts', [
+  ['src/tools/project.ts', ['cowork_project_init', 'cowork_project_status']],
+  ['src/tools/topic.ts', [
     'cowork_topic_create',
     'cowork_thread_create',
     'cowork_topic_list',
@@ -73,13 +73,13 @@ export const TOOL_DOMAINS = [
     'cowork_authorization_request',
     'cowork_notices',
   ]],
-  ['src/route-tools.ts', ['cowork_route']],
-  ['src/request-tools.ts', [
+  ['src/tools/route.ts', ['cowork_route']],
+  ['src/tools/request.ts', [
     'cowork_user_review_request',
     'cowork_request_question',
     'cowork_request_plan',
   ]],
-  ['src/memory-tools.ts', ['cowork_memory_write', 'cowork_memory_search']],
-  ['src/checkout-tools.ts', ['cowork_work_item_create', 'cowork_checkout_merge']],
-  ['src/review-tools.ts', ['cowork_review_request', 'cowork_review_verdict']],
+  ['src/tools/memory.ts', ['cowork_memory_write', 'cowork_memory_search']],
+  ['src/tools/isolation.ts', ['cowork_work_item_create', 'cowork_checkout_merge']],
+  ['src/tools/review.ts', ['cowork_review_request', 'cowork_review_verdict']],
 ]

@@ -1,7 +1,7 @@
 /**
  * Shared execution layer for the `cowork_*` tools (M9.3a).
  *
- * `src/tools.ts` used to hold every helper and every tool in one file. The
+ * `src/app/tools.ts` used to hold every helper and every tool in one file. The
  * business boundary stays the same; this module owns the pieces every tool
  * needs — the dependency bag, caller/project resolution, the store and session
  * adapters, the git runner, thread views, and the isolated-thread creation /

@@ -22,7 +22,7 @@ M2 仍是 host-only：新增项目记忆与 thread checkout 两个能力，工�
 - [`src/memory.ts`](../../../../src/domains/memory/memory.ts)：记忆文件的解析、校验、按预算拼注入块、关键词检索与追加写；文件 IO 由调用方注入，时钟可替换。
 - [`src/checkout.ts`](../../../../src/domains/isolation/checkout.ts)：`git` CLI 适配器，负责 clone/checkout/inspect/merge/remove 与错误码映射；所有 git 调用带 cwd、超时与参数数组。
 - [`src/memory-prompt.ts`](../../../../src/platform/memory-prompt.ts)：把记忆块注册为 agent 作用域的 system prompt 段落，按 preset 与项目根过滤，跟踪 disposer。
-- [`src/tools.ts`](../../../../src/tools.ts) / [`src/tool-model.ts`](../../../../src/platform/tool-model.ts) / [`src/store.ts`](../../../../src/store/project-store.ts) / [`src/session-slice.ts`](../../../../src/platform/session-slice.ts) / [`src/index.ts`](../../../../src/index.ts)：工具面、错误包络、索引字段、clone 会话创建与装配。
+- [`src/tools.ts`](../../../../src/app/tools.ts) / [`src/tool-model.ts`](../../../../src/platform/tool-model.ts) / [`src/store.ts`](../../../../src/store/project-store.ts) / [`src/session-slice.ts`](../../../../src/platform/session-slice.ts) / [`src/index.ts`](../../../../src/app/apply.ts)：工具面、错误包络、索引字段、clone 会话创建与装配。
 
 **数据模型（索引 version 仍为 1）**
 

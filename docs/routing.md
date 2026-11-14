@@ -1,6 +1,6 @@
 # 路由、工作项与评审请求
 
-一个需求从 master 进入、被某个主题会话接走、在隔离工作项里完成、经独立评审请求决定能否合并，最后按生命周期标记已解决。本文只写**顺序、状态归属与失败处置**；判定规则住在 [src/routing.ts](../src/domains/routing/routing.ts) 与 [src/route-tools.ts](../src/route-tools.ts)，评审与合并的契约住在 [src/review-request.ts](../src/domains/review/review-request.ts)，产品意图见 [PLAN-V0.2 §5.3–§5.6](PLAN-V0.2.md#53-路由)。
+一个需求从 master 进入、被某个主题会话接走、在隔离工作项里完成、经独立评审请求决定能否合并，最后按生命周期标记已解决。本文只写**顺序、状态归属与失败处置**；判定规则住在 [src/routing.ts](../src/domains/routing/routing.ts) 与 [src/route-tools.ts](../src/tools/route.ts)，评审与合并的契约住在 [src/review-request.ts](../src/domains/review/review-request.ts)，产品意图见 [PLAN-V0.2 §5.3–§5.6](PLAN-V0.2.md#53-路由)。
 
 ## 1. 一个意图落到哪个主题
 
@@ -102,7 +102,7 @@ sequenceDiagram
 
 - 主题用 `cowork_work_item_create` 为**自己**创建隔离工作项；master 调用时必须显式给 `topicId`。记录包含 `workItemId / topicId / path / branch / baseCommit`。
 - 目录是 `<repo>/.dsh-cowork/workitems/<workItemId>`，分支是 `cowork/<workItemId>`，基于创建时的仓库 HEAD（[checkout.ts](../src/domains/isolation/checkout.ts#L45-L58)、[workItemCheckoutPaths](../src/domains/isolation/checkout.ts#L152)）。
-- 执行单元在各自目录里工作并提交；主题是集成分支负责人。多个工作项可并行，合并串行（[checkout-tools.ts](../src/checkout-tools.ts#L574)）。
+- 执行单元在各自目录里工作并提交；主题是集成分支负责人。多个工作项可并行，合并串行（[checkout-tools.ts](../src/tools/isolation.ts#L574)）。
 - 隔离提供方当前只实现 clone；`isolation.provider` 传其他值会在创建前失败（[KI-27](KNOWN_ISSUES.md)）。
 
 ### 2.2 评审请求

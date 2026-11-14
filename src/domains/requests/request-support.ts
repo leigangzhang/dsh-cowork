@@ -6,7 +6,7 @@
  * the lifecycle and the file-opening modules. Keeping them here lets
  * `request-lifecycle.ts` and `request-open.ts` stay acyclic.
  */
-import type { PanelErrorCode } from '../../api-contract.js'
+import type { PanelErrorCode } from '../../panel/api-contract.js'
 import type { ProjectIndexV2, ActivityEvent, ReadActivityResult } from '../../store/schema.js'
 import type { NoticeLedgerV1 } from '../notices/notices.js'
 

@@ -9,7 +9,7 @@
  * moves bytes, the service only decides state, and the browser never rebuilds
  * a message on its own.
  *
- * Every cap and every enumeration comes from `src/inbox-contract.ts`; this
+ * Every cap and every enumeration comes from `src/panel/inbox-contract.ts`; this
  * module restates none of them, because the browser half is compiled against
  * the same frozen vocabulary.
  */
@@ -41,8 +41,8 @@ import {
   isRequestKind,
   isRequestStatus,
   isTerminalStatus,
-} from '../../inbox-contract.js'
-import { truncateSummary } from '../../api-contract.js'
+} from '../../panel/inbox-contract.js'
+import { truncateSummary } from '../../panel/api-contract.js'
 import type {
   AuthorizationPayload,
   InboxAnswerInput,
@@ -58,7 +58,7 @@ import type {
   RequestStatus,
   ReviewPayload,
   ReviewVerification,
-} from '../../inbox-contract.js'
+} from '../../panel/inbox-contract.js'
 
 /** Directory holding one file per request, below `<repo>/.dsh-cowork`. */
 export const REQUEST_DIR_NAME = 'requests'

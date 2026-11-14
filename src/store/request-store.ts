@@ -25,8 +25,8 @@ import {
 } from './atomic-json.js'
 import {
   INBOX_MAX_REQUEST_FILES,
-} from '../inbox-contract.js'
-import type { RequestRecordV1 } from '../inbox-contract.js'
+} from '../panel/inbox-contract.js'
+import type { RequestRecordV1 } from '../panel/inbox-contract.js'
 import {
   REQUEST_DIR_NAME,
   REQUEST_FILE_SUFFIX,

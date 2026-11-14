@@ -235,7 +235,7 @@ function hygieneErrors() {
  * runtime module exposes to another module.
  */
 const EXPORT_BASELINE_PATH = 'tools/export-baseline.json'
-const HOST_ENTRY = 'src/index.ts'
+const HOST_ENTRY = 'src/app/apply.ts'
 const RUNTIME_EXPORT_DECLARATION = /^export\s+(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z_$][\w$]*)/gm
 
 function escapeName(name) {

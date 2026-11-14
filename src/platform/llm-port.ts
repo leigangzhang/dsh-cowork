@@ -3,7 +3,7 @@
  *
  * The routing model module owns the guards, timeout, prompt budget, and reply
  * schema; this module is the thin host boundary it calls through
- * {@link LlmRoutingPort}. It lives outside `src/index.ts` so the exact request
+ * {@link LlmRoutingPort}. It lives outside `src/app/apply.ts` so the exact request
  * shape can be unit-tested with a fake service and no host import.
  *
  * The shape is the one `@deepseek-ai/dsh-llm`'s `GenerateOptions` documents:

@@ -15,7 +15,7 @@
  * be terminal before the topic is woken.
  */
 import { authorizationResolvedActivity, requestResolvedActivity } from '../../store/activity.js'
-import type { RequestRecordV1 } from '../../inbox-contract.js'
+import type { RequestRecordV1 } from '../../panel/inbox-contract.js'
 import { updateAuthorizationNotice } from '../notices/notices.js'
 import type { NoticeUpdateOutcome, TopicNoticePort } from '../notices/notices.js'
 import { REQUEST_DELIVERY_ERROR_MAX_CHARS, applyResolution } from './request-schema.js'

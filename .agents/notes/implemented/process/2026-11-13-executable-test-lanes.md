@@ -16,13 +16,13 @@ Class: process
 
 ## Decision
 
-**1. 覆盖率由 `npm run test:coverage` 执行。** [scripts/test-coverage.mjs](../../../../scripts/test-coverage.mjs) 用 Node 内置 coverage 跑 `tests/*.mjs`，include `src/**/*.ts`，排除 dev-only probe/E2E 驱动，并锁定 line 65%、branch 82%、functions 80% 的全局下限。排除名单与阈值都是具名常量；[tests/coverage-policy.test.mjs](../../../../tests/coverage-policy.test.mjs) 固定名单、验证每个排除文件存在，并用一个故意未覆盖的 fixture 证明 100% 函数门槛会红。`src/client/*.tsx` 不进入该命令，它们留给浏览器 lane。
+**1. 覆盖率由 `npm run test:coverage` 执行。** [scripts/test-coverage.mjs](../../../../scripts/test-coverage.mjs) 用 Node 内置 coverage 跑 `tests/*.mjs`，include `src/**/*.ts`，排除 dev-only probe/E2E 驱动，并锁定 line 65%、branch 82%、functions 80% 的全局下限。排除名单与阈值都是具名常量；[tests/coverage-policy.test.mjs](../../../../tests/guards/coverage-policy.test.mjs) 固定名单、验证每个排除文件存在，并用一个故意未覆盖的 fixture 证明 100% 函数门槛会红。`src/client/*.tsx` 不进入该命令，它们留给浏览器 lane。
 
 **2. 构建产物有 `npm run test:host-smoke`。** [scripts/host-smoke.mjs](../../../../scripts/host-smoke.mjs) 对当前 `lib/` 执行 `npm pack`，在临时 `DSH_HOME` 建 profile、安装 tarball、用 `enableDevRoutes: true` 的 `--patch` 启动 `dsh web --port 0 --no-open`，换 token 后断言 `/dsh-cowork/probe/health` 的插件名、版本、repoPath 与 200；并断言未认证的 `/api/cowork.overview` 被 401/403 拒绝。进程、profile、npm cache、tarball 与临时目录都在 `finally` 清理。该命令消费当前 `lib/`，源码变更后先跑 `npm run build`；没有 `dsh` 时默认打印 SKIP，`DSH_HOST_SMOKE_STRICT=1` 让缺失变成失败。它不调用模型，完整 M12 链仍是 observational lane。
 
-**3. packaging 测试自持资源。** [tests/packaging.test.mjs](../../../../tests/packaging.test.mjs) 为 `npm pack --dry-run` 建临时 `npm_config_cache`，设置 60 秒上限，并在 `finally` 删除缓存。默认 `npm test` 不再受用户 npm 缓存状态影响。
+**3. packaging 测试自持资源。** [tests/packaging.test.mjs](../../../../tests/guards/packaging.test.mjs) 为 `npm pack --dry-run` 建临时 `npm_config_cache`，设置 60 秒上限，并在 `finally` 删除缓存。默认 `npm test` 不再受用户 npm 缓存状态影响。
 
-**4. 证据映射与文档同步。** [tools/workflow.json](../../../../tools/workflow.json) 的 `source` evidence 现在包含 `test:coverage`、typecheck、build、host smoke；`packaging` 包含 check、typecheck、npm test、build、host smoke，并拥有 `cordis.patch.yml`。`tests` 表面要求 `npm test` 与 `test:coverage`。[AGENTS.md](../../../../AGENTS.md)、[README.md](../../../../README.md)、[docs/testing.md](../../../../docs/testing.md) 与 [docs/PLAN-V0.2.md](../../../../docs/PLAN-V0.2.md) §7 的当前命令入口同步到 testing.md；[tests/workflow.test.mjs](../../../../tests/workflow.test.mjs) 固定脚本、workflow evidence 与 testing guide 的一致性。
+**4. 证据映射与文档同步。** [tools/workflow.json](../../../../tools/workflow.json) 的 `source` evidence 现在包含 `test:coverage`、typecheck、build、host smoke；`packaging` 包含 check、typecheck、npm test、build、host smoke，并拥有 `cordis.patch.yml`。`tests` 表面要求 `npm test` 与 `test:coverage`。[AGENTS.md](../../../../AGENTS.md)、[README.md](../../../../README.md)、[docs/testing.md](../../../../docs/testing.md) 与 [docs/PLAN-V0.2.md](../../../../docs/PLAN-V0.2.md) §7 的当前命令入口同步到 testing.md；[tests/workflow.test.mjs](../../../../tests/guards/workflow.test.mjs) 固定脚本、workflow evidence 与 testing guide 的一致性。
 
 ## Alternatives considered
 

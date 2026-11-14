@@ -5,12 +5,12 @@
  * notification rows one `GET /api/cowork.inbox` returns, sorts them, applies
  * the topic filter, derives the narrow-panel banner copy and projects each row
  * into its card view (status text, action availability, conversation pair).
- * The React components consume it and `tests/inbox-model.test.mjs` pins it
+ * The React components consume it and `tests/client/inbox-model.test.mjs` pins it
  * without rendering anything, so this module must stay React-free (no JSX, no
  * `react` import) to stay loadable by `node --test` through type stripping.
  *
  * The frozen vocabulary (`REQUEST_KINDS`, statuses, actions, labels) lives in
- * `src/inbox-contract.ts`; this module only reads it. One request is one
+ * `src/panel/inbox-contract.ts`; this module only reads it. One request is one
  * thread: the persisted left message, the card, then — only after the request
  * is resolved with a non-empty reply — the right-hand user message.
  */
@@ -34,7 +34,7 @@ import {
   type RequestKind,
   type RequestStatus,
   type ReviewPayload,
-} from '../inbox-contract.ts'
+} from '../panel/inbox-contract.ts'
 import { formatRelativeTime } from './model.ts'
 
 /** The panel is wide once its own content width reaches this many CSS pixels. */

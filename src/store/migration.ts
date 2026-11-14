@@ -20,7 +20,7 @@
  *   entry performs the archive before writing v2.
  *
  * The view pair (`legacyViewOf` / `applyLegacyView`) exists because
- * `src/tools.ts`, `src/api.ts`, `src/domains/topic/handoff.ts` and `src/review-tools.ts` are
+ * `src/app/tools.ts`, `src/panel/api.ts`, `src/domains/topic/handoff.ts` and `src/tools/review.ts` are
  * still v1-shaped in M7 and cannot change. `legacyViewOf` derives a v1 document
  * from v2, and `applyLegacyView` folds an edited view back into the v2 document
  * without letting legacy code overwrite fields it does not own.
@@ -480,7 +480,7 @@ function threadOfTopic(topic: TopicRecordV2): ThreadRecordV1 {
  * attachment fields, so those are written back; the status also drives the v2
  * lifecycle flags (`awaitingReview`, `blocked`, `resolvedAt`, `resolvedBy`,
  * `lastDeliveryConfirmedAt`) because `src/domains/topic/handoff.ts` and
- * `src/review-tools.ts` move the status and would otherwise leave the flags
+ * `src/tools/review.ts` move the status and would otherwise leave the flags
  * stale. The v2-only fields — `scope`, `ownedPaths`, `aliases`, `digest`,
  * `lastActiveAt`, `latestReviewRequestId`, the work items, and the document
  * envelope — are never touched. The view is the whole document, so a topic the

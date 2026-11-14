@@ -9,7 +9,7 @@
  */
 import { requestCreatedActivity, requestResolvedActivity } from '../../store/activity.js'
 import { attemptDelivery } from '../notices/delivery.js'
-import { actionForStatus, isTerminalStatus, statusForAction } from '../../inbox-contract.js'
+import { actionForStatus, isTerminalStatus, statusForAction } from '../../panel/inbox-contract.js'
 import type {
   InboxAnswerInput,
   QuestionPayload,
@@ -17,7 +17,7 @@ import type {
   RequestKind,
   RequestPayload,
   RequestRecordV1,
-} from '../../inbox-contract.js'
+} from '../../panel/inbox-contract.js'
 import type { TopicNoticePort } from '../notices/notices.js'
 import {
   REQUEST_DELIVERY_ERROR_MAX_CHARS,
