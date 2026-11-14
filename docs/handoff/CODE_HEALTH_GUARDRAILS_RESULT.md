@@ -91,4 +91,35 @@
 
 ## Stage 4 — 审查清单与决策记录
 
-（收口阶段；最终 HEAD、diff sha 与各命令结果在此记录。）
+- **审查清单**：[code-review skill](../../.agents/skills/code-review/SKILL.md) 新增 Code health 八项判断（生命周期、legacy 路径、事务/投递、宿主边界、结构迁移、测试拆分、模型文本、文档链接），并在 Anti-patterns 增加“临时面无退役触发条件”“legacy 控制路径未迁移就删除”两条。
+- **流程规则**：[docs/agent-teams.md](../agent-teams.md) 补“门禁失败先判断契约错还是代码错”，要求用 amend 记录而不是绕过门禁或复跑碰运气；gate artifact 与 `inScope` 对账规则已在 Stage 1 落位。
+- **AGENTS 预算**：只加一行“Code health is executable”指针，`AGENTS.md` 92 行（≤120），规则细节留在 skill/check/docs。
+- **决策记录**：guardrails 提案按 A1–A10 已落地事实改写为 [implemented 决策记录](../../.agents/notes/implemented/process/2026-11-13-code-health-guardrails.md)（Decision/Consequences/Testing），交接与结果记录的链接同步；tool-domain 提案保持 proposed，目录迁移未开始。
+- **未做**：没有移动 `src`/`tests` 目录，没有改工具名、路由、preset 或包入口，没有引入 ESLint/Prettier 依赖，没有扩大 allowlist。
+
+### 最终 artifact identity
+
+- base（`origin/main`，PR #33 合并点）：`edd777e94f13f8435fcf5b721bfd321383388263`
+- 最终代码 artifact HEAD：`56dd437206a2ea55bce61740d8584dd07b4fd90e`
+- `git diff --no-ext-diff --no-textconv --binary edd777e..56dd437 | shasum -a 256` = `cb1bcac3e2831e37af02c476915b05d81aaa7bb35b555b26ae282d0ea4cca8b0`
+- `git status --porcelain`：0 行
+- `change-scope`：committed 27 / staged 0 / unstaged 0 / untracked 0；全部路径落在本工作流声明的范围内。本记录自身的收口提交是 artifact 之后唯一的 docs-only 变更。
+- 下方命令均在该 HEAD 上实测；本记录的收口提交只改 `docs/handoff/`。
+
+| 命令 | 结果 |
+|---|---|
+| `npm run check` / `npm run check:self-test` | exit 0；10 kinds + 17 project 负例 |
+| `npm run check:clean` | exit 0，304 个文件，无 `.dsh-cowork/` 或 `lib/` |
+| `npm test` | 986/986 pass，0 fail |
+| `npm run test:coverage` | 986/986 pass，all files 68.72 / 83.50 / 84.27 |
+| `npm run typecheck` / `npm run build` / `npm run test:host-smoke` | 均 exit 0；host smoke 5/5 |
+| `npm run gate-artifact -- --base origin/main` | exit 0；identity 同上，porcelain 空 |
+
+## 完成定义对照
+
+- A1–A8 均有可复核证据：见 Stage 1–4 与决策记录 Testing；A9/A10 也已有可执行入口与负例。
+- 硬门禁各有负例：`check:self-test`（导出、陈旧名称、文档 kind）、`tests/architecture.test.mjs`（合成坏图）、`tests/typecheck-policy.test.mjs`（编译器拒绝未用符号）、`tests/source-budget.test.mjs`（合成超限）、`tests/workflow.test.mjs`（ignored-evidence 链接）。
+- 干净 worktree 的 `npm run check` 可跑：`npm run check:clean` 在临时副本中实测通过。
+- `npm test`、coverage、typecheck、build、host-smoke 全绿；测试数 963 → 986，增量全部是新增守卫与负例，public surface 22/10/3/3 不变；`src`/`tests` 目录未移动。
+- `AGENTS.md` 92 行；规则细节在 check/skill/docs；没有新增 ESLint/Prettier 依赖。
+- 交付：分支 push + PR；描述按 `pr-description` 写，Testing/Evidence 绑定最终代码 HEAD、diff sha 与 scope 组；不自动合并。
