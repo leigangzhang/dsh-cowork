@@ -25,7 +25,11 @@ npm run test:coverage      # node:test coverage floors
 npm run test:host-smoke    # pack current lib/ and boot a temporary DSH profile
 npm run typecheck          # TypeScript, when dependencies are installed
 npm run build              # host build (types from a DSH source checkout, runtime from the installed app; no DSH_CHECKOUT needed)
+npm run check:clean        # run the executable conventions in a copy without .dsh-cowork/ or lib/
+npm run gate-artifact -- --base <verified-base>  # record HEAD, binary diff SHA-256, porcelain, and scope groups
 ```
+
+`npm test` runs `tests/**/*.test.mjs`; the glob is quoted so Node expands it recursively. `test:coverage` uses the same recursive discovery from [scripts/test-coverage.mjs](../scripts/test-coverage.mjs), so a test moved into a subdirectory cannot be silently skipped on either lane.
 
 `test:coverage` counts `src/**/*.ts`, excludes the dev-only probe/E2E drivers named in [scripts/test-coverage.mjs](../scripts/test-coverage.mjs), and does not count the React TSX components. Those need a browser lane rather than a fake Node number. The floors live beside the exclusions; raise them only after the report moves above the new floor.
 
@@ -50,7 +54,7 @@ A flaky test is not fixed by a longer timeout, a retry, or a weaker assertion. F
 
 ## Evidence per change
 
-First run `npm run change-scope -- --base <verified-base>` and account for committed, staged, unstaged, and untracked paths. Then decide the owning surface from `tools/workflow.json`:
+First run `npm run change-scope -- --base <verified-base>` and record the identity with `npm run gate-artifact -- --base <verified-base>`; account for committed, staged, unstaged, and untracked paths. [docs/agent-teams.md](agent-teams.md) owns how that artifact is reused and reconciled with task scope. Then decide the owning surface from `tools/workflow.json`:
 
 - `src/*`, `presets/*`, `scripts/*` → `npm run test:coverage` + typecheck + build + host smoke.
 - `tests/*` → `npm test` + `npm run test:coverage`, and watch the new test fail for the regression it pins.

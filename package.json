@@ -34,7 +34,8 @@
     "check": "node tools/check-invariants.mjs",
     "check:self-test": "node tools/check-invariants.mjs --self-test",
     "change-scope": "node scripts/change-scope.mjs",
-    "test": "node --test tests/*.mjs",
+    "gate-artifact": "node scripts/gate-artifact.mjs",
+    "test": "node --test \"tests/**/*.test.mjs\"",
     "test:coverage": "node scripts/test-coverage.mjs",
     "test:host-smoke": "node scripts/host-smoke.mjs"
   },

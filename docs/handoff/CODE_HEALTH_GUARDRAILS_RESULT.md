@@ -42,6 +42,19 @@
 | `git diff --binary origin/main..HEAD \| shasum -a 256` | `567e37aef75dbf7f8222a6d8979d0a2211d11cec1ca3b2ef96365410e3967b5a` |
 | `git status --porcelain` | 0 行 |
 
-## Stage 1–4 执行记录
+## Stage 1 — 测试发现与门禁身份
+
+**递归发现。** `npm test` 改为 `node --test "tests/**/*.test.mjs"`（引号让 Node 自己展开，shell 只展开一层时子目录会漏跑）；`scripts/test-coverage.mjs` 的 `testFilesIn` 改为递归收集 `*.test.mjs`。负例分两层：`tests/coverage-policy.test.mjs` 在临时目录里断言子目录测试被发现、support 模块不被当作测试；执行时另放一个临时 `tests/tmp-discovery-negative/nested-discovery.test.mjs`，`npm test` 与 `npm run test:coverage` 都跑到 969/969，删除后回到 968/968。测试文件没有移动。
+
+**Gate artifact。** `npm run gate-artifact -- --base <verified-base>` 输出 `resolved`（base/head/merge-base）、`diff`（命令、SHA-256、字节数）、`porcelain` 与 `change-scope` 四组路径；`tests/gate-artifact.test.mjs` 在临时 git 仓库中核对 diff SHA 与真实 git 输出一致、四组路径分组正确、未知 base 失败。`docs/agent-teams.md` 拥有复用与 inScope 对账规则，`docs/testing.md` 与 `pr-description` 只引用该命令。
+
+| 命令 | 结果 |
+|---|---|
+| `npm test`（无临时探针） | 968/968 pass，0 fail |
+| `npm run test:coverage` | 968/968 pass，floors 通过 |
+| `npm run check` / `npm run check:self-test` | exit 0；self-test 10 kinds + 11 project controls |
+| `npm run typecheck` / `npm run build` / `npm run test:host-smoke` | 均 exit 0；host smoke 5/5 |
+
+## Stage 2–4 执行记录
 
 （随每个 Stage 完成更新；最终 HEAD、diff sha 与各命令结果在第 4 阶段收口。）
