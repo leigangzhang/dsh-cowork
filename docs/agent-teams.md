@@ -71,6 +71,7 @@ For panel fixtures:
 - After final `integration-ready`, only documentation and records may change. A required behavior change restarts `integration-ready`, then verification, then review.
 - Final integration runs the four checks for a behavior change. Otherwise it runs `npm run check` and a delta review. Do not start delivery until review passes and final integration completes.
 - Close a failed task with `supersededBy` or an output summary. Use the quality kinds `verification`, `review`, `repair`, and `integration` for their named stages; do not substitute `work`.
+- When a gate fails, decide whether the contract or the code is wrong. If the objective, acceptance, `verify`, or `inScope` cannot be satisfied honestly, amend the task contract and record the reason; never bypass the gate, weaken a check, or rerun the same evidence hoping for a different result.
 
 ## Closeout records (R7)
 

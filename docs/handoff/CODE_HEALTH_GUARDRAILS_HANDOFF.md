@@ -2,7 +2,7 @@
 
 - 状态：**启动交接（2026-11-13）**。本文件写给第一个新会话，用于执行 `code-health-guardrails` 提案。它不重抄提案内容，也不预先执行任何检查；事实源是本文引用的提案与本文件。
 - 适用：接手 guardrails 的 agent。范围：执行顺序、基线、每阶段停止条件、完成定义、回滚与禁止事项。**本轮不要开始 `tool-domain-modules`。**
-- 提案：[2026-11-13-code-health-guardrails.md](../../.agents/notes/proposed/process/2026-11-13-code-health-guardrails.md)（commit `3e88da2`；本分支 `agent/next-work-handoffs` 已包含），状态仍是 proposed。
+- 提案：[2026-11-13-code-health-guardrails.md](../../.agents/notes/implemented/process/2026-11-13-code-health-guardrails.md)（commit `3e88da2`；本分支 `agent/next-work-handoffs` 已包含）；执行结果见 [RESULT](CODE_HEALTH_GUARDRAILS_RESULT.md)，提案已改写为 implemented 决策记录。
 
 ## 当前事实
 
@@ -17,7 +17,7 @@
 ## 先读什么
 
 1. [AGENTS.md](../../AGENTS.md)、[docs/agent-teams.md](../agent-teams.md)、[docs/testing.md](../testing.md)：纪律、DAG/门禁、证据分层。
-2. [code-health-guardrails 提案](../../.agents/notes/proposed/process/2026-11-13-code-health-guardrails.md)：A 硬门禁、B 审查清单、C 决策/Agent 规则、A1–A8 验收。
+2. [code-health-guardrails 决策记录](../../.agents/notes/implemented/process/2026-11-13-code-health-guardrails.md)：A 硬门禁、B 审查清单、C 决策/Agent 规则、A1–A8 验收。
 3. 本文件：执行顺序、停止条件、完成定义。
 
 ## 启动步骤

@@ -1,6 +1,6 @@
 # 代码健康度守卫执行结果
 
-- 状态：**执行中（2026-11-13）**。本记录是 `code-health-guardrails` 工作流的 Stage 0 映射与最终证据；规则来源是 [提案](../../.agents/notes/proposed/process/2026-11-13-code-health-guardrails.md)，执行顺序见 [交接](CODE_HEALTH_GUARDRAILS_HANDOFF.md)。
+- 状态：**完成（2026-11-13）**。本记录是 `code-health-guardrails` 工作流的 Stage 0 映射与最终证据；规则来源是 [决策记录](../../.agents/notes/implemented/process/2026-11-13-code-health-guardrails.md)，执行顺序见 [交接](CODE_HEALTH_GUARDRAILS_HANDOFF.md)。
 - 基线：`origin/main` = `edd777e`（PR #33 已合并），工作分支 `agent/code-health-guardrails-impl` 只在其上追加 guardrails 提案、tool-domain 提案与执行交接三份文档。
 - 范围：只做代码健康度守卫。**不开始 tool-domain 目录迁移**，不移动 `src`/`tests` 目录，不改工具名、路由、preset、包入口。
 
