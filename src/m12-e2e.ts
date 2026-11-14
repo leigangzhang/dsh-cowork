@@ -1,29 +1,30 @@
-/** M12 real-host end-to-end driver: the 0.2.0 topic-session chain. */
-import { randomUUID } from 'node:crypto'
+/**
+ * M12 real-host end-to-end driver: the 0.2.0 topic-session chain.
+ *
+ * This module owns the seventeen steps and their dispatch in `M12_STEP_IDS`
+ * order; the run lifecycle, session event buffer and host plumbing live in
+ * `m12-e2e-driver.ts`. The support modules keep the frozen contract, prompt
+ * text and evidence rules, so a step reads as the instruction it sends.
+ */
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   HANDOFFS_DIR_RELATIVE,
   INDEX_FILE_RELATIVE,
-  M12_E2E_EVIDENCE_RELATIVE,
   M12_E2E_FIXTURE_PREFIX,
-  M12_E2E_POLL_MS,
-  M12_E2E_STEP_TIMEOUT_MS,
   M12_E2E_TOPIC_INTENT,
   M12_E2E_WORK_CONTENT,
   M12_E2E_WORK_FILE,
   MASTER_PRESET_ID,
-  MAX_EVENTS,
-  MAX_GIT_TEXT,
   REVIEWS_DIR_RELATIVE,
   REVIEW_REQUEST_TOOL,
   REVIEW_VERDICT_TOOL,
   ROUTE_TOOL,
   WORK_ITEM_TOOL,
-  asRecord,
   artifactIdentityFrom,
+  asRecord,
   assertActivityAudit,
   assertMergeDecision,
   assertMergedFacts,
@@ -32,10 +33,8 @@ import {
   assertRequestFacts,
   assertSidebarVisibility,
   assertVerdictFacts,
-  assistantTextSince,
   buildCleanupReport,
   buildCommitPrompt,
-  buildEvidenceDocument,
   buildHandoffPrompt,
   buildMergePrompt,
   buildProjectInitPrompt,
@@ -45,216 +44,48 @@ import {
   buildRoutePrompt,
   buildWorkItemPrompt,
   clip,
-  createRun,
   deliveryEventSince,
   eventsSince,
   fixturePathProblem,
-  isoNow,
   isLiveTopicStatus,
   isStrictlyInside,
-  lastSeq,
+  isoNow,
   messageOf,
   obs,
-  parseInboxFile,
-  persistEvidenceDocument,
   planMergePrompt,
   planRequestReview,
   planReviewVerdict,
   projectPath,
-  readActivityAt,
   readHandoffFiles,
-  readInboxAt,
-  readProjectIndexAt,
-  readReviewRequestAt,
   readReviewRequests,
   readTextIfPresent,
   recordCheck,
-  sessionEventSummary,
   runGit,
-  runStatusView,
+  sessionEventSummary,
   shortThresholdsProblem,
-  shouldRemoveFixture,
-  sleep,
   stableJson,
-  stepFailureState,
   stringOrNull,
-  toolCallsSince,
   toolResultJson,
   topicOf,
   workItemOfTopic,
 } from './m12-e2e-support.js'
 import type {
-  ActivityEvent,
-  GitOutcome,
   M12ArchivedSession,
   M12CleanupReport,
-  M12E2EConfig,
-  M12E2EHost,
-  M12EvidenceDocument,
   M12OverviewTopic,
-  M12PromptEvidence,
-  M12ReviewRequestView,
-  M12RunState,
-  M12RunStatusView,
-  M12SessionRole,
-  M12ToolCallEvidence,
   MutableRun,
   MutableStep,
-  PromptMode,
-  ProjectIndexV2,
-  SessionEvent,
-  WorkItemRecordV2,
 } from './m12-e2e-support.js'
+import { M12E2ERunnerBase } from './m12-e2e-driver.js'
+import type { M12RunOptions } from './m12-e2e-driver.js'
 
 export { M12_E2E_RUN_PATH, M12_E2E_STATUS_PATH } from './m12-e2e-support.js'
 export type { M12E2EHost, M12PanelProbe } from './m12-e2e-support.js'
+export type { M12RunOptions }
 
-/** Options one run may carry (the dev route reads them from the query string). */
-export interface M12RunOptions {
-  readonly keep?: boolean
-  /** Base ref for the artifact diff (e.g. the M12 base commit). */
-  readonly baseRef?: string
-}
-
-export class M12E2ERunner {
-  private readonly host: M12E2EHost
-  private readonly config: M12E2EConfig
-  private readonly runs = new Map<string, MutableRun>()
-  private readonly events = new Map<string, SessionEvent[]>()
-  private readonly tracked = new Set<string>()
-  private readonly evidenceFile: string
-  private lastRunId: string | null = null
-  private disposed = false
-  private fixturePath: string | null = null
-  private keepFixture = false
-  private masterId: string | null = null
-  private topicId: string | null = null
-  private reviewerId: string | null = null
-  private extraTopicId: string | null = null
-  private workItemId: string | null = null
-  private mainRef = ''
-  private setupHead = ''
-  private reviewedHead = ''
-  private requestId = ''
-  private requestSummary: string | null = null
-  private masterSeqAtVerdict = 0
-  private resolvedAt: string | null = null
-
-  constructor(host: M12E2EHost, config: M12E2EConfig) {
-    this.host = host
-    this.config = config
-    this.evidenceFile = join(config.repoPath, M12_E2E_EVIDENCE_RELATIVE)
-  }
-
-  attachEvents(): () => void {
-    return this.host.on('session/event', (session, event) => {
-      if (!this.tracked.has(session.id)) return
-      const list = this.events.get(session.id) ?? []
-      list.push(event as SessionEvent)
-      if (list.length > MAX_EVENTS) list.splice(0, list.length - MAX_EVENTS)
-      this.events.set(session.id, list)
-    })
-  }
-
-  start(options: M12RunOptions = {}): { runId: string; state: M12RunState } {
-    if (this.disposed) throw new Error('M12 E2E runner is disposed')
-    const active = this.lastRunId === null ? undefined : this.runs.get(this.lastRunId)
-    if (active !== undefined && active.state === 'running') throw new Error(`M12 E2E run ${active.runId} is still running`)
-    this.keepFixture = options.keep === true
-    this.resetRunState()
-    const run = createRun(`m12-${randomUUID()}`, isoNow())
-    this.runs.set(run.runId, run)
-    this.lastRunId = run.runId
-    void this.execute(run, options)
-    return { runId: run.runId, state: run.state }
-  }
-
-  async resolve(runId: string): Promise<M12RunStatusView | undefined> {
-    const run = this.runs.get(runId)
-    if (run !== undefined) return runStatusView(run, this.evidenceFile)
-    if (!/^m12-[0-9a-fA-F-]{8,64}$/.test(runId)) return undefined
-    try {
-      const parsed = JSON.parse(await readFile(this.evidenceFile, 'utf8')) as M12EvidenceDocument | undefined
-      if (parsed === undefined || parsed.runId !== runId) return undefined
-      return {
-        runId: parsed.runId,
-        state: parsed.state,
-        startedAt: parsed.startedAt,
-        ...(parsed.endedAt === null ? {} : { endedAt: parsed.endedAt }),
-        steps: parsed.steps,
-        evidenceFile: this.evidenceFile,
-        ...(parsed.error === undefined ? {} : { error: parsed.error }),
-      }
-    } catch {
-      return undefined
-    }
-  }
-
-  dispose(): void {
-    this.disposed = true
-    this.tracked.clear()
-    this.events.clear()
-  }
-
-  private resetRunState(): void {
-    this.fixturePath = null
-    this.masterId = null
-    this.topicId = null
-    this.reviewerId = null
-    this.extraTopicId = null
-    this.workItemId = null
-    this.mainRef = ''
-    this.setupHead = ''
-    this.reviewedHead = ''
-    this.requestId = ''
-    this.requestSummary = null
-    this.masterSeqAtVerdict = 0
-    this.resolvedAt = null
-  }
-
-  private readonly overrides: { baseRef?: string } = {}
-
-  private async execute(run: MutableRun, options: M12RunOptions): Promise<void> {
-    this.overrides.baseRef = options.baseRef
-    try {
-      for (const step of run.steps) {
-        if (this.disposed) throw new Error('M12 E2E runner was disposed')
-        step.status = 'running'
-        step.evidence.startedAt = isoNow()
-        obs(step, { before: await this.safeSnapshot() })
-        try {
-          await this.runStep(step, run)
-          step.status = 'passed'
-        } catch (error) {
-          step.status = 'failed'
-          step.evidence.error = messageOf(error)
-          step.evidence.endedAt = isoNow()
-          obs(step, { after: await this.safeSnapshot() })
-          this.refreshPrompts(step)
-          const failure = stepFailureState(step.id, step.evidence.error)
-          run.state = failure.state
-          run.error = failure.error
-          break
-        }
-        step.evidence.endedAt = isoNow()
-        obs(step, { after: await this.safeSnapshot() })
-        this.refreshPrompts(step)
-        await this.persist(run)
-      }
-      if (run.state === 'running') run.state = 'done'
-    } catch (error) {
-      run.state = 'failed'
-      run.error = messageOf(error)
-    } finally {
-      run.endedAt = isoNow()
-      await this.safeArchiveSessions(run)
-      await this.persist(run)
-      if (shouldRemoveFixture(run.state, this.keepFixture)) await this.removeFixture(run)
-      this.releaseSessions()
-    }
-  }
-
-  private async runStep(step: MutableStep, run: MutableRun): Promise<void> {
+/** The M12 chain: one class, one step per method, in `M12_STEP_IDS` order. */
+export class M12E2ERunner extends M12E2ERunnerBase {
+  protected async runStep(step: MutableStep, run: MutableRun): Promise<void> {
     switch (step.id) {
       case 'setup': return this.stepSetup(step, run)
       case 'route-topic': return this.stepRouteTopic(step)
@@ -834,239 +665,5 @@ export class M12E2ERunner {
     obs(step, { cleanup })
     recordCheck(step, this.keepFixture ? 'keep mode kept the throwaway project' : 'the throwaway project was removed', this.keepFixture ? existsSync(this.fixture()) : fixtureRemoved, this.fixture())
     recordCheck(step, 'every created session was archived', sessions.every((session) => session.archived), sessions.filter((session) => !session.archived).map((session) => session.sessionId).join(','))
-  }
-
-  private trackedSessionPlan(): Array<[string, string]> {
-    const candidates: Array<[string, string | null]> = [
-      ['master', this.masterId],
-      ['topic', this.topicId],
-      ['reviewer', this.reviewerId],
-      ['topic-resolved-match', this.extraTopicId],
-    ]
-    const roles = new Map(candidates.filter((entry): entry is [string, string] => entry[1] !== null).map(([role, id]) => [id, role]))
-    return [...this.tracked].map((sessionId) => [roles.get(sessionId) ?? 'session', sessionId] as [string, string])
-  }
-
-  private async archiveOne(role: string, sessionId: string): Promise<M12ArchivedSession> {
-    try {
-      await this.host.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
-    } catch (error) {
-      return { role, sessionId, archived: false, error: messageOf(error) }
-    }
-    const ids = this.archivedSessionIds()
-    if (ids === undefined) return { role, sessionId, archived: true, error: null }
-    return ids.includes(sessionId)
-      ? { role, sessionId, archived: true, error: null }
-      : { role, sessionId, archived: false, error: 'not in archivedSessionIds after archive' }
-  }
-
-  private async dropWorkspace(step: MutableStep): Promise<{ id: string | null; deleted: boolean; error: string | null }> {
-    if (this.keepFixture) return { id: null, deleted: false, error: null }
-    try {
-      const workspace = await this.host.workspaceRegistry.resolveByPath(this.fixture())
-      if (workspace === undefined) return { id: null, deleted: false, error: null }
-      const deleted = await this.host.workspaceRegistry.delete(workspace.id)
-      obs(step, { workspace: { id: workspace.id, path: workspace.path, deleted } })
-      return { id: workspace.id, deleted, error: deleted ? null : 'workspace registry did not delete the workspace' }
-    } catch (error) {
-      return { id: null, deleted: false, error: messageOf(error) }
-    }
-  }
-
-  private readIndex(): Promise<ProjectIndexV2 | undefined> {
-    return readProjectIndexAt(this.fixture())
-  }
-
-  private readActivity(): Promise<{ events: ActivityEvent[]; skippedLines: number }> {
-    return readActivityAt(this.fixture())
-  }
-
-  private readInbox(): Promise<ReturnType<typeof parseInboxFile>> {
-    return readInboxAt(this.fixture())
-  }
-
-  private readRequest(): Promise<M12ReviewRequestView | null> {
-    return readReviewRequestAt(this.fixture(), this.requestId)
-  }
-
-  private async poll<T>(label: string, read: () => Promise<T | undefined>, timeoutMs = M12_E2E_STEP_TIMEOUT_MS): Promise<T> {
-    const deadline = Date.now() + timeoutMs
-    for (;;) {
-      if (this.disposed) throw new Error('M12 E2E runner was disposed')
-      const value = await read()
-      if (value !== undefined) return value
-      if (Date.now() >= deadline) throw new Error(`timeout after ${timeoutMs}ms waiting for ${label}`)
-      await sleep(M12_E2E_POLL_MS)
-    }
-  }
-
-  private async waitIdle(sessionId: string, timeoutMs = M12_E2E_STEP_TIMEOUT_MS): Promise<void> {
-    await this.poll(`session ${sessionId} to be idle`, async () => {
-      const { items } = await this.host.sessionController.list({})
-      const row = items.find((item) => item.sessionId === sessionId)
-      return row !== undefined && row.running === false ? true : undefined
-    }, timeoutMs)
-  }
-
-  private async waitToolResult(sessionId: string, fromSeq: number, name: string): Promise<M12ToolCallEvidence> {
-    return this.poll(`tool ${name} result on ${sessionId}`, async () => {
-      const calls = toolCallsSince(this.eventsOf(sessionId), fromSeq, name)
-      const call = calls.filter((entry) => entry.resultText !== null).at(-1)
-      if (call === undefined) return undefined
-      const payload = toolResultJson(call)
-      if (call.isError === true || payload?.ok === false) {
-        throw new Error(`${name} failed on ${sessionId}: ${clip(call.resultText ?? '', 1_000)}`)
-      }
-      return call
-    })
-  }
-
-  private async promptStep(step: MutableStep, sessionId: string, role: M12SessionRole, content: string, mode: PromptMode = 'queue'): Promise<M12PromptEvidence> {
-    const fromSeq = this.lastSeqOf(sessionId)
-    const evidence: M12PromptEvidence = { sessionId, role, content, mode, accepted: false, fromSeq, assistantText: '', toolCalls: [] }
-    step.evidence.prompts.push(evidence)
-    const result = await this.host.sessionController.prompt(
-      { requestId: randomUUID(), sessionId, mode, content: [{ type: 'text', text: content }] },
-      AbortSignal.timeout(this.config.promptTimeoutMs),
-    )
-    evidence.accepted = result.accepted
-    recordCheck(step, `prompt accepted by ${role} session`, result.accepted === true, sessionId)
-    return evidence
-  }
-
-  private refreshPrompts(step: MutableStep): void {
-    for (const prompt of step.evidence.prompts) {
-      const events = this.eventsOf(prompt.sessionId)
-      prompt.assistantText = assistantTextSince(events, prompt.fromSeq)
-      prompt.toolCalls = toolCallsSince(events, prompt.fromSeq)
-    }
-  }
-
-  private async observeGit(step: MutableStep, args: readonly string[], cwd: string): Promise<GitOutcome> {
-    const result = await runGit(args, cwd)
-    const commands = (step.evidence.observations.git as unknown[]) ?? []
-    commands.push({ args: [...args], cwd, exitCode: result.code, stdout: clip(result.stdout, MAX_GIT_TEXT), stderr: clip(result.stderr, MAX_GIT_TEXT) })
-    step.evidence.observations.git = commands
-    return result
-  }
-
-  private async gitOk(step: MutableStep, args: readonly string[], cwd: string, label: string): Promise<GitOutcome> {
-    const result = await this.observeGit(step, args, cwd)
-    if (result.code !== 0) throw new Error(`${label} failed (${result.code}): ${result.stderr.trim() || result.stdout.trim()}`)
-    return result
-  }
-
-  private async sameDirectory(left: string | null | undefined, right: string): Promise<boolean> {
-    if (typeof left !== 'string' || left.trim() === '') return false
-    try {
-      return await realpath(left) === await realpath(right)
-    } catch {
-      return resolve(left) === resolve(right)
-    }
-  }
-
-  private archivedSessionIds(): readonly string[] | undefined {
-    const ids = this.host.workspaceRegistry.archivedSessionIds
-    return Array.isArray(ids) ? ids : undefined
-  }
-
-  private fixture(): string {
-    if (this.fixturePath === null) throw new Error('the M12 E2E fixture was not prepared')
-    return this.fixturePath
-  }
-
-  private master(): string {
-    if (this.masterId === null) throw new Error('master session was not created')
-    return this.masterId
-  }
-
-  private topic(): string {
-    if (this.topicId === null) throw new Error('the routed topic was not created')
-    return this.topicId
-  }
-
-  private reviewer(): string {
-    if (this.reviewerId === null) throw new Error('the reviewer session was not created')
-    return this.reviewerId
-  }
-
-  private async workItem(): Promise<WorkItemRecordV2> {
-    const item = workItemOfTopic(await this.readIndex(), this.topic())
-    if (item === undefined) throw new Error('the topic work item is not in the index')
-    return item
-  }
-
-  private track(sessionId: string): void {
-    this.tracked.add(sessionId)
-    if (!this.events.has(sessionId)) this.events.set(sessionId, [])
-  }
-
-  private releaseSessions(): void {
-    for (const sessionId of this.tracked) this.events.delete(sessionId)
-    this.tracked.clear()
-  }
-
-  private eventsOf(sessionId: string): readonly SessionEvent[] {
-    return this.events.get(sessionId) ?? []
-  }
-
-  private lastSeqOf(sessionId: string): number {
-    return lastSeq(this.eventsOf(sessionId))
-  }
-
-  private async safeSnapshot(): Promise<Record<string, unknown>> {
-    try {
-      if (this.fixturePath === null) return { fixtureExists: false }
-      const index = await this.readIndex()
-      return {
-        fixtureExists: existsSync(this.fixturePath),
-        masterSessionId: index?.masterSessionId ?? null,
-        topics: (index?.topics ?? []).map((entry) => ({ topicId: entry.topicId, status: entry.status, reviewStatus: entry.reviewStatus, resolvedAt: entry.resolvedAt })),
-        workItems: (index?.workItems ?? []).map((entry) => ({ workItemId: entry.workItemId, status: entry.status, headCommit: entry.headCommit })),
-      }
-    } catch (error) {
-      return { error: messageOf(error) }
-    }
-  }
-
-  private async safeArchiveSessions(run: MutableRun): Promise<void> {
-    const cleanup = run.cleanup as M12CleanupReport | Record<string, unknown>
-    if (Array.isArray((cleanup as M12CleanupReport).sessions) && (cleanup as M12CleanupReport).sessions.length > 0) return
-    const archived: M12ArchivedSession[] = []
-    for (const [role, sessionId] of this.trackedSessionPlan()) archived.push(await this.archiveOne(role, sessionId))
-    if (archived.length === 0) return
-    run.cleanup = {
-      ...run.cleanup,
-      autoArchived: archived,
-      archivedSessionIds: archived.filter((entry) => entry.archived).map((entry) => entry.sessionId),
-      autoArchiveErrors: archived.filter((entry) => !entry.archived).map((entry) => `${entry.sessionId}: ${entry.error ?? 'unknown error'}`),
-    }
-  }
-
-  private async removeFixture(run: MutableRun): Promise<void> {
-    const errors: string[] = []
-    let removed = false
-    if (this.fixturePath !== null) {
-      try {
-        await rm(this.fixturePath, { recursive: true, force: true })
-        removed = !existsSync(this.fixturePath)
-      } catch (error) {
-        errors.push(`delete fixture: ${messageOf(error)}`)
-      }
-    }
-    const cleanup = run.cleanup as M12CleanupReport | Record<string, unknown>
-    const previous = Array.isArray(cleanup.errors) ? cleanup.errors as unknown[] : []
-    run.cleanup = { ...run.cleanup, errors: [...previous, ...errors], fixturePath: this.fixturePath, keepFixture: this.keepFixture, fixtureRemoved: removed }
-    await this.persist(run)
-  }
-
-  private async persist(run: MutableRun): Promise<void> {
-    const document = buildEvidenceDocument(
-      { plugin: this.config.pluginName, pluginVersion: this.config.pluginVersion, repoPath: this.config.repoPath },
-      run,
-      this.evidenceFile,
-      { path: this.fixturePath, keep: this.keepFixture },
-    )
-    await persistEvidenceDocument(document, this.evidenceFile, this.config.log)
   }
 }
