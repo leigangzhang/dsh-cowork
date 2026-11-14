@@ -22,9 +22,11 @@ test('coverage floors are the reviewed 2026-11-13 baseline', () => {
 test('coverage exclusions are explicit, existing dev-only drivers', () => {
   assert.deepEqual(DEV_ONLY_COVERAGE_EXCLUDES, [
     'src/m12-e2e.ts',
+    'src/m12-e2e-contract.ts',
+    'src/m12-e2e-evidence.ts',
+    'src/m12-e2e-prompts.ts',
+    'src/m12-e2e-driver.ts',
     'src/m12-e2e-support.ts',
-    'src/probe-engine.ts',
-    'src/probe-store.ts',
     'src/panel-probe.ts',
   ])
   for (const path of DEV_ONLY_COVERAGE_EXCLUDES) {

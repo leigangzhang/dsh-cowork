@@ -1,5 +1,5 @@
 /**
- * Post-merge teardown of one thread's isolated clone, as an ordered step list.
+ * Post-merge teardown of one isolated clone, as an ordered step list.
  *
  * Once `git merge` has landed, the merge cannot be taken back: a clone that
  * fails to delete, a workspace the registry refuses to drop, or a session that
@@ -8,6 +8,10 @@
  * and the retry would then merge twice. So every step is caught on its own, the
  * error text is collected, and the index update — the step that clears
  * `checkoutPath` — always runs last, whatever happened before it.
+ *
+ * A thread and a work item tear down the same way; the thread owns a session
+ * and archives it, a work item owns none. `runTeardownSteps` is that one step
+ * sequence, and both public functions are adapters onto it.
  *
  * The module deliberately imports nothing: the host services arrive as ports,
  * so this orchestration runs under `node --test` with recording fakes and no
@@ -60,31 +64,61 @@ export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** The cleanup counters shared by both teardowns, in their reported order. */
+interface TeardownCleanup {
+  removed: boolean
+  branchDeleted: boolean
+  workspaceId: string | null
+  workspaceDeleted: boolean
+}
+
+/** The one step the thread teardown runs and a work item does not. */
+interface TeardownSessionStep {
+  /** Prefix for a caught error, e.g. `session`. */
+  readonly label: string
+  archive(): Promise<void>
+}
+
+interface TeardownStepPorts<TRecord> {
+  resolveWorkspace(path: string): Promise<{ id: string } | undefined>
+  removeCheckout(): Promise<CheckoutRemoval>
+  deleteWorkspace(workspaceId: string): Promise<boolean>
+  /** Runs after the workspace is deleted and before the index write. */
+  session?: TeardownSessionStep
+  updateRecord(): Promise<{ record: TRecord | null }>
+}
+
+interface TeardownStepOutcome<TRecord> {
+  cleanup: TeardownCleanup
+  sessionArchived: boolean
+  cleanupErrors: string[]
+  record: TRecord | null
+}
+
 /**
- * Tear the clone down after a successful merge.
+ * The teardown step sequence, once.
  *
  * Fixed order, and the reason it is fixed: the workspace must be resolved
  * before the clone directory is deleted (the host canonicalises the path with
  * realpath, so a deleted path no longer matches), and the index update must be
  * last, because it is the only step that records the merge as finished.
  */
-export async function teardownMergedCheckout<TThread>(
-  plan: MergeTeardownPlan,
-  ports: MergeTeardownPorts<TThread>,
-): Promise<MergeTeardownResult<TThread>> {
-  const cleanup: MergeCleanup = {
+async function runTeardownSteps<TRecord>(
+  checkoutPath: string,
+  ports: TeardownStepPorts<TRecord>,
+): Promise<TeardownStepOutcome<TRecord>> {
+  const cleanup: TeardownCleanup = {
     removed: false,
     branchDeleted: false,
     workspaceId: null,
     workspaceDeleted: false,
-    sessionArchived: false,
   }
   const cleanupErrors: string[] = []
 
   // Resolve the workspace while the clone still exists.
   let workspaceId: string | null = null
   try {
-    const workspace = await ports.resolveWorkspace(plan.checkoutPath)
+    const workspace = await ports.resolveWorkspace(checkoutPath)
     workspaceId = workspace === undefined ? null : workspace.id
   } catch (error) {
     cleanupErrors.push(`workspace lookup: ${describeError(error)}`)
@@ -113,23 +147,50 @@ export async function teardownMergedCheckout<TThread>(
     }
   }
 
-  try {
-    await ports.archiveSession(plan.threadId)
-    cleanup.sessionArchived = true
-  } catch (error) {
-    cleanupErrors.push(`session: ${describeError(error)}`)
+  let sessionArchived = false
+  if (ports.session !== undefined) {
+    try {
+      await ports.session.archive()
+      sessionArchived = true
+    } catch (error) {
+      cleanupErrors.push(`${ports.session.label}: ${describeError(error)}`)
+    }
   }
 
   // Last and unconditional: the merge landed, so the index must stop claiming
-  // the thread still owns a clone. A failure here is reported, never rethrown.
-  let thread: TThread | null = null
+  // the clone is still there. A failure here is reported, never rethrown.
+  let record: TRecord | null = null
   try {
-    thread = (await ports.updateThread(plan.threadId)).thread
+    record = (await ports.updateRecord()).record
   } catch (error) {
     cleanupErrors.push(`index: ${describeError(error)}`)
   }
 
-  return { cleanup, cleanupErrors, thread }
+  return { cleanup, sessionArchived, cleanupErrors, record }
+}
+
+/**
+ * Tear the clone down after a successful merge.
+ *
+ * The thread adapter onto {@link runTeardownSteps}: it adds the session archive
+ * step and reports `sessionArchived` in its cleanup payload.
+ */
+export async function teardownMergedCheckout<TThread>(
+  plan: MergeTeardownPlan,
+  ports: MergeTeardownPorts<TThread>,
+): Promise<MergeTeardownResult<TThread>> {
+  const outcome = await runTeardownSteps(plan.checkoutPath, {
+    resolveWorkspace: (path) => ports.resolveWorkspace(path),
+    removeCheckout: () => ports.removeCheckout(),
+    deleteWorkspace: (workspaceId) => ports.deleteWorkspace(workspaceId),
+    session: { label: 'session', archive: () => ports.archiveSession(plan.threadId) },
+    updateRecord: async () => ({ record: (await ports.updateThread(plan.threadId)).thread }),
+  })
+  return {
+    cleanup: { ...outcome.cleanup, sessionArchived: outcome.sessionArchived },
+    cleanupErrors: outcome.cleanupErrors,
+    thread: outcome.record,
+  }
 }
 
 /**
@@ -193,63 +254,23 @@ export interface WorkItemTeardownResult<TWorkItem> {
  * problems — they are collected, never turned into a failed merge result that
  * would invite a second merge.
  *
- * The order is fixed for the same reason: the workspace is resolved while the
- * clone still exists (the host canonicalises the path), the clone and its
- * `cowork/<id>` branch are removed together by the checkout port, and the index
- * update runs last because it is the step that records the merge as finished.
  * A work item owns no session (execution units work in the clone without a DSH
- * session of their own), so the thread teardown's archive step has no analogue
- * here.
+ * session of their own), so it passes no session step: everything else is the
+ * shared sequence.
  */
 export async function teardownMergedWorkItem<TWorkItem>(
   plan: WorkItemTeardownPlan,
   ports: WorkItemTeardownPorts<TWorkItem>,
 ): Promise<WorkItemTeardownResult<TWorkItem>> {
-  const cleanup: WorkItemCleanup = {
-    removed: false,
-    branchDeleted: false,
-    workspaceId: null,
-    workspaceDeleted: false,
+  const outcome = await runTeardownSteps(plan.checkoutPath, {
+    resolveWorkspace: (path) => ports.resolveWorkspace(path),
+    removeCheckout: () => ports.removeCheckout(),
+    deleteWorkspace: (workspaceId) => ports.deleteWorkspace(workspaceId),
+    updateRecord: async () => ({ record: (await ports.updateWorkItem()).workItem }),
+  })
+  return {
+    cleanup: outcome.cleanup,
+    cleanupErrors: outcome.cleanupErrors,
+    workItem: outcome.record,
   }
-  const cleanupErrors: string[] = []
-
-  // Resolve the workspace while the clone still exists.
-  let workspaceId: string | null = null
-  try {
-    const workspace = await ports.resolveWorkspace(plan.checkoutPath)
-    workspaceId = workspace === undefined ? null : workspace.id
-  } catch (error) {
-    cleanupErrors.push(`workspace lookup: ${describeError(error)}`)
-  }
-  cleanup.workspaceId = workspaceId
-
-  try {
-    const removed = await ports.removeCheckout()
-    if (removed.ok) {
-      cleanup.removed = removed.removed
-      cleanup.branchDeleted = removed.branchDeleted
-    } else {
-      cleanupErrors.push(`checkout: ${removed.message}`)
-    }
-  } catch (error) {
-    cleanupErrors.push(`checkout: ${describeError(error)}`)
-  }
-
-  if (workspaceId !== null) {
-    try {
-      cleanup.workspaceDeleted = await ports.deleteWorkspace(workspaceId)
-    } catch (error) {
-      cleanupErrors.push(`workspace: ${describeError(error)}`)
-    }
-  }
-
-  // Last and unconditional: the merge landed, so the index must say so.
-  let workItem: TWorkItem | null = null
-  try {
-    workItem = (await ports.updateWorkItem()).workItem
-  } catch (error) {
-    cleanupErrors.push(`index: ${describeError(error)}`)
-  }
-
-  return { cleanup, cleanupErrors, workItem }
 }

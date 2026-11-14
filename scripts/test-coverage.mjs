@@ -33,9 +33,11 @@ export const COVERAGE_FLOORS = Object.freeze({
  */
 export const DEV_ONLY_COVERAGE_EXCLUDES = Object.freeze([
   'src/m12-e2e.ts',
+  'src/m12-e2e-contract.ts',
+  'src/m12-e2e-evidence.ts',
+  'src/m12-e2e-prompts.ts',
+  'src/m12-e2e-driver.ts',
   'src/m12-e2e-support.ts',
-  'src/probe-engine.ts',
-  'src/probe-store.ts',
   'src/panel-probe.ts',
 ])
 

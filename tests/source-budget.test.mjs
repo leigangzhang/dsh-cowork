@@ -24,6 +24,9 @@ const READ_LIMIT_BYTES = 51_200
 /** Headroom the tools split must keep on src/tools.ts; 48 KiB leaves 2 KiB. */
 const TOOLS_SPLIT_HEADROOM_BYTES = 49_152
 
+/** The M12 E2E split target: every m12-e2e module keeps 48 KiB, not just 50. */
+const M12_SPLIT_HEADROOM_BYTES = 49_152
+
 /** Every `.ts`/`.tsx` file under `dir`, recursively, as repo-relative POSIX paths. */
 function sourceFiles(dir) {
   const found = []
@@ -57,6 +60,18 @@ test('every src/**/*.ts and src/**/*.tsx file stays under the 50 KiB read limit'
     [],
     `${over.length} source file(s) exceed the ${READ_LIMIT_BYTES} B read limit: ${detail}`,
   )
+})
+
+test('every src/m12-e2e module stays under the 48 KiB split target', () => {
+  // Dynamic on purpose: a new module born from the M12 split is covered without
+  // editing this list, so the budget cannot silently stop applying to it.
+  const files = sourceFiles(srcRoot).filter((file) => /(^|\/)m12-e2e[^/]*\.ts$/.test(file))
+  assert.ok(files.length >= 6, `expected the M12 e2e modules, found: ${files.join(', ')}`)
+  for (const file of files) {
+    const bytes = bytesOf(file)
+    console.log(`# ${file}: ${bytes} B / ${M12_SPLIT_HEADROOM_BYTES} B`)
+    assert.ok(bytes <= M12_SPLIT_HEADROOM_BYTES, `${file} is ${bytes} B, over the ${M12_SPLIT_HEADROOM_BYTES} B split target`)
+  }
 })
 
 test('the review-tool split keeps src/tools.ts well below the limit', () => {
