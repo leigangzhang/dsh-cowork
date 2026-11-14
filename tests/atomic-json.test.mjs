@@ -72,7 +72,8 @@ test('withProjectLock serializes concurrent read-modify-write cycles', async () 
 })
 
 test('the stores import the shared layer instead of restating it', async () => {
-  const files = ['src/store.ts', 'src/notice-store.ts', 'src/request-store.ts', 'src/probe-store.ts']
+  // The retired M0 probe store is gone; every remaining store is listed here.
+  const files = ['src/store.ts', 'src/notice-store.ts', 'src/request-store.ts']
   for (const file of files) {
     const source = await readFile(new URL(`../${file}`, import.meta.url), 'utf8')
     assert.match(source, /atomic-json\.js/, `${file} must import the shared atomic layer`)
