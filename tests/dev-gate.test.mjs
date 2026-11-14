@@ -19,7 +19,7 @@ const { apply, Config, normalizeConfig, panelRoutePathname } = await import('../
 const { CONFIG_DEFAULTS } = await import('../src/config.ts')
 const { panelProbeRequest } = await import('../src/panel-probe.ts')
 const { DEFAULT_ISOLATION_PROVIDER } = await import('../src/platform/tool-runtime.ts')
-const { CLONE_ISOLATION_PROVIDER } = await import('../src/checkout.ts')
+const { CLONE_ISOLATION_PROVIDER } = await import('../src/domains/isolation/checkout.ts')
 const { OVERVIEW_PATH } = await import('../src/api-contract.ts')
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))

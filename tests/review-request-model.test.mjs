@@ -5,7 +5,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import './support/ts-hook.mjs'
-// `src/review-request.ts` imports its siblings with the build's `.js`
+// `src/domains/review/review-request.ts` imports its siblings with the build's `.js`
 // specifiers, which Node's type stripping does not retry as `.ts`; this test
 // installs the same small resolve hook tests/presets.test.mjs uses.
 import { withRepo } from './support/inbox-fixtures.mjs'
@@ -34,13 +34,13 @@ const {
   reviewRequestRecordProblems,
   serializeReviewRequestRecord,
   validateReviewRequestInput,
-} = await import('../src/review-request.ts')
+} = await import('../src/domains/review/review-request.ts')
 const { ERROR_CODES, M10_ERROR_CODES } = await import('../src/platform/tool-model.ts')
 const { REVIEWER_PRESET_ID: PRESETS_REVIEWER_ID } = await import('../src/platform/presets.ts')
 const schema = await import('../src/store/schema.ts')
 
 /**
- * Contract tests for the pure M10 review-request model (`src/review-request.ts`):
+ * Contract tests for the pure M10 review-request model (`src/domains/review/review-request.ts`):
  * field validation, the request record on disk, the previous-request chain, the
  * verdict outcome, the merge gate, and the reviewer brief. Everything here is
  * in memory: no `.dsh-cowork/`, no git, no clock.
@@ -73,7 +73,7 @@ const requestScope = (overrides = {}) => ({
   repoPath: REPO,
   workItemPath: WORK_ITEM_PATH,
   branch: 'cowork/wi-1',
-  changedPaths: ['src/review-request.ts', 'tests/review-request.test.mjs'],
+  changedPaths: ['src/domains/review/review-request.ts', 'tests/review-request.test.mjs'],
   ...overrides,
 })
 
@@ -136,7 +136,7 @@ const gateInput = (overrides = {}) => ({
 })
 
 /**
- * Contract tests for the M10 review-request model (`src/review-request.ts`):
+ * Contract tests for the M10 review-request model (`src/domains/review/review-request.ts`):
  * input validation, the record layer, the previous-round chain, the verdict
  * table, and the one home of the review vocabularies. No host, no tool, no git.
  * The merge gate, the reviewer brief and the review tool surface live in
@@ -159,7 +159,7 @@ test('a complete request validates and keeps every field', () => {
     headCommit: HEAD,
     path: WORK_ITEM_PATH,
     branch: 'cowork/wi-1',
-    changedPaths: ['src/review-request.ts', 'tests/review-request.test.mjs'],
+    changedPaths: ['src/domains/review/review-request.ts', 'tests/review-request.test.mjs'],
     verification: [{ command: 'node --test tests/review-request.test.mjs', exitCode: 0, evidence: '6 pass' }],
     previousRequestId: null,
   })
@@ -338,7 +338,7 @@ test('buildReviewRequestRecord stamps a pending record', () => {
     headCommit: HEAD,
     path: WORK_ITEM_PATH,
     branch: 'cowork/wi-1',
-    changedPaths: ['src/review-request.ts', 'tests/review-request.test.mjs'],
+    changedPaths: ['src/domains/review/review-request.ts', 'tests/review-request.test.mjs'],
     verification: [{ command: 'node --test tests/review-request.test.mjs', exitCode: 0, evidence: '6 pass' }],
     previousRequestId: null,
     status: 'pending',
@@ -504,8 +504,8 @@ test('each verdict decides one topic state and one inbox kind', () => {
 // purity, error codes, and the legacy vocabulary
 // ---------------------------------------------------------------------------
 
-test('src/review-request.ts is host-free and clock-free', () => {
-  const source = readFileSync(new URL('../src/review-request.ts', import.meta.url), 'utf8')
+test('src/domains/review/review-request.ts is host-free and clock-free', () => {
+  const source = readFileSync(new URL('../src/domains/review/review-request.ts', import.meta.url), 'utf8')
   for (const forbidden of [/node:fs/, /node:os/, /node:child_process/, /from '\.\/store\.js'/, /Math\.random/, /new Date\(/, /process\./]) {
     assert.equal(forbidden.test(source), false, `review-request.ts must not contain ${forbidden}`)
   }

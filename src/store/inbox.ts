@@ -10,7 +10,7 @@
  * delivery kept for replay instead of dropped.
  */
 import { randomUUID } from 'node:crypto'
-import { attemptDelivery } from '../delivery.js'
+import { attemptDelivery } from '../domains/notices/delivery.js'
 import { INBOX_KINDS } from './schema.js'
 import type { InboxItem, InboxKind } from './schema.js'
 

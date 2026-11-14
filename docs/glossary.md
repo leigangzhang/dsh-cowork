@@ -27,11 +27,11 @@ The 0.1.0 name for what 0.2.0 calls a [topic](#topic). The `cowork-thread` prese
 
 ### work item
 
-One isolated execution scope of a topic: a local clone at `<repo>/.dsh-cowork/workitems/<workItemId>` on branch `cowork/<workItemId>`. Parallel work items are merged serially by master. Write `work item` (工作项). Source: [WorkItemRecordV2](../src/store/schema.ts#L181-L192), [checkout.ts](../src/checkout.ts#L45-L58).
+One isolated execution scope of a topic: a local clone at `<repo>/.dsh-cowork/workitems/<workItemId>` on branch `cowork/<workItemId>`. Parallel work items are merged serially by master. Write `work item` (工作项). Source: [WorkItemRecordV2](../src/store/schema.ts#L181-L192), [checkout.ts](../src/domains/isolation/checkout.ts#L45-L58).
 
 ### review request
 
-One automated review request defining one review range: `purpose`, `baseCommit`, `headCommit`, `path`, `verification`, optional `workItemId`/`changedPaths`. It is stored as `reviews/<topicId>-<requestId>.json`; the request id binds the reviewer's verdict. Write `review request` (评审请求); do not confuse it with the user-facing [user review request](#user-review-request). Source: [ReviewRequestRecord](../src/review-request.ts#L121-L140).
+One automated review request defining one review range: `purpose`, `baseCommit`, `headCommit`, `path`, `verification`, optional `workItemId`/`changedPaths`. It is stored as `reviews/<topicId>-<requestId>.json`; the request id binds the reviewer's verdict. Write `review request` (评审请求); do not confuse it with the user-facing [user review request](#user-review-request). Source: [ReviewRequestRecord](../src/domains/review/review-request.ts#L121-L140).
 
 ### reviewer
 
@@ -39,7 +39,7 @@ An independent session created per review request with the `cowork-reviewer` pre
 
 ### handoff
 
-The structured report a topic writes when it finishes or blocks. Only `blocked` and `done` are legal in 0.2.0: both write a `handoffs/` audit file and one `topic-reported` event with a notice per target; `done` updates the digest and `lastDeliveryConfirmedAt`, `blocked` sets the block and remembers the status to restore. Neither wakes master through the inbox. Write `handoff`; `交接单` is the plain-language form. Source: [topic-tools.ts](../src/topic-tools.ts#L301), [handoff.ts](../src/handoff.ts#L214).
+The structured report a topic writes when it finishes or blocks. Only `blocked` and `done` are legal in 0.2.0: both write a `handoffs/` audit file and one `topic-reported` event with a notice per target; `done` updates the digest and `lastDeliveryConfirmedAt`, `blocked` sets the block and remembers the status to restore. Neither wakes master through the inbox. Write `handoff`; `交接单` is the plain-language form. Source: [topic-tools.ts](../src/topic-tools.ts#L301), [handoff.ts](../src/domains/topic/handoff.ts#L214).
 
 ### project memory
 
@@ -79,11 +79,11 @@ The append-only event stream at `<repo>/.dsh-cowork/activity.jsonl`: state chang
 
 ### resolved / reopen
 
-`resolved` is the third topic state, set by the user's archive action (`cowork_topic_resolve` or the topic-page menu); there is no automatic resolution and `resolveAfterMs` is deprecated. Archiving clears any block or pending authorization, records a master-only `topic-archived` notice, and archives the host topic session. `reopen` is the explicit user action that returns a resolved topic to `active`, clears `resolvedAt` / `resolvedBy`, and records `topic-reopened` without a notice; the panel reopen route also unarchives the host session. Source: [topic.ts](../src/topic.ts#L154-L173), [tool-runtime.ts](../src/platform/tool-runtime.ts#L280), [PLAN-V0.2 §5.1](PLAN-V0.2.md#51-主题生命周期与已解决).
+`resolved` is the third topic state, set by the user's archive action (`cowork_topic_resolve` or the topic-page menu); there is no automatic resolution and `resolveAfterMs` is deprecated. Archiving clears any block or pending authorization, records a master-only `topic-archived` notice, and archives the host topic session. `reopen` is the explicit user action that returns a resolved topic to `active`, clears `resolvedAt` / `resolvedBy`, and records `topic-reopened` without a notice; the panel reopen route also unarchives the host session. Source: [topic.ts](../src/domains/topic/topic.ts#L154-L173), [tool-runtime.ts](../src/platform/tool-runtime.ts#L280), [PLAN-V0.2 §5.1](PLAN-V0.2.md#51-主题生命周期与已解决).
 
 ### route correction
 
-The panel action that re-targets an intent: append the intent's tokens to the target topic's `aliases` and record `route-corrected`. It changes future routing only; it does not rewrite history. Write `route correction` (改投). Source: [routing.ts](../src/routing.ts#L382).
+The panel action that re-targets an intent: append the intent's tokens to the target topic's `aliases` and record `route-corrected`. It changes future routing only; it does not rewrite history. Write `route correction` (改投). Source: [routing.ts](../src/domains/routing/routing.ts#L382).
 
 ### work item checkout
 

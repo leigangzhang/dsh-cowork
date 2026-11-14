@@ -30,13 +30,13 @@ import {
   REVIEW_TEXT_MAX_CHARS,
 } from './inbox-contract.js'
 import type { QuestionPayload, RequestKind, RequestPayload } from './inbox-contract.js'
-import { PanelServiceError, createRequest } from './request-service.js'
+import { PanelServiceError, createRequest } from './domains/requests/request-service.js'
 import {
   isRepoRelativePosixPath,
   normalizeQuestion,
   normalizeVerification,
   payloadProblems,
-} from './request-schema.js'
+} from './domains/requests/request-schema.js'
 import type { CoworkToolDeps, JsonValue, ProjectRuntime } from './platform/tool-runtime.js'
 import {
   callerOf,

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import './support/ts-hook.mjs'
 
 /**
- * Contract tests for the pure M10 work-item model (`src/work-item.ts`): the
+ * Contract tests for the pure M10 work-item model (`src/domains/isolation/work-item.ts`): the
  * status vocabulary, the active count a topic's "resolved" condition reads, the
  * record builder, the marker updates, and the bounded view. No clone, no git,
  * no clock. The creation and merge flow live in `work-item-create.test.mjs`
@@ -19,7 +19,7 @@ const {
   isValidWorkItemId,
   markWorkItem,
   workItemView,
-} = await import('../src/work-item.ts')
+} = await import('../src/domains/isolation/work-item.ts')
 
 const CREATED_AT = new Date('2026-11-08T00:00:00.000Z')
 const UPDATED_AT = new Date('2026-11-08T02:00:00.000Z')
@@ -173,9 +173,9 @@ test('workItemView cuts a path or branch that would blow the status budget', () 
 // purity
 // ---------------------------------------------------------------------------
 
-test('src/work-item.ts keeps host, clock, and raw filesystem I/O out of itself', () => {
-  const source = readFileSync(new URL('../src/work-item.ts', import.meta.url), 'utf8')
-  // The creation flow now reuses src/checkout.ts for git and cleanup, so the
+test('src/domains/isolation/work-item.ts keeps host, clock, and raw filesystem I/O out of itself', () => {
+  const source = readFileSync(new URL('../src/domains/isolation/work-item.ts', import.meta.url), 'utf8')
+  // The creation flow now reuses src/domains/isolation/checkout.ts for git and cleanup, so the
   // checkout import is expected; what must stay out is everything the injected
   // ports exist to provide.
   for (const forbidden of [/node:fs/, /node:child_process/, /from '\.\/store\.js'/, /Math\.random/, /new Date\(/, /process\./]) {

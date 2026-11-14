@@ -8,12 +8,12 @@
  * home, `ACTIVITY_TYPES` in `src/store/schema.ts`; this module does not copy it.
  */
 import { randomUUID } from 'node:crypto'
-import { NOTICE_SUMMARY_MAX_CHARS, noticeDescriptor } from '../notices.js'
+import { NOTICE_SUMMARY_MAX_CHARS, noticeDescriptor } from '../domains/notices/notices.js'
 import type {
   ActivityNoticeDescriptor,
   NoticeStatus,
   NoticeTarget,
-} from '../notices.js'
+} from '../domains/notices/notices.js'
 import { ACTIVITY_TYPES } from './schema.js'
 import type { ActivityEvent, ActivityType, TopicRecordV2, TopicStatus } from './schema.js'
 import type { RequestAction, RequestKind, RequestRecordV1 } from '../inbox-contract.js'

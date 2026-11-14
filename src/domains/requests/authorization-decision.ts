@@ -14,15 +14,15 @@
  * The prompt itself is deferred to the caller (`deferPrompt`), so the card can
  * be terminal before the topic is woken.
  */
-import { authorizationResolvedActivity, requestResolvedActivity } from './store/activity.js'
-import type { RequestRecordV1 } from './inbox-contract.js'
-import { updateAuthorizationNotice } from './notices.js'
-import type { NoticeUpdateOutcome, TopicNoticePort } from './notices.js'
+import { authorizationResolvedActivity, requestResolvedActivity } from '../../store/activity.js'
+import type { RequestRecordV1 } from '../../inbox-contract.js'
+import { updateAuthorizationNotice } from '../notices/notices.js'
+import type { NoticeUpdateOutcome, TopicNoticePort } from '../notices/notices.js'
 import { REQUEST_DELIVERY_ERROR_MAX_CHARS, applyResolution } from './request-schema.js'
-import { RequestStore } from './store/request-store.js'
-import { ACTIVITY_MAX_EVENTS } from './store/schema.js'
-import type { ProjectIndexV2, TopicRecordV2 } from './store/schema.js'
-import { unblockTopic } from './topic.js'
+import { RequestStore } from '../../store/request-store.js'
+import { ACTIVITY_MAX_EVENTS } from '../../store/schema.js'
+import type { ProjectIndexV2, TopicRecordV2 } from '../../store/schema.js'
+import { unblockTopic } from '../topic/topic.js'
 import { PanelServiceError, clipText, messageOf } from './request-support.js'
 import type { RequestServiceStorePort } from './request-support.js'
 

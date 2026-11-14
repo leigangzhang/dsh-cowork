@@ -12,12 +12,12 @@
 | `activity.jsonl` | 状态、路由、评审、合并、主题上报、决策提案、待授权、归档与错误的事件流（证据，不是状态源） | [ActivityEvent](../src/store/schema.ts#L211) |
 | `inbox.json` | master 必须决定的事；投递后写 `deliveredAt` | [InboxItem](../src/store/schema.ts#L232) |
 | `requests/<requestId>.json` | 用户请求记录：四类请求、左右消息、状态与投递错误 | [RequestRecordV1](../src/inbox-contract.ts#L265) |
-| `handoffs/` | topic 的 handoff 审计文件 | [buildHandoffRecord](../src/handoff.ts#L214) |
+| `handoffs/` | topic 的 handoff 审计文件 | [buildHandoffRecord](../src/domains/topic/handoff.ts#L214) |
 | `proposals/` | topic 的决策记录文件 | [DecisionProposalV1](../src/topic-tools.ts#L443) |
-| `notices.json` | 主题通知账本：每条通知送到哪个会话、是否送达 | [NoticeLedgerV1](../src/notices.ts#L95) |
-| `reviews/` | 每次评审请求的 pending/verdict 记录 | [ReviewRequestRecord](../src/review-request.ts#L121) |
-| `workitems/` | 隔离工作项 clone 与 `cowork/<workItemId>` 分支 | [checkout.ts](../src/checkout.ts#L45-L58) |
-| `memory/` | `constraints/decisions/facts` 三份项目记忆 | [memory.ts](../src/memory.ts) |
+| `notices.json` | 主题通知账本：每条通知送到哪个会话、是否送达 | [NoticeLedgerV1](../src/domains/notices/notices.ts#L95) |
+| `reviews/` | 每次评审请求的 pending/verdict 记录 | [ReviewRequestRecord](../src/domains/review/review-request.ts#L121) |
+| `workitems/` | 隔离工作项 clone 与 `cowork/<workItemId>` 分支 | [checkout.ts](../src/domains/isolation/checkout.ts#L45-L58) |
+| `memory/` | `constraints/decisions/facts` 三份项目记忆 | [memory.ts](../src/domains/memory/memory.ts) |
 | `.write.lock` | 上述写入共用的项目锁 | [store.ts](../src/store/project-store.ts#L338) |
 
 ```mermaid
@@ -63,8 +63,8 @@ flowchart TD
 `cowork:memory` 是 agent 作用域的 system prompt 段落，`order=900`（[memory-prompt.ts](../src/platform/memory-prompt.ts#L19)）。注册条件是 preset 为 `cowork-master` 或 `cowork-topic`，且会话 cwd 向上能找到 `.dsh-cowork/index.json`；reviewer 不注入（[COWORK_MEMORY_PRESETS](../src/platform/memory-prompt.ts#L28)、[注册点](../src/platform/memory-prompt.ts#L93-L145)）。
 
 - 记忆是**拉取式快照**：写入不推送；下一次 prompt assembly 才重新读取。按 agent 的 digest 缓存决定是否重渲染。
-- 渲染顺序、整条拼接与截断的实现在 [renderMemoryBlock](../src/memory.ts#L434)；预算与截断规则以 [PLAN.md](PLAN.md) §5.5 为准。
-- 注入块之外的旧条目不会被自动拼入，用 `cowork_memory_search` 检索（[searchMemory](../src/memory.ts#L477)）。
+- 渲染顺序、整条拼接与截断的实现在 [renderMemoryBlock](../src/domains/memory/memory.ts#L434)；预算与截断规则以 [PLAN.md](PLAN.md) §5.5 为准。
+- 注入块之外的旧条目不会被自动拼入，用 `cowork_memory_search` 检索（[searchMemory](../src/domains/memory/memory.ts#L477)）。
 - 记忆按仓库根渲染；隔离工作项里的 clone 不改变注入来源。
 
 ## 3. 上下文的上行与下行
@@ -73,11 +73,11 @@ flowchart TD
 
 - 新建主题：`cowork_route` 用 `brief` 作为第一条消息，未给时用 [buildThreadBrief](../src/platform/tool-model.ts#L220) 生成（携带主题 id、标题、意图、工作区与 handoff 义务，不粘贴完整仓库）；`cowork_topic_create` 只投递显式给出的 brief。
 - 复用主题：把用户原话（与可选 brief）直接投给主题会话。
-- 评审退回：`needs_revision` / `reject` 时把 findings 投回主题（[buildRevisionMessage](../src/review-request.ts#L1211)、[buildRejectMessage](../src/review-request.ts#L1220)），不唤醒 master。
+- 评审退回：`needs_revision` / `reject` 时把 findings 投回主题（[buildRevisionMessage](../src/domains/review/review-request.ts#L1211)、[buildRejectMessage](../src/domains/review/review-request.ts#L1220)），不唤醒 master。
 
 **下行（topic → reviewer）**
 
-- `cowork_review_request` 新建 reviewer 并投递 [buildReviewBrief](../src/review-request.ts#L1114) 生成的评审说明：`requestId`、范围、路径、分支、改动文件、验证要求、上一轮请求与 findings。reviewer 自己读代码、复跑验证，不依赖主题的自述。
+- `cowork_review_request` 新建 reviewer 并投递 [buildReviewBrief](../src/domains/review/review-request.ts#L1114) 生成的评审说明：`requestId`、范围、路径、分支、改动文件、验证要求、上一轮请求与 findings。reviewer 自己读代码、复跑验证，不依赖主题的自述。
 
 **上行（topic / reviewer → master）**
 

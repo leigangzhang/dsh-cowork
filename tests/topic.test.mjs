@@ -5,9 +5,9 @@ import assert from 'node:assert/strict'
  * Contract tests for the pure three-state topic lifecycle, revised for the
  * topic page (2026-11-10): a 24 h idle window, no automatic resolution, and a
  * block that records and restores the status it interrupted.
- * `src/topic.ts` imports only types, so no resolve hook is needed.
+ * `src/domains/topic/topic.ts` imports only types, so no resolve hook is needed.
  */
-const topicModule = await import('../src/topic.ts')
+const topicModule = await import('../src/domains/topic/topic.ts')
 const {
   DEFAULT_IDLE_AFTER_MS,
   DEFAULT_RESOLVE_AFTER_MS,

@@ -9,13 +9,13 @@ import './support/ts-hook.mjs'
  * ledger, the B-mode ports, and the per-project dispatcher (order, retry,
  * replay, and the fact that a delivery failure never rolls state back).
  *
- * `src/notices.ts` imports its sibling with a `.js` specifier, so the usual
+ * `src/domains/notices/notices.ts` imports its sibling with a `.js` specifier, so the usual
  * small resolve hook is installed. The dispatcher runs against a real
  * `ProjectStore` in a throwaway directory; only the host port is a fake.
  */
 import { makeTopicFixture, withRepo } from './support/inbox-fixtures.mjs'
 
-const notices = await import('../src/notices.ts')
+const notices = await import('../src/domains/notices/notices.ts')
 const { ProjectStore } = await import('../src/store/project-store.ts')
 const {
   assignmentNotice,

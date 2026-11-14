@@ -9,9 +9,9 @@
 
 | 落点 | 职责 |
 |---|---|
-| [`src/memory.ts`](../../src/memory.ts) | 记忆解析/校验/预算渲染/关键词检索/追加写；文件格式 `## 标题 + 正文 + (来源: …; ISO 时间)`；损坏文件带行号报错、不写入（`parseMemoryFile`、`validateMemoryEntry`、`renderMemoryBlock`、`searchMemory`、`appendMemoryEntry`）。时间策略与可注入时钟见模块注释与单测。 |
-| [`src/checkout.ts`](../../src/checkout.ts) | thread checkout 的 git 适配器：clone/checkout/inspect/merge/remove；路径守卫、分支前缀 `cowork/`、30s 超时、参数数组。失败路径检查 `merge --abort` 退出码，`details.stderr` 统一截断并标记。 |
-| [`src/checkout-teardown.ts`](../../src/checkout-teardown.ts) | merge 成功后的 teardown 编排：workspace resolve、clone 删除、workspace 删除、会话归档、索引更新各自独立捕获；索引更新最后且无条件执行。 |
+| [`src/memory.ts`](../../src/domains/memory/memory.ts) | 记忆解析/校验/预算渲染/关键词检索/追加写；文件格式 `## 标题 + 正文 + (来源: …; ISO 时间)`；损坏文件带行号报错、不写入（`parseMemoryFile`、`validateMemoryEntry`、`renderMemoryBlock`、`searchMemory`、`appendMemoryEntry`）。时间策略与可注入时钟见模块注释与单测。 |
+| [`src/checkout.ts`](../../src/domains/isolation/checkout.ts) | thread checkout 的 git 适配器：clone/checkout/inspect/merge/remove；路径守卫、分支前缀 `cowork/`、30s 超时、参数数组。失败路径检查 `merge --abort` 退出码，`details.stderr` 统一截断并标记。 |
+| [`src/checkout-teardown.ts`](../../src/domains/isolation/checkout-teardown.ts) | merge 成功后的 teardown 编排：workspace resolve、clone 删除、workspace 删除、会话归档、索引更新各自独立捕获；索引更新最后且无条件执行。 |
 | [`src/memory-prompt.ts`](../../src/platform/memory-prompt.ts) | 在 agent 作用域注册 `cowork:memory` system prompt 段落（order 900、`interpolate:false`、按轮求值、digest 缓存）；null 渲染清空缓存，duplicate 计数按唯一 agent。 |
 | [`src/tool-model.ts`](../../src/platform/tool-model.ts) | 调用者身份、角色校验、错误包络、brief；M2 新增 13 个稳定错误码。 |
 | [`src/tools.ts`](../../src/tools.ts) | 9 个 `cowork_*` 工具，含 `isolated` 创建与 `cowork_checkout_merge`；冲突状态更新错误进入 `statusUpdateError`。 |

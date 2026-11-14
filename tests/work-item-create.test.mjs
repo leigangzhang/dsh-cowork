@@ -12,8 +12,8 @@ import './support/ts-hook.mjs'
  * pure model lives in `work-item-model.test.mjs`; the tool and merge flow in
  * `work-item-merge.test.mjs`.
  */
-const { captureWorkItemHead, createWorkItem, workItemView } = await import('../src/work-item.ts')
-const { workItemCheckoutPaths } = await import('../src/checkout.ts')
+const { captureWorkItemHead, createWorkItem, workItemView } = await import('../src/domains/isolation/work-item.ts')
+const { workItemCheckoutPaths } = await import('../src/domains/isolation/checkout.ts')
 
 const CREATED_AT = new Date('2026-11-08T00:00:00.000Z')
 const UPDATED_AT = new Date('2026-11-08T02:00:00.000Z')

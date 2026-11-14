@@ -5,7 +5,7 @@
  * orchestration: deterministic request pre-checks, the request file (write
  * pending, replace with the verdict), the canonical index updates, the reviewer
  * brief, the verdict notifications, and the reviewer archive. The pure request
- * model (validation, records, brief, gates) lives in `src/review-request.ts`;
+ * model (validation, records, brief, gates) lives in `src/domains/review/review-request.ts`;
  * the reviewer lifecycle lives in `src/platform/session-visibility.ts`.
  *
  * File I/O uses the store's text port and the project lock, so `src/store/project-store.ts`
@@ -20,9 +20,9 @@ import { join, normalize } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { buildActivityEvent } from './store/activity.js'
-import type { GitRunner } from './checkout.js'
-import { describeError } from './checkout-teardown.js'
-import { attemptDelivery } from './delivery.js'
+import type { GitRunner } from './domains/isolation/checkout.js'
+import { describeError } from './domains/isolation/checkout-teardown.js'
+import { attemptDelivery } from './domains/notices/delivery.js'
 import { Inbox, InboxMarkError } from './store/inbox.js'
 import {
   buildRejectMessage,
@@ -38,12 +38,12 @@ import {
   serializeReviewRequestRecord,
   validateReviewRequestInput,
   validateReviewVerdictInput,
-} from './review-request.js'
+} from './domains/review/review-request.js'
 import type {
   ReviewRequestDraft,
   ReviewRequestRecord,
   ReviewRequestValidationOptions,
-} from './review-request.js'
+} from './domains/review/review-request.js'
 import type { SessionSlice } from './platform/session-slice.js'
 import { archiveReviewerAfterVerdict, createReviewerSession } from './platform/session-visibility.js'
 import type { ProjectIndex, ProjectStore, ThreadRecord } from './store/project-store.js'
@@ -58,7 +58,7 @@ import {
 } from './platform/tool-model.js'
 import type { CallerIdentity, ToolFailure } from './platform/tool-model.js'
 import { runGit } from './platform/tool-runtime.js'
-import { ACTIVE_WORK_ITEM_STATUSES, markWorkItem } from './work-item.js'
+import { ACTIVE_WORK_ITEM_STATUSES, markWorkItem } from './domains/isolation/work-item.js'
 
 /** Lossless JSON value accepted by the tool result boundary. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }

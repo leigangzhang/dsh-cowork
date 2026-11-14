@@ -41,8 +41,8 @@ import {
   isRequestKind,
   isRequestStatus,
   isTerminalStatus,
-} from './inbox-contract.js'
-import { truncateSummary } from './api-contract.js'
+} from '../../inbox-contract.js'
+import { truncateSummary } from '../../api-contract.js'
 import type {
   AuthorizationPayload,
   InboxAnswerInput,
@@ -58,7 +58,7 @@ import type {
   RequestStatus,
   ReviewPayload,
   ReviewVerification,
-} from './inbox-contract.js'
+} from '../../inbox-contract.js'
 
 /** Directory holding one file per request, below `<repo>/.dsh-cowork`. */
 export const REQUEST_DIR_NAME = 'requests'

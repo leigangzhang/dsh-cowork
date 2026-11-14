@@ -15,8 +15,8 @@ import {
   withProjectLock,
   writeJsonAtomic,
 } from './atomic-json.js'
-import { emptyNoticeLedger, parseNoticeLedgerText, prepareNoticeLedger } from '../notices.js'
-import type { NoticeLedgerV1 } from '../notices.js'
+import { emptyNoticeLedger, parseNoticeLedgerText, prepareNoticeLedger } from '../domains/notices/notices.js'
+import type { NoticeLedgerV1 } from '../domains/notices/notices.js'
 
 /** A ledger read/write failure carrying a stable code and the offending file. */
 export class NoticeFileError extends Error {

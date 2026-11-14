@@ -15,7 +15,7 @@ M2 已交付九个工具、记忆注入、thread checkout 隔离与真实宿主 
 **R1：merge teardown 与工具/会话边界**
 
 - `cowork_checkout_merge` 在 `git merge` 成功后把 `resolveByPath`、`removeCheckout`、`deleteWorkspace`、`archiveSession`、`updateThread` 编排为有序步骤；每步独立捕获异常，索引更新最后且无条件执行，工具始终返回 `ok:true`、`cleanupErrors` 携带失败明细。merge 已经落地，因此 teardown 失败不能改报为 merge 失败，也不能诱发第二次 merge。
-- 抽取 host-free 的 [`src/checkout-teardown.ts`](../../../../src/checkout-teardown.ts) 承载上述编排，`src/tools.ts` 只注入宿主端口；这样故障注入可以在 `node --test` 下覆盖，不依赖 `@deepseek-ai/dsh-tools`。
+- 抽取 host-free 的 [`src/checkout-teardown.ts`](../../../../src/domains/isolation/checkout-teardown.ts) 承载上述编排，`src/tools.ts` 只注入宿主端口；这样故障注入可以在 `node --test` 下覆盖，不依赖 `@deepseek-ai/dsh-tools`。
 - 冲突路径的 `updateThread` 失败保留 `checkout/merge-conflict` 主结果，并在 `details.statusUpdateError` 暴露索引错误。
 - `createCheckoutThread` 在 rename 前校验宿主返回的 `sessionId` 与请求的 `threadId` 一致；不一致立即失败，不 rename、不写索引。
 

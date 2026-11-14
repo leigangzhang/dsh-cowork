@@ -30,8 +30,8 @@ import {
   renderJson,
   toJson,
 } from './platform/tool-runtime.js'
-import { DEFAULT_IDLE_AFTER_MS } from './topic.js'
-import { activeWorkItemCount } from './work-item.js'
+import { DEFAULT_IDLE_AFTER_MS } from './domains/topic/topic.js'
+import { activeWorkItemCount } from './domains/isolation/work-item.js'
 import { checkRole, claimMaster, success } from './platform/tool-model.js'
 
 /** Most topics one status response lists. */

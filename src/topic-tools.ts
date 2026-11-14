@@ -30,10 +30,10 @@ import {
   decisionProposedActivity,
   topicReportedActivity,
 } from './store/activity.js'
-import { buildHandoffRecord, validateHandoff } from './handoff.js'
-import { noticeSummaries } from './notices.js'
+import { buildHandoffRecord, validateHandoff } from './domains/topic/handoff.js'
+import { noticeSummaries } from './domains/notices/notices.js'
 import { AUTHORIZATION_COMMAND_MAX_CHARS, REQUEST_SUMMARY_MAX_CHARS } from './inbox-contract.js'
-import { createRequest } from './request-service.js'
+import { createRequest } from './domains/requests/request-service.js'
 import { REQUEST_TOOL_ERROR_CODES } from './request-tools.js'
 import { TOPIC_PRESET_ID } from './platform/presets.js'
 import { ACTIVITY_MAX_EVENTS } from './store/schema.js'
@@ -54,7 +54,7 @@ import {
   truncateText,
 } from './platform/tool-runtime.js'
 import { ERROR_CODES, TOPIC_ERROR_CODES, checkRole, failure, success } from './platform/tool-model.js'
-import { blockTopic, noteTopicActivity, unblockTopic } from './topic.js'
+import { blockTopic, noteTopicActivity, unblockTopic } from './domains/topic/topic.js'
 
 /** Most topics `cowork_topic_list` returns (and its deprecated alias). */
 export const TOPIC_LIST_LIMIT = 100

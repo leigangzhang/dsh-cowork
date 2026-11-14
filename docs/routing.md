@@ -1,6 +1,6 @@
 # 路由、工作项与评审请求
 
-一个需求从 master 进入、被某个主题会话接走、在隔离工作项里完成、经独立评审请求决定能否合并，最后按生命周期标记已解决。本文只写**顺序、状态归属与失败处置**；判定规则住在 [src/routing.ts](../src/routing.ts) 与 [src/route-tools.ts](../src/route-tools.ts)，评审与合并的契约住在 [src/review-request.ts](../src/review-request.ts)，产品意图见 [PLAN-V0.2 §5.3–§5.6](PLAN-V0.2.md#53-路由)。
+一个需求从 master 进入、被某个主题会话接走、在隔离工作项里完成、经独立评审请求决定能否合并，最后按生命周期标记已解决。本文只写**顺序、状态归属与失败处置**；判定规则住在 [src/routing.ts](../src/domains/routing/routing.ts) 与 [src/route-tools.ts](../src/route-tools.ts)，评审与合并的契约住在 [src/review-request.ts](../src/domains/review/review-request.ts)，产品意图见 [PLAN-V0.2 §5.3–§5.6](PLAN-V0.2.md#53-路由)。
 
 ## 1. 一个意图落到哪个主题
 
@@ -33,7 +33,7 @@
  reuse : 把意图（与可选 brief）投给主题会话
 ```
 
-- 三层与常量：第一层是会话局部性，第二层是结构化匹配，第三层是模型兜底（[src/routing.ts](../src/routing.ts#L29-L52)、[decideRoute](../src/routing.ts#L305)）。模型参数默认超时 2 秒、`maxTokens` 256、尽量关闭推理；`routing.enabled=false` 时直接走结构化回退（[PLAN-V0.2 §5.3](PLAN-V0.2.md#53-路由)）。
+- 三层与常量：第一层是会话局部性，第二层是结构化匹配，第三层是模型兜底（[src/routing.ts](../src/domains/routing/routing.ts#L29-L52)、[decideRoute](../src/domains/routing/routing.ts#L305)）。模型参数默认超时 2 秒、`maxTokens` 256、尽量关闭推理；`routing.enabled=false` 时直接走结构化回退（[PLAN-V0.2 §5.3](PLAN-V0.2.md#53-路由)）。
 - 新建标题取意图前 24 个字符；主题 id 就是新会话的 session id。新主题写两条活动：`topic-created` 与 `route-created`。
 - `resolved_match` 的语义是“旧主题不再接收”：插件为意图新建主题并返回 `resolvedMatch`，不 prompt 旧主题。
 - 选错由面板“移动到其他主题”纠正：把原意图的 token 追加到目标主题的 `aliases`，写 `route-corrected` 活动；不是删除或重写已有别名（见 §6）。
@@ -101,7 +101,7 @@ sequenceDiagram
 ### 2.1 工作项
 
 - 主题用 `cowork_work_item_create` 为**自己**创建隔离工作项；master 调用时必须显式给 `topicId`。记录包含 `workItemId / topicId / path / branch / baseCommit`。
-- 目录是 `<repo>/.dsh-cowork/workitems/<workItemId>`，分支是 `cowork/<workItemId>`，基于创建时的仓库 HEAD（[checkout.ts](../src/checkout.ts#L45-L58)、[workItemCheckoutPaths](../src/checkout.ts#L152)）。
+- 目录是 `<repo>/.dsh-cowork/workitems/<workItemId>`，分支是 `cowork/<workItemId>`，基于创建时的仓库 HEAD（[checkout.ts](../src/domains/isolation/checkout.ts#L45-L58)、[workItemCheckoutPaths](../src/domains/isolation/checkout.ts#L152)）。
 - 执行单元在各自目录里工作并提交；主题是集成分支负责人。多个工作项可并行，合并串行（[checkout-tools.ts](../src/checkout-tools.ts#L574)）。
 - 隔离提供方当前只实现 clone；`isolation.provider` 传其他值会在创建前失败（[KI-27](KNOWN_ISSUES.md)）。
 
@@ -111,7 +111,7 @@ sequenceDiagram
 - 校验（全部通过才写任何状态）：`base` 是 `head` 的祖先；`path` 精确等于仓库根（共享工作区）或该主题的某个工作项 clone；clone 工作区干净；范围内确有改动；`changedPaths` 若提供必须等于 `git diff --name-only base..head`；同一主题/工作项同时只能有一个 pending 请求。
 - 通过后按顺序：新建 `cowork-reviewer` 会话 → 写 `reviews/<topicId>-<requestId>.json`（`pending`）→ 更新索引（`awaitingReview=true`、`reviewStatus=pending`、`latestReviewRequestId`、`reviewerSessionId`；有工作项时置 `reviewing`）→ 投递评审说明 → 写 `review-requested` 活动。
 - 任一步失败会回滚请求文件与索引改动，并归档半成品 reviewer；不会留下“pending 但没有 reviewer”的状态。
-- 请求记录的权威定义在 [review-request.ts](../src/review-request.ts#L121-L140)，文件路径规则在 [reviewRequestFilePath](../src/review-request.ts#L879)。
+- 请求记录的权威定义在 [review-request.ts](../src/domains/review/review-request.ts#L121-L140)，文件路径规则在 [reviewRequestFilePath](../src/domains/review/review-request.ts#L879)。
 
 ### 2.3 verdict
 
@@ -156,10 +156,10 @@ sequenceDiagram
 ## 4. 已解决与重开
 
 - 三态：`active ↔ idle`，`active|idle → resolved`，`resolved → active`（用户重开）。`awaitingReview`、`blocked`、`authorization` 是标记，不是状态。
-- `active ↔ idle`：`lastActiveAt` 超过 `idleAfterMs`（2026-11-10 起默认 24 小时）且没有 `awaitingReview`、`blocked` 或待授权时为 `idle`；有新活动或 `turn/end` 时回到 `active`。评估发生在 `project_status`、`route`、面板 overview 等读取点；没有后台定时器（[topic.ts](../src/topic.ts#L62-L78)、[evaluateProjectLifecycle](../src/platform/tool-runtime.ts#L569)、[topic-events.ts](../src/platform/topic-events.ts#L95-L125)）。
+- `active ↔ idle`：`lastActiveAt` 超过 `idleAfterMs`（2026-11-10 起默认 24 小时）且没有 `awaitingReview`、`blocked` 或待授权时为 `idle`；有新活动或 `turn/end` 时回到 `active`。评估发生在 `project_status`、`route`、面板 overview 等读取点；没有后台定时器（[topic.ts](../src/domains/topic/topic.ts#L62-L78)、[evaluateProjectLifecycle](../src/platform/tool-runtime.ts#L569)、[topic-events.ts](../src/platform/topic-events.ts#L95-L125)）。
 - 没有自动 resolved：`resolveAfterMs` 保留但弃用并忽略。除一次性 v1 迁移把旧的 done/archived 映射为 resolved 外，进入 `resolved` 的唯一路径是用户归档：面板主题卡菜单或 `cowork_topic_resolve` / `resolve` 路由。
-- 归档：清空 block 和待授权，写只给主会话的 `topic-archived` 通知，并归档宿主主题会话；重复归档幂等，`resolvedBy` 记为 `user`（[archiveTopicRecord](../src/topic.ts#L154)、[archiveTopic](../src/platform/tool-runtime.ts#L280)）。
-- 重开：用户打开已解决主题并发送消息（`user/message`），或使用面板 `POST /api/cowork.topic.reopen`；状态置回 `active`，清空 `resolvedAt/resolvedBy`，保留摘要与交付确认，写 `topic-reopened`，不写通知。面板路由同时 unarchive 宿主会话（[reopenResolvedTopic](../src/topic.ts#L181)、[topic-events.ts](../src/platform/topic-events.ts#L126-L168)）。
+- 归档：清空 block 和待授权，写只给主会话的 `topic-archived` 通知，并归档宿主主题会话；重复归档幂等，`resolvedBy` 记为 `user`（[archiveTopicRecord](../src/domains/topic/topic.ts#L154)、[archiveTopic](../src/platform/tool-runtime.ts#L280)）。
+- 重开：用户打开已解决主题并发送消息（`user/message`），或使用面板 `POST /api/cowork.topic.reopen`；状态置回 `active`，清空 `resolvedAt/resolvedBy`，保留摘要与交付确认，写 `topic-reopened`，不写通知。面板路由同时 unarchive 宿主会话（[reopenResolvedTopic](../src/domains/topic/topic.ts#L181)、[topic-events.ts](../src/platform/topic-events.ts#L126-L168)）。
 - 已解决主题不参与自动路由；新需求会新建主题并返回 `resolvedMatch`，由用户决定是否打开旧主题。
 
 ## 5. 活动流、收件箱与通知账本
@@ -172,6 +172,6 @@ sequenceDiagram
 
 ## 6. 改投与重复提交
 
-- 面板“移动到其他主题”调用 `POST /api/cowork.route.move`：`fromTopicId`、`toTopicId`、`intent` 必填，目标不能是 resolved；把意图 token 追加到目标主题的 `aliases`（每次最多 8 个、总数最多 50、单条 2–32 字符），有变化才写并记录 `route-corrected`，返回 `changed/added/aliases`（[applyRouteCorrection](../src/routing.ts#L382)）。
+- 面板“移动到其他主题”调用 `POST /api/cowork.route.move`：`fromTopicId`、`toTopicId`、`intent` 必填，目标不能是 resolved；把意图 token 追加到目标主题的 `aliases`（每次最多 8 个、总数最多 50、单条 2–32 字符），有变化才写并记录 `route-corrected`，返回 `changed/added/aliases`（[applyRouteCorrection](../src/domains/routing/routing.ts#L382)）。
 - 重复提交同一 intent 不是严格幂等：不会产生重复别名，但会继续追加剩余 token；结果里的 `changed/added` 让这一点可见（[KI-32](KNOWN_ISSUES.md)）。
 - 改投只影响后续路由，不改写历史活动或已有主题的摘要。

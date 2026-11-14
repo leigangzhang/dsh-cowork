@@ -19,10 +19,10 @@ import { join } from 'node:path'
 export const api = await import('../../src/api.ts')
 export const contract = await import('../../src/api-contract.ts')
 export const inboxContract = await import('../../src/inbox-contract.ts')
-export const reviewRequest = await import('../../src/review-request.ts')
+export const reviewRequest = await import('../../src/domains/review/review-request.ts')
 export const store = await import('../../src/store/project-store.ts')
 export const panelProbe = await import('../../src/panel-probe.ts')
-export const requestService = await import('../../src/request-service.ts')
+export const requestService = await import('../../src/domains/requests/request-service.ts')
 
 export const CREATED_AT = '2026-01-01T00:00:00.000Z'
 /** A clock ten minutes after the fixture's `lastActiveAt`, so nothing transitions. */

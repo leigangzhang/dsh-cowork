@@ -16,7 +16,7 @@ import type {
   HandoffRecord,
   HandoffStatus,
   HandoffVerification,
-} from './store/project-store.js'
+} from '../../store/schema.js'
 
 /** The validated handoff a thread submits. */
 export interface HandoffDraft {

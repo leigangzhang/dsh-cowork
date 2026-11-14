@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import './support/ts-hook.mjs'
 
-// `src/request-schema.ts` imports its siblings with the build's `.js`
+// `src/domains/requests/request-schema.ts` imports its siblings with the build's `.js`
 // specifiers, so it is loaded after the shared hook.
 const {
   REQUEST_MESSAGE_MAX_CHARS,
@@ -38,7 +38,7 @@ const {
   requestRecordProblems,
   resolutionMessage,
   resolutionPrompt,
-} = await import('../src/request-schema.ts')
+} = await import('../src/domains/requests/request-schema.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')
 const NOW_ISO = NOW.toISOString()
@@ -46,7 +46,7 @@ const NOW_ISO = NOW.toISOString()
 /** One valid user-review payload. */
 const reviewPayload = (overrides = {}) => ({
   purpose: 'please review the inbox backend',
-  changedPaths: ['src/request-schema.ts'],
+  changedPaths: ['src/domains/requests/request-schema.ts'],
   verification: [{ command: 'node --test', exitCode: 0, evidence: 'ok' }],
   ...overrides,
 })

@@ -52,7 +52,7 @@ export const WORK_ITEM_BRANCH_PREFIX = CHECKOUT_BRANCH_PREFIX
 
 /**
  * Isolation provider this module implements. `src/platform/tool-runtime.ts` owns the
- * configured default; M10 implements `clone` only and `src/work-item.ts`
+ * configured default; M10 implements `clone` only and `src/domains/isolation/work-item.ts`
  * refuses every other value instead of silently falling back.
  */
 export const CLONE_ISOLATION_PROVIDER = 'clone'
@@ -329,7 +329,7 @@ function selectTarget(input: CheckoutTargetSelector): { ok: true; target: Isolat
 
 /**
  * Resolve one target's clone path and branch under the path guard, without
- * touching git. `src/work-item.ts` uses this to read inside a work item's clone
+ * touching git. `src/domains/isolation/work-item.ts` uses this to read inside a work item's clone
  * with the same canonical/realpath rules every checkout operation applies.
  */
 export function resolveIsolationTarget(

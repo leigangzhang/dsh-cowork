@@ -8,7 +8,7 @@
  * so both sides depend on one leaf module and neither imports the other's
  * implementation.
  */
-import type { TopicNoticePort, NoticeLedgerV1 } from './notices.js'
+import type { TopicNoticePort, NoticeLedgerV1 } from './domains/notices/notices.js'
 import type {
   ActivityEvent,
   InboxItem,
@@ -79,7 +79,7 @@ export interface CoworkApiPorts {
    * the same `() => new Date()` that the store stamps with; tests freeze it.
    */
   now?(): Date
-  /** Idle threshold for the lifecycle read point; `src/topic.ts` owns the default. */
+  /** Idle threshold for the lifecycle read point; `src/domains/topic/topic.ts` owns the default. */
   idleAfterMs?: number
   /** Diagnostic sink for a non-fatal failure (lifecycle/activity write). */
   log?(message: string): void

@@ -17,10 +17,10 @@ import {
   routeCreateTitle,
   tokenize,
   withRouteTargets,
-} from '../src/routing.ts'
+} from '../src/domains/routing/routing.ts'
 
 /**
- * Contract tests for the pure M9.1 routing core (`src/routing.ts`).
+ * Contract tests for the pure M9.1 routing core (`src/domains/routing/routing.ts`).
  *
  * Every fixture is an in-memory v2 topic; nothing here touches `.dsh-cowork/`.
  * The scores and reasons are pinned exactly: the third layer and the panel will
@@ -409,8 +409,8 @@ test('withRouteTargets refuses an empty or non-string target', () => {
 // Purity and configuration defaults
 // ---------------------------------------------------------------------------
 
-test('src/routing.ts reads no clock, no randomness, and no I/O', () => {
-  const source = readFileSync(new URL('../src/routing.ts', import.meta.url), 'utf8')
+test('src/domains/routing/routing.ts reads no clock, no randomness, and no I/O', () => {
+  const source = readFileSync(new URL('../src/domains/routing/routing.ts', import.meta.url), 'utf8')
   for (const forbidden of [/Date\.now\s*\(/, /new\s+Date\s*\(/, /Math\.random\s*\(/, /node:/, /from ['"]fs['"]/, /process\./]) {
     assert.equal(forbidden.test(source), false, `routing.ts must not contain ${forbidden}`)
   }

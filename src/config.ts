@@ -8,7 +8,7 @@
  */
 import z from '@deepseek-ai/schemastery'
 import { DEFAULT_ISOLATION_PROVIDER, DEFAULT_REVIEWER_RECLAIM } from './platform/tool-runtime.js'
-import { DEFAULT_IDLE_AFTER_MS, DEFAULT_RESOLVE_AFTER_MS } from './topic.js'
+import { DEFAULT_IDLE_AFTER_MS, DEFAULT_RESOLVE_AFTER_MS } from './domains/topic/topic.js'
 
 /** The third routing layer's knobs (PLAN-V0.2 §5.10, M9.1). */
 export interface RoutingConfig {

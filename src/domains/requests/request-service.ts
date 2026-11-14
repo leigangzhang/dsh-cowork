@@ -3,12 +3,12 @@
  *
  * The implementation is split by responsibility so no module carries the whole
  * feature:
- *  - `src/request-lifecycle.ts` — creation, resolution, wake-up prompt and the
+ *  - `src/domains/requests/request-lifecycle.ts` — creation, resolution, wake-up prompt and the
  *    authorization bridge;
- *  - `src/authorization-decision.ts` — the one authorization decision core and
+ *  - `src/domains/requests/authorization-decision.ts` — the one authorization decision core and
  *    the legacy route's card settlement;
- *  - `src/platform/request-open.ts` — file opening and path guards;
- *  - `src/request-support.ts` — the shared error, store port and member guard.
+ *  - `src/domains/requests/request-open.ts` — file opening and path guards;
+ *  - `src/domains/requests/request-support.ts` — the shared error, store port and member guard.
  *
  * Callers keep importing from here, so the split did not move the public names.
  */
@@ -35,5 +35,5 @@ export type {
   SettleAuthorizationRecordInput,
 } from './authorization-decision.js'
 
-export { openRequestTarget } from './platform/request-open.js'
-export type { OpenRequestTargetInput } from './platform/request-open.js'
+export { openRequestTarget } from './request-open.js'
+export type { OpenRequestTargetInput } from './request-open.js'

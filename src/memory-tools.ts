@@ -8,15 +8,15 @@
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { describeError } from './checkout-teardown.js'
+import { describeError } from './domains/isolation/checkout-teardown.js'
 import {
   MemoryCorruptError,
   appendMemoryEntry,
   loadMemory,
   searchMemory,
   validateMemoryEntry,
-} from './memory.js'
-import { tokenize } from './routing.js'
+} from './domains/memory/memory.js'
+import { tokenize } from './domains/routing/routing.js'
 import type { CoworkToolDeps } from './platform/tool-runtime.js'
 import {
   callerOf,

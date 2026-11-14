@@ -665,7 +665,7 @@ test('the support barrel only re-exports the split modules', () => {
 test('the split modules import only built-ins and pure plugin modules', () => {
   const allowedLocal = new Set([
     './m12-e2e-contract.js',
-    './review-request.js',
+    './domains/review/review-request.js',
     './platform/presets.js',
     './store/schema.js',
   ])

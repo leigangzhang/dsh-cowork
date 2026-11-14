@@ -9,9 +9,9 @@ import {
   recommendWithModel,
   ROUTING_MODEL_ERROR_MAX_CHARS,
   ROUTING_MODEL_PROMPT_MAX_CHARS,
-} from '../src/router-model.ts'
+} from '../src/domains/routing/router-model.ts'
 
-const SOURCE_URL = new URL('../src/router-model.ts', import.meta.url)
+const SOURCE_URL = new URL('../src/domains/routing/router-model.ts', import.meta.url)
 
 /** A fake port records every call; it never touches a host or the network. */
 function recordingPort(reply) {

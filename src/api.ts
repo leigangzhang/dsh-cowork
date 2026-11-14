@@ -85,11 +85,11 @@ import type {
 import { buildActivityEvent, topicReopenedActivity } from './store/activity.js'
 import { inboxPanelRoutes } from './inbox-api.js'
 import type { InboxApiKit } from './inbox-api.js'
-import type { TopicNoticePort } from './notices.js'
+import type { TopicNoticePort } from './domains/notices/notices.js'
 import { isLoopbackHost } from './probe-model.js'
-import { parseReviewRequestRecord, reviewRequestFileName } from './review-request.js'
-import type { ReviewRequestRecord } from './review-request.js'
-import { applyRouteCorrection } from './routing.js'
+import { parseReviewRequestRecord, reviewRequestFileName } from './domains/review/review-request.js'
+import type { ReviewRequestRecord } from './domains/review/review-request.js'
+import { applyRouteCorrection } from './domains/routing/routing.js'
 import type {
   ActivityEvent,
   InboxItem,
@@ -103,10 +103,10 @@ import {
   PanelServiceError,
   promptRequestTopic,
   resolveAuthorizationDecision,
-} from './request-service.js'
+} from './domains/requests/request-service.js'
 import { StoreError } from './store/project-store.js'
-import { DEFAULT_IDLE_AFTER_MS, reopenResolvedTopic } from './topic.js'
-import { activeWorkItemCount } from './work-item.js'
+import { DEFAULT_IDLE_AFTER_MS, reopenResolvedTopic } from './domains/topic/topic.js'
+import { activeWorkItemCount } from './domains/isolation/work-item.js'
 import { archiveTopic, evaluateProjectLifecycle } from './platform/tool-runtime.js'
 
 // The shared port/route types live in a leaf module so `src/inbox-api.ts` can
@@ -136,7 +136,7 @@ const ROUTE_CORRECTION_DETAILS_MAX_TOKENS = 20
 /**
  * A failure the routes map to a stable panel error code and HTTP status.
  * `PanelServiceError` is the shared base, so a failure raised by
- * `src/request-service.ts` (resolve/open) and one raised here answer with the
+ * `src/domains/requests/request-service.ts` (resolve/open) and one raised here answer with the
  * same envelope.
  */
 export class PanelApiError extends PanelServiceError {
@@ -814,7 +814,7 @@ const noNoticePort: TopicNoticePort = {
  * `POST authorization.resolve`: record the user's decision on one pending
  * authorization. The master or the topic's own session may decide; the
  * `requestId` is idempotent (the same decision replays, a different one is a
- * conflict). The decision core lives in `src/request-service.ts` and is shared
+ * conflict). The decision core lives in `src/domains/requests/request-service.ts` and is shared
  * with `POST /api/cowork.inbox.resolve`: there is exactly one unlock path. The original
  * notice is patched, not duplicated, and only the topic session is prompted —
  * the master gets no extra message.

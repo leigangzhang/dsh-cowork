@@ -197,7 +197,7 @@ test('every cap is the frozen positive integer', () => {
 
 test('the notice kinds have one home in notice-contract.ts and the inbox derives from it', async () => {
   const noticeContract = await readFile(new URL('../src/notice-contract.ts', import.meta.url), 'utf8')
-  const notices = await readFile(new URL('../src/notices.ts', import.meta.url), 'utf8')
+  const notices = await readFile(new URL('../src/domains/notices/notices.ts', import.meta.url), 'utf8')
   const noticeModel = await readFile(new URL('../src/client/notice-model.ts', import.meta.url), 'utf8')
   const inboxContract = await readFile(new URL('../src/inbox-contract.ts', import.meta.url), 'utf8')
   assert.equal((noticeContract.match(/export const NOTICE_KINDS =/g) ?? []).length, 1)

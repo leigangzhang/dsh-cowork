@@ -13,7 +13,7 @@ import './support/ts-hook.mjs'
  * `work-item-model.test.mjs`; the in-process creation flow in
  * `work-item-create.test.mjs`.
  */
-const { nodeGitRunner } = await import('../src/checkout.ts')
+const { nodeGitRunner } = await import('../src/domains/isolation/checkout.ts')
 const { registerCheckoutTools, registerWorkItemTools } = await import('../src/checkout-tools.ts')
 const { ProjectStore } = await import('../src/store/project-store.ts')
 const {
@@ -21,7 +21,7 @@ const {
   reviewRequestFileName,
   serializeReviewRequestRecord,
   validateReviewRequestInput,
-} = await import('../src/review-request.ts')
+} = await import('../src/domains/review/review-request.ts')
 
 function makeRepo(t) {
   const repo = mkdtempSync(join(tmpdir(), 'cowork-work-item-'))

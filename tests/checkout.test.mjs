@@ -21,7 +21,7 @@ import {
   threadIsolationTarget,
   workItemCheckoutPaths,
   workItemIsolationTarget,
-} from '../src/checkout.ts'
+} from '../src/domains/isolation/checkout.ts'
 
 // `src/checkout-tools.ts` imports its siblings with the build's `.js`
 // specifiers, which Node's type stripping does not retry as `.ts`; this test

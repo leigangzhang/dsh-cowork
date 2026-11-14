@@ -7,7 +7,7 @@ import './support/ts-hook.mjs'
  * instead of throwing, and the primitive never touches the caller's ledger.
  */
 const { attemptDelivery, retryDelaySchedule, DELIVERY_DEFAULT_MAX_ATTEMPTS } =
-  await import('../src/delivery.ts')
+  await import('../src/domains/notices/delivery.ts')
 
 /** A hand-off that fails `failTimes` times, then resolves. */
 function flaky(failTimes) {

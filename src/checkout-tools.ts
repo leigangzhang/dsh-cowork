@@ -2,8 +2,8 @@
  * The two M10 isolation tools: `cowork_work_item_create` and
  * `cowork_checkout_merge`.
  *
- * Both keep their business rules in the domain modules (`src/work-item.ts`,
- * `src/checkout.ts`, `src/review-request.ts`) and this file only orchestrates:
+ * Both keep their business rules in the domain modules (`src/domains/isolation/work-item.ts`,
+ * `src/domains/isolation/checkout.ts`, `src/domains/review/review-request.ts`) and this file only orchestrates:
  * role gates, the canonical index reads/writes, the review request lookup, the
  * merge serialization, and the after-merge teardown. The merge never moves the
  * repository branch: it merges into whatever branch is checked out, and the
@@ -21,21 +21,21 @@ import {
   mergeCheckout,
   removeCheckout,
   workItemIsolationTarget,
-} from './checkout.js'
-import type { CheckoutStatus, GitRunner } from './checkout.js'
+} from './domains/isolation/checkout.js'
+import type { CheckoutStatus, GitRunner } from './domains/isolation/checkout.js'
 import {
   applyThreadStatus,
   describeError,
   teardownMergedCheckout,
   teardownMergedWorkItem,
-} from './checkout-teardown.js'
+} from './domains/isolation/checkout-teardown.js'
 import {
   checkLegacyThreadMerge,
   mergeGate,
   parseReviewRequestRecord,
   reviewRequestFileName,
-} from './review-request.js'
-import type { ReviewRequestRecord } from './review-request.js'
+} from './domains/review/review-request.js'
+import type { ReviewRequestRecord } from './domains/review/review-request.js'
 import type { ThreadRecord } from './store/project-store.js'
 import type { CoworkToolDeps, ProjectRuntime } from './platform/tool-runtime.js'
 import {
@@ -52,8 +52,8 @@ import {
 } from './platform/tool-runtime.js'
 import { ERROR_CODES, M10_ERROR_CODES, TOPIC_ERROR_CODES, checkRole, failure, success } from './platform/tool-model.js'
 import type { ToolFailure } from './platform/tool-model.js'
-import { captureWorkItemHead, createWorkItem, markWorkItem, workItemView } from './work-item.js'
-import type { WorkItemView } from './work-item.js'
+import { captureWorkItemHead, createWorkItem, markWorkItem, workItemView } from './domains/isolation/work-item.js'
+import type { WorkItemView } from './domains/isolation/work-item.js'
 
 /** Branch names the plugin refuses to merge into; closing them is the human's step. */
 const PROTECTED_BRANCHES: readonly string[] = ['main', 'master']

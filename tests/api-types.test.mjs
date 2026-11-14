@@ -66,12 +66,12 @@ test('the request/panel module graph has no import cycle', () => {
     'src/api.ts',
     'src/api-types.ts',
     'src/inbox-api.ts',
-    'src/request-service.ts',
-    'src/request-lifecycle.ts',
-    'src/authorization-decision.ts',
-    'src/request-support.ts',
+    'src/domains/requests/request-service.ts',
+    'src/domains/requests/request-lifecycle.ts',
+    'src/domains/requests/authorization-decision.ts',
+    'src/domains/requests/request-support.ts',
     'src/store/request-store.ts',
-    'src/request-schema.ts',
+    'src/domains/requests/request-schema.ts',
   ]
   const known = new Set(nodes.map((node) => node.replace(/^src\//, '').replace(/\.ts$/, '')))
   const edges = new Map()
@@ -105,7 +105,7 @@ test('the request/panel module graph has no import cycle', () => {
 
 test('the public runtime exports survive the type move', async () => {
   const api = await import('../src/api.ts')
-  const service = await import('../src/request-service.ts')
+  const service = await import('../src/domains/requests/request-service.ts')
   for (const name of ['registerCoworkApi', 'toPanelTopic', 'toErrorResponse', 'jsonResponse', 'panelErrorStatus']) {
     assert.equal(typeof api[name], 'function', `api.ts must export ${name}`)
   }

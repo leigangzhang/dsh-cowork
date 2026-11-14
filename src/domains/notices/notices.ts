@@ -21,9 +21,9 @@
  * (bounded retries, exponential backoff) and never rolls the topic state back.
  */
 import { attemptDelivery, retryDelaySchedule } from './delivery.js'
-import { isNoticeKind, type NoticeKind } from './notice-contract.js'
-import { ACTIVITY_MAX_EVENTS } from './store/schema.js'
-import type { ActivityEvent, ProjectIndexV2, ReadActivityResult } from './store/schema.js'
+import { isNoticeKind, type NoticeKind } from '../../notice-contract.js'
+import { ACTIVITY_MAX_EVENTS } from '../../store/schema.js'
+import type { ActivityEvent, ProjectIndexV2, ReadActivityResult } from '../../store/schema.js'
 
 /** Default plugin id stamped on every notice. */
 export const DEFAULT_NOTICE_PLUGIN_ID = '@dsh-external/dsh-cowork'
@@ -34,8 +34,8 @@ export const NOTICE_TARGETS = ['master', 'topic'] as const
 export type NoticeTarget = (typeof NOTICE_TARGETS)[number]
 
 /** The notice kinds the topic page emits, re-exported from the shared vocabulary. */
-export { NOTICE_KINDS } from './notice-contract.js'
-export type { NoticeKind } from './notice-contract.js'
+export { NOTICE_KINDS } from '../../notice-contract.js'
+export type { NoticeKind } from '../../notice-contract.js'
 
 /** The decision state a notice carries. */
 export const NOTICE_STATUSES = ['pending', 'allowed', 'denied', 'void'] as const

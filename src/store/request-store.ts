@@ -35,8 +35,8 @@ import {
   parseRequestRecordText,
   requestFileName,
   requestRecordProblems,
-} from '../request-schema.js'
-import type { ParsedRequestRecord } from '../request-schema.js'
+} from '../domains/requests/request-schema.js'
+import type { ParsedRequestRecord } from '../domains/requests/request-schema.js'
 
 /** What one scan of the request directory found. */
 export interface RequestScan {

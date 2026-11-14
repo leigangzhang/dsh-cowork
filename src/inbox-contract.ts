@@ -2,7 +2,7 @@
  * Request-inbox wire contract (topic inbox, 2026-11-10).
  *
  * One leaf module shared by the host routes (`src/inbox-api.ts`), the request
- * record model (`src/request-schema.ts`), the browser fetch layer
+ * record model (`src/domains/requests/request-schema.ts`), the browser fetch layer
  * (`src/client/api.ts`) and the browser view model
  * (`src/client/inbox-model.ts`). It carries names, caps and pure guards — no
  * I/O, no clock, and only the pure `notice-contract` dependency — so the two

@@ -6,7 +6,7 @@
  * rather than in `src/api.ts`, which sits at the repository's 50 KiB read cap.
  * The module owns only the wire projection: which request files and activity
  * rows become inbox rows, how the counts are computed, and how one resolution
- * is rendered. The state machine is `src/request-service.ts`; the vocabulary is
+ * is rendered. The state machine is `src/domains/requests/request-service.ts`; the vocabulary is
  * `src/inbox-contract.ts`.
  *
  * Reads report facts and never write: the GET route does not run the lifecycle,
@@ -41,10 +41,10 @@ import type {
   ReviewPayload,
 } from './inbox-contract.js'
 import type { PanelErrorCode } from './api-contract.js'
-import { emptyNoticeLedger, noticeSummaries } from './notices.js'
-import type { NoticeLedgerV1, NoticeSummary } from './notices.js'
+import { emptyNoticeLedger, noticeSummaries } from './domains/notices/notices.js'
+import type { NoticeLedgerV1, NoticeSummary } from './domains/notices/notices.js'
 import type { NoticeKind } from './notice-contract.js'
-import { PanelServiceError, openRequestTarget, resolveRequest } from './request-service.js'
+import { PanelServiceError, openRequestTarget, resolveRequest } from './domains/requests/request-service.js'
 import { RequestStore } from './store/request-store.js'
 import { ACTIVITY_MAX_EVENTS } from './store/schema.js'
 import type { ActivityEvent, ProjectIndexV2 } from './store/schema.js'

@@ -6,7 +6,7 @@
  * `topicId` handling, the three decision layers, the v2 writes
  * (`lastRouteTopicId`, new topic, activity), the bounded payload, and the
  * correction write path M11 will call from the panel. The pure rules stay in
- * `src/routing.ts`, the single LLM call in `src/router-model.ts`, and the host
+ * `src/domains/routing/routing.ts`, the single LLM call in `src/domains/routing/router-model.ts`, and the host
  * `llm` service is injected through `src/index.ts`; a missing or failing model
  * degrades to the structured candidates and never throws.
  *
@@ -23,13 +23,13 @@ import {
   decideRoute,
   routeCreateTitle,
   withRouteTargets,
-} from './routing.js'
-import type { RouteCandidate, RouteDecision } from './routing.js'
-import { recommendWithModel } from './router-model.js'
-import type { ModelCandidate, ModelOutcome, RoutingModelConfig } from './router-model.js'
+} from './domains/routing/routing.js'
+import type { RouteCandidate, RouteDecision } from './domains/routing/routing.js'
+import { recommendWithModel } from './domains/routing/router-model.js'
+import type { ModelCandidate, ModelOutcome, RoutingModelConfig } from './domains/routing/router-model.js'
 import type { ProjectStore } from './store/project-store.js'
 import type { ActivityEvent, ProjectIndexV2, TopicRecordV2 } from './store/schema.js'
-import { DEFAULT_IDLE_AFTER_MS } from './topic.js'
+import { DEFAULT_IDLE_AFTER_MS } from './domains/topic/topic.js'
 import type { CoworkToolDeps, JsonValue } from './platform/tool-runtime.js'
 import {
   BRIEF_MAX_CHARS,

@@ -11,7 +11,7 @@ import { withRepo } from './support/inbox-fixtures.mjs'
 // specifiers; the shared hook makes them importable here.
 const { INBOX_MAX_REQUEST_FILES, REQUEST_RECORD_VERSION } = await import('../src/inbox-contract.ts')
 const { RequestStore } = await import('../src/store/request-store.ts')
-const { applyResolution, buildRequestRecord } = await import('../src/request-schema.ts')
+const { applyResolution, buildRequestRecord } = await import('../src/domains/requests/request-schema.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')
 

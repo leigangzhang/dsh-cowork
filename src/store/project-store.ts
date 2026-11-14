@@ -49,10 +49,11 @@ import {
 } from './atomic-json.js'
 import { MigrationError, applyLegacyView, legacyViewOf, migrateV1ToV2 } from './migration.js'
 import { NoticeFileError, NoticeLedgerFile } from './notice-store.js'
-import type { NoticeLedgerV1 } from '../notices.js'
+import type { NoticeLedgerV1 } from '../domains/notices/notices.js'
 import type {
   ActivityEvent,
   ActivityType,
+  HandoffRecord,
   InboxItem,
   ProjectIndexV2,
   ReadActivityResult,
@@ -145,34 +146,6 @@ export interface ProjectIndex {
   masterSessionId: string
   createdAt: string
   threads: ThreadRecord[]
-}
-
-/** One verification row of a handoff. */
-export interface HandoffVerification {
-  command: string
-  exitCode: number
-  evidence: string
-}
-
-/** Status a handoff may carry. `new`/`active` are thread states, not handoff states. */
-export type HandoffStatus = 'awaiting_review' | 'blocked' | 'done'
-
-/** One handoff document (`<repo>/.dsh-cowork/handoffs/<threadId>-<stamp>.json`). */
-export interface HandoffRecord {
-  version: 1
-  threadId: string
-  masterSessionId: string
-  status: HandoffStatus
-  subject: string
-  summary: string
-  decisions: string[]
-  changedPaths: string[]
-  artifacts: string[]
-  verification: HandoffVerification[]
-  openIssues: string[]
-  nextStep: string | null
-  createdAt: string
-  deliveredAt: string | null
 }
 
 /** A handoff record together with where it lives. */

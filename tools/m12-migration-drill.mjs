@@ -80,7 +80,7 @@ const {
   projectIndexV2Problems,
 } = await import(new URL('../src/store/schema.ts', import.meta.url).href)
 const { reviewRequestRecordProblems, serializeReviewRequestRecord } = await import(
-  new URL('../src/review-request.ts', import.meta.url).href
+  new URL('../src/domains/review/review-request.ts', import.meta.url).href
 )
 
 /** Project data directory name, the only directory the partner writes here. */

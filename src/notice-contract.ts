@@ -2,7 +2,7 @@
  * Pure notice vocabulary shared by the host and the browser.
  *
  * The notice kinds are one frozen list: the host notice ledger
- * (`src/notices.ts`), the client notice cards (`src/client/notice-model.ts`)
+ * (`src/domains/notices/notices.ts`), the client notice cards (`src/client/notice-model.ts`)
  * and the request inbox (`src/inbox-contract.ts`, which appends the read-only
  * `review-verdict` row) all import this module instead of restating the list.
  * It carries names only — no I/O, no clock, no other imports — so both halves

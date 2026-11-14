@@ -4,7 +4,7 @@
  *
  * Two vocabularies live here on purpose. v2 (`TopicRecordV2`, `WorkItemRecordV2`)
  * is what the store writes; the v1 shapes (`ThreadRecordV1`, `ProjectIndexV1`)
- * stay because `src/tools.ts`, `src/api.ts`, `src/handoff.ts` and
+ * stay because `src/tools.ts`, `src/api.ts`, `src/domains/topic/handoff.ts` and
  * `src/review-tools.ts` are still v1-shaped and cannot change in M7. The v1
  * normalizer reproduces `src/store/project-store.ts`'s `normalizeThreadDocument` behaviour
  * (pre-M2 `worktreePath` adoption, M3 review fields defaulted to null) so a
@@ -105,7 +105,7 @@ export interface ReviewVerification {
 /**
  * One legacy verdict-only review document
  * (`<repo>/.dsh-cowork/reviews/<threadId>-<stamp>.json`). M10 replaced this
- * model with the request file (`src/review-request.ts`); old files stay
+ * model with the request file (`src/domains/review/review-request.ts`); old files stay
  * readable by `src/store/project-store.ts` and are never rewritten.
  */
 export interface ReviewRecord {
@@ -681,6 +681,34 @@ const RECORD_VERSION = 1
 
 /** The only statuses a stored handoff may carry. */
 const HANDOFF_RECORD_STATUSES = ['awaiting_review', 'blocked', 'done'] as const
+
+/** Status a handoff may carry. `new`/`active` are thread states, not handoff states. */
+export type HandoffStatus = (typeof HANDOFF_RECORD_STATUSES)[number]
+
+/** One verification row of a handoff. */
+export interface HandoffVerification {
+  command: string
+  exitCode: number
+  evidence: string
+}
+
+/** One handoff document (`<repo>/.dsh-cowork/handoffs/<threadId>-<stamp>.json`). */
+export interface HandoffRecord {
+  version: 1
+  threadId: string
+  masterSessionId: string
+  status: HandoffStatus
+  subject: string
+  summary: string
+  decisions: string[]
+  changedPaths: string[]
+  artifacts: string[]
+  verification: HandoffVerification[]
+  openIssues: string[]
+  nextStep: string | null
+  createdAt: string
+  deliveredAt: string | null
+}
 
 /** Schema problems of a handoff record this store is asked to persist. */
 export function handoffRecordProblems(record: unknown): string[] {

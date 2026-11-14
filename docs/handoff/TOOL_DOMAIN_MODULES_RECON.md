@@ -27,11 +27,11 @@
 |---|---|---|
 | entry | `index.ts` | `index.ts` 只保留 re-export；装配体移到 `app/apply.ts` |
 | app | `config.ts`、`tools.ts`、`dev-surfaces.ts` | `app/config.ts`、`app/tools.ts`、`app/dev-surfaces.ts` |
-| platform | `tool-runtime.ts`、`tool-model.ts`、`session-slice.ts`、`session-visibility.ts`、`llm-port.ts`、`topic-events.ts`、`memory-prompt.ts`、`request-open.ts`、`workspace-repair.ts`、`presets.ts`、`preset-visibility.ts` | `platform/` 同名 |
+| platform | `tool-runtime.ts`、`tool-model.ts`、`session-slice.ts`、`session-visibility.ts`、`llm-port.ts`、`topic-events.ts`、`memory-prompt.ts`、`workspace-repair.ts`、`presets.ts`、`preset-visibility.ts` | `platform/` 同名 |
 | store | `store.ts`、`store-schema.ts`、`store-migration.ts`、`atomic-json.ts`、`activity.ts`、`inbox.ts`、`notice-store.ts`、`request-store.ts` | `store/project-store.ts`、`store/schema.ts`、`store/migration.ts`、`store/atomic-json.ts`、`store/activity.ts`、`store/inbox.ts`、`store/notice-store.ts`、`store/request-store.ts` |
 | domains/topic | `topic.ts`、`handoff.ts` | `domains/topic/topic.ts`、`domains/topic/handoff.ts` |
 | domains/routing | `routing.ts`、`router-model.ts` | `domains/routing/routing.ts`、`domains/routing/router-model.ts` |
-| domains/requests | `request-schema.ts`、`request-lifecycle.ts`、`request-service.ts`、`authorization-decision.ts`、`request-support.ts` | `domains/requests/` 同名 |
+| domains/requests | `request-schema.ts`、`request-lifecycle.ts`、`request-service.ts`、`authorization-decision.ts`、`request-support.ts`、`request-open.ts` | `domains/requests/` 同名 |
 | domains/review | `review-request.ts` | `domains/review/review-request.ts` |
 | domains/isolation | `work-item.ts`、`checkout.ts`、`checkout-teardown.ts` | `domains/isolation/` 同名 |
 | domains/memory | `memory.ts` | `domains/memory/memory.ts` |
@@ -43,10 +43,12 @@
 
 无未分类文件。`domains/project/` 目前没有独立的纯规则模块：`cowork_project_*` 的读模型留在 `tools/project.ts`，等出现第二个调用方再拆，不凭空新建空目录。
 
-### 与提案目标树的两处偏差（有意、可复核）
+### 与提案目标树的偏差（有意、可复核）
 
 1. `presets.ts` / `preset-visibility.ts` 放 `platform/` 而不是 `app/`。`platform/tool-runtime.ts` 与 `dev/m12-e2e-*` 都消费 preset id/rows；放 `app/` 会让 `platform` 反向依赖 `app`。preset 是宿主 `agentPresets` 注册数据，属于平台适配。
 2. `delivery.ts` 放 `domains/notices/`。它是通知与收件箱共享的重试原语，没有宿主依赖；`store/inbox.ts` 从 store 引用纯领域原语，`notices` 与本模块同域。
+3. `request-open.ts` 从提案的 `platform/` 移到 `domains/requests/`。它只做请求卡到仓库内文件的路径解析与打开端口调用，`request-service.ts` 的薄 re-export 因此不再产生 domain → platform 反向依赖。
+4. 三个 handoff 记录类型（`HandoffRecord`/`HandoffStatus`/`HandoffVerification`）从 `store/project-store.ts` 移到 `store/schema.ts`；`domains/topic/handoff.ts` 只依赖纯 schema，不再引用 project store。
 
 ### `tests/` 镜像（68 个测试 + 4 个 support）
 
@@ -101,12 +103,13 @@ client/**         → client / 纯契约叶
 
 纯契约叶（不 import 宿主、I/O，只互相引用）：`store/schema.ts`、`panel/api-contract.ts`、`panel/inbox-contract.ts`、`panel/notice-contract.ts`、`platform/tool-model.ts`。
 
-两条有意登记的例外，由架构测试逐条列出、不得增长：
+三条有意登记的例外，由架构测试逐条列出、不得增长：
 
 1. `domains/requests/{request-lifecycle,authorization-decision,request-open}.ts` 直接构造 `store/request-store.ts`。请求卡文件是请求域自己的持久化端口；把它拆成注入端口会改公开调用签名，超出“路径 + import 机械迁移”的范围。
-2. `domains/isolation/checkout.ts` 直接使用 `node:fs`/`node:child_process`：隔离域拥有 clone/merge 的 git 与目录守卫，`GitRunner` 已可注入，真实 runner 留在模块内（测试用 fake runner）。
+2. `domains/{isolation/work-item,requests/authorization-decision,requests/request-lifecycle}.ts` 引用纯事件构建器 `store/activity.ts`。该模块不读文件、不读时钟，是 schema + notice 描述符的纯函数。
+3. `domains/isolation/checkout.ts` 与 `domains/requests/request-open.ts` 直接使用 `node:fs`/`node:child_process`：前者拥有 clone/merge 的 git 与目录守卫，后者做打开文件的路径/符号链接校验；其余 domain 禁止 `node:fs`/`node:child_process`。
 
-`DOMAINS` 的硬禁止：`@deepseek-ai/*`、`app`、`tools`、`dev`、`index`、`panel` 运行时模块、`platform`（除 `tool-model.ts`）、`store/project-store.ts`。项目索引 store 不得被任何 domain 直接引用。
+`DOMAINS` 的硬禁止：`@deepseek-ai/*`、`app`、`tools`、`dev`、`index`、`panel` 运行时模块、`platform`（除 `tool-model.ts`）、`store/project-store.ts` 及其余 store 运行时模块。项目索引 store 不得被任何 domain 直接引用。
 
 ## 阶段停止条件
 

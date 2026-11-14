@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { tokenize } from '../src/routing.ts'
+import { tokenize } from '../src/domains/routing/routing.ts'
 import {
   DEFAULT_MEMORY_BUDGET_TOKENS,
   DEFAULT_SEARCH_LIMIT,
@@ -20,7 +20,7 @@ import {
   renderMemoryEntry,
   searchMemory,
   validateMemoryEntry,
-} from '../src/memory.ts'
+} from '../src/domains/memory/memory.ts'
 
 const REPO = '/repo'
 const ISO = '2026-11-05T00:00:00.000Z'

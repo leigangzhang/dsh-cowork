@@ -56,7 +56,7 @@ const HOOK_SOURCE = [
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { reviewRequestFileName, reviewRequestRecordProblems } = await import(
-  new URL('../src/review-request.ts', import.meta.url).href
+  new URL('../src/domains/review/review-request.ts', import.meta.url).href
 )
 const {
   activityEventProblems,
@@ -240,8 +240,8 @@ function buildTopics({ repo, liveTopicId, now }) {
       topicId: resolvedMaster,
       title: 'M9 路由第三层：阈值收口',
       status: 'resolved',
-      scope: 'src/routing.ts',
-      ownedPaths: ['src/routing.ts'],
+      scope: 'src/domains/routing/routing.ts',
+      ownedPaths: ['src/domains/routing/routing.ts'],
       digest: 'master 在静默 3 天后自动解决',
       updatedAt: resolvedAt,
       lastActiveAt: resolvedAt,

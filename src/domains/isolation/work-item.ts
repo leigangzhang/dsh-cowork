@@ -10,11 +10,11 @@
  * The second half is the creation/capture flow. It still owns no I/O itself:
  * git arrives as the checkout module's injected runner, the index and activity
  * writes arrive as a narrow store port, and time and ids are injected. Clone
- * creation, path guarding and cleanup reuse `src/checkout.ts` (the same guard
+ * creation, path guarding and cleanup reuse `src/domains/isolation/checkout.ts` (the same guard
  * every thread checkout uses), so a work item can never land outside
  * `.dsh-cowork/workitems` and a failed creation leaves no half index record.
  */
-import { buildActivityEvent } from './store/activity.js'
+import { buildActivityEvent } from '../../store/activity.js'
 import {
   CHECKOUT_ERROR,
   CLONE_ISOLATION_PROVIDER,
@@ -25,9 +25,9 @@ import {
 } from './checkout.js'
 import type { CheckoutDeps } from './checkout.js'
 import { describeError } from './checkout-teardown.js'
-import { M10_ERROR_CODES, TOPIC_ERROR_CODES } from './platform/tool-model.js'
-import { WORK_ITEM_STATUSES } from './store/schema.js'
-import type { ActivityEvent, ProjectIndexV2, WorkItemRecordV2, WorkItemStatus } from './store/schema.js'
+import { M10_ERROR_CODES, TOPIC_ERROR_CODES } from '../../platform/tool-model.js'
+import { WORK_ITEM_STATUSES } from '../../store/schema.js'
+import type { ActivityEvent, ProjectIndexV2, WorkItemRecordV2, WorkItemStatus } from '../../store/schema.js'
 
 export { WORK_ITEM_STATUSES }
 export type { WorkItemStatus }
@@ -35,7 +35,7 @@ export type { WorkItemStatus }
 /**
  * A work-item id that is also usable as a directory and branch name. Kept
  * identical to the checkout path guard's `TARGET_ID_PATTERN`
- * (`src/checkout.ts`): a dotted id must fail here rather than pass this check
+ * (`src/domains/isolation/checkout.ts`): a dotted id must fail here rather than pass this check
  * and be refused later by `createCheckout`.
  */
 export const WORK_ITEM_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/

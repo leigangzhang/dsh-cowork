@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyThreadStatus, teardownMergedCheckout } from '../src/checkout-teardown.ts'
+import { applyThreadStatus, teardownMergedCheckout } from '../src/domains/isolation/checkout-teardown.ts'
 
 /**
  * `src/tools.ts` cannot be imported here: it value-imports its siblings as

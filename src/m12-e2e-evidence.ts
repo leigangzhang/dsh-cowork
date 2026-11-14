@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import { REVIEWER_PRESET_ID, TOPIC_PRESET_ID } from './platform/presets.js'
-import { parseReviewRequestRecord } from './review-request.js'
+import { parseReviewRequestRecord } from './domains/review/review-request.js'
 import {
   activityEventProblems,
   inboxItemProblems,

@@ -8,7 +8,7 @@
 
 | 落点 | 职责 |
 |---|---|
-| [`src/review-request.ts`](../../src/review-request.ts) | review 请求模型：输入校验、verdict→状态路由、调用者门（自审拒绝）、request 前置、merge 门禁与 override 清洗、review brief、退回消息 |
+| [`src/review-request.ts`](../../src/domains/review/review-request.ts) | review 请求模型：输入校验、verdict→状态路由、调用者门（自审拒绝）、request 前置、merge 门禁与 override 清洗、review brief、退回消息 |
 | [`src/store.ts`](../../src/store/project-store.ts) | `reviews/` 目录与 ReviewRecord 排他写/列表/读；索引可空 review 字段（`reviewStatus` / `reviewRequestedAt` / `reviewedAt` / `reviewerSessionId` / `latestReviewPath`），旧 `worktreePath`/缺字段索引读为 null |
 | [`src/tools.ts`](../../src/tools.ts) | 第 10/11 个工具 `cowork_review_request` / `cowork_review_verdict`；`cowork_project_status` 附 `latestReviews`；`cowork_checkout_merge` 默认要求 `reviewStatus=pass`，`allowUnreviewed + overrideReason` 可覆盖 |
 | [`src/session-slice.ts`](../../src/platform/session-slice.ts) | `createReviewSession`：主仓库 workspace + preset 校验 fail-closed + `cowork review: ` 标题 |

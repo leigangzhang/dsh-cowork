@@ -9,14 +9,14 @@
  */
 import { realpath, stat } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
-import { OPEN_FILE_MAX_BYTES } from '../inbox-contract.js'
-import { noticeIdOf } from '../notices.js'
-import { isRepoRelativePosixPath } from '../request-schema.js'
-import { RequestStore } from '../store/request-store.js'
-import { ACTIVITY_MAX_EVENTS } from '../store/schema.js'
-import type { ProjectIndexV2 } from '../store/schema.js'
-import { PanelServiceError, assertMember, messageOf } from '../request-support.js'
-import type { RequestServiceStorePort } from '../request-support.js'
+import { OPEN_FILE_MAX_BYTES } from '../../inbox-contract.js'
+import { noticeIdOf } from '../notices/notices.js'
+import { isRepoRelativePosixPath } from './request-schema.js'
+import { RequestStore } from '../../store/request-store.js'
+import { ACTIVITY_MAX_EVENTS } from '../../store/schema.js'
+import type { ProjectIndexV2 } from '../../store/schema.js'
+import { PanelServiceError, assertMember, messageOf } from './request-support.js'
+import type { RequestServiceStorePort } from './request-support.js'
 
 /** What one open call needs. */
 export interface OpenRequestTargetInput {

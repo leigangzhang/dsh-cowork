@@ -5,7 +5,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import './support/ts-hook.mjs'
-// `src/review-request.ts` imports its siblings with the build's `.js`
+// `src/domains/review/review-request.ts` imports its siblings with the build's `.js`
 // specifiers, which Node's type stripping does not retry as `.ts`; this test
 // installs the same small resolve hook tests/presets.test.mjs uses.
 import { withRepo } from './support/inbox-fixtures.mjs'
@@ -34,13 +34,13 @@ const {
   reviewRequestRecordProblems,
   serializeReviewRequestRecord,
   validateReviewRequestInput,
-} = await import('../src/review-request.ts')
+} = await import('../src/domains/review/review-request.ts')
 const { ERROR_CODES, M10_ERROR_CODES } = await import('../src/platform/tool-model.ts')
 const { REVIEWER_PRESET_ID: PRESETS_REVIEWER_ID } = await import('../src/platform/presets.ts')
 const schema = await import('../src/store/schema.ts')
 
 /**
- * Contract tests for the pure M10 review-request model (`src/review-request.ts`):
+ * Contract tests for the pure M10 review-request model (`src/domains/review/review-request.ts`):
  * field validation, the request record on disk, the previous-request chain, the
  * verdict outcome, the merge gate, and the reviewer brief. Everything here is
  * in memory: no `.dsh-cowork/`, no git, no clock.
@@ -73,7 +73,7 @@ const requestScope = (overrides = {}) => ({
   repoPath: REPO,
   workItemPath: WORK_ITEM_PATH,
   branch: 'cowork/wi-1',
-  changedPaths: ['src/review-request.ts', 'tests/review-request.test.mjs'],
+  changedPaths: ['src/domains/review/review-request.ts', 'tests/review-request.test.mjs'],
   ...overrides,
 })
 
@@ -191,7 +191,7 @@ test('the brief carries the request scope, the previous round, and the call to m
         severity: 'high',
         problem: 'the merge gate is skipped',
         requiredFix: 'call mergeGate before merging',
-        file: 'src/review-request.ts',
+        file: 'src/domains/review/review-request.ts',
         line: 42,
       },
     ],
@@ -205,7 +205,7 @@ test('the brief carries the request scope, the previous round, and the call to m
     HEAD,
     WORK_ITEM_PATH,
     'cowork/wi-1',
-    'src/review-request.ts',
+    'src/domains/review/review-request.ts',
     'node --test tests/review-request.test.mjs',
     'req-0',
     'needs_revision',
@@ -296,7 +296,7 @@ function fakeGit(options = {}) {
     if (args[0] === 'merge-base') return { code: options.ancestor === false ? 1 : 0, stdout: '', stderr: '' }
     if (args[0] === 'status') return { code: 0, stdout: options.dirty === true ? ' M src/one.ts\n' : '', stderr: '' }
     if (args[0] === 'diff') {
-      const paths = options.changedPaths ?? ['src/review-request.ts']
+      const paths = options.changedPaths ?? ['src/domains/review/review-request.ts']
       return { code: 0, stdout: paths.map((path) => `${path}\n`).join(''), stderr: '' }
     }
     if (args[1] === '--abbrev-ref') return { code: 0, stdout: `${options.branch ?? 'cowork/wi-1'}\n`, stderr: '' }
@@ -450,7 +450,7 @@ test('a shared-tree request writes the pending file, the index, and the brief', 
     assert.equal(result.path, repoPath)
     assert.equal(result.baseCommit, BASE)
     assert.equal(result.headCommit, HEAD)
-    assert.deepEqual(result.changedPaths, ['src/review-request.ts'])
+    assert.deepEqual(result.changedPaths, ['src/domains/review/review-request.ts'])
 
     // The request file is the model's file, named from its own identity.
     assert.equal(result.filePath, join(repoPath, '.dsh-cowork', 'reviews', `session-topic-${result.requestId}.json`))
@@ -462,7 +462,7 @@ test('a shared-tree request writes the pending file, the index, and the brief', 
     assert.equal(stored.previousRequestId, null)
     assert.equal(stored.requestedAt, REQUESTED_AT.toISOString())
     assert.equal(stored.branch, 'cowork/wi-1')
-    assert.deepEqual(stored.changedPaths, ['src/review-request.ts'])
+    assert.deepEqual(stored.changedPaths, ['src/domains/review/review-request.ts'])
     assert.equal(parseReviewRequestRecord(JSON.stringify(stored)).ok, true)
 
     // The canonical index carries the review markers and no legacy pointer.
@@ -783,7 +783,7 @@ test('an index write failure archives the reviewer and removes the file', async 
 // ---------------------------------------------------------------------------
 
 test('the legacy thread merge gate requires a passed review, with no override', async () => {
-  const { checkLegacyThreadMerge } = await import('../src/review-request.ts')
+  const { checkLegacyThreadMerge } = await import('../src/domains/review/review-request.ts')
 
   assert.deepEqual(checkLegacyThreadMerge({ threadId: 't1', reviewStatus: 'pass' }), { ok: true })
 
@@ -798,7 +798,7 @@ test('the legacy thread merge gate requires a passed review, with no override', 
   // The M8 override is gone: the gate takes only the thread, and the module no
   // longer exports the override helpers.
   assert.equal(checkLegacyThreadMerge.length, 1)
-  const module = await import('../src/review-request.ts')
+  const module = await import('../src/domains/review/review-request.ts')
   for (const name of ['cleanOverrideReason', 'overrideCommitSuffix', 'MAX_OVERRIDE_REASON_LENGTH']) {
     assert.equal(name in module, false, `${name} must not be exported any more`)
   }
@@ -806,7 +806,7 @@ test('the legacy thread merge gate requires a passed review, with no override', 
 
 test('a topic message stays bounded even with many long findings', async () => {
   const { REVIEW_MESSAGE_MAX_CHARS, buildRejectMessage, buildRevisionMessage } =
-    await import('../src/review-request.ts')
+    await import('../src/domains/review/review-request.ts')
   const many = {
     ...answeredRecord({
       status: 'needs_revision',

@@ -27,7 +27,7 @@ const {
   serializeReviewRequestRecord,
   validateReviewRequestInput,
   validateReviewVerdictInput,
-} = await import('../src/review-request.ts')
+} = await import('../src/domains/review/review-request.ts')
 
 const NOW = new Date('2026-11-08T01:00:00.000Z')
 const CLOCK = () => NOW
@@ -206,7 +206,7 @@ function finding(overrides = {}) {
     severity: 'high',
     problem: 'the merge gate can be skipped',
     requiredFix: 'route the merge through the gate',
-    file: 'src/review-request.ts',
+    file: 'src/domains/review/review-request.ts',
     line: 42,
     ...overrides,
   }

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildHandoffRecord, formatMasterMessage, validateHandoff } from '../src/handoff.ts'
+import { buildHandoffRecord, formatMasterMessage, validateHandoff } from '../src/domains/topic/handoff.ts'
 
 /**
  * M10.4 contract tests for the handoff model: the write-side status vocabulary

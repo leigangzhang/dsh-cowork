@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import './ts-hook.mjs'
 
 const { ProjectStore } = await import('../../src/store/project-store.ts')
-const requestService = await import('../../src/request-service.ts')
+const requestService = await import('../../src/domains/requests/request-service.ts')
 
 /**
  * One v2 topic record with every field the schema requires. Suites bind their
