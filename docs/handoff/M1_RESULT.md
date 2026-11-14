@@ -8,14 +8,14 @@
 
 | 落点 | 职责 |
 |---|---|
-| [`src/store.ts`](../../src/store.ts) | `index.json` 与 handoff 文件的唯一写者：`withFileLock` + `writeFileAtomic` + 目录 fsync；损坏文件带路径报错、不重建。 |
-| [`src/session-slice.ts`](../../src/session-slice.ts) | `sessionController`/`workspaceRegistry` 薄封装：workspace 解析、create + preset 校验 + rename、queue prompt、list 探测。 |
-| [`src/routing.ts`](../../src/routing.ts) | 纯函数关键词路由：ASCII 词 + CJK bigram；subject×3 + keyword×2 + 状态罚分 + recency；阈值 4 且领先 ≥1。 |
-| [`src/handoff.ts`](../../src/handoff.ts) | handoff 逐字段校验、落盘→索引→投递固定顺序、失败保留、`deliveredAt` 仅成功后写、重放。 |
-| [`src/tool-model.ts`](../../src/tool-model.ts) | 调用者身份、角色校验、错误包络、brief 与 route payload 的纯函数。 |
-| [`src/tools.ts`](../../src/tools.ts) | 六个 `cowork_*` 工具。 |
-| [`src/presets.ts`](../../src/presets.ts) | `cowork-master` / `cowork-thread` 各 10 行显式注册，第二次注册失败会回滚第一个。 |
-| [`src/index.ts`](../../src/index.ts) | 装配工具与两个 preset；M0/S0 探针保留（见限制）。 |
+| [`src/store.ts`](../../src/store/project-store.ts) | `index.json` 与 handoff 文件的唯一写者：`withFileLock` + `writeFileAtomic` + 目录 fsync；损坏文件带路径报错、不重建。 |
+| [`src/session-slice.ts`](../../src/platform/session-slice.ts) | `sessionController`/`workspaceRegistry` 薄封装：workspace 解析、create + preset 校验 + rename、queue prompt、list 探测。 |
+| [`src/routing.ts`](../../src/domains/routing/routing.ts) | 纯函数关键词路由：ASCII 词 + CJK bigram；subject×3 + keyword×2 + 状态罚分 + recency；阈值 4 且领先 ≥1。 |
+| [`src/handoff.ts`](../../src/domains/topic/handoff.ts) | handoff 逐字段校验、落盘→索引→投递固定顺序、失败保留、`deliveredAt` 仅成功后写、重放。 |
+| [`src/tool-model.ts`](../../src/platform/tool-model.ts) | 调用者身份、角色校验、错误包络、brief 与 route payload 的纯函数。 |
+| [`src/tools.ts`](../../src/app/tools.ts) | 六个 `cowork_*` 工具。 |
+| [`src/presets.ts`](../../src/platform/presets.ts) | `cowork-master` / `cowork-thread` 各 10 行显式注册，第二次注册失败会回滚第一个。 |
+| [`src/index.ts`](../../src/app/apply.ts) | 装配工具与两个 preset；M0/S0 探针保留（见限制）。 |
 
 六个工具：`cowork_project_init`、`cowork_project_status`、`cowork_route`、`cowork_thread_create`、`cowork_thread_list`、`cowork_handoff`。角色：init/route/thread_create 仅 master；handoff 仅 thread 且只能报自己的 threadId；status/thread_list 对两者开放（`src/tools.ts:240,271,326,402,443,492`）。preset 由 `agentPresets.register` 运行时注册（`src/index.ts:318-326`），重启消失。
 

@@ -301,17 +301,17 @@ Status: research（2026-11-10；V1–V16 已核实，字体与体积决策已确
 客户端槽位和服务用只读 inspect 在运行中的 GUI 上确认，其余读源码。
 
 - 主区域面板：`main` 是 root 作用域的 keyed 槽位，key 自取；`ctx.layout.selectPanel` 切换（`packages/client/ui-layout/src/client/service.ts:36,72`）。左侧栏入口用 `sidebar.panellist`（`packages/client/ui-sidebar/README.zh.md`「全局面板入口」）。
-- 平台模块表允许第三方客户端包 require 宿主组件（`packages/client/web/src/platform.ts`、`packages/client/web/src/seed.ts:24-38`）；可复用 `MarkdownText`（`packages/client/ui-primitives/src/index.ts:104`）和 `ImageLightbox`（`:113`）。
+- 平台模块表允许第三方客户端包 require 宿主组件（`packages/client/web/src/platform.ts`、`packages/client/web/src/seed.ts:24-38`）；可复用 `MarkdownText`（`packages/client/ui-primitives/src/app/apply.ts:104`）和 `ImageLightbox`（`:113`）。
 - 文件写入带版本校验：`FsWriteIntent` 的 `replaceIfVersion`（`packages/fs/fs/src/types.ts:123-126`），编辑带 `expected.version`（`:147-154`）。
-- 工具调用可以在执行前拒绝：`ToolGuard`（`packages/core/tools/src/index.ts:731`）和 `ctx.tools.guard`（`:1136`）；执行上下文带工具名、参数和 agent（`:326-352`、`:393-398`）。这是“同行冲突加锁”的落点。
+- 工具调用可以在执行前拒绝：`ToolGuard`（`packages/core/tools/src/app/apply.ts:731`）和 `ctx.tools.guard`（`:1136`）；执行上下文带工具名、参数和 agent（`:326-352`、`:393-398`）。这是“同行冲突加锁”的落点。
 - 文件监听：宿主 `fs.watch`；`workspaceFiles` 的文件读取和变化监听可以指向工作区外路径（`packages/api/workspace-files/README.zh.md`）。
 - 会话消息可带图片：`PromptContentPart` 支持 `image`（`packages/api/session-controller/src/types.ts:89-97`），带图片时校验模型输入能力（同包 `src/commands.ts:336-348`）。
-- 图片附件：`ctx.attachments.saveImages`（`packages/attachment/attachment/src/index.ts:98`）。
+- 图片附件：`ctx.attachments.saveImages`（`packages/attachment/attachment/src/app/apply.ts:98`）。
 - 会话事件：`session/event` 含 `turn/start`、`turn/end`、`tool/call`、`tool/result`、`assistant/message`（宿主 Event inspect 契约）。
-- 长连接：连接层逐块写 `Response.body`（`packages/client/connection/src/http-bridge.ts:103`）；HMR 已有同源 SSE 先例（`packages/client/hmr/src/index.ts` 的 `/plugins/events`）。
-- 在本地应用打开：`sessionController.openWorkspacePath`（`packages/api/session-controller/src/index.ts:339-350`）、`canOpenWorkspacePath`（`:319`）、`workspacePathApplications`（`:369-382`）；打开前校验路径。
+- 长连接：连接层逐块写 `Response.body`（`packages/client/connection/src/http-bridge.ts:103`）；HMR 已有同源 SSE 先例（`packages/client/hmr/src/app/apply.ts` 的 `/plugins/events`）。
+- 在本地应用打开：`sessionController.openWorkspacePath`（`packages/api/session-controller/src/app/apply.ts:339-350`）、`canOpenWorkspacePath`（`:319`）、`workspacePathApplications`（`:369-382`）；打开前校验路径。
 - HTML 隔离参考：静态 `sandbox=""`、交互 Blob 加 `sandbox="allow-scripts"`（`packages/client/ui-sidebar-documentpreview/src/client/html/HtmlBody.tsx:68,102`），静态页面经 DOMPurify 和 CSP（同包 `html/basic-document.ts:13` 起）。
-- 现有面板请求方式：同源 fetch 带 `credentials: 'same-origin'`（`src/client/api.ts:408`），路由经 `connection.fetch.register`（`src/api.ts:1003`）。
+- 现有面板请求方式：同源 fetch 带 `credentials: 'same-origin'`（`src/client/api.ts:408`），路由经 `connection.fetch.register`（`src/panel/api.ts:1003`）。
 
 组件版本、许可和体积来自 npm registry 与 bundlephobia（查询日期 2026-11-10）。体积是打包器估算，不等于本仓库产物；以原型构建为准。
 

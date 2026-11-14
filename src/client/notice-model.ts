@@ -9,18 +9,18 @@
  * Decisions are recorded (topic-page handoff, 2026-11-10): the running host is
  * DSH 0.2.1-rc.2, which has neither `ctx.sessionNotices` nor a `notice/message`
  * event. The renderer is therefore built but feature-detected and NOT registered
- * (B); the rules below are pinned by `tests/notice-model.test.mjs` so the A2
+ * (B); the rules below are pinned by `tests/client/notice-model.test.mjs` so the A2
  * host release only needs the adapter and registration, not new copy.
  *
  * This module stays React-free so `node --test` can load it through type
  * stripping.
  */
-import { isNoticeKind, type NoticeKind } from '../notice-contract.ts'
+import { isNoticeKind, type NoticeKind } from '../panel/notice-contract.ts'
 
 
 /** The five notice kinds, shared with the host through the frozen vocabulary. */
-export { NOTICE_KINDS } from '../notice-contract.ts'
-export type { NoticeKind } from '../notice-contract.ts'
+export { NOTICE_KINDS } from '../panel/notice-contract.ts'
+export type { NoticeKind } from '../panel/notice-contract.ts'
 
 /** The four notice states the contract defines. */
 export const NOTICE_STATUSES = ['pending', 'allowed', 'denied', 'void'] as const
@@ -136,7 +136,7 @@ export interface NoticeCardView {
 }
 
 /** Whether a value is one of the contract's notice kinds. */
-export { isNoticeKind } from '../notice-contract.ts'
+export { isNoticeKind } from '../panel/notice-contract.ts'
 
 /** Whether a value is one of the contract's notice states. */
 export function isNoticeStatus(value: unknown): value is NoticeStatus {

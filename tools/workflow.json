@@ -114,7 +114,7 @@
         "tools/check-invariants.mjs",
         "tools/doc-gate-engine.mjs",
         "tools/export-baseline.json",
-        "scripts/clean-check.mjs",
+        "scripts/evidence/clean-check.mjs",
         ".gitignore"
       ],
       "evidence": [
@@ -131,7 +131,7 @@
       ],
       "evidence": [
         "node tools/m12-migration-drill.mjs",
-        "node --test tests/m12-migration-drill.test.mjs"
+        "node --test tests/guards/m12-migration-drill.test.mjs"
       ],
       "why": "The v1-to-v2 migration drill is the only executable proof of backup byte equality, second-write idempotence and backup rollback; changing the drill changes that evidence."
     }

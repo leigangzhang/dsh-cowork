@@ -56,7 +56,7 @@ const HOOK_SOURCE = [
 register(`data:text/javascript,${encodeURIComponent(HOOK_SOURCE)}`)
 
 const { reviewRequestFileName, reviewRequestRecordProblems } = await import(
-  new URL('../src/review-request.ts', import.meta.url).href
+  new URL('../src/domains/review/review-request.ts', import.meta.url).href
 )
 const {
   activityEventProblems,
@@ -205,7 +205,7 @@ function buildTopics({ repo, liveTopicId, now }) {
       title: 'M11 面板读取点：主题列表与详情',
       status: 'active',
       scope: 'src/api.ts / src/api-contract.ts 的读路由与 wire 映射',
-      ownedPaths: ['src/api.ts', 'src/api-contract.ts'],
+      ownedPaths: ['src/panel/api.ts', 'src/panel/api-contract.ts'],
       digest: '读路由已接入 v2 wire；正在补真实 Chrome 证据',
       updatedAt: recent,
       lastActiveAt: recent,
@@ -240,8 +240,8 @@ function buildTopics({ repo, liveTopicId, now }) {
       topicId: resolvedMaster,
       title: 'M9 路由第三层：阈值收口',
       status: 'resolved',
-      scope: 'src/routing.ts',
-      ownedPaths: ['src/routing.ts'],
+      scope: 'src/domains/routing/routing.ts',
+      ownedPaths: ['src/domains/routing/routing.ts'],
       digest: 'master 在静默 3 天后自动解决',
       updatedAt: resolvedAt,
       lastActiveAt: resolvedAt,
@@ -264,7 +264,7 @@ function buildTopics({ repo, liveTopicId, now }) {
       },
       awaitingReview: true,
       scope: 'src/api.ts 写路由与同源校验',
-      ownedPaths: ['src/api.ts'],
+      ownedPaths: ['src/panel/api.ts'],
       digest: '等待独立评审：写路由已就绪',
       reviewStatus: 'pending',
       latestReviewRequestId: 'req-fixture-pending',
@@ -293,8 +293,8 @@ function buildTopics({ repo, liveTopicId, now }) {
       topicId: passed,
       title: 'M11 wire v2 契约',
       status: 'active',
-      scope: 'src/api-contract.ts',
-      ownedPaths: ['src/api-contract.ts'],
+      scope: 'src/panel/api-contract.ts',
+      ownedPaths: ['src/panel/api-contract.ts'],
       digest: '评审通过：契约与测试一致',
       reviewStatus: 'pass',
       latestReviewRequestId: 'req-fixture-pass',
@@ -393,7 +393,7 @@ function reviewRequest({ repo, topicId, requestId, status, minutes, findings, su
     headCommit: 'c5d6e7f',
     path: repo,
     branch: 'feat/m11-http-api-panel',
-    changedPaths: ['src/api.ts', 'tests/api-read.test.mjs'],
+    changedPaths: ['src/panel/api.ts', 'tests/panel/api-read.test.mjs'],
     verification: [
       { command: 'node --test tests/api-read.test.mjs', exitCode: 0, evidence: '39 passed' },
       { command: 'node --check tools/panel-fixture.mjs', exitCode: 0, evidence: 'syntax ok' },
@@ -456,7 +456,7 @@ function buildReviewRequests({ repo, ids, now }) {
           severity: 'high',
           problem: 'activity 路由的 200 上限没有测试',
           requiredFix: '在 tests/api-read.test.mjs 断言 limit=200 与非法 limit',
-          file: 'tests/api-read.test.mjs',
+          file: 'tests/panel/api-read.test.mjs',
           line: 120,
         },
         {
@@ -464,7 +464,7 @@ function buildReviewRequests({ repo, ids, now }) {
           severity: 'medium',
           problem: 'skippedLines 未透出',
           requiredFix: '把 store.readActivity 的 skippedLines 放进响应',
-          file: 'src/api.ts',
+          file: 'src/panel/api.ts',
           line: 640,
         },
       ],

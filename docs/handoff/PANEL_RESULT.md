@@ -9,12 +9,12 @@
 
 | 落点 | 职责 |
 |---|---|
-| [`src/api.ts`](../../src/api.ts) | 两条只读 Exact Fetch 路由、项目定位（sessionId → 会话元数据 cwd → `findProjectRoot`）、overview/handoff 纯映射、错误包络 |
-| [`src/api-contract.ts`](../../src/api-contract.ts) | 两端共享 wire 契约：路径、类型、错误码、排序/计数/默认选中纯函数 |
-| [`src/index.ts`](../../src/index.ts) | 装配 `connection` 与 `sessionController.list` 端口；不改既有探针与工具 |
+| [`src/api.ts`](../../src/panel/api.ts) | 两条只读 Exact Fetch 路由、项目定位（sessionId → 会话元数据 cwd → `findProjectRoot`）、overview/handoff 纯映射、错误包络 |
+| [`src/api-contract.ts`](../../src/panel/api-contract.ts) | 两端共享 wire 契约：路径、类型、错误码、排序/计数/默认选中纯函数 |
+| [`src/index.ts`](../../src/app/apply.ts) | 装配 `connection` 与 `sessionController.list` 端口；不改既有探针与工具 |
 | [`src/client/`](../../src/client) | 浏览器半边：tab/底栏/guide 注册、面板壳与列表/详情、样式与本地契约 |
-| [`scripts/build-client.mjs`](../../scripts/build-client.mjs) | esbuild 单文件 CJS 构建 + 产物自检 |
-| [`scripts/build.sh`](../../scripts/build.sh) | host 编译后构建 client；`--no-emit` 同时 typecheck client |
+| [`scripts/build-client.mjs`](../../scripts/build/build-client.mjs) | esbuild 单文件 CJS 构建 + 产物自检 |
+| [`scripts/build.sh`](../../scripts/build/build.sh) | host 编译后构建 client；`--no-emit` 同时 typecheck client |
 | [`tests/`](../../tests) | `api-contract`/`api`/`panel-model` 共 51 个新用例（全量 116） |
 
 ## 数据契约（v0 只读）

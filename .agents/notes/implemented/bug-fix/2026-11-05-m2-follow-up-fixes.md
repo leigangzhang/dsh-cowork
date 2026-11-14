@@ -15,7 +15,7 @@ M2 已交付九个工具、记忆注入、thread checkout 隔离与真实宿主 
 **R1：merge teardown 与工具/会话边界**
 
 - `cowork_checkout_merge` 在 `git merge` 成功后把 `resolveByPath`、`removeCheckout`、`deleteWorkspace`、`archiveSession`、`updateThread` 编排为有序步骤；每步独立捕获异常，索引更新最后且无条件执行，工具始终返回 `ok:true`、`cleanupErrors` 携带失败明细。merge 已经落地，因此 teardown 失败不能改报为 merge 失败，也不能诱发第二次 merge。
-- 抽取 host-free 的 [`src/checkout-teardown.ts`](../../../../src/checkout-teardown.ts) 承载上述编排，`src/tools.ts` 只注入宿主端口；这样故障注入可以在 `node --test` 下覆盖，不依赖 `@deepseek-ai/dsh-tools`。
+- 抽取 host-free 的 [`src/checkout-teardown.ts`](../../../../src/domains/isolation/checkout-teardown.ts) 承载上述编排，`src/tools.ts` 只注入宿主端口；这样故障注入可以在 `node --test` 下覆盖，不依赖 `@deepseek-ai/dsh-tools`。
 - 冲突路径的 `updateThread` 失败保留 `checkout/merge-conflict` 主结果，并在 `details.statusUpdateError` 暴露索引错误。
 - `createCheckoutThread` 在 rename 前校验宿主返回的 `sessionId` 与请求的 `threadId` 一致；不一致立即失败，不 rename、不写索引。
 
@@ -60,11 +60,11 @@ M2 已交付九个工具、记忆注入、thread checkout 隔离与真实宿主 
 
 ## Testing
 
-- [F1] merge 成功后的 teardown 任一步失败：工具仍返回 `ok:true` 且 `cleanupErrors` 非空，索引更新被执行 — `source`、`tests`：[`tests/tools.test.mjs`](../../../../tests/tools.test.mjs) 覆盖 resolve/remove/delete/archive/index 各步故障注入；[`tests/session-slice.test.mjs`](../../../../tests/session-slice.test.mjs) 覆盖会话创建边界；E2E `merge-success` 在最终宿主上返回 `cleanupErrors:[]`。
-- [F2] 冲突路径 updateThread 失败不吞错；createCheckoutThread 在宿主返回不同 sessionId 时报错且不写索引 — `source`、`tests`：[`tests/session-slice.test.mjs`](../../../../tests/session-slice.test.mjs) 断言 mismatch 时 rename 0 次；[`tests/tools.test.mjs`](../../../../tests/tools.test.mjs) 覆盖 `applyThreadStatus` 的失败明细；E2E `conflict-merge`/`conflict-retry` 覆盖真实冲突与重试。
-- [F3] memory：来源时间策略写进契约与测试；`MemoryValidationIssue.field` 含 `'kind'` 且无 cast；`renderMemoryEntry` 使用注入时钟 — `source`、`tests`：[`tests/memory.test.mjs`](../../../../tests/memory.test.mjs)。
-- [F4] checkout：abort 失败返回 `checkout/git-failed`；`details.stderr` 截断并标注；`mkdirSync` 失败映射 `checkout/create-failed` — `source`、`tests`：[`tests/checkout.test.mjs`](../../../../tests/checkout.test.mjs)。
-- [F5] memory-prompt：`renderMemory` 返回 null 后缓存清空；`duplicateSkipped` 按 agent 计数 — `source`、`tests`：[`tests/memory-prompt.test.mjs`](../../../../tests/memory-prompt.test.mjs)。
+- [F1] merge 成功后的 teardown 任一步失败：工具仍返回 `ok:true` 且 `cleanupErrors` 非空，索引更新被执行 — `source`、`tests`：[`tests/tools.test.mjs`](../../../../tests/domains/isolation/teardown.test.mjs) 覆盖 resolve/remove/delete/archive/index 各步故障注入；[`tests/session-slice.test.mjs`](../../../../tests/platform/session-slice.test.mjs) 覆盖会话创建边界；E2E `merge-success` 在最终宿主上返回 `cleanupErrors:[]`。
+- [F2] 冲突路径 updateThread 失败不吞错；createCheckoutThread 在宿主返回不同 sessionId 时报错且不写索引 — `source`、`tests`：[`tests/session-slice.test.mjs`](../../../../tests/platform/session-slice.test.mjs) 断言 mismatch 时 rename 0 次；[`tests/tools.test.mjs`](../../../../tests/domains/isolation/teardown.test.mjs) 覆盖 `applyThreadStatus` 的失败明细；E2E `conflict-merge`/`conflict-retry` 覆盖真实冲突与重试。
+- [F3] memory：来源时间策略写进契约与测试；`MemoryValidationIssue.field` 含 `'kind'` 且无 cast；`renderMemoryEntry` 使用注入时钟 — `source`、`tests`：[`tests/memory.test.mjs`](../../../../tests/domains/memory/memory.test.mjs)。
+- [F4] checkout：abort 失败返回 `checkout/git-failed`；`details.stderr` 截断并标注；`mkdirSync` 失败映射 `checkout/create-failed` — `source`、`tests`：[`tests/checkout.test.mjs`](../../../../tests/domains/isolation/checkout.test.mjs)。
+- [F5] memory-prompt：`renderMemory` 返回 null 后缓存清空；`duplicateSkipped` 按 agent 计数 — `source`、`tests`：[`tests/memory-prompt.test.mjs`](../../../../tests/platform/memory-prompt.test.mjs)。
 - [F6] E2E：驱动每个文件 ≤50 KB；证据不含 hostname；新增「模型复述约束」步骤且断言回复包含该约束 — `source`、`tests`：`tests/m2-e2e.test.mjs` 锁定 11 步顺序、文件预算、host 字段与 prompt 不含答案；真实宿主 run `m2-a91984c0-4840-4bc0-bcd1-74fe22d0e679` 的 `memory-visible` 3/3 断言通过，`toolCalls=0`。
 - [F7] 契约与文档：PLAN §5.6 teardown 顺序与实现一致；`PANEL_HANDOFF` 用 `checkoutPath`；M2_RESULT/M2_HANDOFF/KNOWN_ISSUES 交叉链接且无重复 — `publication`：`npm run check` 通过。
 - [F8] 全部门禁与真实宿主 E2E 在最终字节上重跑通过：`npm test` 227/227、`npm run typecheck` exit 0、`npm run build` exit 0、`npm run check` exit 0；E2E 11/11 步通过，最终索引两条 thread 均为 `done`/`checkoutPath=null`，fixture 已清理 — `packaging`、`publication`、`source`。

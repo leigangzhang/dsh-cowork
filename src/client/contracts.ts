@@ -5,7 +5,7 @@
  * host modules, not published types this repository can depend on, and the M0
  * removal took the generated client declarations with it. So the small slice of
  * the client contract the panel actually touches is restated here — the same
- * approach the wire contract in `src/api-contract.ts` takes for the host API.
+ * approach the wire contract in `src/panel/api-contract.ts` takes for the host API.
  *
  * The service handles below mirror the host (DSH runtime 0.2.1-rc.2) contract:
  * `sidebarRightTabs.register({ id, kind, title, guide })`, the keyed

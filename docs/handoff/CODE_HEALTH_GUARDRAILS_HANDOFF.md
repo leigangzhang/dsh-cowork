@@ -36,7 +36,7 @@
 
 ### Stage 1 — 测试发现与门禁身份（必须先做）
 
-- 把 `package.json` 的 `node --test tests/*.mjs` 与 [scripts/test-coverage.mjs](../../scripts/test-coverage.mjs) 的 `testFilesIn` 改为递归发现。
+- 把 `package.json` 的 `node --test tests/*.mjs` 与 [scripts/test-coverage.mjs](../../scripts/evidence/test-coverage.mjs) 的 `testFilesIn` 改为递归发现。
 - 加一条负例：在 `tests/<subdir>/` 放一个临时测试，证明 `npm test` 与 coverage 会跑到；删掉临时文件后仍全绿。
 - 在不移动任何测试的情况下，证明现有测试数与通过数不变。
 - 把 gate artifact（HEAD + `git diff --binary base..HEAD | shasum -a 256` + porcelain）与 `change-scope` 对账写进 AgentTeams/PR 模板或对应 check；docs-only 变更走 check + delta review。

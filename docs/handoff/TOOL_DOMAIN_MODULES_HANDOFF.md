@@ -2,7 +2,7 @@
 
 - 状态：**启动交接（2026-11-13）**。本文件写给第二个新会话，用于执行 `tool-domain-modules` 提案；**只有 guardrails 已落地后才能开始**。它不重抄提案内容，执行细节以提案与 guardrails 交接为准。
 - 适用：接手目录/模块迁移的 agent。范围：前置条件、启动、阶段顺序、完成定义、回滚与禁止事项。
-- 提案：[2026-11-13-tool-domain-modules.md](../../.agents/notes/proposed/architecture/2026-11-13-tool-domain-modules.md)（commit `b3146c8`；本分支 `agent/next-work-handoffs` 已包含），状态仍是 proposed。
+- 提案：[2026-11-13-tool-domain-modules.md](../../.agents/notes/implemented/architecture/2026-11-13-tool-domain-modules.md)（commit `b3146c8`；本分支 `agent/next-work-handoffs` 已包含），状态仍是 proposed。
 - 前置交接：[CODE_HEALTH_GUARDRAILS_HANDOFF.md](CODE_HEALTH_GUARDRAILS_HANDOFF.md)。
 
 ## 前置条件（缺一不可）
@@ -15,9 +15,9 @@
 ## 先读什么
 
 1. [AGENTS.md](../../AGENTS.md)、[docs/agent-teams.md](../agent-teams.md)、[docs/testing.md](../testing.md)：纪律、门禁、证据。
-2. [tool-domain-modules 提案](../../.agents/notes/proposed/architecture/2026-11-13-tool-domain-modules.md)：目标树、工具→领域映射、import 方向、A1–A10 验收、风险。
+2. [tool-domain-modules 提案](../../.agents/notes/implemented/architecture/2026-11-13-tool-domain-modules.md)：目标树、工具→领域映射、import 方向、A1–A10 验收、风险。
 3. [guardrails 交接](CODE_HEALTH_GUARDRAILS_HANDOFF.md)：哪些门禁应当已经存在。
-4. [handoff 索引](README.md) 与 [package.json](../../package.json)、[scripts/test-coverage.mjs](../../scripts/test-coverage.mjs)：现有命令入口。
+4. [handoff 索引](README.md) 与 [package.json](../../package.json)、[scripts/test-coverage.mjs](../../scripts/evidence/test-coverage.mjs)：现有命令入口。
 
 ## 启动步骤
 

@@ -29,7 +29,7 @@ import {
   type WireOverview,
   type WireTopic,
 } from './api.ts'
-import { actionAllowed, type InboxResponse, type RequestAction } from '../inbox-contract.ts'
+import { actionAllowed, type InboxResponse, type RequestAction } from '../panel/inbox-contract.ts'
 import {
   CLOCK_TICK_MS,
   FEEDBACK_TTL_MS,

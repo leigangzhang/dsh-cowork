@@ -2,7 +2,7 @@
  * Fetch layer for the Cowork topic page (wire v2).
  *
  * The browser cannot read `.dsh-cowork`, so every view comes from the host's
- * loopback JSON routes (`src/api-contract.ts` owns the wire shapes). Reads are
+ * loopback JSON routes (`src/panel/api-contract.ts` owns the wire shapes). Reads are
  * same-origin GETs with `cache: 'no-store'`; writes are same-origin POSTs with
  * `content-type: application/json`. Both keep the caller's `AbortController` so
  * unmount / refresh cancels the request.
@@ -29,7 +29,7 @@ import {
   type PanelTopic,
   type ReopenResponse,
   type ResolveResponse,
-} from '../api-contract.ts'
+} from '../panel/api-contract.ts'
 import {
   INBOX_OPEN_PATH,
   INBOX_PATH,
@@ -55,7 +55,7 @@ import {
   type RequestAction,
   type ReviewPayload,
   type ReviewVerification,
-} from '../inbox-contract.ts'
+} from '../panel/inbox-contract.ts'
 import type { PanelErrorInfo } from './contracts.ts'
 
 /**
