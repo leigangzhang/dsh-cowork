@@ -9,6 +9,13 @@
 | 主题页 v2 前后端实现 | [TOPIC_PAGE_HANDOFF.md](TOPIC_PAGE_HANDOFF.md) |
 | 右侧栏收件箱实现 | [TOPIC_INBOX_HANDOFF.md](TOPIC_INBOX_HANDOFF.md) |
 
+## 代码健康度与模块结构（2026-11-13）
+
+| 顺序 | 记录 |
+|---|---|
+| 先执行：代码健康度守卫 | [CODE_HEALTH_GUARDRAILS_HANDOFF.md](CODE_HEALTH_GUARDRAILS_HANDOFF.md) |
+| 后执行：工具 → 领域模块 | [TOOL_DOMAIN_MODULES_HANDOFF.md](TOOL_DOMAIN_MODULES_HANDOFF.md) |
+
 ## V0.2（M6–M12）
 
 | 范围 | 文档 |
