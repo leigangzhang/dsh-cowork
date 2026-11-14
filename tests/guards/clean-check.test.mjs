@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { LOCAL_ONLY_PREFIXES, collectWorktreeFiles } from '../../scripts/clean-check.mjs'
+import { LOCAL_ONLY_PREFIXES, collectWorktreeFiles } from '../../scripts/evidence/clean-check.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
@@ -19,7 +19,7 @@ test('the clean copy lists tracked files and excludes local-only trees', () => {
 })
 
 test('check:clean runs the executable conventions without .dsh-cowork/ or lib/', () => {
-  const result = spawnSync(process.execPath, [resolve(root, 'scripts/clean-check.mjs')], {
+  const result = spawnSync(process.execPath, [resolve(root, 'scripts/evidence/clean-check.mjs')], {
     cwd: root,
     encoding: 'utf8',
     timeout: 120_000,

@@ -6,7 +6,7 @@
  * pre-bundled CJS closure per plugin, with `react` / `react/jsx-runtime` left to
  * the host's module table. The repository has no client bundler dependency of
  * its own, so this script reuses the esbuild binary that ships inside the DSH
- * source checkout (the same checkout `scripts/build.sh` uses for types).
+ * source checkout (the same checkout `scripts/build/build.sh` uses for types).
  *
  * Output shape:
  *
@@ -19,7 +19,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const ENTRY = join(ROOT, 'src', 'client', 'index.tsx')
 const OUTFILE = join(ROOT, 'lib', 'client.js')
 const PACKAGE_NAME = '@dsh-external/dsh-cowork'

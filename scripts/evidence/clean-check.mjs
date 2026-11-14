@@ -9,8 +9,8 @@
  * trees are absent, and runs `tools/check-invariants.mjs` there.
  *
  * Usage:
- *   node scripts/clean-check.mjs             # copy the working tree
- *   node scripts/clean-check.mjs --ref HEAD  # verify a committed tree
+ *   node scripts/evidence/clean-check.mjs             # copy the working tree
+ *   node scripts/evidence/clean-check.mjs --ref HEAD  # verify a committed tree
  */
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
@@ -19,7 +19,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const MAX_BUFFER = 64 * 1024 * 1024
 
 /** Directory prefixes that must never be part of the clean copy. */

@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { renderChangeScope } from '../../scripts/change-scope.mjs'
+import { renderChangeScope } from '../../scripts/review/change-scope.mjs'
 
 function git(cwd, args) {
   return execFileSync('git', args, {

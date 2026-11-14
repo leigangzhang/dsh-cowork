@@ -12,7 +12,7 @@ Class: process
 
 ## Decision
 
-**1. 审查范围由 `change-scope` 固定。** [scripts/change-scope.mjs](../../../../scripts/change-scope.mjs) 接收已验证的 `--base <ref>` 和可选 `--head <ref>`，输出 base/head/merge-base 与 committed、staged、unstaged、untracked 四组路径。未知 base、歧义 ref 或 merge-base 不唯一时非零退出；审查者不得猜 base。
+**1. 审查范围由 `change-scope` 固定。** [scripts/change-scope.mjs](../../../../scripts/review/change-scope.mjs) 接收已验证的 `--base <ref>` 和可选 `--head <ref>`，输出 base/head/merge-base 与 committed、staged、unstaged、untracked 四组路径。未知 base、歧义 ref 或 merge-base 不唯一时非零退出；审查者不得猜 base。
 
 **2. `code-review` 是唯一审查技能。** [.agents/skills/code-review/SKILL.md](../../../../.agents/skills/code-review/SKILL.md) 先冻结范围、读需求和 owning surface，再按 correctness、lifecycle、security、test、docs 的顺序审查。Finding 必须带相对 `path:line`、影响、证据和 required fix；blocker 与 suggestion 分开；实现者不得给自己的实现最终 verdict。
 

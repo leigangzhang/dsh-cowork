@@ -12,7 +12,7 @@
  * parent ref it verified, exactly like `change-scope`.
  *
  * Usage:
- *   node scripts/gate-artifact.mjs --base <ref> [--head <ref>]
+ *   node scripts/review/gate-artifact.mjs --base <ref> [--head <ref>]
  */
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'

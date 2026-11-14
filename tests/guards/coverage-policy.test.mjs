@@ -10,7 +10,7 @@ import {
   DEV_ONLY_COVERAGE_EXCLUDES,
   coverageArgs,
   testFilesIn,
-} from '../../scripts/test-coverage.mjs'
+} from '../../scripts/evidence/test-coverage.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')

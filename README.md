@@ -18,7 +18,7 @@ DSH 的项目式主从协作插件。0.2.0 采用**主题会话模型**：master
 前提：
 
 - Node.js >= 22.19（见 `package.json` 的 `engines`）。
-- 本机已安装 DSH app；构建还需要一份装好依赖的 DSH 源码 checkout。`scripts/build.sh` 自动探测常见位置，非默认布局用 `DSH_CHECKOUT` / `DSH_APP_NODE_MODULES` 指定。
+- 本机已安装 DSH app；构建还需要一份装好依赖的 DSH 源码 checkout。`scripts/build/build.sh` 自动探测常见位置，非默认布局用 `DSH_CHECKOUT` / `DSH_APP_NODE_MODULES` 指定。
 
 构建并打包：
 

@@ -74,7 +74,7 @@ Class: process
 - [A1] 两份 tsconfig 的 `noUnused*` 开启，编译器会拒绝未用局部与参数 — `source`：[tsconfig.json](../../../../tsconfig.json)、[tsconfig.client.json](../../../../tsconfig.client.json)、[tests/typecheck-policy.test.mjs](../../../../tests/guards/typecheck-policy.test.mjs)
 - [A2] 导出审计的 dead、新增 testOnly、失效基线三类都能红；`--print-export-audit` 只读输出 — `workflow`：[tools/check-invariants.mjs](../../../../tools/check-invariants.mjs)、[tools/export-baseline.json](../../../../tools/export-baseline.json)
 - [A3] 陈旧名称扫描命中已删工具/模块/旧计数会红，显式 removed 的迁移说明与历史记录放行 — `workflow`：[tools/check-invariants.mjs](../../../../tools/check-invariants.mjs)、`npm run check:self-test`
-- [A4] 干净副本里 `npm run check` 通过，Markdown 链接指向 `.dsh-cowork/` 会红 — `workflow`：[scripts/clean-check.mjs](../../../../scripts/clean-check.mjs)、[tests/workflow.test.mjs](../../../../tests/guards/workflow.test.mjs)
+- [A4] 干净副本里 `npm run check` 通过，Markdown 链接指向 `.dsh-cowork/` 会红 — `workflow`：[scripts/clean-check.mjs](../../../../scripts/evidence/clean-check.mjs)、[tests/workflow.test.mjs](../../../../tests/guards/workflow.test.mjs)
 - [A5] 50 KiB 硬线、30 KiB 入口、1,200 行测试与唯一入口都有可失败的断言 — `tests`：[tests/source-budget.test.mjs](../../../../tests/guards/source-budget.test.mjs)
 - [A6] import 环、client 越界、入口反向依赖与工具映射不一致都会红 — `tests`：[tests/architecture.test.mjs](../../../../tests/guards/architecture.test.mjs)
 - [A7] 子目录测试被 `npm test` 与 coverage 发现；删除临时探针后测试数回到基线 — `tests`：[tests/coverage-policy.test.mjs](../../../../tests/guards/coverage-policy.test.mjs)

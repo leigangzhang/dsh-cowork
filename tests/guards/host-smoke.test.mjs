@@ -5,7 +5,7 @@ import {
   hostChecks,
   profilePatch,
   readyUrlFrom,
-} from '../../scripts/host-smoke.mjs'
+} from '../../scripts/evidence/host-smoke.mjs'
 
 test('readyUrlFrom extracts only the printed dsh web URL', () => {
   const url = 'http://127.0.0.1:50978/?token=abc_DEF-123'

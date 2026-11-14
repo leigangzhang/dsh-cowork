@@ -28,17 +28,17 @@
     "typescript": "^5.9.0"
   },
   "scripts": {
-    "build": "bash scripts/build.sh",
-    "build:client": "node scripts/build-client.mjs",
-    "typecheck": "bash scripts/build.sh --no-emit",
+    "build": "bash scripts/build/build.sh",
+    "build:client": "node scripts/build/build-client.mjs",
+    "typecheck": "bash scripts/build/build.sh --no-emit",
     "check": "node tools/check-invariants.mjs",
     "check:self-test": "node tools/check-invariants.mjs --self-test",
-    "check:clean": "node scripts/clean-check.mjs",
-    "change-scope": "node scripts/change-scope.mjs",
-    "gate-artifact": "node scripts/gate-artifact.mjs",
+    "check:clean": "node scripts/evidence/clean-check.mjs",
+    "change-scope": "node scripts/review/change-scope.mjs",
+    "gate-artifact": "node scripts/review/gate-artifact.mjs",
     "test": "node --test \"tests/**/*.test.mjs\"",
-    "test:coverage": "node scripts/test-coverage.mjs",
-    "test:host-smoke": "node scripts/host-smoke.mjs"
+    "test:coverage": "node scripts/evidence/test-coverage.mjs",
+    "test:host-smoke": "node scripts/evidence/host-smoke.mjs"
   },
   "exports": {
     ".": {

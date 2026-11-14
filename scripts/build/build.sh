@@ -6,9 +6,9 @@
 # No caller-supplied DSH_CHECKOUT is required on a machine with either path;
 # set DSH_CHECKOUT / DSH_APP_NODE_MODULES only for a non-default layout.
 #
-# Usage: bash scripts/build.sh [--no-emit]   (--no-emit = typecheck only)
+# Usage: bash scripts/build/build.sh [--no-emit]   (--no-emit = typecheck only)
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 find_checkout() {
@@ -76,7 +76,7 @@ ln -s "$CHECKOUT/node_modules/@types/node" node_modules/@types/node
 
 # The client half typechecks against React types only; the runtime `react`
 # module comes from the host's module table at load time (kept external in
-# scripts/build-client.mjs), so no react package is linked here.
+# scripts/build/build-client.mjs), so no react package is linked here.
 TYPES_REACT_DIR="$(find "$CHECKOUT/node_modules/.pnpm" -maxdepth 1 -type d -name '@types+react@*' | head -n 1)"
 if [ -z "$TYPES_REACT_DIR" ]; then
   echo "build: @types/react not found under $CHECKOUT/node_modules/.pnpm; the client half cannot be typechecked" >&2
@@ -113,5 +113,5 @@ echo "=== Compiling src → lib ==="
 rm -rf lib
 ./node_modules/.bin/tsc -p tsconfig.json
 echo "=== Building src/client → lib/client.js ==="
-node scripts/build-client.mjs
+node scripts/build/build-client.mjs
 echo "=== Build complete ==="

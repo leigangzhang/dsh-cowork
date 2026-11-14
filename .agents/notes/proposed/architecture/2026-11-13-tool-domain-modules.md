@@ -105,7 +105,7 @@ store → schema / atomic-json
 
 ### 迁移阶段（未执行）
 
-0. **冻结映射**：把当前每个 `src/`、`tests/`、`scripts/` 文件登记到目标位置；先改测试发现为递归（`node --test` 与 [scripts/test-coverage.mjs](../../../../scripts/test-coverage.mjs) 的 `testFilesIn` 当前只读顶层），再移动任何测试。
+0. **冻结映射**：把当前每个 `src/`、`tests/`、`scripts/` 文件登记到目标位置；先改测试发现为递归（`node --test` 与 [scripts/test-coverage.mjs](../../../../scripts/evidence/test-coverage.mjs) 的 `testFilesIn` 当前只读顶层），再移动任何测试。
 1. **移动 store 与 platform**：路径 + import 机械更新，行为不变；跑 `npm test` 与 `npm run check`。
 2. **移动 domains**：纯规则先落目录；新增 import 方向测试；跑领域测试。
 3. **移动 tools 与 tests**：工具装配、测试镜像、`tools.ts` 更新；公共面测试证明 22 工具/10 路由/3 preset 不变。
@@ -137,7 +137,7 @@ PR #33 的 `config.ts`、`dev-surfaces.ts`、`delivery.ts`、`api-types.ts`、`m
 - [A1] 目标树、工具 → 领域映射和当前每个文件的去向已登记；没有“未分类”文件 — `source`：[tools.ts](../../../../src/app/tools.ts)、`decisions`
 - [A2] 新增 import 方向测试：`tools → domains/platform`、`domains` 不依赖宿主/store/tools/panel、`platform → domains/store`、无环 — `tests`：[tests/support/public-surface.mjs](../../../../tests/support/public-surface.mjs)
 - [A3] 22 个工具名与注册顺序、10 条面板路由、3 个 preset、3 个 `exports` 键在移动前后完全一致 — `tests`、`packaging`：[package.json](../../../../package.json)
-- [A4] 测试发现改为递归后，`npm test` 与 `npm run test:coverage` 仍覆盖全部测试；顶层 glob 遗漏一条测试即失败 — `tests`：[scripts/test-coverage.mjs](../../../../scripts/test-coverage.mjs)
+- [A4] 测试发现改为递归后，`npm test` 与 `npm run test:coverage` 仍覆盖全部测试；顶层 glob 遗漏一条测试即失败 — `tests`：[scripts/test-coverage.mjs](../../../../scripts/evidence/test-coverage.mjs)
 - [A5] `scripts/` 按 build/evidence/review 分组，`package.json`、`tools/workflow.json` 与 [docs/testing.md](../../../../docs/testing.md) 的命令指向新路径 — `workflow`
 - [A6] `npm run build` 仍产出 `lib/index.js` 与 `lib/client.js`；`npm run test:host-smoke` 仍能安装 tarball 并启动 — `packaging`
 - [A7] 所有 `src/**/*.ts` 仍 <50 KiB；`source-budget` 的 48 KiB 目标不被 barrel 绕过 — `source`
@@ -147,7 +147,7 @@ PR #33 的 `config.ts`、`dev-surfaces.ts`、`delivery.ts`、`api-types.ts`、`m
 
 ## Risks
 
-- **测试发现静默漏跑**：`package.json` 的 `test` 当前是 `node --test tests/*.mjs`，[scripts/test-coverage.mjs](../../../../scripts/test-coverage.mjs) 的 `testFilesIn` 只读顶层；移动测试前必须先改递归发现，并用一条“故意放子目录”的负例证明会跑到。
+- **测试发现静默漏跑**：`package.json` 的 `test` 当前是 `node --test tests/*.mjs`，[scripts/test-coverage.mjs](../../../../scripts/evidence/test-coverage.mjs) 的 `testFilesIn` 只读顶层；移动测试前必须先改递归发现，并用一条“故意放子目录”的负例证明会跑到。
 - **50 KiB 不是目录能解决的**：移动不改变字节；禁止用 `index.ts` barrel 掩盖体积，现有 48/50 KiB 拆分保持。
 - **历史文档链接**：大量 handoff/note 链接指向 `src/`、`tests/`、`scripts/` 旧路径；只改链接目标、不改结论；当前文档与历史记录分开处理，`npm run check` 必须绿。
 - **PR #33 的合并顺序**：本提案与 #33 都改路径；先合 #33 再迁移，或在迁移分支上吸收 #33 的新文件；不要在 #33 未合时把新文件放回平铺根。

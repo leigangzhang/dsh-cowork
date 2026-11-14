@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { renderGateArtifact } from '../../scripts/gate-artifact.mjs'
+import { renderGateArtifact } from '../../scripts/review/gate-artifact.mjs'
 
 /**
  * The gate artifact is the identity a verification or review binds to. These

@@ -18,7 +18,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const root = resolve(here, '..')
+const root = resolve(here, '../..')
 const READY_PATTERN = /dsh web: (http:\/\/[^\s]+)/
 const READY_TIMEOUT_MS = 90_000
 const COMMAND_TIMEOUT_MS = 180_000
