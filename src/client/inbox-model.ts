@@ -71,9 +71,6 @@ export const NEEDS_YOU_DETAIL_LABELS = {
 /** Narrow-panel breakdown order: authorization, review, question, plan. */
 export const NEEDS_YOU_DETAIL_ORDER = ['authorization', 'review', 'question', 'plan'] as const
 
-/** One count field the breakdown reads. */
-export type NeedsYouDetailField = (typeof NEEDS_YOU_DETAIL_ORDER)[number]
-
 /** Visible labels of the eight resolving actions, in card order per kind. */
 export const REQUEST_ACTION_LABELS: Readonly<Record<RequestAction, string>> = {
   pass: '通过',

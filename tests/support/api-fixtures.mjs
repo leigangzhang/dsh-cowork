@@ -18,7 +18,6 @@ import { join } from 'node:path'
 
 export const api = await import('../../src/panel/api.ts')
 export const contract = await import('../../src/panel/api-contract.ts')
-export const inboxContract = await import('../../src/panel/inbox-contract.ts')
 export const reviewRequest = await import('../../src/domains/review/review-request.ts')
 export const store = await import('../../src/store/project-store.ts')
 export const panelProbe = await import('../../src/dev/panel-probe.ts')

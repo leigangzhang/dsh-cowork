@@ -81,7 +81,7 @@ export function statusChangedActivity(
 }
 
 /** Longest title a notice descriptor carries, in code points. */
-export const NOTICE_TITLE_MAX_CHARS = 80
+export const NOTICE_TITLE_MAX_CHARS = 100
 
 /** Both sides of an event; the archive notice goes to the master only. */
 const BOTH_TARGETS: readonly NoticeTarget[] = ['master', 'topic']

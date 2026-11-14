@@ -18,8 +18,7 @@
 import { isNoticeKind, type NoticeKind } from '../panel/notice-contract.ts'
 
 
-/** The five notice kinds, shared with the host through the frozen vocabulary. */
-export { NOTICE_KINDS } from '../panel/notice-contract.ts'
+/** One notice kind, shared with the host through the frozen vocabulary. */
 export type { NoticeKind } from '../panel/notice-contract.ts'
 
 /** The four notice states the contract defines. */
@@ -71,7 +70,7 @@ export const NOTICE_ACTION_TONES: Record<NoticeActionType, 'success' | 'error' |
 }
 
 /** Titles are bounded before they reach a card; the full text stays in the event. */
-export const NOTICE_TITLE_MAX_CHARS = 120
+export const NOTICE_TITLE_MAX_CHARS = 100
 
 /** Summaries are bounded too: a session card is not a transcript. */
 export const NOTICE_SUMMARY_MAX_CHARS = 200

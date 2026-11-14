@@ -33,8 +33,7 @@ export const NOTICE_TARGETS = ['master', 'topic'] as const
 /** One side of the 1:1 delivery: the master session or the topic session. */
 export type NoticeTarget = (typeof NOTICE_TARGETS)[number]
 
-/** The notice kinds the topic page emits, re-exported from the shared vocabulary. */
-export { NOTICE_KINDS } from '../../panel/notice-contract.js'
+/** One notice kind, re-exported from the shared vocabulary. */
 export type { NoticeKind } from '../../panel/notice-contract.js'
 
 /** The decision state a notice carries. */
@@ -62,7 +61,7 @@ export const NOTICE_MAX_ATTEMPTS = 5
 export const NOTICE_RETRY_DELAYS_MS = [1000, 5000, 30000, 30000] as const
 
 /** Longest notice title, in code points. */
-export const NOTICE_TITLE_MAX_CHARS = 80
+export const NOTICE_TITLE_MAX_CHARS = 100
 /** Longest notice summary, in code points. */
 export const NOTICE_SUMMARY_MAX_CHARS = 200
 
@@ -647,11 +646,6 @@ export class TopicNoticeDispatcher {
       if (this.chains.get(repoPath) === next) this.chains.delete(repoPath)
     })
     return next
-  }
-
-  /** How many projects currently have a drain in flight or queued. */
-  pending(): number {
-    return this.chains.size
   }
 
   /** Stop scheduling and clear any backoff timer this dispatcher owns. */

@@ -18,8 +18,7 @@ import { registerCoworkApi } from '../panel/api.js'
 import { panelRoutePathname } from '../dev/panel-probe.js'
 
 export { panelRoutePathname }
-export { Config, CONFIG_DEFAULTS, normalizeConfig } from './config.js'
-export type { IsolationConfig, ReviewerConfig, RoutingConfig } from './config.js'
+export { Config, normalizeConfig } from './config.js'
 import { CONFIG_DEFAULTS, normalizeConfig } from './config.js'
 import type { Config } from './config.js'
 import { registerDevSurfaces } from './dev-surfaces.js'

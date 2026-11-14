@@ -280,18 +280,6 @@ export class SessionSlice {
   }
 
   /**
-   * Restore an archived session; a port that does not expose it raises, so the
-   * caller can log one honest reason instead of assuming the sidebar is back.
-   */
-  async unarchiveSession(sessionId: string): Promise<void> {
-    const restore = this.#ports.workspaces.unarchiveSession
-    if (restore === undefined) {
-      throw new Error('the host workspace port exposes no unarchiveSession')
-    }
-    await restore.call(this.#ports.workspaces, sessionId)
-  }
-
-  /**
    * Queue a text prompt. `accepted: false` is not an error: it only means the
    * host refused to queue, and the caller decides whether to surface or retry.
    */
