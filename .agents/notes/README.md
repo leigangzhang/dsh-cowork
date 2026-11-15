@@ -21,5 +21,6 @@ The closed set: `feature` / `bug-fix` / `simplification` / `architecture` / `pro
 
 1. Create `.agents/notes/proposed/<class>/<yyyy-mm-dd>-<slug>.md` from `proposed/TEMPLATE.md`.
 2. Review decides it lands. The same delivery that lands the work moves the file to `implemented/<class>/` and rewrites it in the present tense.
-3. Moving is a skeleton rewrite, not a rename: `## Proposal` becomes `## Decision`, and `## Acceptance criteria` plus `## Risks` fold into `## Consequences`; criterion ids survive in `## Testing`. Both lifecycles require `## Problem` and a non-empty `## Alternatives considered`.
-4. A decision is never edited in place after landing. To overturn it, write a new record and link the old one.
+3. A proposal review rejects moves to `rejected/<class>/` from `rejected/TEMPLATE.md`. `## Problem` and `## Proposal` (with the acceptance criteria and plan that lost) stay frozen as proposed; `## Why rejected` records the evidence, what the verdict rules out, and what would make a future proposal win. Delete the record once it no longer prevents a tempting mistake.
+4. Landing is a skeleton rewrite, not a rename: `## Proposal` becomes `## Decision`, and `## Acceptance criteria` plus `## Risks` fold into `## Consequences`; criterion ids survive in `## Testing`. Every lifecycle requires `## Problem` and a non-empty `## Alternatives considered`.
+5. A decision is never edited in place after landing. To overturn it, write a new record and link the old one.

@@ -1,6 +1,6 @@
-# Proposal: 代码与文档生命周期管理（tests/tools、E2E 驱动、过期与无引用资产）
+# Rejected: 代码与文档生命周期管理（tests/tools、E2E 驱动、过期与无引用资产）
 
-Status: proposed
+Status: rejected
 Date: 2026-11-09
 Class: process
 
@@ -49,7 +49,7 @@ Class: process
 
 **每个大版本整体重写/重命名。** 否决：破坏历史可追溯性与证据链；按状态与触发条件增量退役成本更低。
 
-## Acceptance criteria
+### Acceptance criteria
 
 - [A1] `docs/testing.md` 增加"生命周期与退役"一节（5 状态定义 + prune 节奏），并有一份台账逐项记录状态/owner/替代者/退役触发/同步文件 — `plan-docs`
 - [A2] 三个 `dead` 候选（`renderMemoryEntry`、`formatMasterMessage`、store 四个旧评审方法）进台账并按规则处置；删除时同步测试与 source-budget 断言 — `source`
@@ -59,16 +59,29 @@ Class: process
 - [A6] 每个阶段收口的 RESULT 记录本次台账巡检结论；未处理项转 KNOWN_ISSUES 并指派阶段 — `plan-docs`
 - [A7] 真实 E2E 驱动的状态（current/dev-only）、替代者与退役条件进入台账，后续按"语义更换即换驱动"执行 — `decisions`
 
-## Risks
+### Risks
 
 - 误删仍被动态引用或字符串工具名引用的代码 → 先标 `deprecated` 一个发布周期，删除前 grep 并跑全量检查。
 - 台账变成第二份文档而漂移 → 台账只放状态与指针，细节仍归 `docs/testing.md`/KNOWN_ISSUES，阶段巡检校验一致性。
 - 自动报告误报导致绕过 → 先只读、两个版本后再评估门禁。
 - 重估条件：出现多团队并行贡献（需要更强交接），或单文件/文档预算再次逼近上限。
 
-## Delivery stages
+### Delivery stages
 
 1. 台账与规则落地（`docs/testing.md` 一节 + 台账 + 首批 `dead` 登记）——不删代码，只立规则与清单。
 2. 首批 `dead` 清理（`renderMemoryEntry`、`formatMasterMessage`、store 旧评审方法及其测试/断言）——可独立发布。
 3. 0.3.0 退役包（legacy 读路径 + m2/m3 驱动 + thread 别名 + README/KNOWN_ISSUES/RESULT）——与 KI-18 同批。
 4. 可选：`tools/lifecycle-report.mjs` 只读报告与首个巡检周期。
+
+## Why rejected
+
+2026-11-13 起的代码健康度系列交付已经用可执行门禁、审查清单和按次退役决策覆盖了这份提案要治理的对象，比常设台账更便宜，也更难腐化：
+
+- **退役不再依赖清单。** [2026-11-13 失效代码退役](../../implemented/simplification/2026-11-13-stale-code-retirement.md)直接删除了 M2/M3/S0 开发面（5,219 行）与只被测试使用的 activity helper；`noUnused*`、导出审计的 testOnly ratchet（[tools/export-baseline.json](../../../../tools/export-baseline.json)）、source budget 与架构方向测试把「不再有人用」变成可回归的默认。提案的 `dead` 候选里，store 的四个旧评审方法已随 M11 的 review-request 模型消失；`renderMemoryEntry` / `formatMasterMessage` 仍在，但已被 testOnly 基线收录，删除由每次 review 判断，不再需要人工登记。
+- **状态判断已经可执行。** fallow 基线与 `.fallowrc.jsonc`（[2026-11-14 决策](../../implemented/process/2026-11-14-fallow-code-health.md)）覆盖死代码、复杂度与重复；`npm run check` 覆盖导出归属、陈旧名称、预算与文档证据链接；[code-review](../../../skills/code-review/SKILL.md) 的 Lifecycle 条目要求每个 dev-only/兼容模块写明 owner、退役触发条件和退役它的测试或 KI。提案的 5 状态分类法（current/compat/dev-only/historical/dead）没有提供这些检查之外的信息。
+- **提案的事实面已被后续架构改动推翻。** `src/m2-e2e*.ts`、`src/m3-e2e*.ts`、`src/s0-probe.ts` 与对应 dev 路由已不存在；probe 面只剩 host-smoke 依赖的 health；入口拆到 [src/app/config.ts](../../../../src/app/config.ts) 与 [src/app/dev-surfaces.ts](../../../../src/app/dev-surfaces.ts)，`src/` 按领域分模块（[2026-11-13 代码健康度决策](../../implemented/architecture/2026-11-13-code-health-optimization.md)）。此时再维护一份台账，等于为已删除的资产保留库存。
+- **台账会与门禁争夺同一事实。** 提案自己承认静态零引用有误报，因此台账既不能自动化，也不受任何检查保护；它记录的「哪个资产还活着、何时该删」与导出审计、source budget、fallow 基线、KI 是同一事实的第二份拷贝，必然漂移。删除顺序的风险（先迁守卫价值再删）已由每份退役决策的 Alternatives considered 承担。
+
+**排除了什么：** `docs/LIFECYCLE.md` 或 `docs/testing.md` 内的生命周期台账、5 状态分类法、每个里程碑固定的 prune 巡检、`tools/lifecycle-report.mjs` 只读报告。不否决退役本身：每次交付仍按 [AGENTS.md](../../../../AGENTS.md) 的 code health 规则、导出审计与退役决策逐项处理，只是不建立常设库存和第二套节奏。
+
+**重新提出的条件：** 现有信号出现一个真实的漏检类别（例如纯阶段资产既无产品引用、也落不进导出审计/预算/fallow 的任何一类），或仓库进入多团队并行、删除需要提前公告的阶段。届时应先补可执行信号，再评估是否需要在文档层记录。

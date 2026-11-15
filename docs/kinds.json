@@ -89,7 +89,8 @@
       "kind": "record",
       "patterns": [
         ".agents/notes/implemented/*",
-        ".agents/notes/proposed/*"
+        ".agents/notes/proposed/*",
+        ".agents/notes/rejected/*"
       ],
       "exclude": [
         "*/TEMPLATE.md"
