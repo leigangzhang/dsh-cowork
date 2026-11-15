@@ -28,6 +28,7 @@ export const LOCAL_ONLY_PREFIXES = [
   'lib/',
   'node_modules/',
   'dist/',
+  'coverage/',
   '.agent-teams/',
   '.marklingo/',
   '.fallow/',

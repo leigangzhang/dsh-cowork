@@ -547,7 +547,7 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   )
 
   return (
-    <div className="cw-root" data-surface={surface} data-width-mode={widthMode} ref={rootRef}>
+    <div className="cw-root" data-testid="cw-panel" data-surface={surface} data-width-mode={widthMode} ref={rootRef}>
       <header className="cw-header">
         <span
           className="cw-project"
