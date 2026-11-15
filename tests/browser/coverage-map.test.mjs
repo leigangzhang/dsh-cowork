@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
 import {
   CLIENT_BROWSER_BLOCKED,
   CLIENT_BROWSER_TSX,
@@ -79,6 +80,7 @@ test('synthetic sourcemap maps executed lines and exposes a failing gate', () =>
     sourceMapPayload: map,
     repoRoot: '/repo',
     mapDirectory: '/repo/lib',
+    sourceExists: () => true,
   })
   const demo = report.files.find(file => file.file === 'src/client/demo.tsx')
   assert.ok(demo, 'the synthetic source appears in the report')
@@ -111,10 +113,11 @@ test('blocked notice renderer stays visible as a reason, never as covered', () =
     sourceMapPayload: map,
     repoRoot: '/repo',
     mapDirectory: '/repo/lib',
+    sourceExists: () => true,
   })
   const notice = report.files.find(file => file.file === 'src/client/notice.tsx')
   assert.equal(notice.status, 'blocked')
-  assert.equal(notice.blockedReason, CLIENT_BROWSER_BLOCKED['src/client/notice.tsx'])
+  assert.equal(notice.blockedReason, CLIENT_BROWSER_BLOCKED['src/client/notice.tsx'].reason)
   assert.equal(notice.executedLines, 0)
   assert.deepEqual(coverageGateFailures(report, {
     'src/client/notice.tsx': { lineCoverage: 100 },
@@ -132,7 +135,7 @@ test('completeness requires every expected TSX and a blocked notice entry', () =
   const blocked = {
     file: 'src/client/notice.tsx',
     status: 'blocked',
-    blockedReason: CLIENT_BROWSER_BLOCKED['src/client/notice.tsx'],
+    blockedReason: CLIENT_BROWSER_BLOCKED['src/client/notice.tsx'].reason,
     executableLines: 1,
   }
   assert.deepEqual(coverageCompletenessFailures({ files: [...counted, blocked] }), [])
@@ -150,17 +153,35 @@ test('completeness requires every expected TSX and a blocked notice entry', () =
   )
 })
 
+test('browser TSX expectation matches the directory and carries the KI-40 trigger', () => {
+  const actual = readdirSync(new URL('../../src/client/', import.meta.url))
+    .filter(name => name.endsWith('.tsx'))
+    .map(name => `src/client/${name}`)
+    .sort()
+  assert.deepEqual([...CLIENT_BROWSER_TSX].sort(), actual)
+  const blocked = CLIENT_BROWSER_BLOCKED['src/client/notice.tsx']
+  assert.equal(blocked.issue, 'KI-40')
+  assert.match(blocked.retireWhen, /sessionNotices/)
+  const issues = readFileSync(new URL('../../docs/KNOWN_ISSUES.md', import.meta.url), 'utf8')
+  assert.match(issues, /KI-40/)
+  assert.match(issues, /sessionNotices/)
+})
+
 test('combo source paths stay scoped to this plugin and indexed maps expose their sections', () => {
   assert.equal(
-    clientSourceFile('/plugins/@dsh-external/dsh-cowork/src/client/panel.tsx', '/repo'),
+    clientSourceFile('/plugins/@dsh-external/dsh-cowork/src/client/panel.tsx', '/repo', '/repo/lib', () => true),
     'src/client/panel.tsx',
   )
   assert.equal(
-    clientSourceFile('/plugins/@dsh-external/src/client/panel.tsx', '/repo'),
+    clientSourceFile('/plugins/@dsh-external/src/client/panel.tsx', '/repo', '/repo/lib', () => true),
     'src/client/panel.tsx',
   )
   assert.equal(
-    clientSourceFile('/plugins/@deepseek-ai/dsh-client-ui-chat/src/client/chat.tsx', '/repo'),
+    clientSourceFile('/plugins/@deepseek-ai/dsh-client-ui-chat/src/client/chat.tsx', '/repo', '/repo/lib', () => true),
+    null,
+  )
+  assert.equal(
+    clientSourceFile('../src/client/foreign.tsx', '/repo', '/repo/lib', () => false),
     null,
   )
   const regular = syntheticMap('../src/client/demo.tsx', [0, 1])

@@ -14,7 +14,7 @@ Class: testing
 - `src/dev/m12-e2e*` 与 `src/dev/panel-probe.ts` 让 M12 驱动在宿主进程内调用生产 panel handler，绕过真实 HTTP 传输和 DOM。
 - `npm run test:host-smoke` 会从当前 `lib/` 打包并在临时 `DSH_HOME` 启动真实宿主，但只检查 health 与未认证 API 被拒绝，不打开浏览器。
 
-因此，侧栏注入、面板宽窄布局、菜单焦点、键盘操作、滚动容器、宿主会话切换和 ARIA 回归仍只能靠人工 Chrome。`tools/workflow.json` 也没有匹配 `src/client/**/*.tsx` 的 surface；[KI-50](../../../../docs/KNOWN_ISSUES.md) 记录了这个缺口。另一个边界是 `src/client/notice.tsx`：它只在宿主提供 `ctx.sessionNotices` 时注册，而当前 DSH 0.2.1-rc.2 不提供该服务（[KI-40](../../../../docs/KNOWN_ISSUES.md)），所以不能假装真实宿主已经执行它。
+因此，侧栏注入、面板宽窄布局、菜单焦点、键盘操作、滚动容器、宿主会话切换和 ARIA 回归仍只能靠人工 Chrome。`tools/workflow.json` 也没有匹配 `src/client/**/*.tsx` 的 surface；[KI-50](../../../../docs/KNOWN_ISSUES.md) 记录了当时的缺口，现已落地 observational lane，剩余 per-file 门槛与 CI。另一个边界是 `src/client/notice.tsx`：它只在宿主提供 `ctx.sessionNotices` 时注册，而当前 DSH 0.2.1-rc.2 不提供该服务（[KI-40](../../../../docs/KNOWN_ISSUES.md)），所以不能假装真实宿主已经执行它。
 
 ## Decision
 

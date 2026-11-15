@@ -22,6 +22,7 @@ import {
   coverageCompletenessFailures,
   pluginBundleEntry,
 } from './client-coverage.mjs'
+import { sanitizeEvidenceText } from './evidence-sanitize.mjs'
 import { seedBrowserProject, seedSecondaryProject } from '../../tests/browser/fixtures.mjs'
 import { runBrowserScenarios } from '../../tests/browser/scenarios.mjs'
 
@@ -112,14 +113,19 @@ async function writeFailureArtifacts({ page, error, pageErrors, consoleMessages,
   mkdirSync(target, { recursive: true })
   if (page !== undefined) {
     await page.screenshot({ path: join(target, 'screenshot.png'), fullPage: true }).catch(() => {})
-    await page.content().then(html => writeFileSync(join(target, 'page.html'), html, 'utf8')).catch(() => {})
+    await page.content()
+      .then(html => writeFileSync(join(target, 'page.html'), sanitizeEvidenceText(html), 'utf8'))
+      .catch(() => {})
   }
   writeFileSync(join(target, 'failure.json'), `${JSON.stringify({
-    error: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack ?? '' : '',
-    pageErrors,
-    consoleMessages,
-    network,
+    error: sanitizeEvidenceText(error instanceof Error ? error.message : String(error)),
+    stack: sanitizeEvidenceText(error instanceof Error ? error.stack ?? '' : ''),
+    pageErrors: pageErrors.map(sanitizeEvidenceText),
+    consoleMessages: consoleMessages.map(message => ({
+      type: message.type,
+      text: sanitizeEvidenceText(message.text),
+    })),
+    network: network.map(row => ({ ...row, url: sanitizeEvidenceText(row.url) })),
     coverage,
   }, null, 2)}\n`, 'utf8')
   return target

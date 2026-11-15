@@ -83,7 +83,8 @@
         "tests/browser/**",
         "scripts/evidence/browser-panel.mjs",
         "scripts/evidence/client-coverage.mjs",
-        "scripts/evidence/dsh-host-session.mjs"
+        "scripts/evidence/dsh-host-session.mjs",
+        "scripts/evidence/evidence-sanitize.mjs"
       ],
       "evidence": [
         "npm run test:browser",

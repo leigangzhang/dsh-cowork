@@ -100,11 +100,8 @@ async function scenarioTopicGroups(page) {
   await blockedMore.click()
   const blockedMenu = blocked.locator('.cw-card-menu')
   await blockedMenu.waitFor()
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'menuitem')
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('ArrowUp')
-  await page.keyboard.press('Home')
-  await page.keyboard.press('End')
+  // The topic menu has one state action, so Arrow/Home/End have no sibling to
+  // move to; the observable contract here is initial focus, Escape and Tab.
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('role')), 'menuitem')
   await page.keyboard.press('Escape')
   await blockedMenu.waitFor({ state: 'detached' })
@@ -305,14 +302,29 @@ async function scenarioSessionSwitch(page, fixtures) {
   ])
   const selectedSessionId = (await created.json()).result.value.sessionId
   const secondary = await fixtures.prepareSecondarySession(selectedSessionId)
-  await page.evaluate(({ sessionId, topicId }) => {
-    sessionStorage.setItem(`cw.inbox.filter.${sessionId}`, JSON.stringify(topicId))
-  }, { sessionId: selectedSessionId, topicId: secondary.topic.topicId })
 
   await ensurePanel(page)
+  // The new session may have read the panel before the fixture landed. Force
+  // one overview read after seeding and bind it to the selected session id.
+  const overview = page.waitForResponse((response) => {
+    try {
+      const url = new URL(response.url())
+      return url.pathname === PATH_OVERVIEW && url.searchParams.get('sessionId') === selectedSessionId
+    } catch {
+      return false
+    }
+  })
+  await page.getByRole('button', { name: '刷新 Cowork 项目' }).click()
+  assert.equal((await overview).status(), 200)
   await waitForOverview(page)
   await page.getByText('第二个浏览器会话', { exact: true }).waitFor({ timeout: 15_000 })
   assert.equal(await page.getByText('浏览器运行主题', { exact: true }).count(), 0)
+
+  const secondaryFilter = page.locator(
+    `.cw-card[data-topic-id="${secondary.topic.topicId}"] [data-testid="cw-topic-filter"]`,
+  )
+  await secondaryFilter.click()
+  assert.equal(await secondaryFilter.getAttribute('aria-pressed'), 'true')
   await ensureInboxVisible(page)
   const clear = page.getByTestId('cw-inbox-filter-clear')
   await clear.waitFor({ timeout: 10_000 })

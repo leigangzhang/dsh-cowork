@@ -10,12 +10,17 @@
  * Coverage is line/function only. V8 precise ranges are not a branch metric;
  * manufacturing one would make the report look stricter than it is.
  */
+import { existsSync } from 'node:fs'
 import { SourceMap } from 'node:module'
 import { extname, relative, resolve, sep } from 'node:path'
 
 /** Files whose browser execution is blocked by a known host capability. */
 export const CLIENT_BROWSER_BLOCKED = Object.freeze({
-  'src/client/notice.tsx': 'the running DSH host has no ctx.sessionNotices (KI-40)',
+  'src/client/notice.tsx': Object.freeze({
+    reason: 'the running DSH host has no ctx.sessionNotices (KI-40)',
+    issue: 'KI-40',
+    retireWhen: 'the host exposes ctx.sessionNotices and notice.tsx is counted',
+  }),
 })
 
 /** The TSX files a complete browser report must contain. */
@@ -43,13 +48,15 @@ export function repoRelative(repoRoot, absolutePath) {
  * so a package prefix is the only reliable way to distinguish this plugin from
  * another client package with the same `src/client` suffix.
  */
-export function clientSourceFile(source, repoRoot, mapDirectory = resolve(repoRoot, 'lib')) {
+export function clientSourceFile(source, repoRoot, mapDirectory = resolve(repoRoot, 'lib'), sourceExists = existsSync) {
   if (typeof source !== 'string') return null
   const packaged = /\/plugins\/@dsh-external\/(?:dsh-cowork\/)?(src\/client\/[^?#]+)/.exec(source)
-  if (packaged !== null) return packaged[1]
+  if (packaged !== null) {
+    return sourceExists(resolve(repoRoot, packaged[1])) ? packaged[1] : null
+  }
   if (source.startsWith('/plugins/') || /^[A-Za-z][A-Za-z\d+.-]*:/.test(source)) return null
   const file = repoRelative(repoRoot, resolve(mapDirectory, source))
-  return file.startsWith('src/client/') ? file : null
+  return file.startsWith('src/client/') && sourceExists(resolve(repoRoot, file)) ? file : null
 }
 
 /** Flatten regular and indexed source-map sources into one bounded list. */
@@ -104,9 +111,16 @@ export function positionsOf(text) {
  * @param {object} input.sourceMapPayload Parsed `lib/client.js.map`.
  * @param {string} input.repoRoot Repository root used for source paths.
  * @param {string} [input.mapDirectory] Directory the source map lives in.
+ * @param {(path: string) => boolean} [input.sourceExists] File-existence check for mapped sources.
  * @returns {{generatedLength: number, files: Array<object>}}
  */
-export function clientCoverageFromEntry({ entry, sourceMapPayload, repoRoot, mapDirectory = resolve(repoRoot, 'lib') }) {
+export function clientCoverageFromEntry({
+  entry,
+  sourceMapPayload,
+  repoRoot,
+  mapDirectory = resolve(repoRoot, 'lib'),
+  sourceExists = existsSync,
+}) {
   const sourceText = entry?.source ?? entry?.text
   if (typeof sourceText !== 'string' || (!Array.isArray(entry.functions) && !Array.isArray(entry.ranges))) {
     throw new Error('client coverage entry needs source and function ranges')
@@ -118,7 +132,7 @@ export function clientCoverageFromEntry({ entry, sourceMapPayload, repoRoot, map
   const sourceMap = new SourceMap(sourceMapPayload)
   const sourceByFile = new Map()
   flattenSourceMapSources(sourceMapPayload).forEach(({ source, content }) => {
-    const file = clientSourceFile(source, repoRoot, mapDirectory)
+    const file = clientSourceFile(source, repoRoot, mapDirectory, sourceExists)
     if (file === null) return
     if (!CLIENT_SOURCE_EXTENSIONS.includes(extname(file))) return
     sourceByFile.set(source, {
@@ -192,12 +206,12 @@ export function clientCoverageFromEntry({ entry, sourceMapPayload, repoRoot, map
     .map((source) => {
       const totalFunctions = source.functions.size
       const executedFunctions = [...source.functions.values()].filter(Boolean).length
-      const blockedReason = CLIENT_BROWSER_BLOCKED[source.file] ?? null
+      const blocked = CLIENT_BROWSER_BLOCKED[source.file] ?? null
       return {
         file: source.file,
         owner: extname(source.file) === '.tsx' ? 'browser' : 'node',
-        status: blockedReason === null ? 'counted' : 'blocked',
-        ...(blockedReason === null ? {} : { blockedReason }),
+        status: blocked === null ? 'counted' : 'blocked',
+        ...(blocked === null ? {} : { blockedReason: blocked.reason }),
         executableLines: source.executableLines.size,
         executedLines: source.executedLines.size,
         lineCoverage: source.executableLines.size === 0
@@ -260,8 +274,8 @@ export function coverageCompletenessFailures(report, expected = CLIENT_BROWSER_T
       failures.push(`${file}: missing from browser coverage report`)
       continue
     }
-    const blockedReason = CLIENT_BROWSER_BLOCKED[file]
-    if (blockedReason !== undefined) {
+    const blocked = CLIENT_BROWSER_BLOCKED[file]
+    if (blocked !== undefined) {
       if (entry.status !== 'blocked') failures.push(`${file}: expected blocked, got ${entry.status}`)
       else if (typeof entry.blockedReason !== 'string' || entry.blockedReason.trim() === '') {
         failures.push(`${file}: blocked entry needs a reason`)
