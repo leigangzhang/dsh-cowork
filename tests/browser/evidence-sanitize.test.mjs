@@ -15,6 +15,13 @@ test('failure evidence redacts URL tokens, cookies, and bearer values', () => {
   assert.match(output, /Authorization: \[redacted\]/)
 })
 
+test('the host ready URL is redacted in its real log shape', () => {
+  const line = 'dsh web: http://127.0.0.1:43123/?token=one-time-secret'
+  const output = sanitizeEvidenceText(line)
+  assert.doesNotMatch(output, /one-time-secret/)
+  assert.match(output, /token=\[redacted\]/)
+})
+
 test('plain text without credentials is unchanged', () => {
   const input = 'browser-panel: no matching combo entry'
   assert.equal(sanitizeEvidenceText(input), input)

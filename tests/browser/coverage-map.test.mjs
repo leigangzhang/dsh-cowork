@@ -225,6 +225,45 @@ test('combo source paths stay scoped to this plugin and indexed maps expose thei
   assert.equal(comboSectionIndex('http://127.0.0.1/plugins/??@scope/one/client.js'), null)
 })
 
+test('one combo section is mapped end to end without leaking the adjacent section', () => {
+  const text = [
+    'const first = 1',
+    'const second = 2',
+    'function Second() {',
+    '  return second',
+    '}',
+    '',
+  ].join('\n')
+  const indexed = {
+    version: 3,
+    sections: [
+      { offset: { line: 0, column: 0 }, map: syntheticMap('../src/client/first.tsx', [0, 1]) },
+      { offset: { line: 2, column: 0 }, map: syntheticMap('../src/client/second.tsx', [0, 1, 2]) },
+    ],
+  }
+  const secondStart = text.indexOf('function Second')
+  const report = clientCoverageFromEntry({
+    entry: {
+      url: 'http://127.0.0.1/plugins/??@scope/one/client.js,@dsh-external/dsh-cowork/client.js',
+      source: text,
+      functions: [
+        { functionName: 'first', ranges: [{ startOffset: 0, endOffset: secondStart, count: 1 }] },
+        { functionName: 'Second', ranges: [{ startOffset: secondStart, endOffset: text.length, count: 1 }] },
+      ],
+    },
+    sourceMapPayload: indexed,
+    repoRoot: '/repo',
+    mapDirectory: '/repo/lib',
+    sourceExists: () => true,
+    sectionIndex: 1,
+  })
+  assert.deepEqual(report.files.map(file => file.file), ['src/client/second.tsx'])
+  const second = report.files[0]
+  assert.equal(second.executableLines, 3, 'generated lines 2..4 map to the second section only')
+  assert.equal(second.executedLines, 3)
+  assert.equal(second.uncoveredLines.length, 0)
+})
+
 test('the bundle selector accepts the combo containing this plugin and rejects host scripts', () => {
   assert.equal(pluginBundleEntry([
     { url: 'http://127.0.0.1/assets/app.js', source: 'host app' },

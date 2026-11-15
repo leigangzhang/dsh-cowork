@@ -116,6 +116,16 @@ async function openPanel(page) {
   await panel.waitFor({ timeout: 15_000 })
 }
 
+/** Keep only the coverage shape needed to diagnose a failure, never the bundle source. */
+function coverageEvidence(entries) {
+  return (entries ?? []).map(entry => ({
+    url: redactUrl(entry.url ?? ''),
+    generatedLength: (entry.source ?? entry.text ?? '').length,
+    functions: Array.isArray(entry.functions) ? entry.functions.length : 0,
+    ranges: (entry.functions ?? []).reduce((total, fn) => total + (fn.ranges?.length ?? 0), 0),
+  }))
+}
+
 /** Save the bounded evidence a failed browser run needs for diagnosis. */
 async function writeFailureArtifacts({ page, error, pageErrors, consoleMessages, network, coverage, hostLogs }) {
   const runId = `browser-${randomUUID()}`
@@ -137,7 +147,7 @@ async function writeFailureArtifacts({ page, error, pageErrors, consoleMessages,
     })),
     network: network.map(row => ({ ...row, url: sanitizeEvidenceText(row.url) })),
     hostLogs: sanitizeEvidenceText(hostLogs ?? ''),
-    coverage,
+    coverage: coverageEvidence(coverage),
   }, null, 2)}\n`, 'utf8')
   return target
 }
@@ -291,7 +301,13 @@ async function main() {
     if (completeness.length > 0) {
       throw new Error(`browser coverage completeness failed: ${completeness.join('; ')}`)
     }
-    console.log(`PASS browser-panel: ${counted} counted client files, ${report.files.length} reported`)
+    if (STRICT && artifact.dirty) {
+      throw new Error('browser lane requires a clean worktree before strict evidence')
+    }
+    console.log(
+      `PASS browser-panel: ${counted} counted client files, ${report.files.length} reported`
+      + `${artifact.dirty ? ' (dirty worktree)' : ''}`,
+    )
     for (const line of output.summary) console.log(`  ${line}`)
     if (KEEP) {
       const target = resolve(root, '.dsh-cowork', 'browser', `browser-${randomUUID()}`)
