@@ -227,10 +227,12 @@ async function scenarioInboxActions(page) {
 
   const submitRow = requestRow(page, ids.questionSubmit)
   await submitRow.waitFor()
+  const submitButton = submitRow.locator('[data-testid="cw-inbox-action"][data-action="submit"]')
+  assert.equal(await submitButton.isDisabled(), true, 'submit is disabled before both answers')
   await submitRow.locator('[data-testid="cw-inbox-option"][data-option-id="o1"]').click()
   await submitRow.getByRole('button', { name: '下一题' }).click()
+  assert.equal(await submitButton.isDisabled(), true, 'submit stays disabled while the text answer is empty')
   await submitRow.locator('[data-testid="cw-inbox-answer"]').fill('补充说明')
-  const submitButton = submitRow.locator('[data-testid="cw-inbox-action"][data-action="submit"]')
   assert.equal(await submitButton.isEnabled(), true)
   const submitPromise = waitForPost(page, PATH_INBOX_RESOLVE)
   await submitButton.click()

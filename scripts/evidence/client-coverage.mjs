@@ -48,19 +48,49 @@ export function repoRelative(repoRoot, absolutePath) {
  * so a package prefix is the only reliable way to distinguish this plugin from
  * another client package with the same `src/client` suffix.
  */
-export function clientSourceFile(source, repoRoot, mapDirectory = resolve(repoRoot, 'lib'), sourceExists = existsSync) {
+export function clientSourceFile(
+  source,
+  repoRoot,
+  mapDirectory = resolve(repoRoot, 'lib'),
+  sourceExists = existsSync,
+  options = {},
+) {
   if (typeof source !== 'string') return null
-  const packaged = /\/plugins\/@dsh-external\/(?:dsh-cowork\/)?(src\/client\/[^?#]+)/.exec(source)
-  if (packaged !== null) {
-    return sourceExists(resolve(repoRoot, packaged[1])) ? packaged[1] : null
+  const qualified = /\/plugins\/@dsh-external\/dsh-cowork\/(src\/client\/[^?#]+)/.exec(source)
+  if (qualified !== null) {
+    return sourceExists(resolve(repoRoot, qualified[1])) ? qualified[1] : null
+  }
+  if (options.allowUnqualifiedPackage === true) {
+    // The host relocates this plugin's authored map under @dsh-external/ and
+    // drops the package segment. A combo section index, not the path, binds it.
+    const unqualified = /\/plugins\/@dsh-external\/(src\/client\/[^?#]+)/.exec(source)
+    if (unqualified !== null) {
+      return sourceExists(resolve(repoRoot, unqualified[1])) ? unqualified[1] : null
+    }
   }
   if (source.startsWith('/plugins/') || /^[A-Za-z][A-Za-z\d+.-]*:/.test(source)) return null
   const file = repoRelative(repoRoot, resolve(mapDirectory, source))
   return file.startsWith('src/client/') && sourceExists(resolve(repoRoot, file)) ? file : null
 }
 
-/** Flatten regular and indexed source-map sources into one bounded list. */
-export function flattenSourceMapSources(payload) {
+/** Resolve this plugin's index in a combo URL such as `/plugins/??a,b`. */
+export function comboSectionIndex(entryUrl) {
+  if (typeof entryUrl !== 'string') return null
+  const combo = entryUrl.split('/??')[1]
+  if (typeof combo !== 'string' || combo === '') return null
+  const packages = combo.split(',').map(part => decodeURIComponent(part.split('/client.js', 1)[0]))
+  const index = packages.indexOf('@dsh-external/dsh-cowork')
+  return index < 0 ? null : index
+}
+
+/**
+ * Flatten regular and indexed source-map sources.
+ *
+ * When `sectionIndex` is supplied, only that combo section is returned. The
+ * browser lane uses this to bind relocated `@dsh-external/src/client` paths to
+ * the package entry that produced them instead of trusting the path alone.
+ */
+export function flattenSourceMapSources(payload, sectionIndex = null) {
   const sources = []
   const visit = (map) => {
     if (Array.isArray(map?.sections)) {
@@ -76,8 +106,24 @@ export function flattenSourceMapSources(payload) {
       }
     })
   }
+  if (sectionIndex !== null) {
+    const section = payload?.sections?.[sectionIndex]
+    if (section === undefined || section.map === undefined) return []
+    visit(section.map)
+    return sources
+  }
   visit(payload)
   return sources
+}
+
+/** The generated line range owned by one combo source-map section. */
+export function comboGeneratedRange(payload, sectionIndex) {
+  const sections = payload?.sections
+  if (!Array.isArray(sections) || !Number.isInteger(sectionIndex)) return null
+  const start = sections[sectionIndex]?.offset?.line
+  if (!Number.isInteger(start)) return null
+  const next = sections[sectionIndex + 1]?.offset?.line
+  return { start, end: Number.isInteger(next) ? next : Number.POSITIVE_INFINITY }
 }
 
 /** Build offset -> 0-based generated line/column arrays for a bundle string. */
@@ -112,6 +158,7 @@ export function positionsOf(text) {
  * @param {string} input.repoRoot Repository root used for source paths.
  * @param {string} [input.mapDirectory] Directory the source map lives in.
  * @param {(path: string) => boolean} [input.sourceExists] File-existence check for mapped sources.
+ * @param {number|null} [input.sectionIndex] Combo source-map section owned by this entry.
  * @returns {{generatedLength: number, files: Array<object>}}
  */
 export function clientCoverageFromEntry({
@@ -120,6 +167,7 @@ export function clientCoverageFromEntry({
   repoRoot,
   mapDirectory = resolve(repoRoot, 'lib'),
   sourceExists = existsSync,
+  sectionIndex = null,
 }) {
   const sourceText = entry?.source ?? entry?.text
   if (typeof sourceText !== 'string' || (!Array.isArray(entry.functions) && !Array.isArray(entry.ranges))) {
@@ -130,9 +178,12 @@ export function clientCoverageFromEntry({
     ? entry.ranges ?? []
     : functions.flatMap(fn => fn.ranges ?? [])
   const sourceMap = new SourceMap(sourceMapPayload)
+  const generatedRange = comboGeneratedRange(sourceMapPayload, sectionIndex)
   const sourceByFile = new Map()
-  flattenSourceMapSources(sourceMapPayload).forEach(({ source, content }) => {
-    const file = clientSourceFile(source, repoRoot, mapDirectory, sourceExists)
+  flattenSourceMapSources(sourceMapPayload, sectionIndex).forEach(({ source, content }) => {
+    const file = clientSourceFile(source, repoRoot, mapDirectory, sourceExists, {
+      allowUnqualifiedPackage: sectionIndex !== null,
+    })
     if (file === null) return
     if (!CLIENT_SOURCE_EXTENSIONS.includes(extname(file))) return
     sourceByFile.set(source, {
@@ -180,6 +231,9 @@ export function clientCoverageFromEntry({
   }
 
   for (let offset = 0; offset < sourceText.length; offset += 1) {
+    if (generatedRange !== null && (lineAt[offset] < generatedRange.start || lineAt[offset] >= generatedRange.end)) {
+      continue
+    }
     const origin = sourceMap.findOrigin(lineAt[offset] + 1, columnAt[offset] + 1)
     if (typeof origin.fileName !== 'string' || typeof origin.lineNumber !== 'number') continue
     const source = sourceByFile.get(origin.fileName)
@@ -192,6 +246,9 @@ export function clientCoverageFromEntry({
     const first = fn.ranges?.[0]
     const start = first?.start ?? first?.startOffset
     if (!Number.isInteger(start) || start < 0 || start >= sourceText.length) continue
+    if (generatedRange !== null && (lineAt[start] < generatedRange.start || lineAt[start] >= generatedRange.end)) {
+      continue
+    }
     const origin = sourceMap.findOrigin(lineAt[start] + 1, columnAt[start] + 1)
     if (typeof origin.fileName !== 'string' || typeof origin.lineNumber !== 'number') continue
     const source = sourceByFile.get(origin.fileName)

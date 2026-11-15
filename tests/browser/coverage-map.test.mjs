@@ -6,6 +6,8 @@ import {
   CLIENT_BROWSER_TSX,
   clientCoverageFromEntry,
   clientSourceFile,
+  comboGeneratedRange,
+  comboSectionIndex,
   coverageCompletenessFailures,
   coverageGateFailures,
   flattenSourceMapSources,
@@ -174,7 +176,23 @@ test('combo source paths stay scoped to this plugin and indexed maps expose thei
   )
   assert.equal(
     clientSourceFile('/plugins/@dsh-external/src/client/panel.tsx', '/repo', '/repo/lib', () => true),
+    null,
+    'an unqualified @dsh-external path is only accepted from a bound combo section',
+  )
+  assert.equal(
+    clientSourceFile(
+      '/plugins/@dsh-external/src/client/panel.tsx',
+      '/repo',
+      '/repo/lib',
+      () => true,
+      { allowUnqualifiedPackage: true },
+    ),
     'src/client/panel.tsx',
+  )
+  assert.equal(
+    clientSourceFile('/plugins/@dsh-external/other/src/client/panel.tsx', '/repo', '/repo/lib', () => true),
+    null,
+    'a same-named file from another @dsh-external package must not be attributed here',
   )
   assert.equal(
     clientSourceFile('/plugins/@deepseek-ai/dsh-client-ui-chat/src/client/chat.tsx', '/repo', '/repo/lib', () => true),
@@ -196,6 +214,15 @@ test('combo source paths stay scoped to this plugin and indexed maps expose thei
     flattenSourceMapSources(indexed).map(entry => entry.source),
     ['../src/client/demo.tsx', '../src/client/notice.tsx'],
   )
+  assert.deepEqual(
+    flattenSourceMapSources(indexed, 1).map(entry => entry.source),
+    ['../src/client/notice.tsx'],
+  )
+  assert.deepEqual(comboGeneratedRange(indexed, 1), { start: 2, end: Number.POSITIVE_INFINITY })
+  assert.equal(comboSectionIndex(
+    'http://127.0.0.1/plugins/??@scope/one/client.js,@dsh-external/dsh-cowork/client.js&rev=r',
+  ), 1)
+  assert.equal(comboSectionIndex('http://127.0.0.1/plugins/??@scope/one/client.js'), null)
 })
 
 test('the bundle selector accepts the combo containing this plugin and rejects host scripts', () => {

@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { startDshHost } from './dsh-host-session.mjs'
 import {
   clientCoverageFromEntry,
+  comboSectionIndex,
   comboSourceMapUrl,
   coverageCompletenessFailures,
   pluginBundleEntry,
@@ -31,6 +32,15 @@ const root = resolve(here, '../..')
 const STRICT = process.env.DSH_BROWSER_STRICT === '1'
 const KEEP = process.env.DSH_BROWSER_KEEP === '1'
 const HEADFUL = process.env.DSH_BROWSER_HEADFUL === '1'
+const MAX_PAGE_ERRORS = 50
+const MAX_CONSOLE_MESSAGES = 100
+const MAX_NETWORK_ROWS = 300
+
+/** Keep failure evidence bounded without hiding the most recent events. */
+function pushBounded(list, value, limit) {
+  list.push(value)
+  if (list.length > limit) list.splice(0, list.length - limit)
+}
 
 function skipOrFail(message) {
   if (STRICT) throw new Error(message)
@@ -107,7 +117,7 @@ async function openPanel(page) {
 }
 
 /** Save the bounded evidence a failed browser run needs for diagnosis. */
-async function writeFailureArtifacts({ page, error, pageErrors, consoleMessages, network, coverage }) {
+async function writeFailureArtifacts({ page, error, pageErrors, consoleMessages, network, coverage, hostLogs }) {
   const runId = `browser-${randomUUID()}`
   const target = resolve(root, '.dsh-cowork', 'browser', runId)
   mkdirSync(target, { recursive: true })
@@ -126,6 +136,7 @@ async function writeFailureArtifacts({ page, error, pageErrors, consoleMessages,
       text: sanitizeEvidenceText(message.text),
     })),
     network: network.map(row => ({ ...row, url: sanitizeEvidenceText(row.url) })),
+    hostLogs: sanitizeEvidenceText(hostLogs ?? ''),
     coverage,
   }, null, 2)}\n`, 'utf8')
   return target
@@ -208,18 +219,18 @@ async function main() {
       const close = dialog.getByRole('button', { name: '关闭' })
       if ((await close.count()) > 0) await close.click()
     })
-    page.on('pageerror', error => { pageErrors.push(error.message) })
+    page.on('pageerror', error => { pushBounded(pageErrors, error.message, MAX_PAGE_ERRORS) })
     page.on('console', (message) => {
       if (message.type() === 'error' || message.type() === 'warning') {
-        consoleMessages.push({ type: message.type(), text: message.text() })
+        pushBounded(consoleMessages, { type: message.type(), text: message.text() }, MAX_CONSOLE_MESSAGES)
       }
     })
     page.on('response', (response) => {
-      network.push({
+      pushBounded(network, {
         method: response.request().method(),
         url: redactUrl(response.url()),
         status: response.status(),
-      })
+      }, MAX_NETWORK_ROWS)
     })
     await page.coverage.startJSCoverage({ resetOnNavigation: false, reportAnonymousScripts: false })
     await page.goto(host.authenticatedUrl, { waitUntil: 'domcontentloaded' })
@@ -234,6 +245,8 @@ async function main() {
     if (entry === null) throw new Error('the plugin client bundle was not present in JSCoverage')
     const mapPath = join(root, 'lib', 'client.js.map')
     const bundlePath = join(root, 'lib', 'client.js')
+    const sectionIndex = comboSectionIndex(entry.url)
+    if (sectionIndex === null) throw new Error('the plugin package is missing from the combo URL')
     const servedMapUrl = comboSourceMapUrl(entry.url)
     const servedMapResponse = await fetch(servedMapUrl, { headers: { cookie: host.cookie } })
     if (!servedMapResponse.ok) {
@@ -244,11 +257,15 @@ async function main() {
       sourceMapPayload: await servedMapResponse.json(),
       repoRoot: root,
       mapDirectory: dirname(mapPath),
+      sectionIndex,
     })
     const completeness = coverageCompletenessFailures(report)
     const counted = report.files.filter(file => file.status === 'counted').length
+    const gitStatus = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout.trim()
     const artifact = {
       head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(),
+      dirty: gitStatus !== '',
+      gitStatus: gitStatus === '' ? [] : gitStatus.split('\n').slice(0, 100),
       generatedAt: new Date().toISOString(),
       pluginVersion: host.packageJson.version,
       playwrightVersion: host.packageJson.devDependencies?.playwright ?? 'unknown',
@@ -283,7 +300,15 @@ async function main() {
       console.log(`  kept summary: ${target}`)
     }
   } catch (error) {
-    const target = await writeFailureArtifacts({ page, error, pageErrors, consoleMessages, network, coverage: coverageEntries })
+    const target = await writeFailureArtifacts({
+      page,
+      error,
+      pageErrors,
+      consoleMessages,
+      network,
+      coverage: coverageEntries,
+      hostLogs: host?.logTail?.() ?? '',
+    })
     console.error(`FAIL browser-panel: ${error instanceof Error ? error.message : String(error)}`)
     console.error(`  evidence: ${target}`)
     process.exitCode = 1

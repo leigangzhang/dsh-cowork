@@ -26,6 +26,7 @@ const READY_PATTERN = /dsh web: (http:\/\/[^\s]+)/
 const READY_TIMEOUT_MS = 90_000
 const COMMAND_TIMEOUT_MS = 180_000
 const SHUTDOWN_TIMEOUT_MS = 5_000
+const HOST_LOG_TAIL_CHARS = 64 * 1024
 
 /** Extract the authenticated URL without trusting the rest of the host output. */
 export function readyUrlFrom(output) {
@@ -108,34 +109,56 @@ function runCommand(command, args, options) {
   return result
 }
 
-function waitForReadyUrl(child) {
-  return new Promise((resolveUrl, rejectUrl) => {
-    let output = ''
-    let settled = false
-    const finish = (error, url) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      child.stdout?.off('data', onData)
-      child.stderr?.off('data', onData)
-      child.off('exit', onExit)
-      if (error !== null) rejectUrl(error)
-      else resolveUrl(url)
-    }
-    const onData = (chunk) => {
-      output += chunk.toString()
+/**
+ * Consume the host pipes for its whole lifetime and retain a bounded tail.
+ *
+ * Removing the listeners after readiness leaves the child writing into an
+ * unread pipe, which can block a long browser run and drops host-side failures
+ * from the evidence. This keeps one bounded buffer and resolves readiness from
+ * the same stream.
+ */
+function attachHostOutput(child) {
+  let output = ''
+  let settled = false
+  let resolveReady
+  let rejectReady
+  const ready = new Promise((resolveUrl, rejectUrl) => {
+    resolveReady = resolveUrl
+    rejectReady = rejectUrl
+  })
+  const finish = (error, url) => {
+    if (settled) return
+    settled = true
+    clearTimeout(timer)
+    if (error !== null) rejectReady(error)
+    else resolveReady(url)
+  }
+  const onData = (chunk) => {
+    output += chunk.toString()
+    if (output.length > HOST_LOG_TAIL_CHARS) output = output.slice(-HOST_LOG_TAIL_CHARS)
+    if (!settled) {
       const url = readyUrlFrom(output)
       if (url !== null) finish(null, url)
     }
-    const onExit = (code) => {
-      finish(new Error(`dsh web exited before printing its URL (code ${String(code)})`))
-    }
-    // A bounded deadline is not a readiness sleep: readiness is still the URL.
-    const timer = setTimeout(() => finish(new Error('dsh web did not print its URL within 90s')), READY_TIMEOUT_MS)
-    child.stdout?.on('data', onData)
-    child.stderr?.on('data', onData)
-    child.once('exit', onExit)
-  })
+  }
+  const onExit = (code) => {
+    finish(new Error(`dsh web exited before printing its URL (code ${String(code)})`))
+  }
+  // A bounded deadline is not a readiness sleep: readiness is still the URL.
+  const timer = setTimeout(() => finish(new Error('dsh web did not print its URL within 90s')), READY_TIMEOUT_MS)
+  child.stdout?.on('data', onData)
+  child.stderr?.on('data', onData)
+  child.once('exit', onExit)
+  return {
+    ready,
+    tail: () => output,
+    detach: () => {
+      child.stdout?.off('data', onData)
+      child.stderr?.off('data', onData)
+      child.off('exit', onExit)
+      clearTimeout(timer)
+    },
+  }
 }
 
 function waitForExit(child) {
@@ -173,7 +196,7 @@ async function stopChild(child) {
  * @param {NodeJS.ProcessEnv} [options.env] Extra environment for every child.
  * @param {boolean} [options.keep] Keep the temporary tree after stop.
  * @param {string} [options.prefix] mkdtemp prefix.
- * @returns {Promise<{packageJson: object, tarball: string, tempRoot: string, dshHome: string, npmCache: string, origin: string, authenticatedUrl: string, cookie: string, child: import('node:child_process').ChildProcess, stop: () => Promise<void>}>}
+ * @returns {Promise<{packageJson: object, tarball: string, tempRoot: string, dshHome: string, npmCache: string, origin: string, authenticatedUrl: string, cookie: string, child: import('node:child_process').ChildProcess, logTail: () => string, stop: () => Promise<void>}>}
  */
 export async function startDshHost(options = {}) {
   const root = options.packageRoot ?? packageRoot
@@ -198,11 +221,13 @@ export async function startDshHost(options = {}) {
   }
   const dsh = hostEnv.DSH_BIN ?? 'dsh'
   let child = null
+  let output = null
   let stopped = false
 
   const stop = async () => {
     if (stopped) return
     stopped = true
+    output?.detach()
     await stopChild(child)
     if (options.keep !== true) rmSync(tempRoot, { recursive: true, force: true })
   }
@@ -232,7 +257,8 @@ export async function startDshHost(options = {}) {
       env: hostEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    const authenticatedUrl = await waitForReadyUrl(child)
+    output = attachHostOutput(child)
+    const authenticatedUrl = await output.ready
     const origin = new URL(authenticatedUrl).origin
     const auth = await fetch(authenticatedUrl, { redirect: 'manual' })
     const cookie = authCookieFrom(auth.headers)
@@ -249,6 +275,7 @@ export async function startDshHost(options = {}) {
       authenticatedUrl,
       cookie,
       child,
+      logTail: () => output?.tail() ?? '',
       stop,
     }
   } catch (error) {
