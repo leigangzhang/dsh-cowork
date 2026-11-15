@@ -145,6 +145,126 @@ export function positionsOf(text) {
   return { lineAt, columnAt }
 }
 
+function indexClientSources({ sourceMapPayload, repoRoot, mapDirectory, sourceExists, sectionIndex }) {
+  const sourceByFile = new Map()
+  flattenSourceMapSources(sourceMapPayload, sectionIndex).forEach(({ source, content }) => {
+    const file = clientSourceFile(source, repoRoot, mapDirectory, sourceExists, {
+      allowUnqualifiedPackage: sectionIndex !== null,
+    })
+    if (file === null) return
+    if (!CLIENT_SOURCE_EXTENSIONS.includes(extname(file))) return
+    sourceByFile.set(source, {
+      file,
+      content,
+      executableLines: new Set(),
+      executedLines: new Set(),
+      functions: new Map(),
+    })
+  })
+  return sourceByFile
+}
+
+function buildRangeIndex(ranges, sourceText) {
+  const starts = new Map()
+  const ends = new Map()
+  for (const range of ranges) {
+    const rawStart = range.start ?? range.startOffset
+    const rawEnd = range.end ?? range.endOffset
+    if (!Number.isInteger(rawStart) || !Number.isInteger(rawEnd) || rawEnd <= rawStart) continue
+    const start = Math.max(0, Math.min(sourceText.length, rawStart))
+    const end = Math.max(start, Math.min(sourceText.length, rawEnd))
+    if (end <= start) continue
+    const normalized = { start, end, count: range.count }
+    if (!starts.has(start)) starts.set(start, [])
+    starts.get(start).push(normalized)
+    if (!ends.has(end)) ends.set(end, [])
+    ends.get(end).push(normalized)
+  }
+  return { starts, ends }
+}
+
+function buildCoverageMask(sourceText, starts, ends) {
+  const active = []
+  const covered = new Uint8Array(sourceText.length)
+  for (let offset = 0; offset < sourceText.length; offset += 1) {
+    for (const range of ends.get(offset) ?? []) {
+      const index = active.indexOf(range)
+      if (index >= 0) active.splice(index, 1)
+    }
+    for (const range of starts.get(offset) ?? []) active.push(range)
+    let innermost = null
+    for (const range of active) {
+      if (range.start <= offset && offset < range.end
+        && (innermost === null || range.end - range.start < innermost.end - innermost.start)) {
+        innermost = range
+      }
+    }
+    if (innermost !== null && innermost.count > 0) covered[offset] = 1
+  }
+  return covered
+}
+
+function insideGeneratedRange(line, generatedRange) {
+  return generatedRange === null || (line >= generatedRange.start && line < generatedRange.end)
+}
+
+function mapLineCoverage({ sourceText, lineAt, columnAt, sourceMap, sourceByFile, covered, generatedRange }) {
+  for (let offset = 0; offset < sourceText.length; offset += 1) {
+    if (!insideGeneratedRange(lineAt[offset], generatedRange)) continue
+    const origin = sourceMap.findOrigin(lineAt[offset] + 1, columnAt[offset] + 1)
+    if (typeof origin.fileName !== 'string' || typeof origin.lineNumber !== 'number') continue
+    const source = sourceByFile.get(origin.fileName)
+    if (source === undefined) continue
+    source.executableLines.add(origin.lineNumber)
+    if (covered[offset] === 1) source.executedLines.add(origin.lineNumber)
+  }
+}
+
+function mapFunctionCoverage({ functions, sourceText, lineAt, columnAt, sourceMap, sourceByFile, generatedRange }) {
+  for (const fn of functions) {
+    const first = fn.ranges?.[0]
+    const start = first?.start ?? first?.startOffset
+    if (!Number.isInteger(start) || start < 0 || start >= sourceText.length) continue
+    if (!insideGeneratedRange(lineAt[start], generatedRange)) continue
+    const origin = sourceMap.findOrigin(lineAt[start] + 1, columnAt[start] + 1)
+    if (typeof origin.fileName !== 'string' || typeof origin.lineNumber !== 'number') continue
+    const source = sourceByFile.get(origin.fileName)
+    if (source === undefined) continue
+    const key = `${origin.lineNumber}:${origin.columnNumber ?? 0}:${fn.functionName || 'anonymous'}`
+    const previous = source.functions.get(key)
+    const executed = (fn.ranges ?? []).some(range => range.count > 0)
+    source.functions.set(key, Boolean(previous) || executed)
+  }
+}
+
+function coverageFiles(sourceByFile) {
+  return [...sourceByFile.values()]
+    .map((source) => {
+      const totalFunctions = source.functions.size
+      const executedFunctions = [...source.functions.values()].filter(Boolean).length
+      const blocked = CLIENT_BROWSER_BLOCKED[source.file] ?? null
+      return {
+        file: source.file,
+        owner: extname(source.file) === '.tsx' ? 'browser' : 'node',
+        status: blocked === null ? 'counted' : 'blocked',
+        ...(blocked === null ? {} : { blockedReason: blocked.reason }),
+        executableLines: source.executableLines.size,
+        executedLines: source.executedLines.size,
+        lineCoverage: source.executableLines.size === 0
+          ? 0
+          : Number(((source.executedLines.size / source.executableLines.size) * 100).toFixed(2)),
+        totalFunctions,
+        executedFunctions,
+        functionCoverage: totalFunctions === 0
+          ? 100
+          : Number(((executedFunctions / totalFunctions) * 100).toFixed(2)),
+        uncoveredLines: [...source.executableLines].filter(line => !source.executedLines.has(line)).sort((a, b) => a - b),
+        sourceLines: source.content === '' ? 0 : source.content.split('\n').length,
+      }
+    })
+    .sort((left, right) => left.file.localeCompare(right.file))
+}
+
 /**
  * Map one Playwright JSCoverage entry through a v3 source map.
  *
@@ -179,113 +299,14 @@ export function clientCoverageFromEntry({
     : functions.flatMap(fn => fn.ranges ?? [])
   const sourceMap = new SourceMap(sourceMapPayload)
   const generatedRange = comboGeneratedRange(sourceMapPayload, sectionIndex)
-  const sourceByFile = new Map()
-  flattenSourceMapSources(sourceMapPayload, sectionIndex).forEach(({ source, content }) => {
-    const file = clientSourceFile(source, repoRoot, mapDirectory, sourceExists, {
-      allowUnqualifiedPackage: sectionIndex !== null,
-    })
-    if (file === null) return
-    if (!CLIENT_SOURCE_EXTENSIONS.includes(extname(file))) return
-    sourceByFile.set(source, {
-      file,
-      content,
-      executableLines: new Set(),
-      executedLines: new Set(),
-      functions: new Map(),
-    })
-  })
-
+  const sourceByFile = indexClientSources({ sourceMapPayload, repoRoot, mapDirectory, sourceExists, sectionIndex })
   const { lineAt, columnAt } = positionsOf(sourceText)
-  const starts = new Map()
-  const ends = new Map()
-  for (const range of ranges) {
-    const rawStart = range.start ?? range.startOffset
-    const rawEnd = range.end ?? range.endOffset
-    if (!Number.isInteger(rawStart) || !Number.isInteger(rawEnd) || rawEnd <= rawStart) continue
-    const start = Math.max(0, Math.min(sourceText.length, rawStart))
-    const end = Math.max(start, Math.min(sourceText.length, rawEnd))
-    if (end <= start) continue
-    const normalized = { start, end, count: range.count }
-    if (!starts.has(start)) starts.set(start, [])
-    starts.get(start).push(normalized)
-    if (!ends.has(end)) ends.set(end, [])
-    ends.get(end).push(normalized)
-  }
+  const { starts, ends } = buildRangeIndex(ranges, sourceText)
+  const covered = buildCoverageMask(sourceText, starts, ends)
+  mapLineCoverage({ sourceText, lineAt, columnAt, sourceMap, sourceByFile, covered, generatedRange })
+  mapFunctionCoverage({ functions, sourceText, lineAt, columnAt, sourceMap, sourceByFile, generatedRange })
 
-  const active = []
-  const covered = new Uint8Array(sourceText.length)
-  for (let offset = 0; offset < sourceText.length; offset += 1) {
-    for (const range of ends.get(offset) ?? []) {
-      const index = active.indexOf(range)
-      if (index >= 0) active.splice(index, 1)
-    }
-    for (const range of starts.get(offset) ?? []) active.push(range)
-    let innermost = null
-    for (const range of active) {
-      if (range.start <= offset && offset < range.end
-        && (innermost === null || range.end - range.start < innermost.end - innermost.start)) {
-        innermost = range
-      }
-    }
-    if (innermost !== null && innermost.count > 0) covered[offset] = 1
-  }
-
-  for (let offset = 0; offset < sourceText.length; offset += 1) {
-    if (generatedRange !== null && (lineAt[offset] < generatedRange.start || lineAt[offset] >= generatedRange.end)) {
-      continue
-    }
-    const origin = sourceMap.findOrigin(lineAt[offset] + 1, columnAt[offset] + 1)
-    if (typeof origin.fileName !== 'string' || typeof origin.lineNumber !== 'number') continue
-    const source = sourceByFile.get(origin.fileName)
-    if (source === undefined) continue
-    source.executableLines.add(origin.lineNumber)
-    if (covered[offset] === 1) source.executedLines.add(origin.lineNumber)
-  }
-
-  for (const fn of functions) {
-    const first = fn.ranges?.[0]
-    const start = first?.start ?? first?.startOffset
-    if (!Number.isInteger(start) || start < 0 || start >= sourceText.length) continue
-    if (generatedRange !== null && (lineAt[start] < generatedRange.start || lineAt[start] >= generatedRange.end)) {
-      continue
-    }
-    const origin = sourceMap.findOrigin(lineAt[start] + 1, columnAt[start] + 1)
-    if (typeof origin.fileName !== 'string' || typeof origin.lineNumber !== 'number') continue
-    const source = sourceByFile.get(origin.fileName)
-    if (source === undefined) continue
-    const key = `${origin.lineNumber}:${origin.columnNumber ?? 0}:${fn.functionName || 'anonymous'}`
-    const previous = source.functions.get(key)
-    const executed = (fn.ranges ?? []).some(range => range.count > 0)
-    source.functions.set(key, Boolean(previous) || executed)
-  }
-
-  const files = [...sourceByFile.values()]
-    .map((source) => {
-      const totalFunctions = source.functions.size
-      const executedFunctions = [...source.functions.values()].filter(Boolean).length
-      const blocked = CLIENT_BROWSER_BLOCKED[source.file] ?? null
-      return {
-        file: source.file,
-        owner: extname(source.file) === '.tsx' ? 'browser' : 'node',
-        status: blocked === null ? 'counted' : 'blocked',
-        ...(blocked === null ? {} : { blockedReason: blocked.reason }),
-        executableLines: source.executableLines.size,
-        executedLines: source.executedLines.size,
-        lineCoverage: source.executableLines.size === 0
-          ? 0
-          : Number(((source.executedLines.size / source.executableLines.size) * 100).toFixed(2)),
-        totalFunctions,
-        executedFunctions,
-        functionCoverage: totalFunctions === 0
-          ? 100
-          : Number(((executedFunctions / totalFunctions) * 100).toFixed(2)),
-        uncoveredLines: [...source.executableLines].filter(line => !source.executedLines.has(line)).sort((a, b) => a - b),
-        sourceLines: source.content === '' ? 0 : source.content.split('\n').length,
-      }
-    })
-    .sort((left, right) => left.file.localeCompare(right.file))
-
-  return { generatedLength: sourceText.length, files }
+  return { generatedLength: sourceText.length, files: coverageFiles(sourceByFile) }
 }
 
 /** Pick the combo entry that contains this plugin's client bundle. */
@@ -313,8 +334,7 @@ export function comboSourceMapUrl(entryUrl) {
  * @param {readonly string[]} [expected]
  * @returns {string[]}
  */
-export function coverageCompletenessFailures(report, expected = CLIENT_BROWSER_TSX) {
-  const files = Array.isArray(report?.files) ? report.files : []
+function indexReportFiles(files) {
   const byFile = new Map()
   const failures = []
   for (const entry of files) {
@@ -325,25 +345,30 @@ export function coverageCompletenessFailures(report, expected = CLIENT_BROWSER_T
     if (byFile.has(entry.file)) failures.push(`${entry.file}: duplicate entry in browser coverage report`)
     else byFile.set(entry.file, entry)
   }
-  for (const file of expected) {
-    const entry = byFile.get(file)
-    if (entry === undefined) {
-      failures.push(`${file}: missing from browser coverage report`)
-      continue
+  return { byFile, failures }
+}
+
+function expectedFileFailure(file, entry) {
+  if (entry === undefined) return [`${file}: missing from browser coverage report`]
+  const blocked = CLIENT_BROWSER_BLOCKED[file]
+  if (blocked !== undefined) {
+    if (entry.status !== 'blocked') return [`${file}: expected blocked, got ${entry.status}`]
+    if (typeof entry.blockedReason !== 'string' || entry.blockedReason.trim() === '') {
+      return [`${file}: blocked entry needs a reason`]
     }
-    const blocked = CLIENT_BROWSER_BLOCKED[file]
-    if (blocked !== undefined) {
-      if (entry.status !== 'blocked') failures.push(`${file}: expected blocked, got ${entry.status}`)
-      else if (typeof entry.blockedReason !== 'string' || entry.blockedReason.trim() === '') {
-        failures.push(`${file}: blocked entry needs a reason`)
-      }
-      continue
-    }
-    if (entry.status !== 'counted') failures.push(`${file}: expected counted, got ${entry.status}`)
-    else if (!Number.isInteger(entry.executableLines) || entry.executableLines <= 0) {
-      failures.push(`${file}: no executable lines mapped`)
-    }
+    return []
   }
+  if (entry.status !== 'counted') return [`${file}: expected counted, got ${entry.status}`]
+  if (!Number.isInteger(entry.executableLines) || entry.executableLines <= 0) {
+    return [`${file}: no executable lines mapped`]
+  }
+  return []
+}
+
+export function coverageCompletenessFailures(report, expected = CLIENT_BROWSER_TSX) {
+  const files = Array.isArray(report?.files) ? report.files : []
+  const { byFile, failures } = indexReportFiles(files)
+  for (const file of expected) failures.push(...expectedFileFailure(file, byFile.get(file)))
   return failures
 }
 

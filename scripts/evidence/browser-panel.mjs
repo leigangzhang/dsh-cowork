@@ -64,26 +64,33 @@ function redactUrl(value) {
 }
 
 /** The host Remote envelope uses a different args field for the list endpoint. */
-async function hostRpc(host, method, request) {
+function remoteRequest(method, request) {
   const args = method === 'session/list' ? { _request: {} } : { request }
+  return {
+    type: 'client-request',
+    rpcId: randomUUID(),
+    method,
+    payload: { args },
+  }
+}
+
+function remoteResult(method, body) {
+  if (body?.result?.ok !== true) {
+    throw new Error(`${method}: ${JSON.stringify(body?.result?.error ?? body)}`)
+  }
+  return body.result.value
+}
+
+async function hostRpc(host, method, request) {
   const response = await fetch(`${host.origin}/api/${method}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       cookie: host.cookie,
     },
-    body: JSON.stringify({
-      type: 'client-request',
-      rpcId: randomUUID(),
-      method,
-      payload: { args },
-    }),
+    body: JSON.stringify(remoteRequest(method, request)),
   })
-  const body = await response.json()
-  if (body?.result?.ok !== true) {
-    throw new Error(`${method}: ${JSON.stringify(body?.result?.error ?? body)}`)
-  }
-  return body.result.value
+  return remoteResult(method, await response.json())
 }
 
 async function createWorkspaceSession(host, repoPath) {
@@ -116,14 +123,33 @@ async function openPanel(page) {
   await panel.waitFor({ timeout: 15_000 })
 }
 
-/** Keep only the coverage shape needed to diagnose a failure, never the bundle source. */
-function coverageEvidence(entries) {
-  return (entries ?? []).map(entry => ({
+function coverageEntryEvidence(entry) {
+  return {
     url: redactUrl(entry.url ?? ''),
     generatedLength: (entry.source ?? entry.text ?? '').length,
     functions: Array.isArray(entry.functions) ? entry.functions.length : 0,
     ranges: (entry.functions ?? []).reduce((total, fn) => total + (fn.ranges?.length ?? 0), 0),
-  }))
+  }
+}
+
+/** Keep only the coverage shape needed to diagnose a failure, never the bundle source. */
+function coverageEvidence(entries) {
+  return (entries ?? []).map(coverageEntryEvidence)
+}
+
+function failurePayload({ error, pageErrors, consoleMessages, network, coverage, hostLogs }) {
+  return {
+    error: sanitizeEvidenceText(error instanceof Error ? error.message : String(error)),
+    stack: sanitizeEvidenceText(error instanceof Error ? error.stack ?? '' : ''),
+    pageErrors: pageErrors.map(sanitizeEvidenceText),
+    consoleMessages: consoleMessages.map(message => ({
+      type: message.type,
+      text: sanitizeEvidenceText(message.text),
+    })),
+    network: network.map(row => ({ ...row, url: sanitizeEvidenceText(row.url) })),
+    hostLogs: sanitizeEvidenceText(hostLogs ?? ''),
+    coverage: coverageEvidence(coverage),
+  }
 }
 
 /** Save the bounded evidence a failed browser run needs for diagnosis. */
@@ -137,18 +163,8 @@ async function writeFailureArtifacts({ page, error, pageErrors, consoleMessages,
       .then(html => writeFileSync(join(target, 'page.html'), sanitizeEvidenceText(html), 'utf8'))
       .catch(() => {})
   }
-  writeFileSync(join(target, 'failure.json'), `${JSON.stringify({
-    error: sanitizeEvidenceText(error instanceof Error ? error.message : String(error)),
-    stack: sanitizeEvidenceText(error instanceof Error ? error.stack ?? '' : ''),
-    pageErrors: pageErrors.map(sanitizeEvidenceText),
-    consoleMessages: consoleMessages.map(message => ({
-      type: message.type,
-      text: sanitizeEvidenceText(message.text),
-    })),
-    network: network.map(row => ({ ...row, url: sanitizeEvidenceText(row.url) })),
-    hostLogs: sanitizeEvidenceText(hostLogs ?? ''),
-    coverage: coverageEvidence(coverage),
-  }, null, 2)}\n`, 'utf8')
+  const payload = failurePayload({ error, pageErrors, consoleMessages, network, coverage, hostLogs })
+  writeFileSync(join(target, 'failure.json'), `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
   return target
 }
 
@@ -156,6 +172,127 @@ function coverageSummary(report) {
   return report.files.map(file => file.status === 'blocked'
     ? `${file.file} blocked: ${file.blockedReason}`
     : `${file.file} line ${file.lineCoverage}% function ${file.functionCoverage}%`)
+}
+
+async function prepareFixtures(host, primaryRepo, secondaryRepo) {
+  // The secondary workspace starts empty; its Session is created through the
+  // real sidebar action during the switch scenario. The primary Session is
+  // created last so it is the one selected when the page opens.
+  const secondaryWorkspace = await hostRpc(host, 'workspace/create', { path: secondaryRepo })
+  const primaryIdentity = await createWorkspaceSession(host, primaryRepo)
+  const primary = await seedBrowserProject(primaryRepo, primaryIdentity.sessionId)
+  const fixtures = {
+    primary,
+    primaryWorkspaceId: primaryIdentity.workspaceId,
+    primarySessionId: primaryIdentity.sessionId,
+    secondaryWorkspaceId: secondaryWorkspace.workspace.workspaceId,
+    prepareSecondarySession: async (sessionId) => {
+      const secondary = await seedSecondaryProject(secondaryRepo, sessionId)
+      fixtures.secondary = secondary
+      return secondary
+    },
+  }
+  return fixtures
+}
+
+async function openBrowserPage(chromium, host, state) {
+  const context = await chromium.newContext({
+    locale: 'zh-CN',
+    viewport: { width: 1440, height: 1000 },
+    timezoneId: 'Asia/Shanghai',
+  })
+  const page = await context.newPage()
+  // The host opens a keyless "开始使用" dialog on several first-use surfaces.
+  // Playwright runs this handler whenever that dialog blocks another action.
+  await page.addLocatorHandler(page.getByRole('dialog', { name: '开始使用' }), async (dialog) => {
+    const close = dialog.getByRole('button', { name: '关闭' })
+    if ((await close.count()) > 0) await close.click()
+  })
+  page.on('pageerror', error => { pushBounded(state.pageErrors, error.message, MAX_PAGE_ERRORS) })
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      pushBounded(state.consoleMessages, { type: message.type(), text: message.text() }, MAX_CONSOLE_MESSAGES)
+    }
+  })
+  page.on('response', (response) => {
+    pushBounded(state.network, {
+      method: response.request().method(),
+      url: redactUrl(response.url()),
+      status: response.status(),
+    }, MAX_NETWORK_ROWS)
+  })
+  await page.coverage.startJSCoverage({ resetOnNavigation: false, reportAnonymousScripts: false })
+  await page.goto(host.authenticatedUrl, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 30_000 })
+  await dismissFirstRun(page)
+  await openPanel(page)
+  return page
+}
+
+async function publishCoverage({ host, probe, coverageEntries }) {
+  const entry = pluginBundleEntry(coverageEntries)
+  if (entry === null) throw new Error('the plugin client bundle was not present in JSCoverage')
+  const mapPath = join(root, 'lib', 'client.js.map')
+  const bundlePath = join(root, 'lib', 'client.js')
+  const sectionIndex = comboSectionIndex(entry.url)
+  if (sectionIndex === null) throw new Error('the plugin package is missing from the combo URL')
+  const servedMapUrl = comboSourceMapUrl(entry.url)
+  const servedMapResponse = await fetch(servedMapUrl, { headers: { cookie: host.cookie } })
+  if (!servedMapResponse.ok) {
+    throw new Error(`the host combo source map returned ${servedMapResponse.status}`)
+  }
+  const report = clientCoverageFromEntry({
+    entry,
+    sourceMapPayload: await servedMapResponse.json(),
+    repoRoot: root,
+    mapDirectory: dirname(mapPath),
+    sectionIndex,
+  })
+  const completeness = coverageCompletenessFailures(report)
+  if (completeness.length > 0) {
+    throw new Error(`browser coverage completeness failed: ${completeness.join('; ')}`)
+  }
+  const gitStatus = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout.trim()
+  const artifact = {
+    head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(),
+    dirty: gitStatus !== '',
+    gitStatus: gitStatus === '' ? [] : gitStatus.split('\n').slice(0, 100),
+    generatedAt: new Date().toISOString(),
+    pluginVersion: host.packageJson.version,
+    playwrightVersion: host.packageJson.devDependencies?.playwright ?? 'unknown',
+    dshVersion: probe.stdout.trim(),
+    clientSha256: sha256(bundlePath),
+    mapSha256: sha256(mapPath),
+    servedMapUrl,
+  }
+  if (STRICT && artifact.dirty) throw new Error('browser lane requires a clean worktree before strict evidence')
+  const output = {
+    formatVersion: 1,
+    artifact,
+    policy: {
+      gate: 'report-only',
+      branchMetric: 'not reported by precise coverage',
+      tsxOwner: 'browser',
+      tsOwner: 'node-test-coverage',
+    },
+    summary: coverageSummary(report),
+    ...report,
+  }
+  mkdirSync(resolve(root, 'coverage'), { recursive: true })
+  writeFileSync(resolve(root, 'coverage', 'client.json'), `${JSON.stringify(output, null, 2)}\n`, 'utf8')
+  const counted = report.files.filter(file => file.status === 'counted').length
+  console.log(
+    `PASS browser-panel: ${counted} counted client files, ${report.files.length} reported`
+    + `${artifact.dirty ? ' (dirty worktree)' : ''}`,
+  )
+  for (const line of output.summary) console.log(`  ${line}`)
+  if (KEEP) {
+    const target = resolve(root, '.dsh-cowork', 'browser', `browser-${randomUUID()}`)
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, 'summary.json'), `${JSON.stringify(output, null, 2)}\n`, 'utf8')
+    console.log(`  kept summary: ${target}`)
+  }
+  return report
 }
 
 async function main() {
@@ -198,123 +335,13 @@ async function main() {
       profileName: 'cowork-browser',
       prefix: 'cowork-browser-host-',
     })
-    // The secondary workspace starts empty; its Session is created through the
-    // real sidebar action during the switch scenario. The primary Session is
-    // created last so it is the one selected when the page opens.
-    const secondaryWorkspace = await hostRpc(host, 'workspace/create', { path: secondaryRepo })
-    const primaryIdentity = await createWorkspaceSession(host, primaryRepo)
-    const primary = await seedBrowserProject(primaryRepo, primaryIdentity.sessionId)
-    const fixtures = {
-      primary,
-      primaryWorkspaceId: primaryIdentity.workspaceId,
-      primarySessionId: primaryIdentity.sessionId,
-      secondaryWorkspaceId: secondaryWorkspace.workspace.workspaceId,
-      prepareSecondarySession: async (sessionId) => {
-        const secondary = await seedSecondaryProject(secondaryRepo, sessionId)
-        fixtures.secondary = secondary
-        return secondary
-      },
-    }
-
+    const fixtures = await prepareFixtures(host, primaryRepo, secondaryRepo)
     browser = await chromium.launch({ headless: !HEADFUL })
-    const context = await browser.newContext({
-      locale: 'zh-CN',
-      viewport: { width: 1440, height: 1000 },
-      timezoneId: 'Asia/Shanghai',
-    })
-    page = await context.newPage()
-    // The host opens a keyless "开始使用" dialog on several first-use surfaces.
-    // Playwright runs this handler whenever that dialog blocks another action.
-    await page.addLocatorHandler(page.getByRole('dialog', { name: '开始使用' }), async (dialog) => {
-      const close = dialog.getByRole('button', { name: '关闭' })
-      if ((await close.count()) > 0) await close.click()
-    })
-    page.on('pageerror', error => { pushBounded(pageErrors, error.message, MAX_PAGE_ERRORS) })
-    page.on('console', (message) => {
-      if (message.type() === 'error' || message.type() === 'warning') {
-        pushBounded(consoleMessages, { type: message.type(), text: message.text() }, MAX_CONSOLE_MESSAGES)
-      }
-    })
-    page.on('response', (response) => {
-      pushBounded(network, {
-        method: response.request().method(),
-        url: redactUrl(response.url()),
-        status: response.status(),
-      }, MAX_NETWORK_ROWS)
-    })
-    await page.coverage.startJSCoverage({ resetOnNavigation: false, reportAnonymousScripts: false })
-    await page.goto(host.authenticatedUrl, { waitUntil: 'domcontentloaded' })
-    await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 30_000 })
-    await dismissFirstRun(page)
-    await openPanel(page)
+    page = await openBrowserPage(browser, host, { pageErrors, consoleMessages, network })
     await runBrowserScenarios(page, fixtures)
     coverageEntries = await page.coverage.stopJSCoverage()
     if (pageErrors.length > 0) throw new Error(`page errors: ${pageErrors.join(' | ')}`)
-
-    const entry = pluginBundleEntry(coverageEntries)
-    if (entry === null) throw new Error('the plugin client bundle was not present in JSCoverage')
-    const mapPath = join(root, 'lib', 'client.js.map')
-    const bundlePath = join(root, 'lib', 'client.js')
-    const sectionIndex = comboSectionIndex(entry.url)
-    if (sectionIndex === null) throw new Error('the plugin package is missing from the combo URL')
-    const servedMapUrl = comboSourceMapUrl(entry.url)
-    const servedMapResponse = await fetch(servedMapUrl, { headers: { cookie: host.cookie } })
-    if (!servedMapResponse.ok) {
-      throw new Error(`the host combo source map returned ${servedMapResponse.status}`)
-    }
-    const report = clientCoverageFromEntry({
-      entry,
-      sourceMapPayload: await servedMapResponse.json(),
-      repoRoot: root,
-      mapDirectory: dirname(mapPath),
-      sectionIndex,
-    })
-    const completeness = coverageCompletenessFailures(report)
-    const counted = report.files.filter(file => file.status === 'counted').length
-    const gitStatus = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout.trim()
-    const artifact = {
-      head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(),
-      dirty: gitStatus !== '',
-      gitStatus: gitStatus === '' ? [] : gitStatus.split('\n').slice(0, 100),
-      generatedAt: new Date().toISOString(),
-      pluginVersion: host.packageJson.version,
-      playwrightVersion: host.packageJson.devDependencies?.playwright ?? 'unknown',
-      dshVersion: probe.stdout.trim(),
-      clientSha256: sha256(bundlePath),
-      mapSha256: sha256(mapPath),
-      servedMapUrl,
-    }
-    const output = {
-      formatVersion: 1,
-      artifact,
-      policy: {
-        gate: 'report-only',
-        branchMetric: 'not reported by precise coverage',
-        tsxOwner: 'browser',
-        tsOwner: 'node-test-coverage',
-      },
-      summary: coverageSummary(report),
-      ...report,
-    }
-    mkdirSync(resolve(root, 'coverage'), { recursive: true })
-    writeFileSync(resolve(root, 'coverage', 'client.json'), `${JSON.stringify(output, null, 2)}\n`, 'utf8')
-    if (completeness.length > 0) {
-      throw new Error(`browser coverage completeness failed: ${completeness.join('; ')}`)
-    }
-    if (STRICT && artifact.dirty) {
-      throw new Error('browser lane requires a clean worktree before strict evidence')
-    }
-    console.log(
-      `PASS browser-panel: ${counted} counted client files, ${report.files.length} reported`
-      + `${artifact.dirty ? ' (dirty worktree)' : ''}`,
-    )
-    for (const line of output.summary) console.log(`  ${line}`)
-    if (KEEP) {
-      const target = resolve(root, '.dsh-cowork', 'browser', `browser-${randomUUID()}`)
-      mkdirSync(target, { recursive: true })
-      writeFileSync(join(target, 'summary.json'), `${JSON.stringify(output, null, 2)}\n`, 'utf8')
-      console.log(`  kept summary: ${target}`)
-    }
+    await publishCoverage({ host, probe, coverageEntries })
   } catch (error) {
     const target = await writeFailureArtifacts({
       page,
