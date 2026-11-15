@@ -2,8 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CLIENT_BROWSER_BLOCKED,
+  CLIENT_BROWSER_TSX,
   clientCoverageFromEntry,
   clientSourceFile,
+  coverageCompletenessFailures,
   coverageGateFailures,
   flattenSourceMapSources,
   pluginBundleEntry,
@@ -117,6 +119,35 @@ test('blocked notice renderer stays visible as a reason, never as covered', () =
   assert.deepEqual(coverageGateFailures(report, {
     'src/client/notice.tsx': { lineCoverage: 100 },
   }), [])
+})
+
+test('completeness requires every expected TSX and a blocked notice entry', () => {
+  assert.deepEqual(
+    coverageCompletenessFailures({ files: [] }),
+    CLIENT_BROWSER_TSX.map(file => `${file}: missing from browser coverage report`),
+  )
+  const counted = CLIENT_BROWSER_TSX
+    .filter(file => file !== 'src/client/notice.tsx')
+    .map(file => ({ file, status: 'counted', executableLines: 1 }))
+  const blocked = {
+    file: 'src/client/notice.tsx',
+    status: 'blocked',
+    blockedReason: CLIENT_BROWSER_BLOCKED['src/client/notice.tsx'],
+    executableLines: 1,
+  }
+  assert.deepEqual(coverageCompletenessFailures({ files: [...counted, blocked] }), [])
+  assert.deepEqual(
+    coverageCompletenessFailures({ files: [...counted, { ...blocked, status: 'counted' }] }),
+    ['src/client/notice.tsx: expected blocked, got counted'],
+  )
+  assert.deepEqual(
+    coverageCompletenessFailures({ files: [...counted, { ...blocked, blockedReason: '' }] }),
+    ['src/client/notice.tsx: blocked entry needs a reason'],
+  )
+  assert.deepEqual(
+    coverageCompletenessFailures({ files: [counted[0], counted[0]] }, ['src/client/index.tsx']),
+    ['src/client/index.tsx: duplicate entry in browser coverage report'],
+  )
 })
 
 test('combo source paths stay scoped to this plugin and indexed maps expose their sections', () => {

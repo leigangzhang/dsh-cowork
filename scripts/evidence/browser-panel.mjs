@@ -16,7 +16,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startDshHost } from './dsh-host-session.mjs'
-import { clientCoverageFromEntry, comboSourceMapUrl, pluginBundleEntry } from './client-coverage.mjs'
+import {
+  clientCoverageFromEntry,
+  comboSourceMapUrl,
+  coverageCompletenessFailures,
+  pluginBundleEntry,
+} from './client-coverage.mjs'
 import { seedBrowserProject, seedSecondaryProject } from '../../tests/browser/fixtures.mjs'
 import { runBrowserScenarios } from '../../tests/browser/scenarios.mjs'
 
@@ -121,9 +126,9 @@ async function writeFailureArtifacts({ page, error, pageErrors, consoleMessages,
 }
 
 function coverageSummary(report) {
-  return report.files
-    .filter(file => file.status === 'counted')
-    .map(file => `${file.file} line ${file.lineCoverage}% function ${file.functionCoverage}%`)
+  return report.files.map(file => file.status === 'blocked'
+    ? `${file.file} blocked: ${file.blockedReason}`
+    : `${file.file} line ${file.lineCoverage}% function ${file.functionCoverage}%`)
 }
 
 async function main() {
@@ -234,6 +239,8 @@ async function main() {
       repoRoot: root,
       mapDirectory: dirname(mapPath),
     })
+    const completeness = coverageCompletenessFailures(report)
+    const counted = report.files.filter(file => file.status === 'counted').length
     const artifact = {
       head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(),
       generatedAt: new Date().toISOString(),
@@ -258,7 +265,10 @@ async function main() {
     }
     mkdirSync(resolve(root, 'coverage'), { recursive: true })
     writeFileSync(resolve(root, 'coverage', 'client.json'), `${JSON.stringify(output, null, 2)}\n`, 'utf8')
-    console.log(`PASS browser-panel: ${coverageSummary(report).length} counted client files`)
+    if (completeness.length > 0) {
+      throw new Error(`browser coverage completeness failed: ${completeness.join('; ')}`)
+    }
+    console.log(`PASS browser-panel: ${counted} counted client files, ${report.files.length} reported`)
     for (const line of output.summary) console.log(`  ${line}`)
     if (KEEP) {
       const target = resolve(root, '.dsh-cowork', 'browser', `browser-${randomUUID()}`)

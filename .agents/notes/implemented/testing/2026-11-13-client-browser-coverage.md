@@ -22,7 +22,7 @@ Class: testing
 
 **2. 覆盖率来自宿主组合后的真实 bundle。** 浏览器覆盖映射的入口是 [client-coverage.mjs](../../../../scripts/evidence/client-coverage.mjs)：它读取 Playwright 的 JSCoverage `source` 与函数区间，用宿主返回的 combo indexed source map（由已安装包的 `lib/client.js.map` section 组成）和 Node 内置 `module.SourceMap.findOrigin` 映射回 `src/client/**`。`coverage/client.json` 记录 per-file line/function、未覆盖行、插件版本、HEAD、`lib/client.js` 与 `lib/client.js.map` 的 SHA-256，以及实际使用的 combo map URL。
 
-`src/client/**/*.ts` 仍由 Node `test:coverage` 负责；浏览器 lane 只对可达 TSX 设门槛，`.ts` 数据作为交叉信号报告。指标只有 line/function，不伪造 branch。`src/client/notice.tsx` 以 `blocked` 状态记录宿主缺少 `ctx.sessionNotices`（KI-40），不从计数和门槛里消失；宿主提供该服务后必须重新纳入。
+`src/client/**/*.ts` 仍由 Node `test:coverage` 负责；浏览器 lane 首版只报告可达 TSX 的 per-file line/function，并先断言预期 TSX 集存在；连续三次 green 后再设 per-file 门槛。`.ts` 数据作为交叉信号报告，不伪造 branch。`src/client/notice.tsx` 必须以 `blocked` 状态存在于报告，并从计数和门槛中跳过；宿主提供 `ctx.sessionNotices`（KI-40 退休）后必须重新纳入。
 
 **3. 场景按用户结果组织。** [scenarios.mjs](../../../../tests/browser/scenarios.mjs) 覆盖：底栏入口与默认面板、四组主题、resolved 折叠、菜单键盘焦点与 Escape 回位、真实归档/恢复 POST、失败回滚、宽/窄宿主布局、`sessionStorage` 主题筛选跨重载恢复、四类收件箱请求的八个动作、问题分页与 submit gate、计划内联修改、prompt warning、写入失败 receipt、overview 错误重试，以及从 workspace 动作创建并切换到第二个真实宿主会话后读取其独立 fixture 和筛选。断言使用 DOM/ARIA、可见文案和 HTTP 请求；截图只在失败时保留，不替代断言。
 
@@ -54,6 +54,6 @@ Class: testing
 ## Testing
 
 - [A1] `npm run test:browser` 从当前 `lib/` 打入临时 `DSH_HOME`，启动 host、完成认证、用一个 Chromium context 打开面板，并在成功/失败路径清理子进程、profile 和 fixture — `packaging`
-- [A2] combo source map 能映射到 `src/client/**/*.tsx` 并写出 `coverage/client.json`；`tests/browser/coverage-map.test.mjs` 的合成未执行行和缺失 source 会失败，`notice.tsx` 以 blocked 原因保留 — `tests`
+- [A2] combo source map 能映射到 `src/client/**/*.tsx` 并写出 `coverage/client.json`；报告缺少预期 TSX、出现重复条目、或 `notice.tsx` 未以 blocked 原因存在时 lane 失败；`tests/browser/coverage-map.test.mjs` 的合成未执行行和缺失 source 会失败 — `tests`
 - [A3] `tests/browser/scenarios.mjs` 覆盖四组主题、归档/恢复、宽窄布局、四类请求与八个动作、错误回滚、键盘焦点、overview 重试和新宿主会话切换；断言包含 DOM/ARIA 与真实 HTTP 请求 — `tests`
 - [A4] `playwright@1.65.1`、`package-lock.json`、`npm run test:browser`、`browser` surface、observational 状态和 strict skip 规则由 [workflow.json](../../../../tools/workflow.json) 与 [testing.md](../../../../docs/testing.md) 固定；`npm run test:host-smoke` 继续通过 — `workflow`

@@ -104,6 +104,13 @@ test('executable test lanes are wired to scripts, workflow evidence, and the tes
   const lock = JSON.parse(read('package-lock.json'))
   assert.equal(lock.packages?.['']?.devDependencies?.playwright, pkg.devDependencies.playwright, 'lockfile must pin the Playwright manifest version')
   assert.equal(lock.packages?.['node_modules/playwright']?.version, pkg.devDependencies.playwright, 'lockfile must contain the Playwright install')
+  const resolved = Object.values(lock.packages ?? {})
+    .map(entry => entry?.resolved)
+    .filter(url => typeof url === 'string')
+  assert.ok(resolved.length > 0, 'lockfile must contain resolved tarball URLs')
+  for (const url of resolved) {
+    assert.ok(url.startsWith('https://registry.npmjs.org/'), `lockfile resolved outside the official registry: ${url}`)
+  }
   const packaging = workflow.surfaces.find((surface) => surface.name === 'packaging')
   assert.ok(packaging, 'workflow must declare the packaging surface')
   for (const command of ['npm test', 'npm run build', 'npm run test:host-smoke']) {

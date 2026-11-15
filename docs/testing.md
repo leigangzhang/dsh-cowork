@@ -8,7 +8,7 @@ One home for how dsh-cowork decides that something is verified.
 |---|---|---|---|
 | Unit | `npm test` | Edges, error paths, event order, real git/store behavior under temporary paths | Every pure module and contract change |
 | Coverage | `npm run test:coverage` | Every counted host TypeScript module stays above the reviewed line/branch/function floors | Every `src/**/*.ts` change |
-| Browser | `npm run test:browser` | The packed plugin boots in a temporary DSH web profile; one Chromium context drives the real sidebar and panel; DOM/ARIA/HTTP requests and client TSX line/function coverage are asserted | Every `src/client/**/*.tsx`, `tests/browser/**`, or browser-lane script change; after `npm run build` |
+| Browser | `npm run test:browser` | The packed plugin boots in a temporary DSH web profile; one Chromium context drives the real sidebar and panel; DOM/ARIA/HTTP requests are asserted; client TSX line/function coverage is reported and the expected TSX set must be present | Every `src/client/**/*.tsx`, `tests/browser/**`, or browser-lane script change; after `npm run build` |
 | Built artifact | `npm run test:host-smoke` | The packed `lib/` installs into a temporary DSH profile, boots the host, serves its loopback health route, and proves the panel API rejects an unauthenticated request | Package, bundle-patch, build, or registration changes; after `npm run build` |
 | Real host transaction | M12 dev route, recorded under `.dsh-cowork/e2e/M12_E2E.json` | Cross-session and cross-process behavior against a real DSH host | Before a release and for every cross-session/cross-process change |
 

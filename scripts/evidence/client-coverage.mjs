@@ -11,12 +11,21 @@
  * manufacturing one would make the report look stricter than it is.
  */
 import { SourceMap } from 'node:module'
-import { dirname, extname, relative, resolve, sep } from 'node:path'
+import { extname, relative, resolve, sep } from 'node:path'
 
 /** Files whose browser execution is blocked by a known host capability. */
 export const CLIENT_BROWSER_BLOCKED = Object.freeze({
   'src/client/notice.tsx': 'the running DSH host has no ctx.sessionNotices (KI-40)',
 })
+
+/** The TSX files a complete browser report must contain. */
+export const CLIENT_BROWSER_TSX = Object.freeze([
+  'src/client/index.tsx',
+  'src/client/panel.tsx',
+  'src/client/list.tsx',
+  'src/client/inbox.tsx',
+  'src/client/notice.tsx',
+])
 
 /** The client source extensions this lane reports. */
 export const CLIENT_SOURCE_EXTENSIONS = Object.freeze(['.ts', '.tsx'])
@@ -222,6 +231,51 @@ export function comboSourceMapUrl(entryUrl) {
   return entryUrl.replaceAll('/client.js', '/client.js.map')
 }
 
+/**
+ * Failures for a report that is missing an expected TSX surface or a duplicate.
+ *
+ * Presence is separate from a reviewed coverage floor: the browser lane first
+ * has to prove it mapped the whole reachable client surface. `notice.tsx` must
+ * be present as blocked until KI-40 is retired.
+ *
+ * @param {{files?: Array<{file: string, status: string, blockedReason?: string, executableLines?: number}>}} report
+ * @param {readonly string[]} [expected]
+ * @returns {string[]}
+ */
+export function coverageCompletenessFailures(report, expected = CLIENT_BROWSER_TSX) {
+  const files = Array.isArray(report?.files) ? report.files : []
+  const byFile = new Map()
+  const failures = []
+  for (const entry of files) {
+    if (typeof entry?.file !== 'string') {
+      failures.push('coverage report contains an entry without a file')
+      continue
+    }
+    if (byFile.has(entry.file)) failures.push(`${entry.file}: duplicate entry in browser coverage report`)
+    else byFile.set(entry.file, entry)
+  }
+  for (const file of expected) {
+    const entry = byFile.get(file)
+    if (entry === undefined) {
+      failures.push(`${file}: missing from browser coverage report`)
+      continue
+    }
+    const blockedReason = CLIENT_BROWSER_BLOCKED[file]
+    if (blockedReason !== undefined) {
+      if (entry.status !== 'blocked') failures.push(`${file}: expected blocked, got ${entry.status}`)
+      else if (typeof entry.blockedReason !== 'string' || entry.blockedReason.trim() === '') {
+        failures.push(`${file}: blocked entry needs a reason`)
+      }
+      continue
+    }
+    if (entry.status !== 'counted') failures.push(`${file}: expected counted, got ${entry.status}`)
+    else if (!Number.isInteger(entry.executableLines) || entry.executableLines <= 0) {
+      failures.push(`${file}: no executable lines mapped`)
+    }
+  }
+  return failures
+}
+
 /** Per-file failures for a set of reviewed floors. Blocked files are skipped. */
 export function coverageGateFailures(report, floors = {}) {
   const byFile = new Map((report?.files ?? []).map(file => [file.file, file]))
@@ -241,9 +295,4 @@ export function coverageGateFailures(report, floors = {}) {
     }
   }
   return failures
-}
-
-/** Source map directory used when a caller only knows the bundle path. */
-export function bundleMapDirectory(bundlePath) {
-  return dirname(bundlePath)
 }
