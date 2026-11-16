@@ -535,8 +535,8 @@
         "covered": 808
       },
       "branches": {
-        "total": 639,
-        "covered": 360
+        "total": 641,
+        "covered": 358
       },
       "functions": {
         "total": 67,
@@ -545,54 +545,18 @@
     },
     {
       "path": "src/domains/requests/authorization-decision.ts",
-      "uncoveredLines": [
-        180,
-        204,
-        205,
-        283,
-        284,
-        285,
-        286,
-        287,
-        288,
-        289,
-        297,
-        298,
-        302,
-        303,
-        349,
-        350,
-        373,
-        374,
-        387,
-        388,
-        398,
-        399,
-        400,
-        401,
-        402,
-        403,
-        404,
-        405,
-        406,
-        416,
-        417,
-        421,
-        422,
-        497,
-        498
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 501,
-        "covered": 466
+        "covered": 501
       },
       "branches": {
-        "total": 324,
-        "covered": 195
+        "total": 427,
+        "covered": 266
       },
       "functions": {
-        "total": 29,
-        "covered": 22
+        "total": 38,
+        "covered": 25
       }
     },
     {
@@ -684,8 +648,8 @@
         "covered": 797
       },
       "branches": {
-        "total": 1184,
-        "covered": 760
+        "total": 1267,
+        "covered": 786
       },
       "functions": {
         "total": 80,
@@ -793,12 +757,12 @@
         "covered": 261
       },
       "branches": {
-        "total": 98,
-        "covered": 74
+        "total": 149,
+        "covered": 125
       },
       "functions": {
-        "total": 12,
-        "covered": 12
+        "total": 16,
+        "covered": 14
       }
     },
     {
