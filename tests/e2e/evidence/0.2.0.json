@@ -4,10 +4,10 @@
   "dshVersion": "0.2.1-rc.2",
   "nodeVersion": "v22.22.1",
   "command": "npm run test:e2e -- --record",
-  "recordedAt": "2026-11-16T13:18:53.750Z",
+  "recordedAt": "2026-11-16T13:19:36.877Z",
   "result": "pass",
   "artifact": {
-    "head": "5f1a132506f3df9726201d48da0980038d5fe5a9",
+    "head": "6952193f1e3733a2b8c1a77879287f3cdb4c7965",
     "dirty": false,
     "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "tarballSha256": "78e91cfcb70c9179cc5a26bfae0345ef301df27852bb7e2be33e94d101884183"
@@ -71,27 +71,27 @@
           "passed": true
         },
         {
-          "name": "topic session-7e38a40b-a… is a real session",
+          "name": "topic session-e4d54b43-9… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-7e38a40b-a… mounted cowork-topic",
+          "name": "topic session-e4d54b43-9… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-0ab823f6-0… is a real session",
+          "name": "topic session-c34af523-c… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-0ab823f6-0… mounted cowork-topic",
+          "name": "topic session-c34af523-c… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-d01cf29e-a… is a real session",
+          "name": "topic session-89a101a3-4… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-d01cf29e-a… mounted cowork-topic",
+          "name": "topic session-89a101a3-4… mounted cowork-topic",
           "passed": true
         },
         {
