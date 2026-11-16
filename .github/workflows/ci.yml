@@ -16,6 +16,13 @@ jobs:
     name: pr-gate
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Temporary repositories created by the tests make commits; hosted runners
+      # have no global git identity.
+      GIT_AUTHOR_NAME: github-actions[bot]
+      GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      GIT_COMMITTER_NAME: github-actions[bot]
+      GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
     steps:
       - name: Checkout PR head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

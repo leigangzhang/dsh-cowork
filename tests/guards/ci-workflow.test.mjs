@@ -18,6 +18,9 @@ test('CI workflow has one PR-owned pr-gate job', () => {
   assert.match(workflow, /^concurrency:\n  group: ci-pr-\$\{\{ github\.event\.pull_request\.number \}\}\n  cancel-in-progress: true$/m)
   assert.match(workflow, /^  pr-gate:\n    name: pr-gate$/m)
   assert.match(workflow, /^    runs-on: ubuntu-latest$/m)
+  for (const key of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']) {
+    assert.ok(workflow.includes(`${key}:`), `missing git identity for temporary test commits: ${key}`)
+  }
 })
 
 test('CI workflow runs the five core gates from the PR head', () => {
