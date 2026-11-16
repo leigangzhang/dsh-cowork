@@ -27,7 +27,7 @@ import {
   selectChecks,
   selfTest as engineSelfTest,
 } from './doc-gate-engine.mjs'
-import { collectSurfaceKeys, e2eManifestProblems } from './e2e-coverage.mjs'
+import { collectSurfaceKeys, e2eEvidenceProblems, e2eManifestProblems } from './e2e-coverage.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
@@ -140,13 +140,29 @@ async function e2eErrors() {
   const packageJson = readJson('package.json')
   if (packageJson.error !== undefined) return [packageJson.error]
   const surfaceKeys = await collectSurfaceKeys()
-  return e2eManifestProblems({
-    packageVersion: packageJson.value.version,
-    manifest: manifest.value,
-    debt: debt.value,
-    surfaceKeys,
-    manifestDir: resolve(root, 'tests/e2e'),
-  })
+  const evidencePath = `tests/e2e/evidence/${packageJson.value.version}.json`
+  const evidence = exists(evidencePath) ? readJson(evidencePath) : { value: null }
+  if (evidence.error !== undefined) return [evidence.error]
+  const keylessScenarioIds = new Set(
+    (manifest.value.scenarios ?? [])
+      .filter((scenario) => scenario?.mode === 'keyless')
+      .map((scenario) => scenario.id)
+      .filter((id) => typeof id === 'string'),
+  )
+  return [
+    ...e2eManifestProblems({
+      packageVersion: packageJson.value.version,
+      manifest: manifest.value,
+      debt: debt.value,
+      surfaceKeys,
+      manifestDir: resolve(root, 'tests/e2e'),
+    }),
+    ...e2eEvidenceProblems({
+      packageVersion: packageJson.value.version,
+      evidence: evidence.value,
+      keylessScenarioIds,
+    }),
+  ]
 }
 
 function projectRuleErrors(config) {
@@ -542,6 +558,13 @@ const E2E_MANIFEST = {
   scenarios: [E2E_SCENARIO],
 }
 const E2E_DEBT = { entries: [] }
+const E2E_EVIDENCE = {
+  formatVersion: 1,
+  pluginVersion: '1.0.0',
+  result: 'pass',
+  artifact: { head: 'a'.repeat(40), dirty: false, tarballSha256: 'b'.repeat(64) },
+  scenarios: [{ id: 's1', mode: 'keyless', passed: true, checks: [{ name: 'c', passed: true }] }],
+}
 
 /** Evaluate one synthetic catalog; every file exists. */
 function e2eProblems(overrides = {}) {
@@ -618,6 +641,24 @@ function projectSelfTest() {
       name: 'e2e catalog: a new public key without a scenario or debt is red',
       fail: () => e2eProblems({ surfaceKeys: [...E2E_SURFACE_KEYS, 'tool:new'] })
         .some((problem) => problem.includes('tool:new')),
+    },
+    {
+      name: 'e2e evidence: a missing summary is red',
+      fail: () => e2eEvidenceProblems({ packageVersion: '1.0.0', evidence: null, keylessScenarioIds: new Set(['s1']) })
+        .some((problem) => problem.includes('is missing')),
+    },
+    {
+      name: 'e2e evidence: a failed scenario is red',
+      fail: () => e2eEvidenceProblems({
+        packageVersion: '1.0.0',
+        evidence: { ...E2E_EVIDENCE, scenarios: [{ ...E2E_EVIDENCE.scenarios[0], passed: false }] },
+        keylessScenarioIds: new Set(['s1']),
+      }).some((problem) => problem.includes('passed must be true')),
+    },
+    {
+      name: 'e2e evidence: a missing keyless scenario is red',
+      fail: () => e2eEvidenceProblems({ packageVersion: '1.0.0', evidence: E2E_EVIDENCE, keylessScenarioIds: new Set(['s1', 's2']) })
+        .some((problem) => problem.includes('has no recorded result')),
     },
     {
       name: 'export audit: a dead export is red',

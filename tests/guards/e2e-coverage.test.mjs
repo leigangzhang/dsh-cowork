@@ -5,7 +5,9 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   collectSurfaceKeys,
+  e2eEvidenceProblems,
   e2eManifestProblems,
+  WORK_ITEM_STORE_ONLY_STATUSES,
 } from '../../tools/e2e-coverage.mjs'
 import { hostSupport, parseHostVersion } from '../../tests/e2e/support/versions.mjs'
 
@@ -22,6 +24,8 @@ const manifestDir = resolve(root, 'tests/e2e')
 const manifest = JSON.parse(readFileSync(resolve(manifestDir, 'manifest.json'), 'utf8'))
 const debt = JSON.parse(readFileSync(resolve(manifestDir, 'coverage-debt.json'), 'utf8'))
 const packageVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
+const evidence = JSON.parse(readFileSync(resolve(manifestDir, 'evidence', `${packageVersion}.json`), 'utf8'))
+const keylessIds = new Set(manifest.scenarios.filter((scenario) => scenario.mode === 'keyless').map((scenario) => scenario.id))
 
 const SURFACE_KEYS = ['preset:p', 'route:/x GET', 'tool:a', 'topic-status:active']
 const SCENARIO = {
@@ -51,6 +55,20 @@ function problems(overrides = {}) {
   })
 }
 
+test('the matrix excludes only store-only work-item states', async () => {
+  const schema = await import('../../src/store/schema.ts')
+  assert.deepEqual(WORK_ITEM_STORE_ONLY_STATUSES, ['abandoned'])
+  for (const status of WORK_ITEM_STORE_ONLY_STATUSES) assert.ok(schema.WORK_ITEM_STATUSES.includes(status))
+  const surfaceKeys = await collectSurfaceKeys()
+  for (const status of schema.WORK_ITEM_STATUSES) {
+    assert.equal(
+      surfaceKeys.includes(`work-item-status:${status}`),
+      !WORK_ITEM_STORE_ONLY_STATUSES.includes(status),
+      `matrix membership for ${status}`,
+    )
+  }
+})
+
 test('the live repository catalog is green against the derived public surface', async () => {
   const surfaceKeys = await collectSurfaceKeys()
   assert.equal(new Set(surfaceKeys).size, surfaceKeys.length, 'surface keys must be unique')
@@ -66,13 +84,29 @@ test('the live repository catalog is green against the derived public surface', 
   )
 })
 
-test('every manifest scenario file exports the same id and mode', async () => {
+test('every manifest scenario file exports the same id and a run function', async () => {
   for (const entry of manifest.scenarios) {
     const module = await import(resolve(manifestDir, entry.file))
     assert.equal(module.id, entry.id, `${entry.file} id`)
     assert.equal(typeof module.run, 'function', `${entry.file} run export`)
-    assert.equal(entry.mode, 'keyless', `${entry.id} runs keyless in this lane`)
   }
+})
+
+test('the committed evidence matches the current version and every keyless scenario', () => {
+  assert.deepEqual(e2eEvidenceProblems({ packageVersion, evidence, keylessScenarioIds: keylessIds }), [])
+})
+
+test('the evidence checker rejects a missing, failed, or partial summary', () => {
+  assert.ok(e2eEvidenceProblems({ packageVersion, evidence: null, keylessScenarioIds: keylessIds })
+    .some((problem) => problem.includes('is missing')))
+  const failed = structuredClone(evidence)
+  failed.scenarios[0].passed = false
+  assert.ok(e2eEvidenceProblems({ packageVersion, evidence: failed, keylessScenarioIds: keylessIds })
+    .some((problem) => problem.includes('passed must be true')))
+  const partial = structuredClone(evidence)
+  partial.scenarios = partial.scenarios.slice(1)
+  assert.ok(e2eEvidenceProblems({ packageVersion, evidence: partial, keylessScenarioIds: keylessIds })
+    .some((problem) => problem.includes('has no recorded result')))
 })
 
 test('the manifest covers the complete public tool and route surface', async () => {

@@ -4,13 +4,13 @@
   "dshVersion": "0.2.1-rc.2",
   "nodeVersion": "v22.22.1",
   "command": "npm run test:e2e -- --record",
-  "recordedAt": "2026-11-16T13:19:36.877Z",
+  "recordedAt": "2026-11-16T13:59:55.352Z",
   "result": "pass",
   "artifact": {
-    "head": "6952193f1e3733a2b8c1a77879287f3cdb4c7965",
+    "head": "7f8cf31922610a81aa1118ddff64275b7d9167f8",
     "dirty": false,
     "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "tarballSha256": "78e91cfcb70c9179cc5a26bfae0345ef301df27852bb7e2be33e94d101884183"
+    "tarballSha256": "3566a53b99eac25907fd84c0559183148d4fb527e21d4e66d86038e2d239ff25"
   },
   "scenarios": [
     {
@@ -71,27 +71,27 @@
           "passed": true
         },
         {
-          "name": "topic session-e4d54b43-9… is a real session",
+          "name": "topic session-92ff1c11-1… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-e4d54b43-9… mounted cowork-topic",
+          "name": "topic session-92ff1c11-1… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-c34af523-c… is a real session",
+          "name": "topic session-fe8f0685-d… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-c34af523-c… mounted cowork-topic",
+          "name": "topic session-fe8f0685-d… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-89a101a3-4… is a real session",
+          "name": "topic session-651e31f8-f… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-89a101a3-4… mounted cowork-topic",
+          "name": "topic session-651e31f8-f… mounted cowork-topic",
           "passed": true
         },
         {
@@ -322,6 +322,69 @@
         },
         {
           "name": "project_status reports the reviewed topic",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "review-revision",
+      "mode": "keyless",
+      "passed": true,
+      "checks": [
+        {
+          "name": "route created the revision topic",
+          "passed": true
+        },
+        {
+          "name": "work_item_create returned a clone path",
+          "passed": true
+        },
+        {
+          "name": "the first review request is pending",
+          "passed": true
+        },
+        {
+          "name": "the review file records needs_revision",
+          "passed": true
+        },
+        {
+          "name": "the topic records needs_revision",
+          "passed": true
+        },
+        {
+          "name": "the work item returns to active after needs_revision",
+          "passed": true
+        },
+        {
+          "name": "the revision verdict was delivered to the topic",
+          "passed": true
+        },
+        {
+          "name": "the re-review request is pending",
+          "passed": true
+        },
+        {
+          "name": "the re-review names the previous request",
+          "passed": true
+        },
+        {
+          "name": "the review file records reject",
+          "passed": true
+        },
+        {
+          "name": "the topic records reject and is blocked",
+          "passed": true
+        },
+        {
+          "name": "the rejection wrote the review-reject inbox record",
+          "passed": true
+        },
+        {
+          "name": "the rejected clone keeps the revised file",
+          "passed": true
+        },
+        {
+          "name": "the clone head is the second reviewed commit",
           "passed": true
         }
       ]
