@@ -21,6 +21,10 @@ test('CI workflow has one PR-owned pr-gate job', () => {
   for (const key of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']) {
     assert.ok(workflow.includes(`${key}:`), `missing git identity for temporary test commits: ${key}`)
   }
+  assert.ok(
+    workflow.includes('git config --global init.defaultBranch main'),
+    'temporary repositories must initialize on main',
+  )
 })
 
 test('CI workflow runs the five core gates from the PR head', () => {
