@@ -14,6 +14,7 @@ One home for how dsh-cowork decides that something is verified.
 | Real host transaction | M12 dev route, recorded under `.dsh-cowork/e2e/M12_E2E.json` | Cross-session and cross-process behavior against a real DSH host | Before a release and for every cross-session/cross-process change |
 | PR gate | GitHub Actions `pr-gate` | `npm run check`, `npm test`, and `npm run test:coverage` on the PR head | Every PR to `main` |
 | Local build gate | Heavy lane | `npm run typecheck`, `npm run build`, host smoke, and browser lane where the DSH source/app or Chromium exists | Every affected source/client change until the local heavy runner is stable enough to be required |
+| Review evidence | GitHub Actions `gate-artifact` | A `review-verdict` marker at the PR head, a successful `pr-gate`, current `main` as an ancestor, and a clean worktree | Every PR before merge |
 
 Replayable expected output is not an executable lane yet. Do not cite it as evidence until a command exists. The browser panel is executable as an observational lane; it writes `coverage/client.json`, `coverage/browser.lcov`, and prints the covered client files.
 

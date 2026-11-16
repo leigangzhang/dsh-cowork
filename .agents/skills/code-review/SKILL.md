@@ -19,6 +19,7 @@ Use before approving or rejecting a change, before opening or updating a PR, bef
 4. **Verify the evidence.** A test must fail for the regression it claims to pin and assert external state, not the implementation's self-report. Check negative controls, resource ownership, teardown, source/lib synchronization, and the real entry path where the change touches packaging or plugin loading. Do not repeat an issue that a green owning gate already proves.
 5. **Report findings.** Each finding names a relative `path:line`, the affected behavior, the evidence, and the required fix. Separate blockers from suggestions; use a change-level comment for cross-cutting architecture or scope. Verify each claim before replying to a review thread.
 6. **Keep review independent.** The implementer must not be the final reviewer of their own change. Review/requirements tasks pass only with `verdict=pass`; `needs_revision` and `reject` carry findings. Batch low-risk findings into one repair, and restart the owning gate if a repair changes behavior.
+7. **Post the verdict at the reviewed head.** Only after `pr-gate` is green, submit a review comment with `gh pr review <n> --comment --body-file <file>`. The body must contain `<!-- review-verdict:v1 head=<40-char head> verdict=pass reviewer=agentteam model=<model> -->`; use `reviewer=human` for a human verdict. Do not use `--approve`: a single-account repository cannot approve its own PR, and `gate-artifact` is the enforcing check.
 
 ### Code health checklist
 
@@ -41,6 +42,7 @@ Run this after the priority pass, before passing the change. A finding here is a
 - For a code change with `.fallowrc.jsonc` present, run `fallow audit --base <verified-base>` and confirm no new clone group or complexity finding; keep the local CLI version in the report.
 - Select the narrowest tests from `tools/workflow.json`. For a behavior change, run `npm run test:coverage`, `npm run build`, and `npm run test:host-smoke`; for delivery or a browser change add `npm run test:coverage:layered -- --base <verified-base>`. For a docs-only change, run `npm run check`.
 - Confirm the final report states commands and results, including checks that did not run.
+- After posting a review verdict, confirm `gate-artifact` succeeds on the reviewed head and that a new commit would invalidate it.
 - For a PR, use [pr-description](../pr-description/SKILL.md) to write the Motivation / Changes / Testing / Evidence structure with test design, actual test entries, unrun checks, and reviewable evidence.
 
 ## Anti-patterns

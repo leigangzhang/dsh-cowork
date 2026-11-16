@@ -1,8 +1,8 @@
 # GitHub PR 门禁与 Review 流程设计
 
-Status: draft（implementation in progress，2026-11-15；`CI / pr-gate` added）
+Status: draft（implementation in progress，2026-11-15；`pr-gate` + `gate-artifact` added）
 
-本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-15-github-pr-gate-flow.md)。当前已加入 `.github/workflows/ci.yml` 与 `.node-version`；ruleset 和 `gate-artifact` workflow 仍待实现。本文描述目标状态和落地顺序。
+本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-15-github-pr-gate-flow.md)。当前已加入 `.github/workflows/ci.yml`、`.github/workflows/gate-artifact.yml` 与 `.node-version`，并启用 `main-pr-gate` ruleset；heavy lane 和最终 merge 设置仍待收口。
 
 ## 目标与边界
 
@@ -35,7 +35,7 @@ flowchart LR
   K --> L{"发现 blocker?"}
   L -- 是 --> B
   L -- 否 --> J
-  J --> M["Policy / gate-artifact<br/>review + pr-gate + base + clean"]
+  J --> M["gate-artifact<br/>review + pr-gate + base + clean"]
   M --> N{"ruleset<br/>pr-gate + gate-artifact<br/>对话已解决 + 分支最新"}
   N -- 否 --> B
   N -- 是 --> O["人工 merge commit"]
@@ -50,7 +50,7 @@ flowchart LR
 | PR Gate | `.github/workflows/ci.yml` 的 `pr-gate` job；单稳定检查 `CI / pr-gate` |
 | 主审 | DSH web AgentTeams reviewer；`deepseek-v4-pro`；fresh context；只读 |
 | 第二意见 | 仅高风险；当前 DSH web 的 AgentTeams member 或 subagent；非 DeepSeek 模型（占位 `deepseek-flash` high）；advisory |
-| 证据冻结 | `Policy / gate-artifact`；校验 review、CI、base 和工作区身份 |
+| 证据冻结 | `gate-artifact`；校验 review、CI、base 和工作区身份 |
 | 强制层 | repository ruleset 要求两个检查、对话解决、分支最新、禁止 force/delete |
 | 合并 | 人工 merge commit；关闭 auto-merge；合并后自动删分支 |
 
@@ -126,16 +126,23 @@ npm run test:coverage
 
 目标文件：`.github/workflows/gate-artifact.yml`，workflow 名 `Policy`，job 名 `gate-artifact`。
 
-- 触发：`pull_request_review` submitted/dismissed；必要时加 `pull_request_target` 的 synchronize 用于显示等待 review 的状态；
-- 权限：`contents: read`、`pull-requests: write`；
+- 触发：`pull_request_review` submitted/dismissed；正常评论 review 中没有 marker 时跳过，`changes_requested` 或 dismissed 时运行并失败；
+- 权限：`contents: read`、`pull-requests: write`、`checks: read`；
 - 运行受信任的 base 分支脚本；PR head 只作为 git 数据 fetch，不执行 PR 代码；
+- review marker：
+
+```text
+<!-- review-verdict:v1 head=<40-char head> verdict=pass reviewer=agentteam model=<model> -->
+```
+
 - 校验：
-  1. review verdict 或 native approval 的 `commit_id` 等于当前 PR head；
-  2. `CI / pr-gate` 在同一 head 上成功；
-  3. `origin/main` 仍是 `review-context` 记录的 base；
-  4. 临时 worktree 的 `git status --porcelain` 为空；
-  5. PR 标题符合 Conventional Commits，正文包含 `pr-description` 要求的段落；
-- 生成 `gate-artifact.json`，更新 sticky PR comment，job 本身作为 `Policy / gate-artifact` check。
+  1. review 的 `commit_id` 等于当前 PR head，state 是 `approved` 或 `commented`；
+  2. marker 的 head 等于当前 PR head，verdict 是 `pass`；
+  3. `pr-gate` 在同一 head 上成功；
+  4. 当前 `origin/main` 是 PR head 的祖先；
+  5. 临时 worktree 的 `git status --porcelain` 为空；
+  6. PR 标题符合 Conventional Commits，正文包含 `pr-description` 要求的段落；
+- 生成 `gate-artifact.json` 与 `review-verdict.json`，更新 sticky PR comment，job 本身作为 `gate-artifact` check。
 
 新 commit、base 前进、review 失效或工作区不干净都会让该 check 失效或失败，流程回到提交/CI/review。
 
@@ -195,14 +202,14 @@ npm run test:coverage
 
 1. 文档与决策记录（本次变更）。
 2. `.node-version` + `pr-gate` report-only；验证 hosted 三命令在干净 checkout 下可运行。
-3. ruleset 要求 `CI / pr-gate`，开启 conversation resolution 和 strict up-to-date，禁止 force/delete。
-4. 接入主审与 `Policy / gate-artifact`，验证新 commit 会使旧 review/旧证据失效。
+3. ruleset 要求 `pr-gate`，开启 conversation resolution 和 strict up-to-date，禁止 force/delete。
+4. 接入主审与 `gate-artifact`，验证新 commit 会使旧 review/旧证据失效。
 5. 在本机安装并验证 `heavy` self-hosted runner（或先手动运行），连续 20 次 green 后再把 heavy lane 设为 required；最后统一 merge 设置与自动删分支。
 
 ## 10. 验收
 
-- 故意失败一个测试：`CI / pr-gate` 红，merge 不可用。
-- 没有 review verdict：`Policy / gate-artifact` 不成功，merge 被阻止。
+- 故意失败一个测试：`pr-gate` 红，merge 不可用。
+- 没有 review verdict：`gate-artifact` 不成功，merge 被阻止。
 - review 后 push 新 commit：旧 verdict 和旧 check 失效，必须重新 review。
 - main 前进：strict up-to-date 阻止合并；更新分支后所有检查重跑。
 - 有未解决 conversation：merge 被阻止。
