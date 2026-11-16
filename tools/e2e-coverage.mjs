@@ -22,6 +22,19 @@ import { BUSINESS_TOOLS, PANEL_ROUTES } from '../tests/support/public-surface.mj
 const SCENARIO_MODES = new Set(['keyless', 'live-model'])
 const FILE_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/
 const HOST_LINE = /^\d+\.\d+$/
+const COMMIT_SHA = /^[0-9a-f]{40}$/
+const SHA256 = /^[0-9a-f]{64}$/
+
+/**
+ * Work-item states the store accepts but no shipped tool or route writes.
+ *
+ * `abandoned` is reachable only by reading an older or foreign document (the
+ * panel counts it); there is no public abandon action, so a real-host scenario
+ * cannot produce the state. The matrix checks public production, not every
+ * value a parser accepts. If a producer lands, remove the entry and let the
+ * normal uncovered-key rule demand a scenario.
+ */
+export const WORK_ITEM_STORE_ONLY_STATUSES = ['abandoned']
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim() !== ''
@@ -41,9 +54,72 @@ export async function collectSurfaceKeys() {
     ...presets.presetDefinitions().map((definition) => `preset:${definition.id}`),
     ...schema.TOPIC_STATUSES.map((status) => `topic-status:${status}`),
     ...schema.REVIEW_STATUSES.map((status) => `review-status:${status}`),
-    ...schema.WORK_ITEM_STATUSES.map((status) => `work-item-status:${status}`),
+    ...schema.WORK_ITEM_STATUSES
+      .filter((status) => !WORK_ITEM_STORE_ONLY_STATUSES.includes(status))
+      .map((status) => `work-item-status:${status}`),
   ]
   return [...new Set(keys)].sort()
+}
+
+/**
+ * Check one release evidence summary.
+ *
+ * The file proves a green keyless run happened for this package version from a
+ * clean worktree and that every keyless scenario in the manifest was present.
+ * It does not prove the run happened on this machine or at this HEAD; the
+ * summary carries that identity for review.
+ *
+ * @param {object} input
+ * @param {string} input.packageVersion Version from `package.json`.
+ * @param {object|null} input.evidence Parsed `tests/e2e/evidence/<version>.json`, or null when absent.
+ * @param {Set<string>} input.keylessScenarioIds Scenario ids the manifest declares keyless.
+ * @returns {string[]} One message per violation.
+ */
+export function e2eEvidenceProblems({ packageVersion, evidence, keylessScenarioIds }) {
+  const label = `tests/e2e/evidence/${packageVersion}.json`
+  if (evidence === null || typeof evidence !== 'object' || Array.isArray(evidence)) {
+    return [`${label} is missing; run the keyless lane with --record from a clean worktree before release`]
+  }
+  const problems = []
+  if (evidence.formatVersion !== 1) problems.push(`${label}: formatVersion must be 1`)
+  if (evidence.pluginVersion !== packageVersion) problems.push(`${label}: pluginVersion must be ${packageVersion}`)
+  if (evidence.result !== 'pass') problems.push(`${label}: result must be pass`)
+  const artifact = evidence.artifact
+  if (artifact === null || typeof artifact !== 'object' || Array.isArray(artifact)) {
+    problems.push(`${label}: artifact must be an object`)
+  } else {
+    if (!COMMIT_SHA.test(String(artifact.head ?? ''))) problems.push(`${label}: artifact.head must be a full commit SHA`)
+    if (artifact.dirty !== false) problems.push(`${label}: artifact.dirty must be false (record from a clean worktree)`)
+    if (!SHA256.test(String(artifact.tarballSha256 ?? ''))) problems.push(`${label}: artifact.tarballSha256 must be a SHA-256`)
+  }
+  const rows = Array.isArray(evidence.scenarios) ? evidence.scenarios : null
+  if (rows === null || rows.length === 0) {
+    problems.push(`${label}: scenarios must be a non-empty array`)
+  } else {
+    const seen = new Set()
+    for (const [index, row] of rows.entries()) {
+      const where = `${label}: scenarios[${index}]`
+      if (row === null || typeof row !== 'object' || Array.isArray(row)) {
+        problems.push(`${where} must be an object`)
+        continue
+      }
+      if (!isNonEmptyString(row.id)) problems.push(`${where}.id must be a non-empty string`)
+      else if (seen.has(row.id)) problems.push(`${where}.id repeats ${row.id}`)
+      else seen.add(row.id)
+      if (row.mode !== 'keyless') problems.push(`${where}.mode must be keyless`)
+      if (row.passed !== true) problems.push(`${where}.passed must be true`)
+      if (!Array.isArray(row.checks) || row.checks.length === 0 || row.checks.some((check) => check?.passed !== true)) {
+        problems.push(`${where}.checks must be a non-empty all-passed array`)
+      }
+    }
+    for (const id of keylessScenarioIds) {
+      if (!seen.has(id)) problems.push(`${label}: keyless scenario ${id} has no recorded result; re-record the full lane`)
+    }
+    for (const id of seen) {
+      if (!keylessScenarioIds.has(id)) problems.push(`${label}: scenario ${id} is not a keyless manifest scenario`)
+    }
+  }
+  return problems
 }
 
 /**
