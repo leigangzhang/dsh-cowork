@@ -45,7 +45,8 @@
         "docs/agent-teams.md",
         "docs/context.md",
         "docs/routing.md",
-        "docs/decision-and-handoff.md"
+        "docs/decision-and-handoff.md",
+        "docs/heavy-runner.md"
       ]
     },
     {
