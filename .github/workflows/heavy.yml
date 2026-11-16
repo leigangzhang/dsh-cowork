@@ -26,6 +26,11 @@ jobs:
     # reaches the self-hosted runner until a head-bound check publisher exists.
     runs-on: [self-hosted, heavy]
     timeout-minutes: 60
+    env:
+      GIT_AUTHOR_NAME: github-actions[bot]
+      GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      GIT_COMMITTER_NAME: github-actions[bot]
+      GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
     steps:
       - name: Checkout selected ref from the local repository
         env:
@@ -41,6 +46,9 @@ jobs:
 
       - name: Fetch base
         run: git fetch --no-tags origin "${{ inputs.base }}"
+
+      - name: Configure git defaults for temporary test repositories
+        run: git config --global init.defaultBranch main
 
       - name: Verify the runner Node version
         run: test "$(node --version)" = "v$(cat .node-version)"
