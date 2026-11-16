@@ -7,9 +7,12 @@
  * endpoint, and runs the keyless scenarios declared by `tests/e2e/manifest.json`
  * against real sessions, tools, stores, and panel routes.
  *
- * The run needs no model credentials and opens no provider connection. It never
- * writes the user's profile or `.dsh-cowork` tree: every session, workspace, and
- * fixture lives under one temporary root that is removed in `finally`.
+ * The keyless run needs no model credentials and opens no provider connection.
+ * `--mode live` is the observational lane: it uses the deployment's real provider
+ * and `DEEPSEEK_API_KEY`, so it is opt-in and never written to the release
+ * summary. Either run never writes the user's profile or `.dsh-cowork` tree:
+ * every session, workspace, and fixture lives under one temporary root removed
+ * in `finally`.
  *
  * Usage:
  *   node scripts/evidence/e2e.mjs [--scenario <id>]... [--keep] [--record] [--list]
@@ -119,6 +122,7 @@ async function main() {
   const { values } = parseArgs({
     options: {
       scenario: { type: 'string', multiple: true },
+      mode: { type: 'string', default: 'keyless' },
       keep: { type: 'boolean', default: false },
       record: { type: 'boolean', default: false },
       list: { type: 'boolean', default: false },
@@ -128,20 +132,37 @@ async function main() {
     strict: true,
   })
   if (values.help) {
-    console.log('usage: node scripts/evidence/e2e.mjs [--scenario <id>]... [--keep] [--record] [--list] [--allow-untested-host]')
+    console.log('usage: node scripts/evidence/e2e.mjs [--mode keyless|live] [--scenario <id>]... [--keep] [--record] [--list] [--allow-untested-host]')
     return
   }
 
   const manifest = readJson(manifestPath, 'the E2E manifest')
-  const keyless = manifest.scenarios.filter((scenario) => scenario.mode === 'keyless')
+  const mode = values.mode
+  if (mode !== 'keyless' && mode !== 'live') throw new Error(`--mode must be keyless or live, got ${JSON.stringify(mode)}`)
   if (values.list) {
     for (const scenario of manifest.scenarios) console.log(`${scenario.mode} ${scenario.id} — ${scenario.summary}`)
     return
   }
-  const selected = values.scenario === undefined || values.scenario.length === 0
-    ? keyless
-    : keyless.filter((scenario) => values.scenario.includes(scenario.id))
-  if (selected.length === 0) throw new Error(`no keyless scenario matched ${JSON.stringify(values.scenario ?? [])}`)
+  const requested = values.scenario
+  const selected = requested === undefined || requested.length === 0
+    ? manifest.scenarios.filter((scenario) => scenario.mode === (mode === 'live' ? 'live-model' : 'keyless'))
+    : manifest.scenarios.filter((scenario) => requested.includes(scenario.id))
+  if (selected.length === 0) {
+    throw new Error(`no ${mode === 'live' ? 'live-model' : 'keyless'} scenario matched ${JSON.stringify(requested ?? [])}`)
+  }
+  const hasLive = selected.some((scenario) => scenario.mode === 'live-model')
+  if (hasLive && values.record) throw new Error('live-model evidence is observational; --record is keyless-only')
+  if (values.record && !hasLive) {
+    const declared = manifest.scenarios.filter((scenario) => scenario.mode === 'keyless').map((scenario) => scenario.id).sort()
+    const chosen = selected.map((scenario) => scenario.id).sort()
+    if (JSON.stringify(declared) !== JSON.stringify(chosen)) {
+      throw new Error('--record requires every keyless scenario in the manifest; run it without --scenario to record release evidence')
+    }
+  }
+  if (hasLive && (process.env.DEEPSEEK_API_KEY ?? '').trim() === '') {
+    strictSkip('live-model scenarios need DEEPSEEK_API_KEY; none is set')
+    return
+  }
 
   const dsh = process.env.DSH_BIN ?? 'dsh'
   const versionResult = spawnSync(dsh, ['--version'], { encoding: 'utf8', timeout: 15_000 })
@@ -175,7 +196,11 @@ async function main() {
   let runDir = null
 
   try {
-    model = await startScriptedModel()
+    if (hasLive) {
+      model = { calls: [], errors: [], setHandler() {}, reset() {}, close() {} }
+    } else {
+      model = await startScriptedModel()
+    }
     mkdirSync(join(root, '.dsh-cowork/e2e'), { recursive: true })
     runDir = join(root, '.dsh-cowork/e2e', startedAt.replace(/[:.]/gu, '-'))
     mkdirSync(runDir, { recursive: true })
@@ -184,22 +209,24 @@ async function main() {
       profileName: 'cowork-e2e',
       prefix: 'cowork-e2e-host-',
       keep: values.keep,
-      env: { DEEPSEEK_API_KEY: 'e2e-scripted-key' },
+      env: hasLive ? {} : { DEEPSEEK_API_KEY: 'e2e-scripted-key' },
       patchOptions: {
         enableDevRoutes: false,
         routing: false,
         idleAfterMs: 1,
-        extraEntries: [
-          '- id: llm-deepseek',
-          '  config:',
-          `    baseURL: ${model.origin}`,
-          '    models:',
-          '      - id: deepseek-flash',
-          '        name: scripted-e2e-flash',
-          '        contextWindow: 200000',
-          '- id: session-title-llm',
-          '  disabled: true',
-        ],
+        extraEntries: hasLive
+          ? ['- id: session-title-llm', '  disabled: true']
+          : [
+              '- id: llm-deepseek',
+              '  config:',
+              `    baseURL: ${model.origin}`,
+              '    models:',
+              '      - id: deepseek-flash',
+              '        name: scripted-e2e-flash',
+              '        contextWindow: 200000',
+              '- id: session-title-llm',
+              '  disabled: true',
+            ],
       },
     })
     artifact = artifactIdentity(host.tarball)
@@ -265,6 +292,7 @@ async function main() {
   const passed = results.every((result) => result.passed)
   const summary = {
     formatVersion: 1,
+    mode,
     pluginVersion: packageJson.version,
     dshVersion,
     nodeVersion: process.version,
@@ -306,7 +334,7 @@ async function main() {
     const failed = results.filter((result) => !result.passed).map((result) => result.id)
     throw new Error(`e2e failed: ${failed.join(', ')}`)
   }
-  console.log(`PASS e2e: ${results.length} scenarios, ${checkCount} checks, plugin ${packageJson.version} on DSH ${dshVersion}`)
+  console.log(`PASS ${hasLive ? 'live e2e (observational)' : 'e2e'}: ${results.length} scenarios, ${checkCount} checks, plugin ${packageJson.version} on DSH ${dshVersion}`)
 }
 
 main().catch((error) => {

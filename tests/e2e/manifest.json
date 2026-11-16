@@ -75,6 +75,27 @@
         "work-item-status:reviewing",
         "work-item-status:merged"
       ]
+    },
+    {
+      "id": "review-revision",
+      "file": "scenarios/review-revision.mjs",
+      "mode": "keyless",
+      "summary": "A reviewer returns needs_revision with a finding, the topic commits a fix and re-requests the review, and the next reviewer rejects the range, blocks the topic, and writes the review-reject inbox record.",
+      "covers": [
+        "review-status:needs_revision",
+        "review-status:reject"
+      ]
+    },
+    {
+      "id": "live-master-chain",
+      "file": "scenarios/live-master-chain.mjs",
+      "mode": "live-model",
+      "summary": "The real provider initializes the project and routes one topic; the index and panel state are the observation. Requires DEEPSEEK_API_KEY and --mode live.",
+      "covers": [
+        "tool:cowork_project_init",
+        "tool:cowork_route",
+        "topic-status:active"
+      ]
     }
   ]
 }
