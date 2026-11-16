@@ -33,13 +33,13 @@ Run this after the priority pass, before passing the change. A finding here is a
 - **Test split:** did the test and assertion counts actually stay the same, or were assertions copied to pad the split?
 - **Model text:** did persona, tool description, and error text follow the tool or preset change?
 - **Doc links:** do current docs point at existing files, and did historical records only change link targets, not conclusions?
-- **Dead or duplicated surface:** run `fallow dead-code --unused-types`; a new type export with no consumer, a duplicate value/type name, or an unowned `tools/*.mjs` is a finding. Keep `fallow health --baseline tools/fallow-health-baseline.json` green (inherited complexity is baselined; new findings are not).
+- **Dead or duplicated surface:** run `fallow dead-code --unused-types`; a new type export with no consumer, a duplicate value/type name, or an unowned `tools/*.mjs` is a finding. Keep `fallow health --baseline tools/fallow-health-baseline.json` at zero new findings: the baseline is reviewed existing state, not a waiver, and `fallow audit --base <verified-base>` gates introduced complexity, duplication, and dead code. A refresh is a separate maintenance PR naming CLI 3.43.0 and HEAD and reviewing each added entry; never refresh it inside a feature or cleanup PR.
 
 ## Verification
 
 - Run `npm run change-scope -- --base <verified-base>` and confirm all four path groups are accounted for.
 - Run `npm run check`; for a skill or workflow change also run `npm run check:self-test`.
-- For a code change with `.fallowrc.jsonc` present, run `fallow audit --base <verified-base>` and confirm no new clone group or complexity finding; keep the local CLI version in the report.
+- For a code change with `.fallowrc.jsonc` present, run `fallow audit --base <verified-base>` and confirm no new clone group or complexity finding; confirm `fallow health --baseline tools/fallow-health-baseline.json` reports zero new findings, and keep the local CLI version in the report.
 - Select the narrowest tests from `tools/workflow.json`. For a behavior change, run `npm run test:coverage`, `npm run build`, and `npm run test:host-smoke`; for delivery or a browser change add `npm run test:coverage:layered -- --base <verified-base>`. For a docs-only change, run `npm run check`.
 - Confirm the final report states commands and results, including checks that did not run.
 - After posting a review verdict, confirm `gate-artifact` succeeds on the reviewed head and that a new commit would invalidate it.
@@ -54,4 +54,5 @@ Run this after the priority pass, before passing the change. A finding here is a
 - Rewriting or weakening a test to make a review pass.
 - Passing a change whose temporary surface has no retirement trigger, or whose legacy adapter was removed without migrating the control path it still served.
 - Letting the implementer give the final verdict on their own change.
+- Refreshing the health baseline inside a feature or cleanup PR, or clearing a finding by lowering a threshold or adding an ignore entry.
 - Running the full suite reflexively instead of selecting the owning evidence.

@@ -314,6 +314,7 @@ test('one combo section is mapped end to end without leaking the adjacent sectio
   const second = report.files[0]
   assert.equal(second.executableLines, 3, 'generated lines 2..4 map to the second section only')
   assert.equal(second.executedLines, 3)
+  assert.equal(second.totalFunctions, 1, 'a function starting outside the section is not mapped')
   assert.equal(second.uncoveredLines.length, 0)
 })
 
@@ -326,4 +327,99 @@ test('the bundle selector accepts the combo containing this plugin and rejects h
     },
   ])?.url, 'http://127.0.0.1/plugins/??@scope/one/client.js,@dsh-external/dsh-cowork/client.js&rev=r')
   assert.equal(pluginBundleEntry([{ url: 'http://127.0.0.1/loader.js', source: 'host' }]), null)
+})
+
+test('raw range lists clamp to the bundle and ignore empty or inverted offsets', () => {
+  const text = ['alpha', 'beta'].join('\n')
+  const report = clientCoverageFromEntry({
+    entry: {
+      url: 'http://127.0.0.1/client.js',
+      source: text,
+      ranges: [
+        { startOffset: -8, endOffset: 5, count: 1 },
+        { startOffset: 6, endOffset: 6, count: 1 },
+        { startOffset: 20, endOffset: 4, count: 1 },
+        { startOffset: 12, endOffset: 20, count: 1 },
+        { startOffset: 8, endOffset: 30, count: 0 },
+      ],
+    },
+    sourceMapPayload: syntheticMap('../src/client/ranges.ts', [0, 1]),
+    repoRoot: '/repo',
+    mapDirectory: '/repo/lib',
+    sourceExists: () => true,
+  })
+  const file = report.files.find(item => item.file === 'src/client/ranges.ts')
+  assert.ok(file, 'the range-only entry still maps its source')
+  assert.equal(file.executableLines, 2)
+  assert.equal(file.executedLines, 1)
+  assert.deepEqual(file.coveredLines, [1])
+  assert.deepEqual(file.uncoveredLines, [2])
+})
+
+test('the innermost range decides whether a line is covered', () => {
+  const text = ['outer', 'inner'].join('\n')
+  const report = clientCoverageFromEntry({
+    entry: {
+      url: 'http://127.0.0.1/client.js',
+      source: text,
+      ranges: [
+        { startOffset: 0, endOffset: text.length, count: 1 },
+        { startOffset: text.indexOf('inner'), endOffset: text.length, count: 0 },
+      ],
+    },
+    sourceMapPayload: syntheticMap('../src/client/nested.ts', [0, 1]),
+    repoRoot: '/repo',
+    mapDirectory: '/repo/lib',
+    sourceExists: () => true,
+  })
+  const file = report.files.find(item => item.file === 'src/client/nested.ts')
+  assert.ok(file)
+  assert.equal(file.lineCoverage, 50)
+  assert.deepEqual(file.coveredLines, [1])
+  assert.deepEqual(file.uncoveredLines, [2])
+})
+
+test('function ranges outside the generated text are ignored', () => {
+  const text = 'const x = 1\n'
+  const report = clientCoverageFromEntry({
+    entry: {
+      url: 'http://127.0.0.1/client.js',
+      source: text,
+      functions: [
+        { functionName: 'negative', ranges: [{ startOffset: -8, endOffset: -1, count: 1 }] },
+        { functionName: 'past-end', ranges: [{ startOffset: text.length + 3, endOffset: text.length + 8, count: 1 }] },
+        { functionName: 'missing-ranges' },
+      ],
+    },
+    sourceMapPayload: syntheticMap('../src/client/functions.ts', [0]),
+    repoRoot: '/repo',
+    mapDirectory: '/repo/lib',
+    sourceExists: () => true,
+  })
+  const file = report.files.find(item => item.file === 'src/client/functions.ts')
+  assert.ok(file)
+  assert.equal(file.totalFunctions, 0)
+  assert.equal(file.executedLines, 0)
+})
+
+test('a function mapped twice stays executed when either range entry executed', () => {
+  const text = 'function Demo() { return 1 }\n'
+  const report = clientCoverageFromEntry({
+    entry: {
+      url: 'http://127.0.0.1/client.js',
+      source: text,
+      functions: [
+        { functionName: 'Demo', ranges: [{ startOffset: 0, endOffset: text.length, count: 1 }] },
+        { functionName: 'Demo', ranges: [{ startOffset: 0, endOffset: text.length, count: 0 }] },
+      ],
+    },
+    sourceMapPayload: syntheticMap('../src/client/duplicate.ts', [0, 1]),
+    repoRoot: '/repo',
+    mapDirectory: '/repo/lib',
+    sourceExists: () => true,
+  })
+  const file = report.files.find(item => item.file === 'src/client/duplicate.ts')
+  assert.ok(file)
+  assert.equal(file.totalFunctions, 1)
+  assert.equal(file.executedFunctions, 1)
 })
