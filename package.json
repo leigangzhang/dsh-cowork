@@ -40,6 +40,8 @@
     "test": "node --test \"tests/**/*.test.mjs\"",
     "test:browser": "node scripts/evidence/browser-panel.mjs",
     "test:coverage": "node scripts/evidence/test-coverage.mjs",
+    "test:coverage:layered": "node scripts/evidence/coverage-layered.mjs",
+    "coverage:check": "node scripts/evidence/coverage-check.mjs",
     "test:host-smoke": "node scripts/evidence/host-smoke.mjs"
   },
   "exports": {

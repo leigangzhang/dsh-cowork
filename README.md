@@ -137,7 +137,9 @@ dsh plugin --profile <profile> remove @dsh-external/dsh-cowork
 npm run check              # 可执行约定（AGENTS 预算 / workflow.json / 模板 / 发布清单）
 npm run check:self-test    # 证明上述守卫能变红
 npm test                   # 契约与行为测试
-npm run test:coverage      # host TypeScript 覆盖率下限
+npm run test:coverage      # 逐文件覆盖率门禁（100% 或已评审基线）
+npm run test:coverage:layered -- --base <verified-base>  # unit + browser 两 lane，同一 artifact 身份
+npm run coverage:check     # 不重跑测试，只复检现有报告
 npm run test:host-smoke    # 打包当前 lib/，在临时 DSH profile 启动并检查健康路由
 npm run change-scope -- --base <verified-base>  # 列出 committed/staged/unstaged/untracked 路径
 npm run typecheck          # TypeScript 检查（依赖同构建前提）

@@ -5,6 +5,7 @@ import {
   CLIENT_BROWSER_BLOCKED,
   CLIENT_BROWSER_TSX,
   clientCoverageFromEntry,
+  clientCoverageLcov,
   clientSourceFile,
   comboGeneratedRange,
   comboSectionIndex,
@@ -13,6 +14,7 @@ import {
   flattenSourceMapSources,
   pluginBundleEntry,
 } from '../../scripts/evidence/client-coverage.mjs'
+import { parseLcov, uncoveredLines } from '../../scripts/evidence/coverage-lcov.mjs'
 
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
@@ -101,6 +103,57 @@ test('synthetic sourcemap maps executed lines and exposes a failing gate', () =>
   assert.deepEqual(coverageGateFailures(report, {
     'src/client/missing.tsx': { lineCoverage: 100 },
   }), ['src/client/missing.tsx: missing from browser coverage report'])
+})
+
+test('the mapped report renders LCOV with the same covered and uncovered lines', () => {
+  const text = ['const first = 1', 'function Demo() {', '  return first', '}', ''].join('\n')
+  const report = clientCoverageFromEntry({
+    entry: {
+      url: 'http://127.0.0.1/client.js',
+      source: text,
+      functions: [{
+        functionName: '(top-level)',
+        ranges: [
+          { startOffset: 0, endOffset: text.length, count: 1 },
+          { startOffset: text.indexOf('  return first'), endOffset: text.length, count: 0 },
+        ],
+      }],
+    },
+    sourceMapPayload: syntheticMap('../src/client/demo.tsx', [0, 1, 2, 3, 4]),
+    repoRoot: '/repo',
+    mapDirectory: '/repo/lib',
+    sourceExists: () => true,
+  })
+  const demo = report.files.find(file => file.file === 'src/client/demo.tsx')
+  const lcov = clientCoverageLcov(report)
+  const record = parseLcov(lcov).get('src/client/demo.tsx')
+  assert.ok(record, 'the browser LCOV carries the mapped file')
+  assert.equal(record.lines.size, demo.executableLines)
+  assert.deepEqual(uncoveredLines(record), demo.uncoveredLines)
+  assert.deepEqual(
+    [...record.lines].filter(([, count]) => count > 0).map(([line]) => line).sort((left, right) => left - right),
+    demo.coveredLines,
+  )
+})
+
+test('mapped lines outside the source content are dropped', () => {
+  const text = ['const first = 1', 'function Demo() {', '  return first', '}', ''].join('\n')
+  const map = syntheticMap('../src/client/demo.tsx', [0, 1, 2, 3, 10])
+  const report = clientCoverageFromEntry({
+    entry: {
+      url: 'http://127.0.0.1/client.js',
+      source: text,
+      functions: [{ functionName: '(top-level)', ranges: [{ startOffset: 0, endOffset: text.length, count: 1 }] }],
+    },
+    sourceMapPayload: map,
+    repoRoot: '/repo',
+    mapDirectory: '/repo/lib',
+    sourceExists: () => true,
+  })
+  const demo = report.files.find(file => file.file === 'src/client/demo.tsx')
+  assert.equal(demo.sourceLines, 5)
+  assert.equal(demo.executableLines, 4)
+  assert.ok([...demo.coveredLines, ...demo.uncoveredLines].every(line => line >= 1 && line <= demo.sourceLines))
 })
 
 test('blocked notice renderer stays visible as a reason, never as covered', () => {

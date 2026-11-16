@@ -59,7 +59,7 @@
         "npm run build",
         "npm run test:host-smoke"
       ],
-      "why": "Behaviour changes need tests and the real artifact path: coverage protects the host modules, build proves the package compiles, and host-smoke proves the packed bundle loads in a real DSH profile."
+      "why": "Behaviour changes need tests and the real artifact path: the per-file coverage gate protects the owner-mapped modules, build proves the package compiles, and host-smoke proves the packed bundle loads in a real DSH profile."
     },
     {
       "name": "tests",
@@ -76,6 +76,20 @@
       "why": "A test is evidence only when its command, its coverage effect, and its failure mode are named."
     },
     {
+      "name": "coverage-policy",
+      "patterns": [
+        "tools/coverage-map.json",
+        "tools/coverage-debt.json",
+        "tools/coverage-browser-floors.json"
+      ],
+      "evidence": [
+        "npm run test:coverage",
+        "npm run coverage:check",
+        "npm run check"
+      ],
+      "why": "The owner map, the reviewed uncovered-line baseline, and the browser floors are the coverage gate's data. Changing them changes which files can be green, so the unit lane and the layered check must both run."
+    },
+    {
       "name": "browser",
       "mode": "observational",
       "patterns": [
@@ -87,10 +101,12 @@
         "scripts/evidence/evidence-sanitize.mjs"
       ],
       "evidence": [
+        "npm run build",
         "npm run test:browser",
+        "npm run test:coverage:layered -- --base <verified-base>",
         "npm run check"
       ],
-      "why": "The installed client bundle and the real host sidebar are the only honest place to execute React TSX and panel interactions. The lane is observational until three green local runs; a page error, missing host, or missing Chromium is never a silent pass."
+      "why": "The installed client bundle and the real host sidebar are the only honest place to execute React TSX and panel interactions. The lane is observational until reviewed per-file floors exist; a page error, missing host, or missing Chromium is never a silent pass. The layered command binds both lanes to one artifact before delivery."
     },
     {
       "name": "packaging",
@@ -386,7 +402,7 @@
         "tools/*.md"
       ],
       "regex": [
-        "\u6563\u6587"
+        "散文"
       ],
       "why": "A retronym list: each entry is a spelling this repository has stopped using, and a ban is added only after the corpus is clean."
     },

@@ -1,0 +1,309 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "src/app/apply.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/app/config.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/app/dev-surfaces.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/app/tools.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/api.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/contracts.ts",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/inbox-layout.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/inbox-model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/inbox.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/index.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/list.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/notice-model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/notice.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/panel.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/styles.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/dev/m12-e2e-contract.ts",
+      "lane": "dev",
+      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
+      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
+    },
+    {
+      "path": "src/dev/m12-e2e-driver.ts",
+      "lane": "dev",
+      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
+      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
+    },
+    {
+      "path": "src/dev/m12-e2e-evidence.ts",
+      "lane": "dev",
+      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
+      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
+    },
+    {
+      "path": "src/dev/m12-e2e-prompts.ts",
+      "lane": "dev",
+      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
+      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
+    },
+    {
+      "path": "src/dev/m12-e2e-support.ts",
+      "lane": "dev",
+      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
+      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
+    },
+    {
+      "path": "src/dev/m12-e2e.ts",
+      "lane": "dev",
+      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
+      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
+    },
+    {
+      "path": "src/dev/panel-probe.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/isolation/checkout-teardown.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/isolation/checkout.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/isolation/work-item.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/memory/memory.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/notices/delivery.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/notices/notices.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/requests/authorization-decision.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/requests/request-lifecycle.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/requests/request-open.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/requests/request-schema.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/requests/request-service.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/requests/request-support.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/review/review-request.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/routing/router-model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/routing/routing.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/topic/handoff.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/topic/topic.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/index.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/api-contract.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/api-types.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/api.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/inbox-api.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/inbox-contract.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/notice-contract.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/probe-model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/llm-port.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/memory-prompt.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/preset-visibility.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/presets.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/session-slice.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/session-visibility.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/tool-model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/tool-runtime.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/topic-events.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/workspace-repair.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/store/activity.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/store/atomic-json.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/store/inbox.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/store/migration.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/store/notice-store.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/store/project-store.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/store/request-store.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/store/schema.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/tools/isolation.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/tools/memory.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/tools/project.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/tools/request.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/tools/review.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/tools/route.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/tools/topic.ts",
+      "lane": "unit"
+    }
+  ]
+}
