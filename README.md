@@ -144,7 +144,7 @@ npm run typecheck          # TypeScript 检查（依赖同构建前提）
 npm run build              # host + client 构建
 ```
 
-`test:host-smoke` 使用临时 `DSH_HOME` 和临时 npm 缓存，不读写用户的真实 profile。`lib/` 是本地构建产物，不入 git；源码变更后先运行 `npm run build`，再运行 host smoke。
+`test:host-smoke` 使用临时 `DSH_HOME` 和临时 npm 缓存，不读写用户的真实 profile。`lib/` 是本地构建产物，不入 git；源码变更后先运行 `npm run build`，再运行 host smoke。每次 PR 由 GitHub Actions 的 `pr-gate` 运行 `check`、`test` 和 `test:coverage`；`typecheck`、`build`、host smoke 和 browser lane 在本机 heavy lane 运行；合并仍是人工步骤。
 
 审查与交付流程见 [.agents/skills/README.md](.agents/skills/README.md)（`code-review` / `pre-push-checks` / `pr-description` / `find-simplifications`）；PR 结构由 [pr-description](.agents/skills/pr-description/SKILL.md) 声明，合并保持人工执行，不再维护独立的 `.github` 模板文件。
 

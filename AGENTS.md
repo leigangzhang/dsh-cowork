@@ -60,10 +60,11 @@ Docs accompany every code change: update affected README, JSDoc, and owning docs
 Before pushing, load [pre-push-checks](.agents/skills/pre-push-checks/SKILL.md), confirm the live base, and run `npm run change-scope -- --base <verified-base>`. Report only commands that actually ran; name every unrun check.
 
 - Match evidence to the owning surface in [tools/workflow.json](tools/workflow.json). Docs-only: `npm run check`; skill/workflow: `npm run check` + `npm run check:self-test`; tests: `npm test` + `npm run test:coverage` and observe the regression red first; source/scripts: `npm run test:coverage` + `npm run typecheck` + `npm run build` + `npm run test:host-smoke`; packaging/bundle: that source/script set plus `npm test` and `npm run check`.
+- PR CI runs the hosted core commands in `pr-gate`: `npm run check`, `npm test`, and `npm run test:coverage`. `npm run typecheck`, `npm run build`, `test:host-smoke`, and `test:browser` run in the local heavy lane because they need a DSH source checkout or host runtime. Local runs only the affected subset; do not duplicate a passing check merely to match CI.
 - Do not default to the full suite or repeat a passing check for commit/push. Rehearse everything only by explicit request, when diagnosing CI, or when an irreducibly repository-wide change crosses several surfaces.
 - `npm run test:coverage` is the source coverage gate; it runs the suite and enforces global line/branch/function floors, not per-file 100%. It does not count React TSX or dev-only E2E/probe drivers; `npm run test:browser` is the separate observational browser lane.
 - `lib/` is local build output and gitignored. After anything under `src/` changes, run `npm run build` before `test:host-smoke`; the smoke consumes the current local `lib/`, uses a temporary `DSH_HOME`, and skips when `dsh` is absent unless `DSH_HOST_SMOKE_STRICT=1`.
-- PR descriptions use [pr-description](.agents/skills/pr-description/SKILL.md); merge is a separate manual step. A green local check is not proof that a remote matrix or an unrun real-host E2E exists.
+- PR descriptions use [pr-description](.agents/skills/pr-description/SKILL.md); merge is a separate manual step. A green local check is not proof that `pr-gate` passed or that an unrun real-host E2E exists.
 
 ## AgentTeams
 
