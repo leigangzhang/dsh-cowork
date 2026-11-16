@@ -441,28 +441,14 @@
     },
     {
       "path": "src/domains/memory/memory.ts",
-      "uncoveredLines": [
-        249,
-        250,
-        265,
-        314,
-        315,
-        316,
-        317,
-        318,
-        319,
-        320,
-        335,
-        336,
-        337
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 608,
-        "covered": 595
+        "covered": 608
       },
       "branches": {
-        "total": 136,
-        "covered": 126
+        "total": 138,
+        "covered": 132
       },
       "functions": {
         "total": 28,
@@ -471,27 +457,18 @@
     },
     {
       "path": "src/domains/notices/delivery.ts",
-      "uncoveredLines": [
-        53,
-        54,
-        55,
-        56,
-        57,
-        96,
-        97,
-        98
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 101,
-        "covered": 93
+        "covered": 101
       },
       "branches": {
-        "total": 53,
-        "covered": 35
+        "total": 55,
+        "covered": 38
       },
       "functions": {
-        "total": 4,
-        "covered": 3
+        "total": 5,
+        "covered": 5
       }
     },
     {

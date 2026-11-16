@@ -84,6 +84,26 @@ test('per-attempt state is reported without the primitive writing it', async () 
   assert.deepEqual(ledger, { attempts: 0, lastError: null })
 })
 
+test('the default wait is a real zero-delay timer that still lets a retry recover', async () => {
+  const port = flaky(1)
+  const result = await attemptDelivery(() => port.deliver(), { maxAttempts: 2, retryDelaysMs: [0] })
+  assert.deepEqual(result, { attempts: 2, delivered: true, error: null })
+  assert.equal(port.calls.length, 2)
+})
+
+test('a wait that itself rejects stops the sequence with that error', async () => {
+  const result = await attemptDelivery(async () => {
+    throw new Error('host is down')
+  }, {
+    maxAttempts: 2,
+    retryDelaysMs: [0],
+    sleep: async () => {
+      throw new Error('timer broke')
+    },
+  })
+  assert.deepEqual(result, { attempts: 1, delivered: false, error: 'timer broke' })
+})
+
 test('retryDelaySchedule repeats the last delay and shrinks with the budget', () => {
   assert.deepEqual(retryDelaySchedule(1, [1000]), [])
   assert.deepEqual(retryDelaySchedule(3, [1000, 5000]), [1000, 5000])
