@@ -629,9 +629,13 @@ export class TopicNoticeDispatcher {
     const previous = this.chains.get(repoPath) ?? Promise.resolve()
     const next = previous.catch(() => undefined).then(() => this.run(repoPath))
     this.chains.set(repoPath, next)
-    void next.finally(() => {
+    // Cleanup must observe both settle states without creating a floating
+    // promise: `finally` would mirror a rejection nobody handles, while the
+    // two-argument `then` resolves either way. `kick` owns the rejection.
+    const clear = (): void => {
       if (this.chains.get(repoPath) === next) this.chains.delete(repoPath)
-    })
+    }
+    void next.then(clear, clear)
     return next
   }
 
