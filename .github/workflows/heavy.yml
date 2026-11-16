@@ -7,6 +7,10 @@ on:
         description: Base ref to compare against
         required: false
         default: main
+      repo_path:
+        description: Local checkout path on the heavy runner
+        required: false
+        default: /Users/ray/Workspace/dsh-cowork
 
 permissions:
   contents: read
@@ -23,12 +27,17 @@ jobs:
     runs-on: [self-hosted, heavy]
     timeout-minutes: 60
     steps:
-      - name: Checkout selected ref
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
+      - name: Checkout selected ref from the local repository
+        env:
+          LOCAL_REPO: ${{ inputs.repo_path }}
+        run: |
+          test -d "$LOCAL_REPO/.git" || {
+            echo "::error::local repository not found at $LOCAL_REPO"
+            exit 1
+          }
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git clone --no-hardlinks --no-checkout "$LOCAL_REPO" .
+          git checkout --detach "$GITHUB_SHA"
 
       - name: Fetch base
         run: git fetch --no-tags origin "${{ inputs.base }}"

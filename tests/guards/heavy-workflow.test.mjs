@@ -14,7 +14,9 @@ test('heavy workflow is manual-only and targets the local heavy runner', () => {
   assert.match(workflow, /^permissions:\n  contents: read$/m)
   assert.match(workflow, /^    runs-on: \[self-hosted, heavy\]$/m)
   assert.match(workflow, /^  heavy-gate:\n    name: heavy-gate$/m)
-  assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/)
+  assert.match(workflow, /inputs\.repo_path/)
+  assert.match(workflow, /git clone --no-hardlinks --no-checkout "\$LOCAL_REPO" \./)
+  assert.match(workflow, /git checkout --detach "\$GITHUB_SHA"/)
   assert.match(workflow, /git fetch --no-tags origin "\$\{\{ inputs\.base \}\}"/)
 })
 
@@ -37,10 +39,9 @@ test('heavy workflow runs its prerequisites in order', () => {
   assert.match(workflow, /coverage\/layered\.json/)
 })
 
-test('heavy workflow uses only pinned actions and carries no secrets', () => {
+test('heavy workflow downloads no actions and carries no secrets', () => {
   const uses = [...workflow.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])
-  assert.deepEqual(uses, ['actions/checkout@11d5960a326750d5838078e36cf38b85af677262'])
-  assert.doesNotMatch(workflow, /actions\/setup-node/)
-  assert.doesNotMatch(workflow, /actions\/upload-artifact/)
+  assert.deepEqual(uses, [])
+  assert.doesNotMatch(workflow, /actions\//)
   assert.doesNotMatch(workflow, /secrets\./)
 })
