@@ -10,3 +10,4 @@
 | Artifact 工作室与活动流 | [artifact-studio-activity-stream.md](artifact-studio/artifact-studio-activity-stream.md) | [交互稿](artifact-studio/assets/activity-demo.html) · [截图](artifact-studio/assets/activity-demo.png) |
 | 项目记忆 | [project-memory-tab.md](memory/project-memory-tab.md) | [交互稿](memory/assets/memory-demo.html) · [截图](memory/assets/memory-demo.png) |
 | 跨对象决策 | [cross-cutting-decisions.md](cross-cutting/cross-cutting-decisions.md) | — |
+| GitHub 流程 | [pr-gate-flow.md](github-flow/pr-gate-flow.md) | — |
