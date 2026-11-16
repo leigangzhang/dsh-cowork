@@ -7,7 +7,7 @@ on:
         description: Base ref to compare against
         required: false
         default: main
-  pull_request:
+  pull_request_target:
     types: [labeled]
     branches: [main]
 
@@ -21,8 +21,8 @@ concurrency:
 jobs:
   heavy-gate:
     name: heavy-gate
-    # A self-hosted runner executes PR code, so only same-repository branches
-    # may request a heavy run; fork PRs never reach this machine.
+    # pull_request_target keeps the trusted base workflow; only same-repository
+    # branches may request a heavy run, so fork PRs never reach this machine.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.label.name == 'run-heavy' &&

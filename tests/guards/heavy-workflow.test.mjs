@@ -10,7 +10,8 @@ const workflow = readFileSync(resolve(root, '.github/workflows/heavy.yml'), 'utf
 test('heavy workflow targets the local heavy runner only on demand', () => {
   assert.match(workflow, /^name: Heavy$/m)
   assert.match(workflow, /^on:\n  workflow_dispatch:$/m)
-  assert.match(workflow, /^  pull_request:\n    types: \[labeled\]$/m)
+  assert.match(workflow, /^  pull_request_target:\n    types: \[labeled\]$/m)
+  assert.doesNotMatch(workflow, /^  pull_request:$/m)
   assert.match(workflow, /github\.event\.label\.name == 'run-heavy'/)
   assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
   assert.match(workflow, /^    runs-on: \[self-hosted, heavy\]$/m)
