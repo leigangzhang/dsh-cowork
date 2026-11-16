@@ -13,7 +13,7 @@ Status: draft（design，2026-11-15；implementation not started）
 - 不引入第二个 GitHub 账号，不配置 required approvals；review 是程序性约束，不是 GitHub 强制审批。
 - 不引入 auto-merge、merge queue 或 stacked PR；合并保持人工。
 - 不改变单工作流分支、Conventional Commits 和现有 PR 描述技能的所有权。
-- 不把 Codex 或 DSH Desktop 作为第二意见兜底；第二意见只使用当前 DSH web 会话可路由的非 DeepSeek 模型。
+- 不把 Codex 或 DSH Desktop 作为第二意见兜底；第二意见只使用当前 DSH web 会话可路由的非 DeepSeek 模型。模型确定前以 `deepseek-flash` high 档占位接线，正式启用前必须替换。
 - Issue 策略 v1 不强制引用 Issue；只校验 PR 标题和正文结构。
 
 ## 流程
@@ -31,7 +31,7 @@ flowchart LR
   H -- 否 --> B
   H -- 是 --> I{"高风险变更?"}
   I -- 否 --> J["review-verdict<br/>head + base + diffSha"]
-  I -- 是 --> K["第二意见<br/>非 DeepSeek 模型<br/>AgentTeams 或 subagent<br/>fresh context / 只读 / advisory"]
+  I -- 是 --> K["第二意见<br/>非 DeepSeek 模型<br/>占位：deepseek-flash high<br/>AgentTeams 或 subagent<br/>fresh context / 只读 / advisory"]
   K --> L{"发现 blocker?"}
   L -- 是 --> B
   L -- 否 --> J
@@ -49,7 +49,7 @@ flowchart LR
 | 本地检查 | `change-scope` 固定范围；按 [tools/workflow.json](../../../tools/workflow.json) 选择受影响检查；CI 拥有完整五命令 |
 | PR Gate | `.github/workflows/ci.yml` 的 `pr-gate` job；单稳定检查 `CI / pr-gate` |
 | 主审 | DSH web AgentTeams reviewer；`deepseek-v4-pro`；fresh context；只读 |
-| 第二意见 | 仅高风险；当前 DSH web 的 AgentTeams member 或 subagent；非 DeepSeek 模型；advisory |
+| 第二意见 | 仅高风险；当前 DSH web 的 AgentTeams member 或 subagent；非 DeepSeek 模型（占位 `deepseek-flash` high）；advisory |
 | 证据冻结 | `Policy / gate-artifact`；校验 review、CI、base 和工作区身份 |
 | 强制层 | repository ruleset 要求两个检查、对话解决、分支最新、禁止 force/delete |
 | 合并 | 人工 merge commit；关闭 auto-merge；合并后自动删分支 |
@@ -112,7 +112,7 @@ npm run build
 只在高风险变更上启用，例如认证/授权、持久化或迁移、公共 API/tool schema、review/merge 流程、发布/打包、安全边界。
 
 - 载体：当前 DSH web 会话的 AgentTeams member 或 `subagent`；fresh context；只读 tool policy；
-- 模型：非 DeepSeek 模型，例如 Kimi 2.7、Qwen 3.8、GLM 5.3；实际 model id 先用 `list_subagent_models` 核实；
+- 模型：目标是非 DeepSeek 模型，例如 Kimi 2.7、Qwen 3.8、GLM 5.3；用户确定前用 `deepseek-flash` high 档占位，只用于接线，不满足最终的非 DeepSeek 独立性目标；实际 model id 先用 `list_subagent_models` 核实；
 - 输出与主审相同的 head/base/diff 绑定字段，并标记 `advisory: true`；
 - 它不进入 required checks，只作为高风险变更的附加证据；
 - 无法路由非 DeepSeek 模型时记录 `not run`，不能默认通过；
@@ -166,10 +166,11 @@ npm run build
 
 `test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 `dsh` 或 Chromium，不能直接放进 GitHub-hosted runner 的核心五命令。
 
-- 先作为独立 workflow 在本机 self-hosted runner 或手动运行；
-- `lib/` 必须先 build；`test:host-smoke` 使用 `DSH_HOST_SMOKE_STRICT=1`；
-- 稳定前不作为 required check，PR 的 `Not run` 必须明确写出；
-- 稳定后增加独立 required check，并按 affected paths 选择；不能把 skipped 当绿。
+- 默认不在 GitHub-hosted runner 上跑。推荐在第二台机器安装 GitHub self-hosted runner，打上 `heavy` 标签，heavy workflow 使用 `runs-on: [self-hosted, heavy]`；核心 `CI / pr-gate` 仍跑 GitHub-hosted。
+- 第二台机器准备 Node、`dsh`/DSH Desktop、Chromium；使用专用用户和独立 workspace，每次 `npm ci`，先 `npm run build`，使用临时 `DSH_HOME`，设置 `DSH_HOST_SMOKE_STRICT=1`，缓存 Playwright 浏览器，heavy job 并发设为 1。
+- 稳定门槛：固定 OS、Node、`dsh`、Chromium 版本；每次 clean workspace；先做 host health 检查；重试只允许有界次数并记录；上传截图/日志/JSON 证据；连续 20 次无基础设施失败的 green 运行后，才把 heavy lane 设为 required。
+- 稳定前只作为独立 workflow 或手动运行，PR 的 `Not run` 必须明确写出；稳定后按 affected paths 增加独立 required check `heavy-gate`，不能把 skipped 当绿。
+- 第二台机器离线时 job 会排队或失败；在 uptime 稳定前不要把它设为 required，否则会阻塞所有相关 PR。
 
 ## 7. PR 元数据 v1
 
@@ -196,7 +197,7 @@ npm run build
 2. `.node-version` + `CI / pr-gate` report-only；验证五命令在干净 checkout 下可运行。
 3. ruleset 要求 `CI / pr-gate`，开启 conversation resolution 和 strict up-to-date，禁止 force/delete。
 4. 接入主审与 `Policy / gate-artifact`，验证新 commit 会使旧 review/旧证据失效。
-5. 稳定后接 heavy lane；最后统一 merge 设置与自动删分支。
+5. 在第二台机器安装并验证 `heavy` self-hosted runner，连续 20 次 green 后再把 heavy lane 设为 required；最后统一 merge 设置与自动删分支。
 
 ## 10. 验收
 
@@ -207,4 +208,5 @@ npm run build
 - 有未解决 conversation：merge 被阻止。
 - 直接 push main、force push、删除 main：全部拒绝。
 - `gate-artifact` 的 `headSha` 等于 PR head，`diff.sha256` 与 sticky comment 一致。
+- heavy lane 在第二台机器的 `heavy` self-hosted runner 上运行；缺 `dsh` 时失败而不是 skip。
 - 合并后分支自动删除，main 上是 merge commit。
