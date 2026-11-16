@@ -376,11 +376,6 @@
       "uncoveredLines": [
         236,
         237,
-        291,
-        292,
-        293,
-        294,
-        295,
         299,
         300,
         430,
@@ -417,11 +412,11 @@
       ],
       "lines": {
         "total": 840,
-        "covered": 800
+        "covered": 805
       },
       "branches": {
-        "total": 261,
-        "covered": 171
+        "total": 267,
+        "covered": 179
       },
       "functions": {
         "total": 25,
@@ -430,52 +425,14 @@
     },
     {
       "path": "src/domains/isolation/work-item.ts",
-      "uncoveredLines": [
-        116,
-        117,
-        125,
-        126,
-        172,
-        173,
-        333,
-        334,
-        349,
-        350,
-        351,
-        352,
-        353,
-        403,
-        404,
-        405,
-        406,
-        444,
-        445,
-        446,
-        447,
-        448,
-        449,
-        450,
-        589,
-        590,
-        591,
-        592,
-        599,
-        600,
-        601,
-        610,
-        611,
-        612,
-        613,
-        614,
-        615
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 617,
-        "covered": 580
+        "covered": 617
       },
       "branches": {
-        "total": 274,
-        "covered": 182
+        "total": 279,
+        "covered": 198
       },
       "functions": {
         "total": 27,
@@ -578,8 +535,8 @@
         "covered": 808
       },
       "branches": {
-        "total": 640,
-        "covered": 360
+        "total": 639,
+        "covered": 358
       },
       "functions": {
         "total": 67,
