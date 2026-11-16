@@ -14,12 +14,19 @@ test('heavy workflow is manual-only and targets the local heavy runner', () => {
   assert.match(workflow, /^permissions:\n  contents: read$/m)
   assert.match(workflow, /^    runs-on: \[self-hosted, heavy\]$/m)
   assert.match(workflow, /^  heavy-gate:\n    name: heavy-gate$/m)
-  assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/)
+  assert.match(workflow, /inputs\.repo_path/)
+  assert.match(workflow, /git clone --no-hardlinks --no-checkout "\$LOCAL_REPO" \./)
+  assert.match(workflow, /git checkout --detach "\$GITHUB_SHA"/)
   assert.match(workflow, /git fetch --no-tags origin "\$\{\{ inputs\.base \}\}"/)
+  assert.match(workflow, /git config --global init\.defaultBranch main/)
+  for (const key of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']) {
+    assert.ok(workflow.includes(`${key}:`), `missing git identity for temporary test commits: ${key}`)
+  }
 })
 
 test('heavy workflow runs its prerequisites in order', () => {
   const commands = [
+    'test "$(node --version)" = "v$(cat .node-version)"',
     'npm ci',
     'npx playwright install chromium',
     'npm run typecheck',
@@ -33,15 +40,12 @@ test('heavy workflow runs its prerequisites in order', () => {
     assert.ok(index > previous, `heavy workflow is missing or out of order: ${command}`)
     previous = index
   }
-  assert.match(workflow, /node-version-file: \.node-version/)
-  assert.match(workflow, /name: heavy-coverage/)
+  assert.match(workflow, /coverage\/layered\.json/)
 })
 
-test('heavy workflow pins actions and carries no secrets', () => {
+test('heavy workflow downloads no actions and carries no secrets', () => {
   const uses = [...workflow.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])
-  assert.ok(uses.length >= 3, 'expected checkout, setup-node, and upload-artifact')
-  for (const use of uses) {
-    assert.match(use, /^[^@]+@[0-9a-f]{40}$/, `action is not pinned to a commit SHA: ${use}`)
-  }
+  assert.deepEqual(uses, [])
+  assert.doesNotMatch(workflow, /actions\//)
   assert.doesNotMatch(workflow, /secrets\./)
 })

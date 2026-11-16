@@ -7,6 +7,10 @@ on:
         description: Base ref to compare against
         required: false
         default: main
+      repo_path:
+        description: Local checkout path on the heavy runner
+        required: false
+        default: /Users/ray/Workspace/dsh-cowork
 
 permissions:
   contents: read
@@ -22,22 +26,32 @@ jobs:
     # reaches the self-hosted runner until a head-bound check publisher exists.
     runs-on: [self-hosted, heavy]
     timeout-minutes: 60
+    env:
+      GIT_AUTHOR_NAME: github-actions[bot]
+      GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      GIT_COMMITTER_NAME: github-actions[bot]
+      GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
     steps:
-      - name: Checkout selected ref
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
+      - name: Checkout selected ref from the local repository
+        env:
+          LOCAL_REPO: ${{ inputs.repo_path }}
+        run: |
+          test -d "$LOCAL_REPO/.git" || {
+            echo "::error::local repository not found at $LOCAL_REPO"
+            exit 1
+          }
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git clone --no-hardlinks --no-checkout "$LOCAL_REPO" .
+          git checkout --detach "$GITHUB_SHA"
 
       - name: Fetch base
         run: git fetch --no-tags origin "${{ inputs.base }}"
 
-      - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version-file: .node-version
-          cache: npm
+      - name: Configure git defaults for temporary test repositories
+        run: git config --global init.defaultBranch main
+
+      - name: Verify the runner Node version
+        run: test "$(node --version)" = "v$(cat .node-version)"
 
       - name: Install dependencies
         run: npm ci
@@ -59,11 +73,11 @@ jobs:
           npm run test:coverage:layered --
           --base "origin/${{ inputs.base }}"
 
-      - name: Upload coverage evidence
+      - name: Show coverage evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: heavy-coverage
-          path: coverage/
-          if-no-files-found: warn
-          retention-days: 14
+        run: |
+          if [ -f coverage/layered.json ]; then
+            ls -lh coverage/layered.json coverage/client.json coverage/browser.lcov
+          else
+            echo "coverage report was not produced"
+          fi
