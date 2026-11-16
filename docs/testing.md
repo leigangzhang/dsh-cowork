@@ -16,7 +16,7 @@ One home for how dsh-cowork decides that something is verified.
 | Local build gate | Heavy lane | `npm run typecheck`, `npm run build`, host smoke, and browser lane where the DSH source/app or Chromium exists | Every affected source/client change until the local heavy runner is stable enough to be required |
 | Review evidence | GitHub Actions `gate-artifact` | A `review-verdict` marker at the PR head, a successful `pr-gate`, current `main` as an ancestor, and a clean worktree | Every PR before merge |
 
-Replayable expected output is not an executable lane yet. Do not cite it as evidence until a command exists. The browser panel is executable as an observational lane; it writes `coverage/client.json`, `coverage/browser.lcov`, and prints the covered client files.
+Replayable expected output has no executable lane yet; do not cite it as evidence. The browser panel is executable as an observational lane; it writes `coverage/client.json`, `coverage/browser.lcov`, and prints the covered client files.
 
 A unit test that only reads a same-process typed value is not evidence for a cross-process claim. `sessionController.prompt` waking an idle session, workspace attach, and worktree merge must be proven through a real DSH run, not through mocks. The built-artifact smoke is necessary but not sufficient for that class: it proves loading and routing, not model-driven transactions.
 
@@ -40,7 +40,7 @@ npm run gate-artifact -- --base <verified-base>  # record HEAD, binary diff SHA-
 
 `npm test` runs `tests/**/*.test.mjs`; the glob is quoted so Node expands it recursively. `test:coverage` uses the same recursive discovery from [scripts/evidence/test-coverage.mjs](../scripts/evidence/test-coverage.mjs), so a test moved into a subdirectory cannot be silently skipped on either lane.
 
-`test:coverage` runs every test file in its own process, writes one LCOV report per process, and merges the reports by union. The aggregate `node --test` report is not used: it intermittently dropped a whole test file, which is fatal for a per-file gate. The gate is [coverage-check.mjs](../scripts/evidence/coverage-check.mjs) and its policy data is `tools/coverage-map.json` plus `tools/coverage-debt.json`.
+`test:coverage` runs every test file in its own process, writes one LCOV report per process, and merges the reports by union. The aggregate `node --test` report is not used: it intermittently dropped a test file. The gate is [coverage-check.mjs](../scripts/evidence/coverage-check.mjs) and its policy data is `tools/coverage-map.json` plus `tools/coverage-debt.json`.
 
 Every `src/**/*.ts` and `src/client/**/*.tsx` is owned by exactly one lane: `unit`, `browser`, or `dev`. Ownership is exclusive; a file is judged by its own lane only. The six `src/dev/m12-e2e*` drivers are the only `dev` entries: they carry a reason and an exit condition, are reported for visibility, and are not gated. `src/client/notice.tsx` is a blocked browser entry until the host exposes `ctx.sessionNotices` (KI-40). A file with only type declarations is allowed to be absent from the coverage report; a file with runtime statements that no test loads fails.
 
@@ -84,6 +84,7 @@ First run `npm run change-scope -- --base <verified-base>` and record the identi
 - `tests/*` → `npm test` + `npm run test:coverage`, and watch the new test fail for the regression it pins.
 - `package.json`, `cordis.patch.yml`, build config → `npm run check` + typecheck + `npm test` + build + host smoke.
 - `tools/workflow.json`, `tools/check-invariants.mjs`, `.gitignore` → `npm run check` + `npm run check:self-test`.
+- `tools/fallow-health-baseline.json` → `fallow health --baseline tools/fallow-health-baseline.json` (zero new findings) and `fallow audit --base <verified-base>` (change gate); refresh the baseline only in a dedicated maintenance PR naming the CLI version and HEAD, with each added entry reviewed.
 - `AGENTS.md`, `docs/*` → `npm run check` and read the changed section as its reader.
 
 A delivery is not verified unless the commands that ran, their three-state result, and the entries that did not run are named in the final report.

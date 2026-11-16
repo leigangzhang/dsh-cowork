@@ -6,8 +6,27 @@
         "count": 2
       }
     },
-    "scripts/evidence/host-smoke.mjs": {
+    "scripts/evidence/browser-panel.mjs": {
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "scripts/evidence/client-coverage.mjs": {
+      "complexity_high": {
+        "count": 1
+      },
       "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "scripts/evidence/dsh-host-session.mjs": {
+      "complexity_moderate": {
         "count": 1
       }
     },
@@ -324,7 +343,7 @@
     },
     "tests/guards/workflow.test.mjs": {
       "crap_moderate": {
-        "count": 1
+        "count": 2
       }
     },
     "tools/check-invariants.mjs": {
@@ -372,22 +391,27 @@
   },
   "runtime_coverage_findings": [],
   "target_keys": [
+    "scripts/evidence/client-coverage.mjs:high impact",
+    "scripts/evidence/browser-panel.mjs:hidden coupling",
     "src/domains/notices/notices.ts:complexity",
+    "src/tools/route.ts:complexity",
     "src/client/panel.tsx:complexity",
     "src/store/schema.ts:complexity",
-    "src/tools/route.ts:complexity",
     "tools/check-invariants.mjs:complexity",
     "src/domains/requests/request-schema.ts:high impact",
     "src/domains/requests/request-lifecycle.ts:complexity",
     "src/client/api.ts:hidden coupling",
-    "tools/doc-gate-engine.mjs:complexity",
-    "src/panel/probe-model.ts:high impact",
+    "scripts/evidence/coverage-check.mjs:high impact",
     "src/domains/review/review-request.ts:complexity",
+    "src/panel/probe-model.ts:high impact",
+    "tools/doc-gate-engine.mjs:complexity",
+    "tests/guards/workflow.test.mjs:untested risk",
     "src/tools/review.ts:complexity",
     "src/domains/requests/authorization-decision.ts:complexity",
     "tests/guards/architecture.test.mjs:untested risk",
     "src/client/model.ts:hidden coupling",
     "src/client/list.tsx:hidden coupling",
+    "tests/browser/coverage-map.test.mjs:hidden coupling",
     "src/dev/m12-e2e.ts:untested risk",
     "src/platform/workspace-repair.ts:complexity",
     "src/client/styles.ts:hidden coupling"
