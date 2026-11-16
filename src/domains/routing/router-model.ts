@@ -286,10 +286,6 @@ async function callPort(port: LlmRoutingPort, request: RoutingModelRequest): Pro
     const fail = (): void => {
       reject(new RoutingModelError('timeout', `the model call exceeded ${request.timeoutMs} ms`))
     }
-    if (signal.aborted) {
-      fail()
-      return
-    }
     guard = setTimeout(fail, request.timeoutMs)
     signal.addEventListener('abort', fail, { once: true })
     removeAbortListener = () => signal.removeEventListener('abort', fail)

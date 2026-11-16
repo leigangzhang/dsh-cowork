@@ -476,8 +476,8 @@
         "covered": 808
       },
       "branches": {
-        "total": 642,
-        "covered": 360
+        "total": 641,
+        "covered": 358
       },
       "functions": {
         "total": 67,
@@ -637,37 +637,24 @@
         "covered": 1251
       },
       "branches": {
-        "total": 931,
-        "covered": 586
+        "total": 942,
+        "covered": 589
       },
       "functions": {
-        "total": 40,
-        "covered": 40
+        "total": 42,
+        "covered": 41
       }
     },
     {
       "path": "src/domains/routing/router-model.ts",
-      "uncoveredLines": [
-        238,
-        239,
-        290,
-        291,
-        292,
-        302,
-        303,
-        304,
-        305,
-        321,
-        322,
-        323
-      ],
+      "uncoveredLines": [],
       "lines": {
-        "total": 382,
-        "covered": 370
+        "total": 378,
+        "covered": 378
       },
       "branches": {
-        "total": 130,
-        "covered": 97
+        "total": 131,
+        "covered": 103
       },
       "functions": {
         "total": 25,
@@ -1152,12 +1139,12 @@
         "covered": 548
       },
       "branches": {
-        "total": 474,
-        "covered": 385
+        "total": 467,
+        "covered": 379
       },
       "functions": {
-        "total": 37,
-        "covered": 32
+        "total": 45,
+        "covered": 35
       }
     },
     {
@@ -1242,8 +1229,8 @@
         "covered": 721
       },
       "functions": {
-        "total": 126,
-        "covered": 98
+        "total": 127,
+        "covered": 99
       }
     },
     {
@@ -1311,11 +1298,11 @@
         "covered": 807
       },
       "branches": {
-        "total": 1556,
-        "covered": 649
+        "total": 1569,
+        "covered": 654
       },
       "functions": {
-        "total": 50,
+        "total": 55,
         "covered": 41
       }
     },
