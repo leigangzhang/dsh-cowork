@@ -181,6 +181,8 @@ npm run test:coverage
 - 稳定前只作为独立 workflow 或手动运行，PR 的 `Not run` 必须明确写出；稳定后按 affected paths 增加独立 required check `heavy-gate`，不能把 skipped 当绿。
 - 本机休眠、离线或 runner 不可用时 job 会排队或失败；在 uptime 稳定前不要把它设为 required，否则会阻塞相关 PR。
 
+操作步骤（连续 green 计数、publisher 检查、ruleset 更新与回滚）见 [heavy-runner.md](../../heavy-runner.md)。
+
 ## 7. PR 元数据 v1
 
 - PR 标题使用 Conventional Commits；

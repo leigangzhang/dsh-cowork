@@ -51,6 +51,10 @@
       "reason": "Project-context illustration for contributors: the shared .dsh-cowork disk surface, memory injection timing, handoff up/down paths, and the four session isolation modes; the authoritative rules stay in src/ and docs/PLAN.md, so this route map is internal review material rather than a published guide"
     },
     {
+      "pattern": "docs/heavy-runner.md",
+      "reason": "maintainer runbook for the local heavy runner: manual dispatch, consecutive-green counting, and ruleset rollout; not user-facing guidance"
+    },
+    {
       "pattern": "docs/design/*",
       "reason": "feature design records and their current template assets: internal design documents for contributors, not user-facing guides"
     }
