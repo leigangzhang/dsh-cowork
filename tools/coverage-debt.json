@@ -578,8 +578,8 @@
         "covered": 808
       },
       "branches": {
-        "total": 637,
-        "covered": 358
+        "total": 640,
+        "covered": 360
       },
       "functions": {
         "total": 67,
@@ -802,74 +802,18 @@
     },
     {
       "path": "src/domains/review/review-request.ts",
-      "uncoveredLines": [
-        303,
-        304,
-        305,
-        333,
-        334,
-        335,
-        341,
-        342,
-        386,
-        387,
-        388,
-        420,
-        421,
-        422,
-        424,
-        425,
-        426,
-        431,
-        432,
-        433,
-        442,
-        443,
-        444,
-        448,
-        449,
-        457,
-        458,
-        517,
-        518,
-        530,
-        531,
-        632,
-        633,
-        634,
-        635,
-        636,
-        637,
-        638,
-        639,
-        668,
-        669,
-        670,
-        671,
-        672,
-        673,
-        674,
-        819,
-        820,
-        913,
-        914,
-        915,
-        916,
-        917,
-        918,
-        1141
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 1251,
-        "covered": 1196
+        "covered": 1251
       },
       "branches": {
-        "total": 870,
-        "covered": 515
+        "total": 931,
+        "covered": 586
       },
       "functions": {
         "total": 40,
-        "covered": 38
+        "covered": 40
       }
     },
     {
@@ -925,12 +869,12 @@
         "covered": 261
       },
       "branches": {
-        "total": 98,
-        "covered": 74
+        "total": 149,
+        "covered": 125
       },
       "functions": {
-        "total": 12,
-        "covered": 12
+        "total": 16,
+        "covered": 14
       }
     },
     {

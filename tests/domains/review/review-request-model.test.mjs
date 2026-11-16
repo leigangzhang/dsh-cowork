@@ -13,6 +13,7 @@ import { withRepo } from '../../support/inbox-fixtures.mjs'
 const {
   REVIEW_BRIEF_MAX_CHARS,
   REVIEW_CHANGED_PATHS_MAX,
+  REVIEW_EXTRA_KEY_MAX_CHARS,
   REVIEW_EXTRA_MAX_BYTES,
   REVIEW_EXTRA_MAX_DEPTH,
   REVIEW_EXTRA_MAX_KEYS,
@@ -238,6 +239,8 @@ test('verification must be a non-empty bounded array of complete rows', () => {
   assert.deepEqual(refusedFields(requestInput({ verification: rows })), ['verification'])
 
   for (const row of [
+    'npm test',
+    null,
     { command: '', exitCode: 0, evidence: 'ok' },
     { command: 'npm test', exitCode: 0.5, evidence: 'ok' },
     { command: 'npm test', exitCode: 0 },
@@ -270,11 +273,23 @@ test('extra is capped at 20 keys of bounded JSON', () => {
   )
   assert.deepEqual(refusedFields(requestInput({ extra: tooMany })), ['extra'])
 
-  for (const value of [Number.NaN, undefined, () => 1, Number.POSITIVE_INFINITY]) {
+  // A value JSON cannot serialize (a bigint) is a refusal, not a crash from the
+  // byte estimate.
+  for (const value of [Number.NaN, undefined, () => 1, Number.POSITIVE_INFINITY, 1n]) {
     const result = validate(requestInput({ extra: { bad: value } }))
     assert.equal(result.ok, false, `${String(value)} must be refused`)
     assert.ok(result.errors.some((error) => error.field === 'extra.bad'), JSON.stringify(result.errors))
   }
+
+  // Arrays are containers too: a valid one is fine, and an element outside the
+  // JSON bounds is refused under the array's key.
+  assert.equal(validate(requestInput({ extra: { tags: ['one', 2, true, null] } })).ok, true)
+  assert.deepEqual(refusedFields(requestInput({ extra: { tags: ['one', Number.NaN] } })), ['extra.tags'])
+
+  // A key must be a non-empty bounded string.
+  assert.deepEqual(refusedFields(requestInput({ extra: { '': 1 } })), ['extra.'])
+  const longKey = 'k'.repeat(REVIEW_EXTRA_KEY_MAX_CHARS + 1)
+  assert.deepEqual(refusedFields(requestInput({ extra: { [longKey]: 1 } })), [`extra.${longKey}`])
 
   // Depth 4 is inside the bound; depth 5 is not.
   assert.equal(validate(requestInput({ extra: { deep: nested(REVIEW_EXTRA_MAX_DEPTH) } })).ok, true)
@@ -319,6 +334,17 @@ test('the topic and work-item ids must be usable in a file name', () => {
 test('validation is deterministic: the same input yields the same refusal twice', () => {
   const input = requestInput({ purpose: '', headCommit: BASE })
   assert.deepEqual(validate(input), validate(input))
+})
+
+test('a non-object input and a non-absolute repository are refused by field', () => {
+  const inputRefusal = [{ field: 'input', message: 'review request input must be an object' }]
+  for (const input of [null, 'a request', 42, []]) {
+    const result = validateReviewRequestInput(input, requestScope())
+    assert.equal(result.ok, false, String(input))
+    assert.equal(result.code, M10_ERROR_CODES.reviewRequestInvalid)
+    assert.deepEqual(result.errors, inputRefusal)
+  }
+  assert.deepEqual(refusedFields(requestInput(), requestScope({ repoPath: 'relative/repo' })), ['repoPath'])
 })
 
 // ---------------------------------------------------------------------------
@@ -391,6 +417,7 @@ test('parse refuses every broken record instead of guessing', () => {
     ['a wrong-shaped verification row', { ...pendingRecord(), verification: [{ command: 'npm test' }] }],
     ['an unsafe request id', { ...pendingRecord(), requestId: 'req/1' }],
     ['an unsafe topic id', { ...pendingRecord(), topicId: '../topic' }],
+    ['a requestedAt that is not a timestamp', answeredRecord({ requestedAt: 'not-a-timestamp' })],
   ]
   for (const [label, record] of cases) {
     const parsed = parseReviewRequestRecord(JSON.stringify(record))
@@ -452,6 +479,7 @@ test('previousRequestId must name a terminal request of the same topic and work 
     ['a different topic', { previousRequestId: 'req-1', previous, topicId: 'session-other', workItemId: 'wi-1' }],
     ['a different work item', { previousRequestId: 'req-1', previous, topicId: 'session-topic', workItemId: 'wi-2' }],
     ['a still-pending previous request', { previousRequestId: 'req-1', previous: pendingRecord(), topicId: 'session-topic', workItemId: 'wi-1' }],
+    ['a request id that resolved to another record', { previousRequestId: 'req-2', previous, topicId: 'session-topic', workItemId: 'wi-1' }],
   ]
   for (const [label, input] of refusals) {
     const refusal = checkPreviousRequest(input)
