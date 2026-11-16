@@ -16,9 +16,9 @@ Class: process
 
 - `tools/fallow-health-baseline.json` 由 fallow 3.43.0 在 main `20f09c9` 上重新生成：11 条既有 finding 进入基线，1 条过期的 host-smoke 条目被移除；没有改阈值、源码行为或 `.fallowrc.jsonc` 的 ignore。刷新后 `fallow health --baseline ...` 退出 0。
 - 基线是受审的存量状态，不是豁免。`fallow health --baseline tools/fallow-health-baseline.json` 必须零新增；`fallow audit --base <base>` 继续作为变更级阻断，新增 complexity、duplication 与 dead code 会让它失败。基线刷新只在独立维护 PR 中进行，写明 CLI 版本与 HEAD，并逐条核对新增条目；不在 feature 或 cleanup PR 内刷新。若 CI 引入 fallow，使用同一 CLI 版本与基线，并作为独立 job。
-- 清理把 4 个浏览器 lane 函数拆成可测的小函数，整组 finding 清零后从基线剪掉：`browser-panel.mjs` 的 `publishCoverage`/`main` 拆出 source map 获取、artifact、输出写入与 lane 生命周期，证据塑形移到 `scripts/evidence/browser-evidence.mjs`；`client-coverage.mjs` 的范围索引、覆盖掩码、函数映射各自拆开；`dsh-host-session.mjs` 的 `startDshHost` 拆出布局、环境、安装与连接阶段。`tests/guards/workflow.test.mjs` 的两个矩阵测试在仍然超阈值时抽出断言 helper，断言与顺序不变。
+- 清理把 4 个浏览器 lane 函数拆成可测的小函数，整组 finding 清零后从基线剪掉：`browser-panel.mjs` 的 `publishCoverage`/`main` 拆出 source map 获取、artifact、输出写入与 lane 生命周期，证据塑形移到 `scripts/evidence/browser-evidence.mjs`；`client-coverage.mjs` 的范围索引、覆盖掩码、函数映射各自拆开；`dsh-host-session.mjs` 的 `startDshHost` 拆出布局、环境、安装与连接阶段，spawn 后立即登记 provisional connection，使 ready 超时或 token 交换失败仍会 detach 管道并停止子进程。`tests/guards/workflow.test.mjs` 的两个矩阵测试在仍然超阈值时抽出断言 helper，断言与顺序不变。
 - `scripts/evidence/browser-evidence.mjs` 归入 `tools/workflow.json` 的 `browser` surface。`AGENTS.md`、`docs/testing.md` 与 [code-review skill](../../../skills/code-review/SKILL.md) 记录上述刷新与 new-only 规则。
-- 清理后基线为 41 个文件 / 157 个类别计数 / 23 个 target key（刷新前 43 / 159 / 19）；`fallow health --baseline` 报告 116 个超阈值函数，全部在基线的受审范围内。
+- 清理后基线为 41 个文件 / 157 个类别计数 / 23 个 target key（main 原基线 43 / 159 / 19）；`fallow health --baseline` 报告 116 个超阈值函数，全部在基线的受审范围内。
 
 ## Alternatives considered
 
@@ -34,7 +34,7 @@ Class: process
 
 ## Consequences
 
-- 11 条 finding 被短期接受，但在同一工作流的清理 PR 中全部消除并从基线剪掉；最终基线比 main 少 2 个类别计数（11 条清理 + 1 条过期 `host-smoke` 移除，净减 2 与刷新时的 11 条新增相抵）。
+- 11 条 finding 被短期接受，但在同一工作流的清理 PR 中全部消除并从基线剪掉。刷新净增 10 个类别计数（159 → 169），清理净减 12 个（169 → 157），最终比 main 少 2 个（157 对 159）。
 - 清理不改变行为：浏览器 lane 的 coverage 发布、失败证据、source map 映射与 host 生命周期由真实 `npm run test:browser` 和 host smoke 验证；新增单测只固定既有边界。
 - 基线是 `count` 模式的按文件/类别计数，不是按函数身份；重命名或移动函数后需要重新刷新，行号变化本身不影响判定。若未来升级 fallow，按独立 PR 重新生成并对比差异，不静默替换。
 - 基线刷新依赖本地 CLI，CI 尚未运行 fallow；因此评审采纳仍是执行方式，门禁的漂移由下一次维护 PR 暴露。新工作引入 finding 时，由引入它的 PR 负责修复或在独立维护 PR 中刷新，不能混入功能 PR。
@@ -44,6 +44,6 @@ Class: process
 
 - [A1] 在 main `20f09c9` 上重新生成基线后，`fallow health --baseline tools/fallow-health-baseline.json` 退出 0，11 条既有 finding 全部进入基线；刷新 PR 不含源码行为变更。 — `workflow`
 - [A2] 合成了一个 24 分支的 `negativeControl` 函数：`fallow health --baseline` 退出 1，`fallow audit --base origin/main` 退出 1；删除后两者恢复退出 0。没有改阈值或加 ignore。 — `workflow`
-- [A3] 4 个浏览器 lane 函数拆成可测小函数；新增 sourcemap 越界/嵌套/重复映射、失败报告脱敏、hostLayout/hostEnvironment 用例；拆分后 `fallow health` 不再报告这些 finding。 — `source`
-- [A4] `workflow.test.mjs` 的两个测试在拆分后仍超阈值时抽出断言 helper；`npm test` 1040 项通过，断言与顺序未变。 — `tests`
+- [A3] 4 个浏览器 lane 函数拆成可测小函数；新增 sourcemap 越界/嵌套/重复映射、失败报告脱敏、hostLayout/hostEnvironment、token 交换失败停止子进程的回归用例；拆分后 `fallow health` 不再报告这些 finding。 — `source`
+- [A4] `workflow.test.mjs` 的两个测试在拆分后仍超阈值时抽出断言 helper；`npm test` 1041 项通过，断言与顺序未变。 — `tests`
 - [A5] `AGENTS.md`、`docs/testing.md` 与 code-review skill 写明基线刷新与 new-only 闸门；CI 未引入 fallow，条件性条款已记录。 — `plan-docs`

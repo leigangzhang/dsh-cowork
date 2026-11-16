@@ -268,24 +268,31 @@ function installHostPackage({ layout, hostEnv, dsh }) {
   return { manifest, tarball }
 }
 
-/** Spawn the host, wait for its printed URL, and exchange it for a cookie. */
-async function connectHost({ layout, hostEnv, dsh }) {
+/** Spawn the host process and attach its bounded output. */
+function spawnHostProcess({ layout, hostEnv, dsh }) {
   const child = spawn(dsh, ['--profile', layout.profileName, '--patch', layout.patchPath, '--port', '0', '--no-open'], {
     cwd: layout.cwd,
     env: hostEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
-  const output = attachHostOutput(child)
+  return { child, output: attachHostOutput(child) }
+}
+
+/**
+ * Wait for the printed URL and exchange it for a cookie.
+ *
+ * The caller owns the spawned child; a failure here leaves cleanup to the
+ * caller's stop path, which has the provisional connection.
+ */
+async function authenticateHost({ output }) {
   const authenticatedUrl = await output.ready
   const origin = new URL(authenticatedUrl).origin
   const auth = await fetch(authenticatedUrl, { redirect: 'manual' })
   const cookie = authCookieFrom(auth.headers)
   if (auth.status !== 303 || cookie === '') {
-    output.detach()
-    await stopChild(child)
     throw new Error(`DSH token exchange failed (status ${String(auth.status)}, cookie=${cookie === '' ? 'missing' : 'present'})`)
   }
-  return { child, output, origin, authenticatedUrl, cookie }
+  return { origin, authenticatedUrl, cookie }
 }
 
 /**
@@ -317,16 +324,17 @@ export async function startDshHost(options = {}) {
   try {
     const { manifest, tarball } = installHostPackage({ layout, hostEnv, dsh })
     writeFileSync(layout.patchPath, profilePatch(layout.patchRepoPath), 'utf8')
-    connection = await connectHost({ layout, hostEnv, dsh })
+    connection = spawnHostProcess({ layout, hostEnv, dsh })
+    const auth = await authenticateHost(connection)
     return {
       packageJson: manifest,
       tarball,
       tempRoot: layout.tempRoot,
       dshHome: layout.dshHome,
       npmCache: layout.npmCache,
-      origin: connection.origin,
-      authenticatedUrl: connection.authenticatedUrl,
-      cookie: connection.cookie,
+      origin: auth.origin,
+      authenticatedUrl: auth.authenticatedUrl,
+      cookie: auth.cookie,
       child: connection.child,
       logTail: () => connection?.output?.tail() ?? '',
       stop,
