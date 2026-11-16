@@ -536,7 +536,7 @@
       },
       "branches": {
         "total": 639,
-        "covered": 358
+        "covered": 360
       },
       "functions": {
         "total": 67,
@@ -678,47 +678,14 @@
     },
     {
       "path": "src/domains/requests/request-schema.ts",
-      "uncoveredLines": [
-        165,
-        171,
-        172,
-        178,
-        196,
-        197,
-        202,
-        203,
-        211,
-        212,
-        222,
-        223,
-        225,
-        226,
-        233,
-        234,
-        244,
-        245,
-        251,
-        261,
-        262,
-        307,
-        308,
-        328,
-        329,
-        330,
-        333,
-        334,
-        335,
-        351,
-        365,
-        453
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 797,
-        "covered": 765
+        "covered": 797
       },
       "branches": {
-        "total": 1174,
-        "covered": 732
+        "total": 1184,
+        "covered": 760
       },
       "functions": {
         "total": 80,
@@ -826,12 +793,12 @@
         "covered": 261
       },
       "branches": {
-        "total": 149,
-        "covered": 125
+        "total": 98,
+        "covered": 74
       },
       "functions": {
-        "total": 16,
-        "covered": 14
+        "total": 12,
+        "covered": 12
       }
     },
     {
