@@ -165,41 +165,91 @@ function indexClientSources({ sourceMapPayload, repoRoot, mapDirectory, sourceEx
   return sourceByFile
 }
 
+/** The offsets a Playwright or V8 range may expose under either spelling. */
+function rangeOffsets(range) {
+  return { start: range.start ?? range.startOffset, end: range.end ?? range.endOffset }
+}
+
+/** A usable range has integer offsets in ascending order. */
+function validOffsets(start, end) {
+  return Number.isInteger(start) && Number.isInteger(end) && end > start
+}
+
+function clampOffset(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value))
+}
+
+/**
+ * Clamp one range to the generated source, or null when it covers no byte.
+ *
+ * Playwright can report offsets past the script or a zero-length range; both
+ * are ignored instead of shrinking to an artificial covered line.
+ */
+function rangeBounds(range, sourceLength) {
+  const { start: rawStart, end: rawEnd } = rangeOffsets(range)
+  if (!validOffsets(rawStart, rawEnd)) return null
+  const start = clampOffset(rawStart, 0, sourceLength)
+  const end = clampOffset(rawEnd, start, sourceLength)
+  return end <= start ? null : { start, end, count: range.count }
+}
+
+function appendRange(index, key, range) {
+  const list = index.get(key)
+  if (list === undefined) index.set(key, [range])
+  else list.push(range)
+}
+
 function buildRangeIndex(ranges, sourceText) {
   const starts = new Map()
   const ends = new Map()
   for (const range of ranges) {
-    const rawStart = range.start ?? range.startOffset
-    const rawEnd = range.end ?? range.endOffset
-    if (!Number.isInteger(rawStart) || !Number.isInteger(rawEnd) || rawEnd <= rawStart) continue
-    const start = Math.max(0, Math.min(sourceText.length, rawStart))
-    const end = Math.max(start, Math.min(sourceText.length, rawEnd))
-    if (end <= start) continue
-    const normalized = { start, end, count: range.count }
-    if (!starts.has(start)) starts.set(start, [])
-    starts.get(start).push(normalized)
-    if (!ends.has(end)) ends.set(end, [])
-    ends.get(end).push(normalized)
+    const normalized = rangeBounds(range, sourceText.length)
+    if (normalized === null) continue
+    appendRange(starts, normalized.start, normalized)
+    appendRange(ends, normalized.end, normalized)
   }
   return { starts, ends }
+}
+
+function removeEnding(active, ending) {
+  for (const range of ending) {
+    const index = active.indexOf(range)
+    if (index >= 0) active.splice(index, 1)
+  }
+}
+
+function addStarting(active, starting) {
+  for (const range of starting) active.push(range)
+}
+
+function containsOffset(range, offset) {
+  return range.start <= offset && offset < range.end
+}
+
+/** The innermost active range wins; an outer range never covers its children. */
+function narrowerThan(range, other) {
+  return other === null || range.end - range.start < other.end - other.start
+}
+
+function innermostRange(active, offset) {
+  let innermost = null
+  for (const range of active) {
+    if (containsOffset(range, offset) && narrowerThan(range, innermost)) innermost = range
+  }
+  return innermost
+}
+
+function advanceActive(active, starts, ends, offset) {
+  removeEnding(active, ends.get(offset) ?? [])
+  addStarting(active, starts.get(offset) ?? [])
 }
 
 function buildCoverageMask(sourceText, starts, ends) {
   const active = []
   const covered = new Uint8Array(sourceText.length)
   for (let offset = 0; offset < sourceText.length; offset += 1) {
-    for (const range of ends.get(offset) ?? []) {
-      const index = active.indexOf(range)
-      if (index >= 0) active.splice(index, 1)
-    }
-    for (const range of starts.get(offset) ?? []) active.push(range)
-    let innermost = null
-    for (const range of active) {
-      if (range.start <= offset && offset < range.end
-        && (innermost === null || range.end - range.start < innermost.end - innermost.start)) {
-        innermost = range
-      }
-    }
+    advanceActive(active, starts, ends, offset)
+    const innermost = innermostRange(active, offset)
     if (innermost !== null && innermost.count > 0) covered[offset] = 1
   }
   return covered
@@ -233,19 +283,50 @@ function mapLineCoverage({ sourceText, lineAt, columnAt, sourceMap, sourceByFile
   }
 }
 
+/** The first range of one Playwright function, or undefined when it has none. */
+function firstRange(ranges) {
+  return Array.isArray(ranges) ? ranges[0] : undefined
+}
+
+function rangeStart(range) {
+  return range?.start ?? range?.startOffset
+}
+
+function validFunctionStart(start, sourceLength) {
+  return Number.isInteger(start) && start >= 0 && start < sourceLength
+}
+
+function executedFunction(fn) {
+  return (fn.ranges ?? []).some(range => range.count > 0)
+}
+
+/**
+ * Resolve one function to its mapped source and origin.
+ *
+ * A function is mapped only when its first range starts inside the generated
+ * text and that generated line belongs to this combo section.
+ */
+function locatedFunction(fn, context) {
+  const start = rangeStart(firstRange(fn.ranges))
+  if (!validFunctionStart(start, context.sourceText.length)) return null
+  if (!insideGeneratedRange(context.lineAt[start], context.generatedRange)) return null
+  const origin = context.sourceMap.findOrigin(context.lineAt[start] + 1, context.columnAt[start] + 1)
+  const source = sourceForOrigin(origin, context.sourceByFile)
+  return source === null ? null : { origin, source }
+}
+
+function recordFunction(fn, located) {
+  const { origin, source } = located
+  const key = `${origin.lineNumber}:${origin.columnNumber ?? 0}:${fn.functionName || 'anonymous'}`
+  const previous = source.functions.get(key)
+  source.functions.set(key, Boolean(previous) || executedFunction(fn))
+}
+
 function mapFunctionCoverage({ functions, sourceText, lineAt, columnAt, sourceMap, sourceByFile, generatedRange }) {
+  const context = { sourceText, lineAt, columnAt, sourceMap, sourceByFile, generatedRange }
   for (const fn of functions) {
-    const first = fn.ranges?.[0]
-    const start = first?.start ?? first?.startOffset
-    if (!Number.isInteger(start) || start < 0 || start >= sourceText.length) continue
-    if (!insideGeneratedRange(lineAt[start], generatedRange)) continue
-    const origin = sourceMap.findOrigin(lineAt[start] + 1, columnAt[start] + 1)
-    const source = sourceForOrigin(origin, sourceByFile)
-    if (source === null) continue
-    const key = `${origin.lineNumber}:${origin.columnNumber ?? 0}:${fn.functionName || 'anonymous'}`
-    const previous = source.functions.get(key)
-    const executed = (fn.ranges ?? []).some(range => range.count > 0)
-    source.functions.set(key, Boolean(previous) || executed)
+    const located = locatedFunction(fn, context)
+    if (located !== null) recordFunction(fn, located)
   }
 }
 

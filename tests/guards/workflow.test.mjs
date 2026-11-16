@@ -42,36 +42,121 @@ function sectionHasBody(doc, heading) {
   return body !== null && body.some((line) => line.trim() !== '')
 }
 
+function isNonEmptyText(value) {
+  return typeof value === 'string' && value.trim() !== ''
+}
+
+function isNonEmptyArray(value) {
+  return Array.isArray(value) && value.length > 0
+}
+
+function assertWorkflowShape(workflow) {
+  assert.equal(workflow.version, 1)
+  assert.ok(isNonEmptyArray(workflow.surfaces))
+  assert.ok(isNonEmptyArray(workflow.checks), 'workflow must declare document checks')
+}
+
+function assertSurfaceShape(surface) {
+  assert.ok(isNonEmptyArray(surface.patterns), `${surface.name} needs patterns`)
+  assert.ok(isNonEmptyArray(surface.evidence), `${surface.name} needs evidence`)
+  assert.ok(surface.evidence.every(isNonEmptyText), `${surface.name} has an empty evidence entry`)
+  assert.ok(isNonEmptyText(surface.why), `${surface.name} needs why`)
+}
+
+function assertSurface(surface, names) {
+  assert.ok(surface.name, 'surface must have a name')
+  assert.ok(!names.has(surface.name), `duplicate surface name: ${surface.name}`)
+  names.add(surface.name)
+  assertSurfaceShape(surface)
+}
+
+function assertUniqueSurfaces(surfaces) {
+  const names = new Set()
+  for (const surface of surfaces) assertSurface(surface, names)
+  assert.ok(names.has('agent-skills'), 'workflow must declare the agent-skills surface')
+}
+
+function assertCheck(check, ids) {
+  assert.ok(check.id, 'document check must have an id')
+  assert.ok(!ids.has(check.id), `duplicate document check id: ${check.id}`)
+  ids.add(check.id)
+  assert.ok(check.kind, `${check.id} needs a kind`)
+  assert.ok(isNonEmptyArray(check.patterns), `${check.id} needs patterns`)
+}
+
+function assertDocumentChecks(checks) {
+  const ids = new Set()
+  for (const check of checks) assertCheck(check, ids)
+  for (const id of ['markdown-links', 'doc-index-reachability', 'kind-manifest', 'markdown-size']) {
+    assert.ok(ids.has(id), `workflow missing document check: ${id}`)
+  }
+}
+
+function assertKinds(kinds) {
+  assert.ok(isNonEmptyArray(kinds.kinds), 'docs/kinds.json needs a non-empty kinds list')
+  assert.ok(isNonEmptyArray(kinds.assignments), 'docs/kinds.json needs assignments')
+}
+
+function assertPackageScripts(pkg) {
+  for (const script of ['test', 'test:browser', 'test:coverage', 'test:host-smoke', 'check:clean', 'change-scope', 'typecheck', 'build']) {
+    assert.equal(typeof pkg.scripts?.[script], 'string', `package.json is missing script ${script}`)
+  }
+}
+
+function declaredSurface(workflow, name) {
+  const surface = workflow.surfaces.find((entry) => entry.name === name)
+  assert.ok(surface, `workflow must declare the ${name} surface`)
+  return surface
+}
+
+function assertSourceSurface(workflow) {
+  const source = declaredSurface(workflow, 'source')
+  for (const command of ['npm run test:coverage', 'npm run typecheck', 'npm run build', 'npm run test:host-smoke']) {
+    assert.ok(source.evidence.includes(command), `source evidence is missing: ${command}`)
+  }
+}
+
+function assertBrowserSurface(workflow) {
+  const browser = declaredSurface(workflow, 'browser')
+  assert.equal(browser.mode, 'observational', 'the browser lane starts observational')
+  assert.ok(browser.patterns.includes('src/client/**/*.tsx'), 'the browser surface must own TSX')
+  assert.ok(browser.evidence.includes('npm run test:browser'), 'browser evidence is missing the lane command')
+}
+
+function assertLockfile(pkg) {
+  const lock = JSON.parse(read('package-lock.json'))
+  assert.equal(lock.packages?.['']?.devDependencies?.playwright, pkg.devDependencies.playwright, 'lockfile must pin the Playwright manifest version')
+  assert.equal(lock.packages?.['node_modules/playwright']?.version, pkg.devDependencies.playwright, 'lockfile must contain the Playwright install')
+  const resolved = Object.values(lock.packages ?? {})
+    .map(entry => entry?.resolved)
+    .filter(url => typeof url === 'string')
+  assert.ok(resolved.length > 0, 'lockfile must contain resolved tarball URLs')
+  for (const url of resolved) {
+    assert.ok(url.startsWith('https://registry.npmjs.org/'), `lockfile resolved outside the official registry: ${url}`)
+  }
+}
+
+function assertPackagingSurface(workflow) {
+  const packaging = declaredSurface(workflow, 'packaging')
+  for (const command of ['npm test', 'npm run build', 'npm run test:host-smoke']) {
+    assert.ok(packaging.evidence.includes(command), `packaging evidence is missing: ${command}`)
+  }
+  assert.ok(packaging.patterns.includes('cordis.patch.yml'), 'packaging must own the bundle patch')
+  assert.equal(packaging.patterns.includes('lib/**'), false, 'lib is local build output, not a tracked packaging input')
+}
+
+function assertTestingGuide(testing) {
+  for (const command of ['npm run test:browser', 'npm run test:coverage', 'npm run test:host-smoke']) {
+    assert.ok(testing.includes(command), `docs/testing.md is missing: ${command}`)
+  }
+}
+
 test('tools/workflow.json declares unique surfaces with non-empty evidence', () => {
   const workflow = JSON.parse(read('tools/workflow.json'))
-  assert.equal(workflow.version, 1)
-  assert.ok(Array.isArray(workflow.surfaces) && workflow.surfaces.length > 0)
-  const names = new Set()
-  for (const surface of workflow.surfaces) {
-    assert.ok(surface.name, 'surface must have a name')
-    assert.ok(!names.has(surface.name), `duplicate surface name: ${surface.name}`)
-    names.add(surface.name)
-    assert.ok(Array.isArray(surface.patterns) && surface.patterns.length > 0, `${surface.name} needs patterns`)
-    assert.ok(Array.isArray(surface.evidence) && surface.evidence.length > 0, `${surface.name} needs evidence`)
-    assert.ok(surface.evidence.every((e) => typeof e === 'string' && e.trim()), `${surface.name} has an empty evidence entry`)
-    assert.ok(typeof surface.why === 'string' && surface.why.trim(), `${surface.name} needs why`)
-  }
-  assert.ok(names.has('agent-skills'), 'workflow must declare the agent-skills surface')
-  assert.ok(Array.isArray(workflow.checks) && workflow.checks.length > 0, 'workflow must declare document checks')
-  const checkIds = new Set()
-  for (const check of workflow.checks) {
-    assert.ok(check.id, 'document check must have an id')
-    assert.ok(!checkIds.has(check.id), `duplicate document check id: ${check.id}`)
-    checkIds.add(check.id)
-    assert.ok(check.kind, `${check.id} needs a kind`)
-    assert.ok(Array.isArray(check.patterns) && check.patterns.length > 0, `${check.id} needs patterns`)
-  }
-  for (const id of ['markdown-links', 'doc-index-reachability', 'kind-manifest', 'markdown-size']) {
-    assert.ok(checkIds.has(id), `workflow missing document check: ${id}`)
-  }
-  const kinds = JSON.parse(read('docs/kinds.json'))
-  assert.ok(Array.isArray(kinds.kinds) && kinds.kinds.length > 0, 'docs/kinds.json needs a non-empty kinds list')
-  assert.ok(Array.isArray(kinds.assignments) && kinds.assignments.length > 0, 'docs/kinds.json needs assignments')
+  assertWorkflowShape(workflow)
+  assertUniqueSurfaces(workflow.surfaces)
+  assertDocumentChecks(workflow.checks)
+  assertKinds(JSON.parse(read('docs/kinds.json')))
 })
 
 test('pr-description owns the PR structure and no separate template exists', () => {
@@ -88,39 +173,12 @@ test('executable test lanes are wired to scripts, workflow evidence, and the tes
   const pkg = JSON.parse(read('package.json'))
   const workflow = JSON.parse(read('tools/workflow.json'))
   const testing = read('docs/testing.md')
-  for (const script of ['test', 'test:browser', 'test:coverage', 'test:host-smoke', 'check:clean', 'change-scope', 'typecheck', 'build']) {
-    assert.equal(typeof pkg.scripts?.[script], 'string', `package.json is missing script ${script}`)
-  }
-  const source = workflow.surfaces.find((surface) => surface.name === 'source')
-  assert.ok(source, 'workflow must declare the source surface')
-  for (const command of ['npm run test:coverage', 'npm run typecheck', 'npm run build', 'npm run test:host-smoke']) {
-    assert.ok(source.evidence.includes(command), `source evidence is missing: ${command}`)
-  }
-  const browser = workflow.surfaces.find((surface) => surface.name === 'browser')
-  assert.ok(browser, 'workflow must declare the browser surface')
-  assert.equal(browser.mode, 'observational', 'the browser lane starts observational')
-  assert.ok(browser.patterns.includes('src/client/**/*.tsx'), 'the browser surface must own TSX')
-  assert.ok(browser.evidence.includes('npm run test:browser'), 'browser evidence is missing the lane command')
-  const lock = JSON.parse(read('package-lock.json'))
-  assert.equal(lock.packages?.['']?.devDependencies?.playwright, pkg.devDependencies.playwright, 'lockfile must pin the Playwright manifest version')
-  assert.equal(lock.packages?.['node_modules/playwright']?.version, pkg.devDependencies.playwright, 'lockfile must contain the Playwright install')
-  const resolved = Object.values(lock.packages ?? {})
-    .map(entry => entry?.resolved)
-    .filter(url => typeof url === 'string')
-  assert.ok(resolved.length > 0, 'lockfile must contain resolved tarball URLs')
-  for (const url of resolved) {
-    assert.ok(url.startsWith('https://registry.npmjs.org/'), `lockfile resolved outside the official registry: ${url}`)
-  }
-  const packaging = workflow.surfaces.find((surface) => surface.name === 'packaging')
-  assert.ok(packaging, 'workflow must declare the packaging surface')
-  for (const command of ['npm test', 'npm run build', 'npm run test:host-smoke']) {
-    assert.ok(packaging.evidence.includes(command), `packaging evidence is missing: ${command}`)
-  }
-  assert.ok(packaging.patterns.includes('cordis.patch.yml'), 'packaging must own the bundle patch')
-  assert.equal(packaging.patterns.includes('lib/**'), false, 'lib is local build output, not a tracked packaging input')
-  for (const command of ['npm run test:browser', 'npm run test:coverage', 'npm run test:host-smoke']) {
-    assert.ok(testing.includes(command), `docs/testing.md is missing: ${command}`)
-  }
+  assertPackageScripts(pkg)
+  assertSourceSurface(workflow)
+  assertBrowserSurface(workflow)
+  assertLockfile(pkg)
+  assertPackagingSurface(workflow)
+  assertTestingGuide(testing)
 })
 
 test('AGENTS.md keeps the context budget and the required pointers', () => {
