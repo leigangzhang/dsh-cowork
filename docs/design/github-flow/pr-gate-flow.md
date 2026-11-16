@@ -1,6 +1,6 @@
 # GitHub PR 门禁与 Review 流程设计
 
-Status: draft（implementation in progress，2026-11-15；`pr-gate` + `gate-artifact` added）
+Status: draft（implementation in progress，2026-11-15；`pr-gate` + `gate-artifact` + `heavy` workflow added）
 
 本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-15-github-pr-gate-flow.md)。当前已加入 `.github/workflows/ci.yml`、`.github/workflows/gate-artifact.yml` 与 `.node-version`，并启用 `main-pr-gate` ruleset；heavy lane 和最终 merge 设置仍待收口。
 
@@ -173,8 +173,8 @@ npm run test:coverage
 
 `npm run typecheck`、`npm run build`、`test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 DSH source/app 或 Chromium，不能直接放进 GitHub-hosted runner 的核心命令。
 
-- 默认不在 GitHub-hosted runner 上跑。优先在本机手动运行或安装本机 GitHub self-hosted runner，打上 `heavy` 标签，heavy workflow 使用 `runs-on: [self-hosted, heavy]`；核心 `pr-gate` 仍跑 GitHub-hosted。第二台机器作为可选扩容/兜底，不作为第一阶段前提。
-- 本机准备 Node、`dsh`/DSH Desktop、Chromium；使用专用 workspace，每次 `npm ci`，先 `npm run build`，使用临时 `DSH_HOME`，设置 `DSH_HOST_SMOKE_STRICT=1`，缓存 Playwright 浏览器，heavy job 并发设为 1。
+- 默认不在 GitHub-hosted runner 上跑。目标文件 `.github/workflows/heavy.yml`，workflow 名 `Heavy`，job 名 `heavy-gate`；通过 `workflow_dispatch` 或给 PR 加 `run-heavy` 标签触发，使用 `runs-on: [self-hosted, heavy]`；核心 `pr-gate` 仍跑 GitHub-hosted。第二台机器作为可选扩容/兜底，不作为第一阶段前提。
+- 本机准备 Node、`dsh`/DSH Desktop、Chromium；使用专用 workspace，每次 `npm ci`，安装 Chromium，依次运行 `npm run typecheck`、`npm run build`、`DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke`，最后运行 `npm run test:coverage:layered -- --base <verified-base>`（其中包含 browser lane）；heavy job 并发设为 1。
 - 稳定门槛：固定 OS、Node、`dsh`、Chromium 版本；每次 clean workspace；先做 host health 检查；重试只允许有界次数并记录；上传截图/日志/JSON 证据；连续 20 次无基础设施失败的 green 运行后，才把 heavy lane 设为 required。
 - 稳定前只作为独立 workflow 或手动运行，PR 的 `Not run` 必须明确写出；稳定后按 affected paths 增加独立 required check `heavy-gate`，不能把 skipped 当绿。
 - 本机休眠、离线或 runner 不可用时 job 会排队或失败；在 uptime 稳定前不要把它设为 required，否则会阻塞相关 PR。

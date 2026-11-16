@@ -18,7 +18,7 @@ Class: process
 
 **4. 强制层。** `main` 使用 ruleset 要求 `pr-gate` 和 `gate-artifact`、conversation resolution、strict up-to-date，禁止 force push 和删除，不设 bypass。单人项目不配置 required approvals；review 是程序性约束，人工 merge 仍是最终动作。
 
-**5. Heavy lane。** `npm run typecheck`、`npm run build`、`test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 DSH source/app 或 Chromium，默认不跑 GitHub-hosted runner。优先在本机手动运行或安装本机 GitHub self-hosted runner，标签 `heavy`，workflow 使用 `runs-on: [self-hosted, heavy]`；第二台机器只作为可选扩容/兜底。固定 OS/Node/`dsh`/Chromium 版本，使用临时 `DSH_HOME`、`DSH_HOST_SMOKE_STRICT=1`、clean workspace 和并发 1，连续 20 次无基础设施失败的 green 运行后再增加独立 required check。稳定前手动或独立 workflow 运行，`Not run` 必须明确记录，不能把 skipped 当绿。
+**5. Heavy lane。** 新增 `.github/workflows/heavy.yml`，workflow 名 `Heavy`、job 名 `heavy-gate`，通过 `workflow_dispatch` 或 PR 的 `run-heavy` 标签触发，使用 `runs-on: [self-hosted, heavy]`。`npm run typecheck`、`npm run build`、`test:host-smoke`、`test:coverage:layered` 依赖本机 DSH source/app 或 Chromium，默认不跑 GitHub-hosted runner；第二台机器只作为可选扩容/兜底。固定 OS/Node/`dsh`/Chromium 版本，使用临时 `DSH_HOME`、`DSH_HOST_SMOKE_STRICT=1`、clean workspace 和并发 1，连续 20 次无基础设施失败的 green 运行后再把 `heavy-gate` 设为 required。稳定前手动或独立 workflow 运行，`Not run` 必须明确记录，不能把 skipped 当绿。
 
 **6. Issue 策略 v1。** 不强制 Issue 引用；只校验 Conventional Commits 标题和 `pr-description` 要求的正文结构。不新增 `.github/pull_request_template.md`，PR 结构继续由 `pr-description` 技能单点拥有。
 
