@@ -156,6 +156,7 @@ function indexClientSources({ sourceMapPayload, repoRoot, mapDirectory, sourceEx
     sourceByFile.set(source, {
       file,
       content,
+      lineCount: content === '' ? null : content.split('\n').length,
       executableLines: new Set(),
       executedLines: new Set(),
       functions: new Map(),
@@ -208,13 +209,25 @@ function insideGeneratedRange(line, generatedRange) {
   return generatedRange === null || (line >= generatedRange.start && line < generatedRange.end)
 }
 
+/** A mapped line must exist in the authored source; maps can point past the last newline. */
+function withinSource(source, line) {
+  return source.lineCount === null || (line >= 1 && line <= source.lineCount)
+}
+
+/** Resolve one origin to a mapped source entry, or null when it is unusable. */
+function sourceForOrigin(origin, sourceByFile) {
+  if (typeof origin.fileName !== 'string' || typeof origin.lineNumber !== 'number') return null
+  const source = sourceByFile.get(origin.fileName)
+  if (source === undefined || !withinSource(source, origin.lineNumber)) return null
+  return source
+}
+
 function mapLineCoverage({ sourceText, lineAt, columnAt, sourceMap, sourceByFile, covered, generatedRange }) {
   for (let offset = 0; offset < sourceText.length; offset += 1) {
     if (!insideGeneratedRange(lineAt[offset], generatedRange)) continue
     const origin = sourceMap.findOrigin(lineAt[offset] + 1, columnAt[offset] + 1)
-    if (typeof origin.fileName !== 'string' || typeof origin.lineNumber !== 'number') continue
-    const source = sourceByFile.get(origin.fileName)
-    if (source === undefined) continue
+    const source = sourceForOrigin(origin, sourceByFile)
+    if (source === null) continue
     source.executableLines.add(origin.lineNumber)
     if (covered[offset] === 1) source.executedLines.add(origin.lineNumber)
   }
@@ -227,9 +240,8 @@ function mapFunctionCoverage({ functions, sourceText, lineAt, columnAt, sourceMa
     if (!Number.isInteger(start) || start < 0 || start >= sourceText.length) continue
     if (!insideGeneratedRange(lineAt[start], generatedRange)) continue
     const origin = sourceMap.findOrigin(lineAt[start] + 1, columnAt[start] + 1)
-    if (typeof origin.fileName !== 'string' || typeof origin.lineNumber !== 'number') continue
-    const source = sourceByFile.get(origin.fileName)
-    if (source === undefined) continue
+    const source = sourceForOrigin(origin, sourceByFile)
+    if (source === null) continue
     const key = `${origin.lineNumber}:${origin.columnNumber ?? 0}:${fn.functionName || 'anonymous'}`
     const previous = source.functions.get(key)
     const executed = (fn.ranges ?? []).some(range => range.count > 0)
@@ -250,6 +262,7 @@ function coverageFiles(sourceByFile) {
         ...(blocked === null ? {} : { blockedReason: blocked.reason }),
         executableLines: source.executableLines.size,
         executedLines: source.executedLines.size,
+        coveredLines: [...source.executedLines].sort((left, right) => left - right),
         lineCoverage: source.executableLines.size === 0
           ? 0
           : Number(((source.executedLines.size / source.executableLines.size) * 100).toFixed(2)),
@@ -370,6 +383,28 @@ export function coverageCompletenessFailures(report, expected = CLIENT_BROWSER_T
   const { byFile, failures } = indexReportFiles(files)
   for (const file of expected) failures.push(...expectedFileFailure(file, byFile.get(file)))
   return failures
+}
+
+/**
+ * Render the mapped browser report as LCOV so the layered gate consumes one
+ * report format for both lanes. Blocked files stay in the report with their
+ * mapped line counts; the checker skips them by status.
+ *
+ * @param {object} report `coverage/client.json` content.
+ * @returns {string} LCOV text.
+ */
+export function clientCoverageLcov(report) {
+  const chunks = ['TN:']
+  for (const file of report?.files ?? []) {
+    chunks.push(`SF:${file.file}`)
+    const covered = new Set(file.coveredLines ?? [])
+    const lines = [...new Set([...covered, ...(file.uncoveredLines ?? [])])].sort((left, right) => left - right)
+    for (const line of lines) chunks.push(`DA:${line},${covered.has(line) ? 1 : 0}`)
+    chunks.push(`LF:${lines.length}`)
+    chunks.push(`LH:${covered.size}`)
+    chunks.push('end_of_record')
+  }
+  return `${chunks.join('\n')}\n`
 }
 
 /** Per-file failures for a set of reviewed floors. Blocked files are skipped. */

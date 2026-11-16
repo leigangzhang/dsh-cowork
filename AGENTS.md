@@ -23,6 +23,7 @@ tools/        executable document/workflow gates and migration drill
 docs/         plans, guides, references, handoff and design records
 .agents/      skills and decision records
 lib/          local build output; gitignored, consumed by tarball and host smoke
+coverage/     local coverage reports; gitignored
 .dsh-cowork/  local runtime/evidence data; gitignored
 ```
 
@@ -59,10 +60,10 @@ Docs accompany every code change: update affected README, JSDoc, and owning docs
 
 Before pushing, load [pre-push-checks](.agents/skills/pre-push-checks/SKILL.md), confirm the live base, and run `npm run change-scope -- --base <verified-base>`. Report only commands that actually ran; name every unrun check.
 
-- Match evidence to the owning surface in [tools/workflow.json](tools/workflow.json). Docs-only: `npm run check`; skill/workflow: `npm run check` + `npm run check:self-test`; tests: `npm test` + `npm run test:coverage` and observe the regression red first; source/scripts: `npm run test:coverage` + `npm run typecheck` + `npm run build` + `npm run test:host-smoke`; packaging/bundle: that source/script set plus `npm test` and `npm run check`.
-- PR CI runs the hosted core commands in `pr-gate`: `npm run check`, `npm test`, and `npm run test:coverage`. `npm run typecheck`, `npm run build`, `test:host-smoke`, and `test:browser` run in the local heavy lane because they need a DSH source checkout or host runtime. Local runs only the affected subset; do not duplicate a passing check merely to match CI.
+- Match evidence to the owning surface in [tools/workflow.json](tools/workflow.json). Docs-only: `npm run check`; skill/workflow: `npm run check` + `npm run check:self-test`; tests: `npm test` + `npm run test:coverage` and observe the regression red first; source/scripts: `npm run test:coverage` + `npm run typecheck` + `npm run build` + `npm run test:host-smoke`; coverage policy data (`tools/coverage-*.json`): `npm run test:coverage` + `npm run coverage:check` + `npm run check`; packaging/bundle: that source/script set plus `npm test` and `npm run check`. Delivery and merge add `npm run test:coverage:layered -- --base <verified-base>`.
+- PR CI runs the hosted core commands in `pr-gate`: `npm run check`, `npm test`, and `npm run test:coverage`. `npm run typecheck`, `npm run build`, `test:host-smoke`, `test:browser`, and `test:coverage:layered` run in the local heavy lane because they need a DSH source checkout or host runtime. Local runs only the affected subset; do not duplicate a passing check merely to match CI. A green local check is not proof that `pr-gate` passed.
 - Do not default to the full suite or repeat a passing check for commit/push. Rehearse everything only by explicit request, when diagnosing CI, or when an irreducibly repository-wide change crosses several surfaces.
-- `npm run test:coverage` is the source coverage gate; it runs the suite and enforces global line/branch/function floors, not per-file 100%. It does not count React TSX or dev-only E2E/probe drivers; `npm run test:browser` is the separate observational browser lane.
+- `npm run test:coverage` is the source coverage gate: one process per test file, merged by union, then a per-file line gate (100% or the reviewed uncovered-line baseline) over the exclusive owner map `tools/coverage-map.json`. It does not count React TSX; `npm run test:browser` owns those as an observational lane. `npm run test:coverage:layered` binds both lanes to one artifact and is the delivery gate.
 - `lib/` is local build output and gitignored. After anything under `src/` changes, run `npm run build` before `test:host-smoke`; the smoke consumes the current local `lib/`, uses a temporary `DSH_HOME`, and skips when `dsh` is absent unless `DSH_HOST_SMOKE_STRICT=1`.
 - PR descriptions use [pr-description](.agents/skills/pr-description/SKILL.md); merge is a separate manual step. A green local check is not proof that `pr-gate` passed or that an unrun real-host E2E exists.
 
@@ -84,7 +85,10 @@ Before pushing, load [pre-push-checks](.agents/skills/pre-push-checks/SKILL.md),
 npm run check              # executable conventions (workflow, skills, templates, publication, budgets)
 npm run check:self-test    # prove the guards can fail
 npm test                   # contract and behavior tests
-npm run test:coverage      # node:test coverage floors for host TypeScript
+npm run test:coverage      # deterministic per-file unit coverage gate
+npm run test:browser       # real host + Chromium panel lane (observational)
+npm run test:coverage:layered -- --base <ref>  # unit + browser lanes, one artifact identity
+npm run coverage:check     # re-check existing coverage reports
 npm run test:host-smoke    # pack current lib/ and boot a temporary DSH profile
 npm run change-scope -- --base <verified-base>  # committed/staged/unstaged/untracked review scope
 npm run typecheck          # TypeScript check (requires deps installed)

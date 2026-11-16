@@ -5,8 +5,12 @@
  * dynamic `await import('../src/foo.ts')`. The hook does two things:
  *  (a) a sibling specifier the build writes as `.js` is retried as `.ts`, so a
  *      module compiled with NodeNext specifiers is importable from source;
- *  (b) `.ts` sources are transformed (not strip-only), because the host
- *      composition uses TypeScript parameter properties.
+ *  (b) `.ts` sources are loaded with line-preserving type stripping, so coverage
+ *      line numbers stay exact. If a source needs the full transform (parameter
+ *      properties, enums, namespaces), the hook falls back to transform with an
+ *      inline source map. The coverage guard fails if any TypeScript file under `src/` takes
+ *      that fallback: Node's source-map remapping is not precise enough for a
+ *      per-line gate.
  *
  * A static `import` of a `src` module is linked before this module's body can
  * register the hook, so a test that statically imports a module with `.js`
@@ -28,7 +32,13 @@ const HOOK_SOURCE = [
   'export async function load(url, context, nextLoad) {',
   "  if (url.startsWith('file:') && url.endsWith('.ts')) {",
   "    const source = readFileSync(fileURLToPath(url), 'utf8')",
-  "    return { format: 'module', shortCircuit: true, source: stripTypeScriptTypes(source, { mode: 'transform' }) }",
+  "    let transformed",
+  "    try {",
+  "      transformed = stripTypeScriptTypes(source)",
+  '    } catch {',
+  "      transformed = stripTypeScriptTypes(source, { mode: 'transform', sourceMap: true, sourceUrl: url })",
+  '    }',
+  "    return { format: 'module', shortCircuit: true, source: transformed }",
   '  }',
   '  return nextLoad(url, context)',
   '}',

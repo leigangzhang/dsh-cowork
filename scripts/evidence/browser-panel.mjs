@@ -18,11 +18,13 @@ import { fileURLToPath } from 'node:url'
 import { startDshHost } from './dsh-host-session.mjs'
 import {
   clientCoverageFromEntry,
+  clientCoverageLcov,
   comboSectionIndex,
   comboSourceMapUrl,
   coverageCompletenessFailures,
   pluginBundleEntry,
 } from './client-coverage.mjs'
+import { gateArtifactFromEnv } from './test-coverage.mjs'
 import { sanitizeEvidenceText } from './evidence-sanitize.mjs'
 import { seedBrowserProject, seedSecondaryProject } from '../../tests/browser/fixtures.mjs'
 import { runBrowserScenarios } from '../../tests/browser/scenarios.mjs'
@@ -253,10 +255,12 @@ async function publishCoverage({ host, probe, coverageEntries }) {
     throw new Error(`browser coverage completeness failed: ${completeness.join('; ')}`)
   }
   const gitStatus = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout.trim()
+  const gateArtifact = gateArtifactFromEnv()
   const artifact = {
     head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(),
     dirty: gitStatus !== '',
     gitStatus: gitStatus === '' ? [] : gitStatus.split('\n').slice(0, 100),
+    gateArtifact,
     generatedAt: new Date().toISOString(),
     pluginVersion: host.packageJson.version,
     playwrightVersion: host.packageJson.devDependencies?.playwright ?? 'unknown',
@@ -265,7 +269,11 @@ async function publishCoverage({ host, probe, coverageEntries }) {
     mapSha256: sha256(mapPath),
     servedMapUrl,
   }
-  if (STRICT && artifact.dirty) throw new Error('browser lane requires a clean worktree before strict evidence')
+  // A standalone strict run needs a clean tree. The layered gate binds the exact
+  // dirty tree through COVERAGE_GATE_ARTIFACT, so it can judge uncommitted work.
+  if (STRICT && artifact.dirty && gateArtifact === null) {
+    throw new Error('browser lane requires a clean worktree before standalone strict evidence')
+  }
   const output = {
     formatVersion: 1,
     artifact,
@@ -280,6 +288,7 @@ async function publishCoverage({ host, probe, coverageEntries }) {
   }
   mkdirSync(resolve(root, 'coverage'), { recursive: true })
   writeFileSync(resolve(root, 'coverage', 'client.json'), `${JSON.stringify(output, null, 2)}\n`, 'utf8')
+  writeFileSync(resolve(root, 'coverage', 'browser.lcov'), clientCoverageLcov(report), 'utf8')
   const counted = report.files.filter(file => file.status === 'counted').length
   console.log(
     `PASS browser-panel: ${counted} counted client files, ${report.files.length} reported`
