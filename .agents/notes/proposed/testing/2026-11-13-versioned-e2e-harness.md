@@ -66,4 +66,4 @@ Class: testing
 1. 建立 `tests/e2e/` 场景与 manifest、脚本化 Messages provider、临时宿主 runner、覆盖矩阵检查和债务文件；先覆盖 master chain、topic/panel 链和 review/merge 链，跑通绿色证据。
 2. 补齐剩余可写公开状态（needs_revision、reject）并记录 store-only `abandoned` 与 `inbox.open` 的排除理由；实现 `test:e2e:live` 的 self-skip 与本地证据标记。
 3. 把 keyless lane 提升为发布阻塞：`npm run check` 要求当前版本的绿色证据覆盖全部 keyless 场景，版本升级或场景变更必须重新记录；同步 `docs/testing.md` 和发布证据。
-4. 覆盖 M12 现有断言后删除 `src/dev/m12-e2e*` 与 M12 dev 路由，保留 health route；把旧 `.dsh-cowork/e2e` 只作为历史摘要归档。
+4. 覆盖 M12 现有断言后删除 `src/dev/m12-e2e*` 与 M12 dev 路由，保留 health route；把旧 `.dsh-cowork/e2e` 只作为历史摘要归档。前置是先在具有可用 bash sandbox 的宿主上重跑 M12 的「topic 会话用 bash 提交」断言；当前本机的 bash sandbox 后端不可用，这条断言在 M12 和 keyless lane 都无法执行，因此退役不得早于该环境验证。

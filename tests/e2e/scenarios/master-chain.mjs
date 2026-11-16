@@ -8,6 +8,7 @@
  * use the project's files and the host's session list, never the prompt text.
  */
 
+import { realpath } from 'node:fs/promises'
 import { text, tool } from '../support/scripted-model.mjs'
 
 export const id = 'master-chain'
@@ -121,6 +122,20 @@ export async function run(ctx) {
 
   const sessions = await ctx.client.listSessions()
   const byId = new Map(sessions.map((session) => [session.sessionId, session]))
+  const fixturePath = await realpath(ctx.fixture.path)
+  for (const sessionId of [masterId, ...index.topics.map((topic) => topic.topicId)]) {
+    const session = byId.get(sessionId)
+    let sessionCwd = session?.cwd
+    if (typeof sessionCwd === 'string') {
+      try {
+        sessionCwd = await realpath(sessionCwd)
+      } catch {
+        // A missing cwd is reported by the equality check below.
+      }
+    }
+    ctx.check(`session ${sessionId.slice(0, 18)}… runs in the fixture`, sessionCwd === fixturePath, String(sessionCwd))
+    ctx.check(`session ${sessionId.slice(0, 18)}… is not running`, session?.running === false, String(session?.running))
+  }
   for (const topicId of [canonicalTopicId, aliasTopicId, routedTopicId]) {
     const session = byId.get(topicId)
     ctx.check(`topic ${topicId.slice(0, 18)}… is a real session`, session !== undefined, 'missing')

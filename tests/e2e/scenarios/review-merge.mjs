@@ -172,6 +172,16 @@ export async function run(ctx) {
   })
   ctx.check('the pass verdict is recorded', passed.review.value.status === 'pass', String(passed.review.value.status))
   ctx.check('the work item is reviewing after the pass', passed.item.status === 'reviewing', String(passed.item.status))
+  const mergeNotice = await ctx.waitUntil('the merge-needed delivery to the master', async () => {
+    const rows = await ctx.inbox()
+    return Array.isArray(rows)
+      ? rows.find((entry) => entry.topicId === topicId && entry.kind === 'merge-needed' && entry.deliveredAt !== null)
+      : undefined
+  })
+  ctx.check('the pass wrote a delivered merge-needed inbox row', mergeNotice.deliveredAt !== null, String(mergeNotice.deliveredAt))
+  const mergeMessage = await ctx.waitUntil('the merge-needed model turn', () =>
+    ctx.model.calls.find((call) => call.sessionId === masterId && call.prompt.includes('[merge-needed]')))
+  ctx.check('the master received the merge-needed message', mergeMessage.role === 'master', mergeMessage.role)
 
   await ctx.promptForTool(
     topicId,
@@ -185,6 +195,11 @@ export async function run(ctx) {
   )
   const handoff = (await ctx.index())?.topics.find((entry) => entry.topicId === topicId)
   ctx.check('the handoff confirms the delivery', handoff?.lastDeliveryConfirmedAt !== null, String(handoff?.lastDeliveryConfirmedAt))
+  const handoffFile = await ctx.waitUntil('the handoff record file', async () => {
+    const files = await ctx.handoffs()
+    return files.find((entry) => entry.value.threadId === topicId && entry.value.status === 'done')
+  })
+  ctx.check('the handoff file exists with done', handoffFile.value.status === 'done', String(handoffFile.value.status))
 
   await ctx.promptForTool(
     masterId,
@@ -201,6 +216,10 @@ export async function run(ctx) {
   ctx.check('the merged file is on the integration branch', (await ctx.readText(FILE_NAME))?.trim() === FILE_CONTENT, 'missing')
   ctx.check('main did not move', readGitHead(ctx.fixture.path, 'refs/heads/main') === ctx.fixture.mainRef, 'main moved')
   ctx.check('the integration branch moved', readGitHead(ctx.fixture.path) !== ctx.fixture.head, 'branch did not move')
+  const activityTypes = new Set((await ctx.activity()).map((event) => event.type))
+  for (const type of ['review-requested', 'review-verdict', 'work-item-merged']) {
+    ctx.check(`activity records ${type}`, activityTypes.has(type), [...activityTypes].join(','))
+  }
 
   const status = await ctx.promptForTool(masterId, 'Call cowork_project_status exactly once with no arguments.', 'cowork_project_status')
   ctx.check(

@@ -98,6 +98,23 @@ export function readGitHead(repositoryPath, ref = 'HEAD') {
   return git(repositoryPath, ['rev-parse', ref])
 }
 
+/** Parse the activity JSONL, skipping invalid lines the store would skip too. */
+export async function readActivity(fixture) {
+  const text = await readText(join(fixture, '.dsh-cowork', 'activity.jsonl'))
+  if (text === undefined) return []
+  const events = []
+  for (const line of text.split('\n')) {
+    if (line.trim() === '') continue
+    try {
+      events.push(JSON.parse(line))
+    } catch {
+      // The panel's store reader also skips malformed lines; a scenario that
+      // needs them must assert that skip separately.
+    }
+  }
+  return events
+}
+
 /** Read a text file, or `undefined`. */
 export async function readText(path) {
   try {

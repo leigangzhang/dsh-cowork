@@ -21,6 +21,7 @@ const MOVE_INTENT = 'move the routed panel intent'
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
 export async function run(ctx) {
   let topicResolveArgs = null
+  let routeArgs = { intent: TOPIC_INTENT, brief: TOPIC_BRIEF }
   ctx.model.setHandler(({ role, prompt, toolResults }) => {
     if (role === 'topic') {
       if (toolResults.length > 0) return text('Step complete.')
@@ -64,7 +65,7 @@ export async function run(ctx) {
     if (toolResults.length > 0) return text('Step complete.')
     if (prompt.includes('cowork_project_init')) return tool('cowork_project_init', {})
     if (prompt.includes('cowork_route')) {
-      return tool('cowork_route', { intent: TOPIC_INTENT, brief: TOPIC_BRIEF })
+      return tool('cowork_route', routeArgs)
     }
     if (prompt.includes('cowork_topic_create')) {
       return tool('cowork_topic_create', { title: 'Route move target', scope: 'The route.move destination' })
@@ -234,6 +235,29 @@ export async function run(ctx) {
   ctx.check('cowork_topic_resolve archives the topic', toolResolved.payload?.ok === true, String(toolResolved.payload?.ok))
   const afterToolResolve = (await ctx.index())?.topics.find((topic) => topic.topicId === topicId)
   ctx.check('the index records the tool resolution', afterToolResolve?.status === 'resolved', String(afterToolResolve?.status))
+
+  const marker = ctx.model.calls.length
+  routeArgs = {
+    intent: 'Follow up after the resolved panel topic',
+    topicId,
+    brief: 'Resolved follow-up brief.',
+  }
+  const followUp = await ctx.promptForTool(
+    masterId,
+    `Call cowork_route exactly once with these arguments (JSON): ${JSON.stringify(routeArgs)}`,
+    'cowork_route',
+  )
+  ctx.check('a resolved target reports resolved_match', followUp.payload?.action === 'resolved_match', String(followUp.payload?.action))
+  ctx.check('resolved_match names the old topic', followUp.payload?.resolvedMatch?.topicId === topicId, String(followUp.payload?.resolvedMatch?.topicId))
+  const replacementId = followUp.payload?.topicId
+  ctx.check('the follow-up created a replacement topic', typeof replacementId === 'string' && replacementId !== topicId, String(replacementId))
+  const replacement = (await ctx.index())?.topics.find((topic) => topic.topicId === replacementId)
+  ctx.check('the replacement topic starts live', replacement?.status === 'active' || replacement?.status === 'idle', String(replacement?.status))
+  const oldTopicTurns = ctx.model.calls.slice(marker).filter((call) => call.sessionId === topicId)
+  ctx.check('the resolved topic received no follow-up turn', oldTopicTurns.length === 0, String(oldTopicTurns.length))
+  await ctx.waitUntil('the replacement topic brief', () =>
+    ctx.model.calls.slice(marker).find((call) => call.sessionId === replacementId && call.role === 'topic'))
+  await ctx.client.waitIdle(replacementId, {})
 
   const status = await ctx.promptForTool(masterId, 'Call cowork_project_status exactly once with no arguments.', 'cowork_project_status')
   const statuses = (status.payload?.topics ?? []).map((topic) => topic.status)

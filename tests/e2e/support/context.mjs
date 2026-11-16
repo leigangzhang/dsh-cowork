@@ -9,7 +9,7 @@
  */
 
 import { waitUntil } from './host-client.mjs'
-import { readIndex, readInbox, readJsonDirectory, readText } from './fixture.mjs'
+import { readActivity, readIndex, readInbox, readJsonDirectory, readText } from './fixture.mjs'
 
 /** Parse a tool result's JSON payload; renders may wrap it in prose. */
 export function parseToolPayload(resultText) {
@@ -136,6 +136,14 @@ export function createScenarioContext({ scenarioId, fixture, client, model }) {
 
     reviews() {
       return readJsonDirectory(fixture.path, 'reviews')
+    },
+
+    handoffs() {
+      return readJsonDirectory(fixture.path, 'handoffs')
+    },
+
+    activity() {
+      return readActivity(fixture.path)
     },
 
     readText(relativePath) {
