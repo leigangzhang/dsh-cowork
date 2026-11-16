@@ -1,0 +1,26 @@
+{
+  "formatVersion": 1,
+  "comment": "Surface keys with no keyless scenario yet. Every entry states why it is uncovered and the exit condition that removes it; `npm run check` fails when a new key appears without a scenario or a debt entry, and when an entry goes stale.",
+  "entries": [
+    {
+      "key": "review-status:needs_revision",
+      "reason": "A revision verdict requires a finding and a re-review round; the review scenario must include both.",
+      "exitCondition": "The review-merge scenario records a needs_revision verdict and a follow-up pass; delete this entry."
+    },
+    {
+      "key": "review-status:reject",
+      "reason": "A reject verdict blocks the topic and has no current keyless path.",
+      "exitCondition": "Add a rejection branch to the review-merge scenario or remove the state from the public matrix with a reviewed source change; delete this entry."
+    },
+    {
+      "key": "work-item-status:abandoned",
+      "reason": "No shipped tool or route abandons a work item; the state exists for the store contract and migration.",
+      "exitCondition": "If a public abandon path lands, map it to a scenario; if the state is retired from the public contract, drop it from the matrix. Then delete this entry."
+    },
+    {
+      "key": "route:/api/cowork.inbox.open POST",
+      "reason": "The route asks the host to reveal a file through the native OS opener; a headless keyless lane must not drive a user-visible desktop action.",
+      "exitCondition": "Cover it in the browser lane or add an injectable opener to the host harness, then delete this entry."
+    }
+  ]
+}

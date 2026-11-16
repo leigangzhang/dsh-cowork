@@ -27,6 +27,7 @@ import {
   selectChecks,
   selfTest as engineSelfTest,
 } from './doc-gate-engine.mjs'
+import { collectSurfaceKeys, e2eManifestProblems } from './e2e-coverage.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
@@ -115,6 +116,37 @@ function noteErrors(rel, doc, declaredSurfaces, { template = false } = {}) {
     }
   }
   return errors
+}
+
+/**
+ * The versioned E2E catalog is a project rule, not a document check: it reads
+ * the live public surface from source and compares it with one manifest and one
+ * reviewed debt file.
+ *
+ * @returns {Promise<string[]>} One message per catalog violation.
+ */
+async function e2eErrors() {
+  const readJson = (rel) => {
+    try {
+      return { value: JSON.parse(read(rel)) }
+    } catch (error) {
+      return { error: `${rel} is missing or invalid: ${error instanceof Error ? error.message : String(error)}` }
+    }
+  }
+  const manifest = readJson('tests/e2e/manifest.json')
+  if (manifest.error !== undefined) return [manifest.error]
+  const debt = readJson('tests/e2e/coverage-debt.json')
+  if (debt.error !== undefined) return [debt.error]
+  const packageJson = readJson('package.json')
+  if (packageJson.error !== undefined) return [packageJson.error]
+  const surfaceKeys = await collectSurfaceKeys()
+  return e2eManifestProblems({
+    packageVersion: packageJson.value.version,
+    manifest: manifest.value,
+    debt: debt.value,
+    surfaceKeys,
+    manifestDir: resolve(root, 'tests/e2e'),
+  })
 }
 
 function projectRuleErrors(config) {
@@ -495,6 +527,35 @@ function staleNameErrors(files) {
   return errors
 }
 
+const E2E_SURFACE_KEYS = ['preset:p', 'route:/x GET', 'tool:a', 'topic-status:active']
+const E2E_SCENARIO = {
+  id: 's1',
+  file: 'scenarios/s1.mjs',
+  mode: 'keyless',
+  summary: 'fixture',
+  covers: ['tool:a', 'route:/x GET', 'preset:p', 'topic-status:active'],
+}
+const E2E_MANIFEST = {
+  formatVersion: 1,
+  pluginVersion: '1.0.0',
+  host: { tested: ['1.0.0'], compatibleMajorMinor: '1.0' },
+  scenarios: [E2E_SCENARIO],
+}
+const E2E_DEBT = { entries: [] }
+
+/** Evaluate one synthetic catalog; every file exists. */
+function e2eProblems(overrides = {}) {
+  return e2eManifestProblems({
+    packageVersion: '1.0.0',
+    manifest: E2E_MANIFEST,
+    debt: E2E_DEBT,
+    surfaceKeys: E2E_SURFACE_KEYS,
+    manifestDir: '/fixture/tests/e2e',
+    fileExists: () => true,
+    ...overrides,
+  })
+}
+
 function projectSelfTest() {
   const cases = [
     {
@@ -536,6 +597,27 @@ function projectSelfTest() {
         '# Rejected: x\n\nStatus: rejected\nDate: 2026-01-01\nClass: process\n\n## Problem\n\np\n\n## Proposal\n\nd\n\n### Acceptance criteria\n\n- [A1] lost — `source`\n\n## Alternatives considered\n\na\n\n## Why rejected\n\nwhy\n',
         new Set(['source']),
       ).length === 0,
+    },
+    {
+      name: 'e2e catalog: a manifest version mismatch is red',
+      fail: () => e2eProblems({ packageVersion: '2.0.0' }).some((problem) => problem.includes('does not match package.json')),
+    },
+    {
+      name: 'e2e catalog: a live-model-only cover leaves the key uncovered',
+      fail: () => e2eProblems({
+        manifest: { ...E2E_MANIFEST, scenarios: [{ ...E2E_SCENARIO, mode: 'live-model' }] },
+      }).some((problem) => problem.includes('public key has no keyless scenario')),
+    },
+    {
+      name: 'e2e catalog: a covered debt entry is stale',
+      fail: () => e2eProblems({
+        debt: { entries: [...E2E_DEBT.entries, { key: 'tool:a', reason: 'r', exitCondition: 'e' }] },
+      }).some((problem) => problem.includes('already covered')),
+    },
+    {
+      name: 'e2e catalog: a new public key without a scenario or debt is red',
+      fail: () => e2eProblems({ surfaceKeys: [...E2E_SURFACE_KEYS, 'tool:new'] })
+        .some((problem) => problem.includes('tool:new')),
     },
     {
       name: 'export audit: a dead export is red',
@@ -745,6 +827,14 @@ if (!args.changed) {
     violations += projectErrors.length
   } else {
     console.log('PASS project-rules')
+  }
+  const catalogErrors = await e2eErrors()
+  if (catalogErrors.length > 0) {
+    console.log('FAIL e2e-catalog')
+    for (const error of catalogErrors) console.log(`  ${error}`)
+    violations += catalogErrors.length
+  } else {
+    console.log('PASS e2e-catalog')
   }
 }
 

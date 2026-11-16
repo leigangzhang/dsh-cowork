@@ -180,6 +180,22 @@
         "node --test tests/guards/m12-migration-drill.test.mjs"
       ],
       "why": "The v1-to-v2 migration drill is the only executable proof of backup byte equality, second-write idempotence and backup rollback; changing the drill changes that evidence."
+    },
+    {
+      "name": "e2e",
+      "patterns": [
+        "tests/e2e/**/*",
+        "scripts/evidence/e2e.mjs",
+        "scripts/evidence/dsh-host-session.mjs",
+        "tools/e2e-coverage.mjs",
+        "tests/guards/e2e-coverage.test.mjs"
+      ],
+      "evidence": [
+        "npm run test:e2e",
+        "npm run check",
+        "npm test"
+      ],
+      "why": "The versioned E2E lane is the only evidence for cross-process session wake, tool execution, store writes and panel routes; its manifest must match the built artifact and the live public surface."
     }
   ],
   "checks": [

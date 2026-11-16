@@ -140,13 +140,14 @@ npm test                   # 契约与行为测试
 npm run test:coverage      # 逐文件覆盖率门禁（100% 或已评审基线）
 npm run test:coverage:layered -- --base <verified-base>  # unit + browser 两 lane，同一 artifact 身份
 npm run coverage:check     # 不重跑测试，只复检现有报告
+npm run test:e2e           # 打包当前 lib/，在临时宿主里跑 keyless E2E 场景（需本机 dsh）
 npm run test:host-smoke    # 打包当前 lib/，在临时 DSH profile 启动并检查健康路由
 npm run change-scope -- --base <verified-base>  # 列出 committed/staged/unstaged/untracked 路径
 npm run typecheck          # TypeScript 检查（依赖同构建前提）
 npm run build              # host + client 构建
 ```
 
-`test:host-smoke` 使用临时 `DSH_HOME` 和临时 npm 缓存，不读写用户的真实 profile。`lib/` 是本地构建产物，不入 git；源码变更后先运行 `npm run build`，再运行 host smoke。每次 PR 由 GitHub Actions 的 `pr-gate` 运行 `check`、`test` 和 `test:coverage`；`typecheck`、`build`、host smoke 和 browser lane 在本机 heavy lane 运行；合并仍是人工步骤。review verdict 由 `gate-artifact` 校验并绑定当前 PR head，marker 格式见 [code-review](.agents/skills/code-review/SKILL.md)。
+`test:host-smoke` 使用临时 `DSH_HOME` 和临时 npm 缓存，不读写用户的真实 profile。`test:e2e` 用同一个临时宿主约束跑 `tests/e2e/manifest.json` 声明的场景：会话、工具、store 和面板路由都是真实的，模型端点是本机脚本化的 Messages 服务，场景清单与公开面的对应关系由 `npm run check` 校验。`lib/` 是本地构建产物，不入 git；源码变更后先运行 `npm run build`，再运行 host smoke 或 E2E。每次 PR 由 GitHub Actions 的 `pr-gate` 运行 `check`、`test` 和 `test:coverage`；`typecheck`、`build`、host smoke 和 browser lane 在本机 heavy lane 运行；合并仍是人工步骤。review verdict 由 `gate-artifact` 校验并绑定当前 PR head，marker 格式见 [code-review](.agents/skills/code-review/SKILL.md)。
 
 审查与交付流程见 [.agents/skills/README.md](.agents/skills/README.md)（`code-review` / `pre-push-checks` / `pr-description` / `find-simplifications`）；PR 结构由 [pr-description](.agents/skills/pr-description/SKILL.md) 声明，合并保持人工执行，不再维护独立的 `.github` 模板文件。
 
