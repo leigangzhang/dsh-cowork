@@ -21,9 +21,12 @@ concurrency:
 jobs:
   heavy-gate:
     name: heavy-gate
+    # A self-hosted runner executes PR code, so only same-repository branches
+    # may request a heavy run; fork PRs never reach this machine.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.label.name == 'run-heavy'
+      (github.event.label.name == 'run-heavy' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, heavy]
     timeout-minutes: 60
     steps:

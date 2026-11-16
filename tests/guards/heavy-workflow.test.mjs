@@ -12,6 +12,7 @@ test('heavy workflow targets the local heavy runner only on demand', () => {
   assert.match(workflow, /^on:\n  workflow_dispatch:$/m)
   assert.match(workflow, /^  pull_request:\n    types: \[labeled\]$/m)
   assert.match(workflow, /github\.event\.label\.name == 'run-heavy'/)
+  assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
   assert.match(workflow, /^    runs-on: \[self-hosted, heavy\]$/m)
   assert.match(workflow, /^  heavy-gate:\n    name: heavy-gate$/m)
 })
