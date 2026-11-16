@@ -1,8 +1,8 @@
 # GitHub PR 门禁与 Review 流程设计
 
-Status: draft（design，2026-11-15；implementation not started）
+Status: draft（implementation in progress，2026-11-15；`CI / pr-gate` added）
 
-本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-15-github-pr-gate-flow.md)。当前仓库尚未实现 CI、ruleset 或 `gate-artifact` workflow；本文描述目标状态和落地顺序。
+本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-15-github-pr-gate-flow.md)。当前已加入 `.github/workflows/ci.yml` 与 `.node-version`；ruleset 和 `gate-artifact` workflow 仍待实现。本文描述目标状态和落地顺序。
 
 ## 目标与边界
 
