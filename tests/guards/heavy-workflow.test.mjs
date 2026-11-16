@@ -20,6 +20,7 @@ test('heavy workflow is manual-only and targets the local heavy runner', () => {
 
 test('heavy workflow runs its prerequisites in order', () => {
   const commands = [
+    'test "$(node --version)" = "v$(cat .node-version)"',
     'npm ci',
     'npx playwright install chromium',
     'npm run typecheck',
@@ -33,15 +34,13 @@ test('heavy workflow runs its prerequisites in order', () => {
     assert.ok(index > previous, `heavy workflow is missing or out of order: ${command}`)
     previous = index
   }
-  assert.match(workflow, /node-version-file: \.node-version/)
-  assert.match(workflow, /name: heavy-coverage/)
+  assert.match(workflow, /coverage\/layered\.json/)
 })
 
-test('heavy workflow pins actions and carries no secrets', () => {
+test('heavy workflow uses only pinned actions and carries no secrets', () => {
   const uses = [...workflow.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])
-  assert.ok(uses.length >= 3, 'expected checkout, setup-node, and upload-artifact')
-  for (const use of uses) {
-    assert.match(use, /^[^@]+@[0-9a-f]{40}$/, `action is not pinned to a commit SHA: ${use}`)
-  }
+  assert.deepEqual(uses, ['actions/checkout@11d5960a326750d5838078e36cf38b85af677262'])
+  assert.doesNotMatch(workflow, /actions\/setup-node/)
+  assert.doesNotMatch(workflow, /actions\/upload-artifact/)
   assert.doesNotMatch(workflow, /secrets\./)
 })
