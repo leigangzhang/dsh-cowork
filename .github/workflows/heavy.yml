@@ -7,40 +7,31 @@ on:
         description: Base ref to compare against
         required: false
         default: main
-  pull_request_target:
-    types: [labeled]
-    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: heavy-${{ github.event.pull_request.number || github.ref }}
+  group: heavy-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   heavy-gate:
     name: heavy-gate
-    # pull_request_target keeps the trusted base workflow; only same-repository
-    # branches may request a heavy run, so fork PRs never reach this machine.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.label.name == 'run-heavy' &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+    # Only a write-capable maintainer can start this workflow. No PR event
+    # reaches the self-hosted runner until a head-bound check publisher exists.
     runs-on: [self-hosted, heavy]
     timeout-minutes: 60
     steps:
-      - name: Checkout PR head or selected ref
+      - name: Checkout selected ref
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Fetch base
-        run: >-
-          git fetch --no-tags origin
-          "${{ github.event.pull_request.base.ref || inputs.base }}"
+        run: git fetch --no-tags origin "${{ inputs.base }}"
 
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -66,7 +57,7 @@ jobs:
       - name: Browser and layered coverage
         run: >-
           npm run test:coverage:layered --
-          --base "origin/${{ github.event.pull_request.base.ref || inputs.base }}"
+          --base "origin/${{ inputs.base }}"
 
       - name: Upload coverage evidence
         if: ${{ always() }}
