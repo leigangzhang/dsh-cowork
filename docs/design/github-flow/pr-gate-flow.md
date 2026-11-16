@@ -166,11 +166,11 @@ npm run build
 
 `test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 `dsh` 或 Chromium，不能直接放进 GitHub-hosted runner 的核心五命令。
 
-- 默认不在 GitHub-hosted runner 上跑。推荐在第二台机器安装 GitHub self-hosted runner，打上 `heavy` 标签，heavy workflow 使用 `runs-on: [self-hosted, heavy]`；核心 `CI / pr-gate` 仍跑 GitHub-hosted。
-- 第二台机器准备 Node、`dsh`/DSH Desktop、Chromium；使用专用用户和独立 workspace，每次 `npm ci`，先 `npm run build`，使用临时 `DSH_HOME`，设置 `DSH_HOST_SMOKE_STRICT=1`，缓存 Playwright 浏览器，heavy job 并发设为 1。
+- 默认不在 GitHub-hosted runner 上跑。优先在本机手动运行或安装本机 GitHub self-hosted runner，打上 `heavy` 标签，heavy workflow 使用 `runs-on: [self-hosted, heavy]`；核心 `CI / pr-gate` 仍跑 GitHub-hosted。第二台机器作为可选扩容/兜底，不作为第一阶段前提。
+- 本机准备 Node、`dsh`/DSH Desktop、Chromium；使用专用 workspace，每次 `npm ci`，先 `npm run build`，使用临时 `DSH_HOME`，设置 `DSH_HOST_SMOKE_STRICT=1`，缓存 Playwright 浏览器，heavy job 并发设为 1。
 - 稳定门槛：固定 OS、Node、`dsh`、Chromium 版本；每次 clean workspace；先做 host health 检查；重试只允许有界次数并记录；上传截图/日志/JSON 证据；连续 20 次无基础设施失败的 green 运行后，才把 heavy lane 设为 required。
 - 稳定前只作为独立 workflow 或手动运行，PR 的 `Not run` 必须明确写出；稳定后按 affected paths 增加独立 required check `heavy-gate`，不能把 skipped 当绿。
-- 第二台机器离线时 job 会排队或失败；在 uptime 稳定前不要把它设为 required，否则会阻塞所有相关 PR。
+- 本机休眠、离线或 runner 不可用时 job 会排队或失败；在 uptime 稳定前不要把它设为 required，否则会阻塞相关 PR。
 
 ## 7. PR 元数据 v1
 
@@ -197,7 +197,7 @@ npm run build
 2. `.node-version` + `CI / pr-gate` report-only；验证五命令在干净 checkout 下可运行。
 3. ruleset 要求 `CI / pr-gate`，开启 conversation resolution 和 strict up-to-date，禁止 force/delete。
 4. 接入主审与 `Policy / gate-artifact`，验证新 commit 会使旧 review/旧证据失效。
-5. 在第二台机器安装并验证 `heavy` self-hosted runner，连续 20 次 green 后再把 heavy lane 设为 required；最后统一 merge 设置与自动删分支。
+5. 在本机安装并验证 `heavy` self-hosted runner（或先手动运行），连续 20 次 green 后再把 heavy lane 设为 required；最后统一 merge 设置与自动删分支。
 
 ## 10. 验收
 
@@ -208,5 +208,5 @@ npm run build
 - 有未解决 conversation：merge 被阻止。
 - 直接 push main、force push、删除 main：全部拒绝。
 - `gate-artifact` 的 `headSha` 等于 PR head，`diff.sha256` 与 sticky comment 一致。
-- heavy lane 在第二台机器的 `heavy` self-hosted runner 上运行；缺 `dsh` 时失败而不是 skip。
+- heavy lane 在本机 `heavy` self-hosted runner 或手动运行；缺 `dsh` 时失败而不是 skip。
 - 合并后分支自动删除，main 上是 merge commit。

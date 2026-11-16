@@ -18,7 +18,7 @@ Class: process
 
 **4. 强制层。** `main` 使用 ruleset 要求 `CI / pr-gate` 和 `Policy / gate-artifact`、conversation resolution、strict up-to-date，禁止 force push 和删除，不设 bypass。单人项目不配置 required approvals；review 是程序性约束，人工 merge 仍是最终动作。
 
-**5. Heavy lane。** `test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 `dsh` 或 Chromium，默认不跑 GitHub-hosted runner。推荐在第二台机器安装 GitHub self-hosted runner，标签 `heavy`，workflow 使用 `runs-on: [self-hosted, heavy]`；固定 OS/Node/`dsh`/Chromium 版本，使用临时 `DSH_HOME`、`DSH_HOST_SMOKE_STRICT=1`、clean workspace 和并发 1，连续 20 次无基础设施失败的 green 运行后再增加独立 required check。稳定前手动或独立 workflow 运行，`Not run` 必须明确记录，不能把 skipped 当绿。
+**5. Heavy lane。** `test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 `dsh` 或 Chromium，默认不跑 GitHub-hosted runner。优先在本机手动运行或安装本机 GitHub self-hosted runner，标签 `heavy`，workflow 使用 `runs-on: [self-hosted, heavy]`；第二台机器只作为可选扩容/兜底。固定 OS/Node/`dsh`/Chromium 版本，使用临时 `DSH_HOME`、`DSH_HOST_SMOKE_STRICT=1`、clean workspace 和并发 1，连续 20 次无基础设施失败的 green 运行后再增加独立 required check。稳定前手动或独立 workflow 运行，`Not run` 必须明确记录，不能把 skipped 当绿。
 
 **6. Issue 策略 v1。** 不强制 Issue 引用；只校验 Conventional Commits 标题和 `pr-description` 要求的正文结构。不新增 `.github/pull_request_template.md`，PR 结构继续由 `pr-description` 技能单点拥有。
 
@@ -32,7 +32,7 @@ Class: process
 
 **照搬 deepseek-harness 的 weighted approval、ownership 评分和 delegation。** 否决：那套机制服务于大型多团队仓库；本仓库是单人项目，引入 reviewer 权限、blame ownership、授权撤销和 App token 只会增加维护面。
 
-**从第一天把 heavy lane 设为 required。** 否决：`test:host-smoke` 和 `test:browser` 依赖本机 `dsh`/Chromium，GitHub-hosted runner 无此环境；直接 required 会让 PR 卡在无法分配或无法运行的任务上。采用第二台机器的 `heavy` self-hosted runner，先单独跑并连续验证 20 次，稳定后再强制。
+**从第一天把 heavy lane 设为 required。** 否决：`test:host-smoke` 和 `test:browser` 依赖本机 `dsh`/Chromium，GitHub-hosted runner 无此环境；直接 required 会让 PR 卡在无法分配或无法运行的任务上。优先用本机 `heavy` self-hosted runner 或手动运行，连续验证 20 次稳定后再强制；第二台机器仅作可选扩容。
 
 **在 GitHub Actions 里调用 AI review。** 否决：需要把模型 API key 放进远端 secret，并按 PR 触发付费调用；本地 DSH/AgentTeams 已能完成语义 review，CI 继续只做确定性检查。
 
@@ -48,7 +48,7 @@ Class: process
 - [A2] `Policy / gate-artifact` 校验 review 绑定当前 HEAD、`pr-gate` 成功、base 未变、工作区干净；新 commit 使旧证据失效 — `workflow`
 - [A3] 主审固定为 DSH web AgentTeams 的 `deepseek-v4-pro` reviewer，fresh/只读；第二意见仅高风险、使用非 DeepSeek 模型、advisory，模型确定前以 `deepseek-flash` high 占位，不使用 Codex/Desktop 兜底 — `agent-skills`
 - [A4] `main` ruleset 要求两个检查、conversation resolution、strict up-to-date，禁止 force/delete，不设 bypass；单人项目不配置 required approvals — `workflow`
-- [A5] heavy lane 在第二台机器的 `heavy` self-hosted runner 上运行，`test:host-smoke` 使用 `DSH_HOST_SMOKE_STRICT=1`，连续 20 次 green 后才成为 required check — `workflow`
+- [A5] heavy lane 优先在本机 `heavy` self-hosted runner 或手动运行，`test:host-smoke` 使用 `DSH_HOST_SMOKE_STRICT=1`，连续 20 次 green 后才成为 required check — `workflow`
 - [A6] Issue v1 只校验 Conventional Commits 标题和 `pr-description` 正文结构，不强制 Issue 引用，不新增独立 PR 模板 — `plan-docs`
 - [A7] 设计文档与决策记录可从 `docs/design/README.md` 和文档索引到达，`npm run check` 通过 — `plan-docs`
 
@@ -56,7 +56,7 @@ Class: process
 
 - 单人项目没有 GitHub required approval；review 仍是程序性约束，作者可以绕过。缓解：`gate-artifact` 绑定 HEAD/base/diff，人工 merge 前核对，并在记录中明确不是硬审批。
 - `npm test` 与 `npm run test:coverage` 可能重复执行；先测量，再决定是否合并为一次运行，不能删除 coverage 断言。
-- heavy lane 在稳定前不是 required，host/browser 回归可能漏过；PR 的 `Not run` 必须显式记录，稳定后立即升级为 required。
+- heavy lane 在稳定前不是 required，host/browser 回归可能漏过；PR 的 `Not run` 必须显式记录，稳定后立即升级为 required。本机休眠或离线会让 runner 排队，因此 uptime 稳定前不能设为 required。
 - 第二意见暂以 `deepseek-flash` high 占位，不能提供真正的非 DeepSeek 独立性；正式启用前必须替换，且每次用 `list_subagent_models` 核实 model id，无法路由时记录 `not run`。
 - ruleset 配置错误可能阻塞所有合并；先在 report-only 阶段验证，再启用 required checks，回滚时禁用 ruleset。
 
@@ -66,5 +66,5 @@ Class: process
 2. `.node-version` + `CI / pr-gate` report-only — 验证五命令和 GitHub Actions 环境。
 3. ruleset 要求 `CI / pr-gate` — 验证失败 PR 无法合并、force/delete 被拒绝。
 4. 主审 + `Policy / gate-artifact` — 验证新 commit 使旧 review/旧证据失效。
-5. 第二台机器 `heavy` self-hosted runner 连续 20 次 green 后 required — 验证 skip 不会变绿。
+5. 本机 `heavy` self-hosted runner 连续 20 次 green 后 required — 验证 skip 不会变绿。
 6. merge 设置与自动删分支 — 统一 merge commit 并清理旧分支。
