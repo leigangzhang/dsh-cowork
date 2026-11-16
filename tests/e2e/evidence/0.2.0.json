@@ -4,10 +4,10 @@
   "dshVersion": "0.2.1-rc.2",
   "nodeVersion": "v22.22.1",
   "command": "npm run test:e2e -- --record",
-  "recordedAt": "2026-11-16T13:59:55.352Z",
+  "recordedAt": "2026-11-16T14:09:34.962Z",
   "result": "pass",
   "artifact": {
-    "head": "7f8cf31922610a81aa1118ddff64275b7d9167f8",
+    "head": "faa98ade35909a0d6bdfde17b55069bf8df2b941",
     "dirty": false,
     "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "tarballSha256": "3566a53b99eac25907fd84c0559183148d4fb527e21d4e66d86038e2d239ff25"
@@ -71,27 +71,59 @@
           "passed": true
         },
         {
-          "name": "topic session-92ff1c11-1… is a real session",
+          "name": "session session-59c353d2-1… runs in the fixture",
           "passed": true
         },
         {
-          "name": "topic session-92ff1c11-1… mounted cowork-topic",
+          "name": "session session-59c353d2-1… is not running",
           "passed": true
         },
         {
-          "name": "topic session-fe8f0685-d… is a real session",
+          "name": "session session-1f50947b-7… runs in the fixture",
           "passed": true
         },
         {
-          "name": "topic session-fe8f0685-d… mounted cowork-topic",
+          "name": "session session-1f50947b-7… is not running",
           "passed": true
         },
         {
-          "name": "topic session-651e31f8-f… is a real session",
+          "name": "session session-0afa8bbe-3… runs in the fixture",
           "passed": true
         },
         {
-          "name": "topic session-651e31f8-f… mounted cowork-topic",
+          "name": "session session-0afa8bbe-3… is not running",
+          "passed": true
+        },
+        {
+          "name": "session session-407ef615-3… runs in the fixture",
+          "passed": true
+        },
+        {
+          "name": "session session-407ef615-3… is not running",
+          "passed": true
+        },
+        {
+          "name": "topic session-1f50947b-7… is a real session",
+          "passed": true
+        },
+        {
+          "name": "topic session-1f50947b-7… mounted cowork-topic",
+          "passed": true
+        },
+        {
+          "name": "topic session-0afa8bbe-3… is a real session",
+          "passed": true
+        },
+        {
+          "name": "topic session-0afa8bbe-3… mounted cowork-topic",
+          "passed": true
+        },
+        {
+          "name": "topic session-407ef615-3… is a real session",
+          "passed": true
+        },
+        {
+          "name": "topic session-407ef615-3… mounted cowork-topic",
           "passed": true
         },
         {
@@ -238,6 +270,26 @@
           "passed": true
         },
         {
+          "name": "a resolved target reports resolved_match",
+          "passed": true
+        },
+        {
+          "name": "resolved_match names the old topic",
+          "passed": true
+        },
+        {
+          "name": "the follow-up created a replacement topic",
+          "passed": true
+        },
+        {
+          "name": "the replacement topic starts live",
+          "passed": true
+        },
+        {
+          "name": "the resolved topic received no follow-up turn",
+          "passed": true
+        },
+        {
           "name": "project_status reports a live idle topic",
           "passed": true
         }
@@ -297,7 +349,19 @@
           "passed": true
         },
         {
+          "name": "the pass wrote a delivered merge-needed inbox row",
+          "passed": true
+        },
+        {
+          "name": "the master received the merge-needed message",
+          "passed": true
+        },
+        {
           "name": "the handoff confirms the delivery",
+          "passed": true
+        },
+        {
+          "name": "the handoff file exists with done",
           "passed": true
         },
         {
@@ -318,6 +382,18 @@
         },
         {
           "name": "the integration branch moved",
+          "passed": true
+        },
+        {
+          "name": "activity records review-requested",
+          "passed": true
+        },
+        {
+          "name": "activity records review-verdict",
+          "passed": true
+        },
+        {
+          "name": "activity records work-item-merged",
           "passed": true
         },
         {
