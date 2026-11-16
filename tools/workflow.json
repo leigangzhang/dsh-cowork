@@ -158,6 +158,19 @@
       "why": "A guard is only real if a violation makes it red and it still runs without local runtime data; the workflow surface proves both."
     },
     {
+      "name": "ci-workflow",
+      "patterns": [
+        ".github/**/*",
+        ".node-version"
+      ],
+      "evidence": [
+        "npm run check",
+        "npm test",
+        "npm run test:coverage"
+      ],
+      "why": "The GitHub Actions PR gate is the remote enforcement of the local evidence; its commands, permissions, pinned actions, and Node version are checked by the owning guard test."
+    },
+    {
       "name": "drill",
       "patterns": [
         "tools/m12-migration-drill.mjs"
