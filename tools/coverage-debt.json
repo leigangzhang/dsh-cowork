@@ -373,50 +373,14 @@
     },
     {
       "path": "src/domains/isolation/checkout.ts",
-      "uncoveredLines": [
-        236,
-        237,
-        299,
-        300,
-        430,
-        431,
-        432,
-        433,
-        434,
-        435,
-        436,
-        592,
-        593,
-        594,
-        595,
-        596,
-        597,
-        598,
-        615,
-        616,
-        617,
-        618,
-        619,
-        620,
-        621,
-        774,
-        775,
-        776,
-        777,
-        778,
-        779,
-        780,
-        781,
-        782,
-        812
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 840,
-        "covered": 805
+        "covered": 840
       },
       "branches": {
-        "total": 267,
-        "covered": 179
+        "total": 279,
+        "covered": 192
       },
       "functions": {
         "total": 25,
@@ -512,8 +476,8 @@
         "covered": 808
       },
       "branches": {
-        "total": 641,
-        "covered": 358
+        "total": 642,
+        "covered": 360
       },
       "functions": {
         "total": 67,
