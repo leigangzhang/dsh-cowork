@@ -55,15 +55,17 @@ const NOTE_CLASSES = ['feature', 'bug-fix', 'simplification', 'architecture', 'p
 const NOTE_SECTIONS = {
   proposed: ['## Problem', '## Proposal', '## Alternatives considered', '## Acceptance criteria'],
   implemented: ['## Problem', '## Decision', '## Alternatives considered', '## Consequences', '## Testing'],
+  rejected: ['## Problem', '## Proposal', '## Alternatives considered', '## Why rejected'],
 }
 const NOTE_CRITERIA = { proposed: '## Acceptance criteria', implemented: '## Testing' }
+const NOTE_TITLE_PREFIX = { proposed: '# Proposal: ', implemented: '# Decision: ', rejected: '# Rejected: ' }
 const PROPOSAL_ERA_HEADING = /^## (?:Proposal|Plan|Migration plan|Acceptance criteria)\b/m
 const CRITERION_ID = /\[([A-Za-z][A-Za-z0-9]*-?\d+)\]/
 const CRITERION_SURFACE = /`([a-z][a-z0-9-]*)`/g
 
 function noteErrors(rel, doc, declaredSurfaces, { template = false } = {}) {
-  const lifecycle = rel.includes('/proposed/') ? 'proposed' : rel.includes('/implemented/') ? 'implemented' : null
-  if (lifecycle === null) return [`${rel}: note record is outside proposed/ or implemented/`]
+  const lifecycle = ['proposed', 'implemented', 'rejected'].find((name) => rel.includes(`/${name}/`)) ?? null
+  if (lifecycle === null) return [`${rel}: note record is outside proposed/, implemented/ or rejected/`]
   const errors = []
   for (const heading of NOTE_SECTIONS[lifecycle]) {
     if (!doc.includes(heading)) errors.push(`${rel}: decision-${lifecycle} missing ${heading}`)
@@ -75,7 +77,7 @@ function noteErrors(rel, doc, declaredSurfaces, { template = false } = {}) {
   if (!template) {
     const lines = doc.split('\n')
     const title = lines.find((line) => line.startsWith('# ')) ?? ''
-    const prefix = lifecycle === 'proposed' ? '# Proposal: ' : '# Decision: '
+    const prefix = NOTE_TITLE_PREFIX[lifecycle]
     if (!title.startsWith(prefix)) errors.push(`${rel}: title must start with "${prefix.trim()}"`)
     const status = doc.match(/^Status:\s*(.+)$/m)
     if (status === null) errors.push(`${rel}: missing Status: line`)
@@ -96,17 +98,19 @@ function noteErrors(rel, doc, declaredSurfaces, { template = false } = {}) {
     }
   }
   const criteriaHeading = NOTE_CRITERIA[lifecycle]
-  const bullets = (sectionBodyLines(doc, criteriaHeading) ?? [])
-    .map((line) => line.trim())
-    .filter((line) => /^[-*]\s/.test(line) || /^\d+\.\s/.test(line))
-  if (bullets.length === 0) {
-    errors.push(`${rel}: ${criteriaHeading} carries no criterion bullets`)
-  } else {
-    for (const bullet of bullets) {
-      if (!CRITERION_ID.test(bullet)) errors.push(`${rel}: criterion has no [id]: ${bullet.slice(0, 60)}`)
-      const cited = [...bullet.matchAll(CRITERION_SURFACE)].map((match) => match[1])
-      if (!cited.some((name) => declaredSurfaces.has(name))) {
-        errors.push(`${rel}: criterion cites no declared surface: ${bullet.slice(0, 60)}`)
+  if (criteriaHeading !== undefined) {
+    const bullets = (sectionBodyLines(doc, criteriaHeading) ?? [])
+      .map((line) => line.trim())
+      .filter((line) => /^[-*]\s/.test(line) || /^\d+\.\s/.test(line))
+    if (bullets.length === 0) {
+      errors.push(`${rel}: ${criteriaHeading} carries no criterion bullets`)
+    } else {
+      for (const bullet of bullets) {
+        if (!CRITERION_ID.test(bullet)) errors.push(`${rel}: criterion has no [id]: ${bullet.slice(0, 60)}`)
+        const cited = [...bullet.matchAll(CRITERION_SURFACE)].map((match) => match[1])
+        if (!cited.some((name) => declaredSurfaces.has(name))) {
+          errors.push(`${rel}: criterion cites no declared surface: ${bullet.slice(0, 60)}`)
+        }
       }
     }
   }
@@ -140,7 +144,7 @@ function projectRuleErrors(config) {
   }
 
   const declaredSurfaces = new Set((config.surfaces ?? []).map((surface) => surface?.name).filter(Boolean))
-  const noteTemplates = ['.agents/notes/proposed/TEMPLATE.md', '.agents/notes/implemented/TEMPLATE.md']
+  const noteTemplates = ['.agents/notes/proposed/TEMPLATE.md', '.agents/notes/implemented/TEMPLATE.md', '.agents/notes/rejected/TEMPLATE.md']
   for (const rel of noteTemplates) {
     if (!exists(rel)) {
       errors.push(`${rel} is missing`)
@@ -150,7 +154,7 @@ function projectRuleErrors(config) {
   }
   const noteRecords = iterFiles(root, ['.agents/notes/*'])
     .map(([rel]) => rel)
-    .filter((rel) => /^\.agents\/notes\/(proposed|implemented)\//.test(rel) && !rel.endsWith('/TEMPLATE.md'))
+    .filter((rel) => /^\.agents\/notes\/(proposed|implemented|rejected)\//.test(rel) && !rel.endsWith('/TEMPLATE.md'))
   for (const rel of noteRecords) {
     errors.push(...noteErrors(rel, read(rel), declaredSurfaces))
   }
@@ -516,6 +520,22 @@ function projectSelfTest() {
         '# Decision: x\n\nStatus: implemented\nDate: 2026-01-01\nClass: architecture\n\n## Problem\n\np\n\n## Decision\n\nd\n\n## Alternatives considered\n\na\n\n## Consequences\n\nc\n\n## Testing\n\n- [A1] no owner here\n',
         new Set(['source']),
       ).some((error) => error.includes('declared surface')),
+    },
+    {
+      name: 'rejected record without a verdict',
+      fail: () => noteErrors(
+        '.agents/notes/rejected/process/2026-01-01-x.md',
+        '# Rejected: x\n\nStatus: rejected\nDate: 2026-01-01\nClass: process\n\n## Problem\n\np\n\n## Proposal\n\nd\n\n## Alternatives considered\n\na\n',
+        new Set(['source']),
+      ).some((error) => error.includes('Why rejected')),
+    },
+    {
+      name: 'rejected record keeps its frozen body and needs no criterion',
+      fail: () => noteErrors(
+        '.agents/notes/rejected/process/2026-01-01-x.md',
+        '# Rejected: x\n\nStatus: rejected\nDate: 2026-01-01\nClass: process\n\n## Problem\n\np\n\n## Proposal\n\nd\n\n### Acceptance criteria\n\n- [A1] lost — `source`\n\n## Alternatives considered\n\na\n\n## Why rejected\n\nwhy\n',
+        new Set(['source']),
+      ).length === 0,
     },
     {
       name: 'export audit: a dead export is red',

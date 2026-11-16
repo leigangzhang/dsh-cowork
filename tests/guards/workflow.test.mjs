@@ -88,13 +88,28 @@ test('executable test lanes are wired to scripts, workflow evidence, and the tes
   const pkg = JSON.parse(read('package.json'))
   const workflow = JSON.parse(read('tools/workflow.json'))
   const testing = read('docs/testing.md')
-  for (const script of ['test', 'test:coverage', 'test:host-smoke', 'check:clean', 'change-scope', 'typecheck', 'build']) {
+  for (const script of ['test', 'test:browser', 'test:coverage', 'test:host-smoke', 'check:clean', 'change-scope', 'typecheck', 'build']) {
     assert.equal(typeof pkg.scripts?.[script], 'string', `package.json is missing script ${script}`)
   }
   const source = workflow.surfaces.find((surface) => surface.name === 'source')
   assert.ok(source, 'workflow must declare the source surface')
   for (const command of ['npm run test:coverage', 'npm run typecheck', 'npm run build', 'npm run test:host-smoke']) {
     assert.ok(source.evidence.includes(command), `source evidence is missing: ${command}`)
+  }
+  const browser = workflow.surfaces.find((surface) => surface.name === 'browser')
+  assert.ok(browser, 'workflow must declare the browser surface')
+  assert.equal(browser.mode, 'observational', 'the browser lane starts observational')
+  assert.ok(browser.patterns.includes('src/client/**/*.tsx'), 'the browser surface must own TSX')
+  assert.ok(browser.evidence.includes('npm run test:browser'), 'browser evidence is missing the lane command')
+  const lock = JSON.parse(read('package-lock.json'))
+  assert.equal(lock.packages?.['']?.devDependencies?.playwright, pkg.devDependencies.playwright, 'lockfile must pin the Playwright manifest version')
+  assert.equal(lock.packages?.['node_modules/playwright']?.version, pkg.devDependencies.playwright, 'lockfile must contain the Playwright install')
+  const resolved = Object.values(lock.packages ?? {})
+    .map(entry => entry?.resolved)
+    .filter(url => typeof url === 'string')
+  assert.ok(resolved.length > 0, 'lockfile must contain resolved tarball URLs')
+  for (const url of resolved) {
+    assert.ok(url.startsWith('https://registry.npmjs.org/'), `lockfile resolved outside the official registry: ${url}`)
   }
   const packaging = workflow.surfaces.find((surface) => surface.name === 'packaging')
   assert.ok(packaging, 'workflow must declare the packaging surface')
@@ -103,7 +118,7 @@ test('executable test lanes are wired to scripts, workflow evidence, and the tes
   }
   assert.ok(packaging.patterns.includes('cordis.patch.yml'), 'packaging must own the bundle patch')
   assert.equal(packaging.patterns.includes('lib/**'), false, 'lib is local build output, not a tracked packaging input')
-  for (const command of ['npm run test:coverage', 'npm run test:host-smoke']) {
+  for (const command of ['npm run test:browser', 'npm run test:coverage', 'npm run test:host-smoke']) {
     assert.ok(testing.includes(command), `docs/testing.md is missing: ${command}`)
   }
 })

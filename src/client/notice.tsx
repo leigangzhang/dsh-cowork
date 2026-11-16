@@ -24,13 +24,13 @@ import {
 } from './notice-model.ts'
 import type { ClientContext } from './contracts.ts'
 
-export interface NoticeCardProps {
+interface NoticeCardProps {
   readonly card: NoticeCardView
   readonly onAction?: (action: NoticeActionView) => void
 }
 
 /** One notice card: kind, title, summary, state and its (optional) actions. */
-export function NoticeCard({ card, onAction }: NoticeCardProps): ReactElement {
+function NoticeCard({ card, onAction }: NoticeCardProps): ReactElement {
   return (
     <article
       className="cw-notice-card"
