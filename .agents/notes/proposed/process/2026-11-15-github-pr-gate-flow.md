@@ -45,7 +45,7 @@ Class: process
 ## Acceptance criteria
 
 - [A1] `pr-gate` 在 PR head 上运行 check/test/coverage 三条 hosted 命令，任一步非零或必需 job 被跳过即失败 — `workflow`
-- [A2] `Policy / gate-artifact` 校验 review 绑定当前 HEAD、`pr-gate` 成功、base 未变、工作区干净；新 commit 使旧证据失效 — `workflow`
+- [A2] `gate-artifact` 校验 `review-verdict` marker 绑定当前 HEAD、`pr-gate` 成功、当前 main 是 head 的祖先、工作区干净；新 commit 使旧证据失效 — `workflow`
 - [A3] 主审固定为 DSH web AgentTeams 的 `deepseek-v4-pro` reviewer，fresh/只读；第二意见仅高风险、使用非 DeepSeek 模型、advisory，模型确定前以 `deepseek-flash` high 占位，不使用 Codex/Desktop 兜底 — `agent-skills`
 - [A4] `main` ruleset 要求两个检查、conversation resolution、strict up-to-date，禁止 force/delete，不设 bypass；单人项目不配置 required approvals — `workflow`
 - [A5] heavy lane 优先在本机 `heavy` self-hosted runner 或手动运行 typecheck/build/host-smoke/browser/layered，`test:host-smoke` 使用 `DSH_HOST_SMOKE_STRICT=1`，连续 20 次 green 后才成为 required check — `workflow`
