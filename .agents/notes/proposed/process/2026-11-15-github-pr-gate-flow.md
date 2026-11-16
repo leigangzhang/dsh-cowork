@@ -10,15 +10,15 @@ Class: process
 
 ## Proposal
 
-**1. CI 门禁。** 新增 `.github/workflows/ci.yml`，在 `pull_request` 上用 PR head 运行 `npm ci`、`npm run check`、`npm test`、`npm run test:coverage`、`npm run typecheck`、`npm run build`。只暴露一个稳定 required check `CI / pr-gate`，任一步失败即红；成功后上传 `review-context.json`。
+**1. CI 门禁。** 新增 `.github/workflows/ci.yml`，在 `pull_request` 上用 PR head 运行 `npm ci`、`npm run check`、`npm test`、`npm run test:coverage`。只暴露一个稳定 required check `pr-gate`（workflow 名 `CI`），任一步失败即红；成功后上传 `review-context.json`。`npm run typecheck` 和 `npm run build` 需要 DSH source checkout 与已安装 app 的 runtime 包，归入 heavy lane，不在 hosted gate 中伪装通过。
 
 **2. Review。** 主审使用当前 DSH web 会话的 AgentTeams reviewer，模型为 `deepseek-v4-pro`，fresh context、只读，先 `change-scope` 再读需求、diff、调用方和 CI 证据，最终 verdict 必须在 CI 绿后对同一 HEAD 给出。高风险变更再加第二意见：使用当前 DSH web 的 AgentTeams member 或 `subagent` 调用非 DeepSeek 模型（Kimi/Qwen/GLM 等），同样 fresh、只读、advisory。模型确定前暂以 `deepseek-flash` high 档占位接线，正式启用前必须替换为非 DeepSeek 模型；不把 Codex 或 DSH Desktop 作为兜底。
 
-**3. 证据冻结。** 新增 `.github/workflows/gate-artifact.yml`，从受信任的 base 分支运行脚本，PR head 只作为 git 数据。它校验 review 绑定当前 HEAD、`CI / pr-gate` 成功、`origin/main` 仍是记录的 base、工作区干净，并生成 `gate-artifact.json` 与 sticky comment；job 本身作为 `Policy / gate-artifact`。
+**3. 证据冻结。** 新增 `.github/workflows/gate-artifact.yml`，从受信任的 base 分支运行脚本，PR head 只作为 git 数据。它校验 review 绑定当前 HEAD、`pr-gate` 成功、`origin/main` 仍是记录的 base、工作区干净，并生成 `gate-artifact.json` 与 sticky comment；job 本身作为 required check `gate-artifact`。
 
-**4. 强制层。** `main` 使用 ruleset 要求 `CI / pr-gate` 和 `Policy / gate-artifact`、conversation resolution、strict up-to-date，禁止 force push 和删除，不设 bypass。单人项目不配置 required approvals；review 是程序性约束，人工 merge 仍是最终动作。
+**4. 强制层。** `main` 使用 ruleset 要求 `pr-gate` 和 `gate-artifact`、conversation resolution、strict up-to-date，禁止 force push 和删除，不设 bypass。单人项目不配置 required approvals；review 是程序性约束，人工 merge 仍是最终动作。
 
-**5. Heavy lane。** `test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 `dsh` 或 Chromium，默认不跑 GitHub-hosted runner。优先在本机手动运行或安装本机 GitHub self-hosted runner，标签 `heavy`，workflow 使用 `runs-on: [self-hosted, heavy]`；第二台机器只作为可选扩容/兜底。固定 OS/Node/`dsh`/Chromium 版本，使用临时 `DSH_HOME`、`DSH_HOST_SMOKE_STRICT=1`、clean workspace 和并发 1，连续 20 次无基础设施失败的 green 运行后再增加独立 required check。稳定前手动或独立 workflow 运行，`Not run` 必须明确记录，不能把 skipped 当绿。
+**5. Heavy lane。** `npm run typecheck`、`npm run build`、`test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 DSH source/app 或 Chromium，默认不跑 GitHub-hosted runner。优先在本机手动运行或安装本机 GitHub self-hosted runner，标签 `heavy`，workflow 使用 `runs-on: [self-hosted, heavy]`；第二台机器只作为可选扩容/兜底。固定 OS/Node/`dsh`/Chromium 版本，使用临时 `DSH_HOME`、`DSH_HOST_SMOKE_STRICT=1`、clean workspace 和并发 1，连续 20 次无基础设施失败的 green 运行后再增加独立 required check。稳定前手动或独立 workflow 运行，`Not run` 必须明确记录，不能把 skipped 当绿。
 
 **6. Issue 策略 v1。** 不强制 Issue 引用；只校验 Conventional Commits 标题和 `pr-description` 要求的正文结构。不新增 `.github/pull_request_template.md`，PR 结构继续由 `pr-description` 技能单点拥有。
 
@@ -44,11 +44,11 @@ Class: process
 
 ## Acceptance criteria
 
-- [A1] `CI / pr-gate` 在 PR head 上运行五条 core 命令，任一步非零或必需 job 被跳过即失败 — `workflow`
+- [A1] `pr-gate` 在 PR head 上运行 check/test/coverage 三条 hosted 命令，任一步非零或必需 job 被跳过即失败 — `workflow`
 - [A2] `Policy / gate-artifact` 校验 review 绑定当前 HEAD、`pr-gate` 成功、base 未变、工作区干净；新 commit 使旧证据失效 — `workflow`
 - [A3] 主审固定为 DSH web AgentTeams 的 `deepseek-v4-pro` reviewer，fresh/只读；第二意见仅高风险、使用非 DeepSeek 模型、advisory，模型确定前以 `deepseek-flash` high 占位，不使用 Codex/Desktop 兜底 — `agent-skills`
 - [A4] `main` ruleset 要求两个检查、conversation resolution、strict up-to-date，禁止 force/delete，不设 bypass；单人项目不配置 required approvals — `workflow`
-- [A5] heavy lane 优先在本机 `heavy` self-hosted runner 或手动运行，`test:host-smoke` 使用 `DSH_HOST_SMOKE_STRICT=1`，连续 20 次 green 后才成为 required check — `workflow`
+- [A5] heavy lane 优先在本机 `heavy` self-hosted runner 或手动运行 typecheck/build/host-smoke/browser/layered，`test:host-smoke` 使用 `DSH_HOST_SMOKE_STRICT=1`，连续 20 次 green 后才成为 required check — `workflow`
 - [A6] Issue v1 只校验 Conventional Commits 标题和 `pr-description` 正文结构，不强制 Issue 引用，不新增独立 PR 模板 — `plan-docs`
 - [A7] 设计文档与决策记录可从 `docs/design/README.md` 和文档索引到达，`npm run check` 通过 — `plan-docs`
 
@@ -63,8 +63,8 @@ Class: process
 ## Delivery stages
 
 1. 文档与决策记录 — 本变更。
-2. `.node-version` + `CI / pr-gate` report-only — 验证五命令和 GitHub Actions 环境。
-3. ruleset 要求 `CI / pr-gate` — 验证失败 PR 无法合并、force/delete 被拒绝。
-4. 主审 + `Policy / gate-artifact` — 验证新 commit 使旧 review/旧证据失效。
+2. `.node-version` + `pr-gate` report-only — 验证 hosted 三命令和 GitHub Actions 环境。
+3. ruleset 要求 `pr-gate` — 验证失败 PR 无法合并、force/delete 被拒绝。
+4. 主审 + `gate-artifact` — 验证新 commit 使旧 review/旧证据失效。
 5. 本机 `heavy` self-hosted runner 连续 20 次 green 后 required — 验证 skip 不会变绿。
 6. merge 设置与自动删分支 — 统一 merge commit 并清理旧分支。

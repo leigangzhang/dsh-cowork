@@ -27,14 +27,12 @@ test('CI workflow has one PR-owned pr-gate job', () => {
   )
 })
 
-test('CI workflow runs the five core gates from the PR head', () => {
+test('CI workflow runs the hosted core gates from the PR head', () => {
   const commands = [
     'npm ci',
     'npm run check',
     'npm test',
     'npm run test:coverage',
-    'npm run typecheck',
-    'npm run build',
   ]
   let previous = -1
   for (const command of commands) {
@@ -42,6 +40,8 @@ test('CI workflow runs the five core gates from the PR head', () => {
     assert.ok(index > previous, `missing or out-of-order command: ${command}`)
     previous = index
   }
+  assert.doesNotMatch(workflow, /run: npm run typecheck/)
+  assert.doesNotMatch(workflow, /run: npm run build/)
   assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/)
   assert.match(workflow, /fetch-depth: 0/)
   assert.match(workflow, /git fetch --no-tags origin "\$\{\{ github\.base_ref \}\}"/)

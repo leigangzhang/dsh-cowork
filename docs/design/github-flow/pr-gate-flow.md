@@ -23,7 +23,7 @@ flowchart LR
   A["agent/topic 分支"] --> B["小步提交"]
   B --> C["本地 change-scope<br/>+ 受影响检查"]
   C --> D["push + 开 PR"]
-  D --> E["CI / pr-gate<br/>check / test / coverage / typecheck / build"]
+  D --> E["CI / pr-gate<br/>check / test / coverage"]
   E --> F{"同一 HEAD 通过?"}
   F -- 否 --> B
   F -- 是 --> G["主审<br/>DSH web AgentTeams reviewer<br/>deepseek-v4-pro<br/>fresh context / 只读"]
@@ -46,7 +46,7 @@ flowchart LR
 
 | 节点 | 机制 |
 |---|---|
-| 本地检查 | `change-scope` 固定范围；按 [tools/workflow.json](../../../tools/workflow.json) 选择受影响检查；CI 拥有完整五命令 |
+| 本地检查 | `change-scope` 固定范围；按 [tools/workflow.json](../../../tools/workflow.json) 选择受影响检查；GitHub-hosted CI 负责 check/test/coverage，typecheck/build 与 host/browser 在 heavy lane |
 | PR Gate | `.github/workflows/ci.yml` 的 `pr-gate` job；单稳定检查 `CI / pr-gate` |
 | 主审 | DSH web AgentTeams reviewer；`deepseek-v4-pro`；fresh context；只读 |
 | 第二意见 | 仅高风险；当前 DSH web 的 AgentTeams member 或 subagent；非 DeepSeek 模型（占位 `deepseek-flash` high）；advisory |
@@ -67,7 +67,7 @@ npm run change-scope -- --base <verified-base>
 本地 review 与 CI 不是串行两轮：
 
 1. reviewer 先用 `change-scope` 对 diff 做语义和正确性 review；
-2. CI 在同一个 HEAD 上产出 test、coverage、typecheck、build 证据；
+2. GitHub-hosted CI 在同一个 HEAD 上产出 test、coverage 证据；typecheck/build 由 heavy lane 补充；
 3. 最终 `verdict=pass` 必须在 CI 绿后、对同一个 HEAD 给出，并同时核对 diff 与 CI 结果。
 
 `lib/` 是本地构建产物；`test:host-smoke` 前先 `npm run build`，并设置 `DSH_HOST_SMOKE_STRICT=1`，缺 `dsh` 时失败而不是 skip。
@@ -87,11 +87,11 @@ npm run change-scope -- --base <verified-base>
 npm run check
 npm test
 npm run test:coverage
-npm run typecheck
-npm run build
 ```
 
-任一步非零即失败；job 本身是唯一 required check `CI / pr-gate`，不把矩阵腿逐个写进 ruleset。成功后上传 `review-context.json`，记录 `baseSha`、`headSha`、`diff.sha256` 和 `scope`，供 review 与 `gate-artifact` 使用。
+`typecheck` 和 `build` 需要 DSH source checkout 与已安装 app 的 runtime 包，GitHub-hosted runner 不具备；它们属于 heavy lane，不能在这里伪装成通过。
+
+任一步非零即失败；job 本身是唯一 required check `pr-gate`（workflow 名 `CI`，GitHub UI 可能显示为 `CI / pr-gate`），不把矩阵腿逐个写进 ruleset。成功后上传 `review-context.json`，记录 `baseSha`、`headSha`、`diff.sha256` 和 `scope`，供 review 与 `gate-artifact` 使用。
 
 核心 CI 跑在当前仓库的 GitHub Actions 标准 runner 上；仓库是 public 且 Actions 已开启，不需要额外购买 larger runner。`npm test` 与 `npm run test:coverage` 目前会重复执行测试；P1 先按流程全跑，测量后再决定是否合并为一次运行，不能删除 coverage 门。
 
@@ -146,7 +146,7 @@ npm run build
 | 设置 | 值 |
 |---|---|
 | Require pull request | on |
-| Required checks | `CI / pr-gate`、`Policy / gate-artifact` |
+| Required checks | `pr-gate`、`gate-artifact`（workflow 前缀不进入 ruleset context） |
 | Required approvals | 0（单人项目，review 为程序性约束） |
 | Require conversation resolution | on |
 | Require branches up to date | on |
@@ -164,9 +164,9 @@ npm run build
 
 ## 6. Heavy lane
 
-`test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 `dsh` 或 Chromium，不能直接放进 GitHub-hosted runner 的核心五命令。
+`npm run typecheck`、`npm run build`、`test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 DSH source/app 或 Chromium，不能直接放进 GitHub-hosted runner 的核心命令。
 
-- 默认不在 GitHub-hosted runner 上跑。优先在本机手动运行或安装本机 GitHub self-hosted runner，打上 `heavy` 标签，heavy workflow 使用 `runs-on: [self-hosted, heavy]`；核心 `CI / pr-gate` 仍跑 GitHub-hosted。第二台机器作为可选扩容/兜底，不作为第一阶段前提。
+- 默认不在 GitHub-hosted runner 上跑。优先在本机手动运行或安装本机 GitHub self-hosted runner，打上 `heavy` 标签，heavy workflow 使用 `runs-on: [self-hosted, heavy]`；核心 `pr-gate` 仍跑 GitHub-hosted。第二台机器作为可选扩容/兜底，不作为第一阶段前提。
 - 本机准备 Node、`dsh`/DSH Desktop、Chromium；使用专用 workspace，每次 `npm ci`，先 `npm run build`，使用临时 `DSH_HOME`，设置 `DSH_HOST_SMOKE_STRICT=1`，缓存 Playwright 浏览器，heavy job 并发设为 1。
 - 稳定门槛：固定 OS、Node、`dsh`、Chromium 版本；每次 clean workspace；先做 host health 检查；重试只允许有界次数并记录；上传截图/日志/JSON 证据；连续 20 次无基础设施失败的 green 运行后，才把 heavy lane 设为 required。
 - 稳定前只作为独立 workflow 或手动运行，PR 的 `Not run` 必须明确写出；稳定后按 affected paths 增加独立 required check `heavy-gate`，不能把 skipped 当绿。
@@ -183,7 +183,7 @@ npm run build
 
 | 事件 | 结果 | 回到 |
 |---|---|---|
-| 任一 core 命令失败 | `CI / pr-gate` 红 | 提交 |
+| 任一 hosted core 命令失败 | `pr-gate` 红 | 提交 |
 | 主审 verdict 非 pass | 不生成成功 `gate-artifact` | 提交 |
 | review 后 push 新 commit | 旧 verdict/旧 check 失效 | PR Gate |
 | main 前进 | strict up-to-date 阻止合并 | 更新分支后 PR Gate |
@@ -194,7 +194,7 @@ npm run build
 ## 9. 落地顺序
 
 1. 文档与决策记录（本次变更）。
-2. `.node-version` + `CI / pr-gate` report-only；验证五命令在干净 checkout 下可运行。
+2. `.node-version` + `pr-gate` report-only；验证 hosted 三命令在干净 checkout 下可运行。
 3. ruleset 要求 `CI / pr-gate`，开启 conversation resolution 和 strict up-to-date，禁止 force/delete。
 4. 接入主审与 `Policy / gate-artifact`，验证新 commit 会使旧 review/旧证据失效。
 5. 在本机安装并验证 `heavy` self-hosted runner（或先手动运行），连续 20 次 green 后再把 heavy lane 设为 required；最后统一 merge 设置与自动删分支。

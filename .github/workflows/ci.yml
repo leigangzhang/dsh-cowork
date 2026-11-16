@@ -55,12 +55,8 @@ jobs:
       - name: Run coverage gate
         run: npm run test:coverage
 
-      - name: Run typecheck
-        run: npm run typecheck
-
-      - name: Run build
-        run: npm run build
-
+      # typecheck/build require a DSH source checkout and the installed app's
+      # runtime packages; they run in the local heavy lane, not on a hosted runner.
       - name: Write review context
         run: >-
           node scripts/review/gate-artifact.mjs
