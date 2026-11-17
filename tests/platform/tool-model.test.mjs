@@ -175,6 +175,29 @@ test('buildThreadBrief carries the project, the topic, the intent, and the reque
   assert.ok(!blankIntent.includes('User intent'), blankIntent)
 })
 
+test('buildThreadBrief names the isolated clone and the branch the master merges', () => {
+  const brief = buildThreadBrief({
+    repoPath: '/repo',
+    subject: 'one isolated topic',
+    topicId: 'topic-a',
+    checkoutPath: '/tmp/clones/topic-a',
+  })
+
+  assert.match(brief, /Your isolated work area is \/tmp\/clones\/topic-a/)
+  assert.match(brief, /branch cowork\/topic-a/)
+  assert.match(brief, /Make all edits and commits there; do not modify the main repository/)
+  assert.match(brief, /The master merges your branch after your handoff/)
+
+  // A blank path is the shared-tree topic: no isolated-area sentence at all.
+  const sharedTree = buildThreadBrief({
+    repoPath: '/repo',
+    subject: 'one isolated topic',
+    topicId: 'topic-a',
+    checkoutPath: '   ',
+  })
+  assert.equal(sharedTree.includes('isolated work area'), false)
+})
+
 test('ERROR_CODES keeps the wire strings stable', () => {
   assert.deepEqual(ERROR_CODES, {
     agentUnavailable: 'exec/agent-unavailable',

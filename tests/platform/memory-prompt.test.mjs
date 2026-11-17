@@ -394,6 +394,38 @@ test('dispose releases every section disposer exactly once', () => {
   assert.deepEqual(registration.registered(), [])
 })
 
+test('a throwing section disposer is logged and the remaining sections are still released', () => {
+  const broken = fakeAgent({ id: 'broken' })
+  broken.agent.ctx.systemPrompt.section = () => () => {
+    throw new Error('release refused')
+  }
+  const healthy = fakeAgent({ id: 'healthy' })
+  const deps = makeDeps()
+  const registration = registerMemoryPrompt(fakeHost([broken.agent, healthy.agent]).host, deps)
+
+  assert.deepEqual(registration.registered(), ['broken', 'healthy'])
+  registration.dispose()
+
+  assert.equal(deps.logs.length, 1)
+  assert.match(deps.logs[0], /cowork: memory section disposer failed: release refused/)
+  assert.equal(healthy.sections[0].active, false, 'one failing disposer must not leak the next section')
+  assert.equal(healthy.sections[0].disposeCalls, 1)
+  assert.deepEqual(registration.registered(), [])
+})
+
+test('a section registration that returns no disposer is reported as a failed agent', () => {
+  const agent = fakeAgent({ id: 'no-disposer' })
+  agent.agent.ctx.systemPrompt.section = () => undefined
+  const deps = makeDeps()
+  const registration = registerMemoryPrompt(fakeHost([agent.agent]).host, deps)
+
+  assert.equal(registration.duplicateSkipped(), 1)
+  assert.deepEqual(registration.registered(), [])
+  assert.equal(deps.logs.length, 1)
+  assert.match(deps.logs[0], /no-disposer/)
+  assert.match(deps.logs[0], /section\(\) returned no disposer/)
+})
+
 test('does not render through a stale provider after dispose', () => {
   const { agent, sections } = fakeAgent()
   const deps = makeDeps({ renderValue: { text: 'memory', digest: 'd1' } })

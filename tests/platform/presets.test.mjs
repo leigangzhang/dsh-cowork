@@ -15,6 +15,7 @@ const {
   TOPIC_PERSONA,
   TOPIC_PRESET_ID,
   presetDefinitions,
+  registerPresets,
 } = await import('../../src/platform/presets.ts')
 
 const PERSONA = '@deepseek-ai/dsh-persona'
@@ -161,6 +162,50 @@ test('the master persona reads reports from cowork_notices, not blocked messages
   assert.match(MASTER_PERSONA, /Review verdicts still arrive as messages/)
   assert.equal(/blocked topics are delivered to you as messages/.test(MASTER_PERSONA), false)
   assert.match(MASTER_PERSONA, /blocked and progress reports/)
+})
+
+test('registerPresets registers master, topic, and reviewer in order and returns their disposers', async () => {
+  const calls = []
+  const disposed = []
+  const registry = {
+    async register(definition) {
+      calls.push(definition.id)
+      return async () => {
+        disposed.push(definition.id)
+      }
+    },
+  }
+
+  const disposers = await registerPresets(registry)
+
+  assert.deepEqual(calls, [MASTER_PRESET_ID, TOPIC_PRESET_ID, REVIEWER_PRESET_ID])
+  assert.equal(disposers.length, 3)
+  for (const dispose of disposers) await dispose()
+  assert.deepEqual(disposed, [MASTER_PRESET_ID, TOPIC_PRESET_ID, REVIEWER_PRESET_ID])
+})
+
+test('a failed preset registration disposes the earlier presets and rethrows the original error', async () => {
+  const calls = []
+  const disposed = []
+  const registry = {
+    async register(definition) {
+      calls.push(definition.id)
+      if (definition.id === REVIEWER_PRESET_ID) throw new Error('preset registry is full')
+      return async () => {
+        disposed.push(definition.id)
+        if (definition.id === TOPIC_PRESET_ID) throw new Error('dispose failed')
+      }
+    },
+  }
+
+  await assert.rejects(registerPresets(registry), /preset registry is full/)
+
+  assert.deepEqual(calls, [MASTER_PRESET_ID, TOPIC_PRESET_ID, REVIEWER_PRESET_ID])
+  assert.deepEqual(
+    disposed,
+    [MASTER_PRESET_ID, TOPIC_PRESET_ID],
+    'a failed startup disposes the presets it already registered and leaves no partial set',
+  )
 })
 
 test('the personas carry no legacy handoff state or merge override (KI-25)', () => {
