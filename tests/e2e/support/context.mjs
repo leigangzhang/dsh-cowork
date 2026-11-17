@@ -71,12 +71,13 @@ export function createScenarioContext({ scenarioId, fixture, client, model }) {
      */
     async waitToolResult(sessionId, toolName, options = {}) {
       const sinceIndex = options.sinceIndex ?? 0
+      const matches = (row) => row.toolName === toolName && (options.acceptError === true || row.isError === false)
       const call = await waitUntil(`${scenarioId}: ${toolName} tool result`, () =>
         model.calls
           .slice(sinceIndex)
           .find((entry) => entry.sessionId === sessionId
-            && entry.toolResults.some((row) => row.toolName === toolName && row.isError === false)), options)
-      const result = call.toolResults.find((row) => row.toolName === toolName && row.isError === false)
+            && entry.toolResults.some(matches)), options)
+      const result = call.toolResults.find(matches)
       const payload = parseToolPayload(result.text)
       if (options.expectOk === true) {
         if (payload === undefined || payload.ok !== true) {
@@ -96,6 +97,7 @@ export function createScenarioContext({ scenarioId, fixture, client, model }) {
       const result = await context.waitToolResult(sessionId, toolName, {
         sinceIndex,
         expectOk: options.expectOk ?? true,
+        acceptError: options.acceptError === true,
         timeoutMs: options.timeoutMs,
       })
       await client.waitIdle(sessionId, { afterUpdatedAt: before?.updatedAt })

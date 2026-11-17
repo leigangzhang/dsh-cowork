@@ -245,7 +245,7 @@ export function hostEnvironment(layout, options = {}) {
 }
 
 function removeTempRoot(tempRoot, keep) {
-  if (keep !== true) rmSync(tempRoot, { recursive: true, force: true })
+  if (keep !== true) rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 async function stopConnection(connection) {

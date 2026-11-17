@@ -17,7 +17,7 @@
 
 import { BUSINESS_TOOLS, PANEL_ROUTES } from '../tests/support/public-surface.mjs'
 
-const SCENARIO_MODES = new Set(['keyless', 'live-model'])
+const SCENARIO_MODES = new Set(['keyless', 'live-model', 'host-bash'])
 const HOST_LINE = /^\d+\.\d+$/
 const COMMIT_SHA = /^[0-9a-f]{40}$/
 const SHA256 = /^[0-9a-f]{64}$/

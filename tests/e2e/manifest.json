@@ -91,6 +91,15 @@
         "tool:cowork_route",
         "topic-status:active"
       ]
+    },
+    {
+      "id": "topic-bash",
+      "mode": "host-bash",
+      "summary": "The scripted model drives a real topic session to commit through the host bash tool; it requires a usable bash sandbox backend and is observational, not keyless evidence.",
+      "covers": [
+        "tool:cowork_work_item_create",
+        "work-item-status:active"
+      ]
     }
   ]
 }
