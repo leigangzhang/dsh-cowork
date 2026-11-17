@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile, readdir } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   makeSeedProject,
@@ -12,7 +12,8 @@ const { registerCoworkTools } = await import('../../src/app/tools.ts')
 const { ProjectStore } = await import('../../src/store/project-store.ts')
 const { RequestStore } = await import('../../src/store/request-store.ts')
 const { REQUEST_TOOL_ERROR_CODES } = await import('../../src/tools/request.ts')
-const { ERROR_CODES } = await import('../../src/platform/tool-model.ts')
+const { ERROR_CODES, TOPIC_ERROR_CODES } = await import('../../src/platform/tool-model.ts')
+const { QUESTION_PROMPT_MAX_CHARS, REVIEW_MAX_VERIFICATION } = await import('../../src/panel/inbox-contract.ts')
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')
 const NOW_ISO = NOW.toISOString()
@@ -160,6 +161,25 @@ test('a refused user review writes nothing', async () => {
       changedPaths: Array.from({ length: 51 }, (_, index) => `p-${index}`),
     }, exec)
     assert.equal(tooManyPaths.ok, false)
+    const blankPath = await review.execute({ purpose: 'p', changedPaths: [''] }, exec)
+    assert.equal(blankPath.ok, false)
+    assert.equal(blankPath.error.code, REQUEST_TOOL_ERROR_CODES.payloadInvalid)
+    assert.match(blankPath.error.message, /every changed path must be a non-empty string/)
+    const tooManyRows = await review.execute({
+      purpose: 'p',
+      verification: Array.from({ length: REVIEW_MAX_VERIFICATION + 1 }, () => ({
+        command: 'c',
+        exitCode: 0,
+        evidence: 'e',
+      })),
+    }, exec)
+    assert.equal(tooManyRows.ok, false)
+    assert.equal(tooManyRows.error.code, REQUEST_TOOL_ERROR_CODES.payloadInvalid)
+    assert.match(tooManyRows.error.message, /verification must be an array of at most 10 rows/)
+    const blankRequestId = await review.execute({ purpose: 'p', reviewRequestId: '   ' }, exec)
+    assert.equal(blankRequestId.ok, false)
+    assert.equal(blankRequestId.error.code, REQUEST_TOOL_ERROR_CODES.payloadInvalid)
+    assert.match(blankRequestId.error.message, /reviewRequestId must be a non-empty string/)
     // A non-integer exit code never reaches the tool: the argument schema refuses it.
     await assert.rejects(
       review.execute({ purpose: 'p', verification: [{ command: 'c', exitCode: 1.5, evidence: 'e' }] }, exec),
@@ -203,6 +223,15 @@ test('a refused question or plan writes nothing', async () => {
       questions: Array.from({ length: 6 }, () => ({ prompt: 'p', mode: 'single' })),
     }, exec)
     assert.equal(tooMany.ok, false)
+    const longPrompt = await registry.get('cowork_request_question').execute({
+      questions: [{ prompt: 'x'.repeat(QUESTION_PROMPT_MAX_CHARS + 1) }],
+    }, exec)
+    assert.equal(longPrompt.ok, false)
+    assert.equal(longPrompt.error.code, REQUEST_TOOL_ERROR_CODES.payloadInvalid)
+    assert.match(
+      longPrompt.error.message,
+      new RegExp(`payload\\.questions\\[0\\]\\.prompt must be a non-empty string of at most ${QUESTION_PROMPT_MAX_CHARS} characters`),
+    )
     await assert.rejects(
       registry.get('cowork_request_question').execute({
         questions: [{ prompt: 'p', mode: 'single', options: [{ description: 'no label' }] }],
@@ -218,6 +247,18 @@ test('a refused question or plan writes nothing', async () => {
       planPath: 'docs/../etc/passwd', summary: 's',
     }, exec)
     assert.equal(escaping.ok, false)
+    const blankSummary = await registry.get('cowork_request_plan').execute({
+      planPath: 'docs/plan.md', summary: '   ',
+    }, exec)
+    assert.equal(blankSummary.ok, false)
+    assert.equal(blankSummary.error.code, REQUEST_TOOL_ERROR_CODES.payloadInvalid)
+    assert.match(blankSummary.error.message, /summary must be a non-empty string/)
+    const blankTitle = await registry.get('cowork_request_plan').execute({
+      planPath: 'docs/plan.md', summary: 's', planTitle: '',
+    }, exec)
+    assert.equal(blankTitle.ok, false)
+    assert.equal(blankTitle.error.code, REQUEST_TOOL_ERROR_CODES.payloadInvalid)
+    assert.match(blankTitle.error.message, /planTitle must be a non-empty string/)
     await assert.rejects(
       registry.get('cowork_request_plan').execute({ planPath: 'docs/plan.md' }, exec),
       /missing required property/,
@@ -331,5 +372,87 @@ test('the persisted record keeps both messages so a refresh restores the thread'
     assert.equal(raw.resolutionMessage, null)
     assert.equal(raw.version, 1)
     assert.equal(raw.delivery.promptedAt, null)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// failure and concurrent-writer branches
+// ---------------------------------------------------------------------------
+
+/**
+ * A store wrapper whose first direct index read returns another writer's view.
+ * `openProject` reads through `readIndex`, which the wrapper leaves untouched,
+ * so only the handler's own re-read is transformed; this is the deterministic
+ * form of "another writer changed the index between the two reads".
+ */
+function racingStoreFor(store, transform) {
+  let reads = 0
+  return new Proxy(store, {
+    get(target, property) {
+      if (property === 'readIndexDocument') {
+        return async () => {
+          reads += 1
+          const document = await target.readIndexDocument()
+          return reads === 1 ? transform(document) : document
+        }
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
+test('a topic that disappears after the project read is reported missing', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic()])
+    const deps = fakeDeps()
+    deps.createProjectStore = () => racingStoreFor(store, (document) => ({
+      ...document,
+      topics: document.topics.filter((entry) => entry.topicId !== TOPIC),
+    }))
+    const result = await tools(deps).get('cowork_user_review_request').execute(
+      { purpose: 'p' },
+      fakeExec(TOPIC, repoPath),
+    )
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, TOPIC_ERROR_CODES.topicNotFound)
+    assert.match(result.error.message, /is not in the project index/)
+    assert.deepEqual(await requestFiles(repoPath), [])
+  })
+})
+
+test('every request tool maps a corrupt project index instead of throwing', async () => {
+  await withRepo(async (repoPath) => {
+    await mkdir(join(repoPath, '.dsh-cowork'), { recursive: true })
+    await writeFile(join(repoPath, '.dsh-cowork', 'index.json'), '{not json\n')
+    const registry = tools(fakeDeps())
+    const cases = [
+      ['cowork_user_review_request', { purpose: 'p' }],
+      ['cowork_request_question', { questions: [{ prompt: 'q' }] }],
+      ['cowork_request_plan', { planPath: 'docs/plan.md', summary: 's' }],
+    ]
+    for (const [name, args] of cases) {
+      const result = await registry.get(name).execute(args, fakeExec(TOPIC, repoPath))
+      assert.equal(result.ok, false, name)
+      assert.equal(result.error.code, ERROR_CODES.storeCorrupt, name)
+    }
+    assert.deepEqual(await requestFiles(repoPath), [])
+  })
+})
+
+test('a request record the index cannot support is refused with request/invalid-body', async () => {
+  await withRepo(async (repoPath) => {
+    // The index schema accepts any string title, but a request record requires a
+    // non-empty bounded one, so record construction refuses this topic.
+    await seedProject(repoPath, [topic({ title: '' })])
+    const result = await tools(fakeDeps()).get('cowork_user_review_request').execute(
+      { purpose: 'p' },
+      fakeExec(TOPIC, repoPath),
+    )
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'request/invalid-body')
+    assert.match(result.error.message, /request record is invalid/)
+    assert.match(result.error.message, /request\.title must be a non-empty string/)
+    assert.deepEqual(await requestFiles(repoPath), [])
   })
 })

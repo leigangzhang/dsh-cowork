@@ -90,6 +90,14 @@ export interface CoworkToolDeps {
   agentPresets: PresetRegistryPort
   /** Injected clock for every timestamp the tools write. */
   clock?: () => Date
+  /**
+   * Build the per-project store; defaults to a real `ProjectStore`.
+   *
+   * Tests inject a delegating wrapper to make a concurrent writer deterministic
+   * (a second read or a locked re-read sees the other writer's document) without
+   * replacing the store's own lock and atomic-write behavior.
+   */
+  createProjectStore?: (repoPath: string, deps: CoworkToolDeps) => ProjectStore
   /** The plugin's default repository root, used only to improve an error hint. */
   resolveRepoPath?: () => string
   /** Warning sink for non-fatal degradations the caller must still see. */
@@ -151,6 +159,7 @@ export function renderJson(_args: unknown, value: JsonValue): Array<{ type: 'tex
  * that a real archive instead of a recorded failure.
  */
 export function projectStoreFor(repoPath: string, deps: CoworkToolDeps): ProjectStore {
+  if (deps.createProjectStore !== undefined) return deps.createProjectStore(repoPath, deps)
   return new ProjectStore({
     repoPath,
     clock: deps.clock,

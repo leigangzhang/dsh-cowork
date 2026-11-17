@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import '../../support/ts-hook.mjs'
@@ -9,7 +9,8 @@ import '../../support/ts-hook.mjs'
 /**
  * The work-item tool surface (M10.2b): `cowork_work_item_create` and
  * `cowork_checkout_merge` driven against real temporary git repositories and
- * the canonical project store. The pure model lives in
+ * the canonical project store, including the deprecated thread-clone alias and
+ * both tools' refusal paths. The pure model lives in
  * `work-item-model.test.mjs`; the in-process creation flow in
  * `work-item-create.test.mjs`.
  */
@@ -252,6 +253,43 @@ async function seedMergeableProject(t, options = {}) {
     })
   }
   return { repo, base, clone, store }
+}
+
+/**
+ * A store wrapper that replaces named methods and delegates every other call to
+ * the real store, so one specific write can fail deterministically.
+ */
+function storeWith(store, overrides) {
+  return new Proxy(store, {
+    get(target, property) {
+      if (Object.hasOwn(overrides, property)) return overrides[property]
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
+/** A legacy thread clone at `.dsh-cowork/threads/<id>` with one commit. */
+function makeLegacyClone(repo, threadId, base) {
+  const path = join(repo, '.dsh-cowork', 'threads', threadId)
+  mkdirSync(dirname(path), { recursive: true })
+  gitSync(repo, ['clone', '-q', '--local', repo, path])
+  gitSync(path, ['checkout', '-q', '-b', `cowork/${threadId}`, base])
+  writeFileSync(join(path, 'legacy.ts'), 'export const legacy = 1\n')
+  gitSync(path, ['add', 'legacy.ts'])
+  gitSync(path, ['commit', '-q', '-m', 'legacy change'])
+  return path
+}
+
+/** A v2 topic the legacy view exposes as a `done` thread with a passed review. */
+function legacyTopic(repo, overrides = {}) {
+  return toolTopic(repo, {
+    topicId: 'legacy-1',
+    status: 'resolved',
+    reviewStatus: 'pass',
+    legacyCheckoutPath: null,
+    ...overrides,
+  })
 }
 
 // --- work_item_create -------------------------------------------------------
@@ -585,4 +623,302 @@ test('the work-item id wins over the deprecated threadId', async (t) => {
 
   assert.equal(result.ok, true, JSON.stringify(result))
   assert.equal(result.workItemId, 'wi-1')
+})
+
+// --- refusal and failure paths of both tools --------------------------------
+
+test('an unreadable current branch is refused before any clone is inspected', async (t) => {
+  for (const stderr of ['fatal: not a git repository', '']) {
+    const { repo, clone } = await seedMergeableProject(t)
+    const { deps } = toolDeps()
+    const tools = registerToolSet({
+      ...deps,
+      runGit: async (args, cwd) => (args[0] === 'rev-parse' && args[1] === '--abbrev-ref'
+        ? { code: 128, stdout: '', stderr }
+        : nodeGitRunner(args, cwd)),
+    })
+
+    const result = await tools.merge.execute({ workItemId: 'wi-1' }, toolExec('session-master', repo))
+
+    assert.equal(result.ok, false, stderr)
+    assert.equal(result.error.code, 'checkout/git-failed')
+    assert.match(result.error.message, /cannot read the current branch/)
+    // Empty stderr still names the exit code so the failure is diagnosable.
+    assert.ok(
+      result.error.message.endsWith(stderr === '' ? 'exit 128' : stderr),
+      result.error.message,
+    )
+    assert.equal(result.error.details.repoPath, repo)
+    assert.equal(existsSync(join(repo, 'work.ts')), false, 'nothing was merged')
+    assert.equal(existsSync(clone.path), true, 'the clone is untouched')
+  }
+})
+
+test('an unreadable reviews directory aborts the merge as an internal error', async (t) => {
+  const { repo, clone } = await seedMergeableProject(t, { request: false })
+  // A self-referential symlink makes readdir fail with ELOOP, which is neither
+  // "the review directory is absent" nor "it is not a directory".
+  symlinkSync('reviews', join(repo, '.dsh-cowork', 'reviews'))
+  const { deps } = toolDeps()
+  const tools = registerToolSet(deps)
+
+  const result = await tools.merge.execute({ workItemId: 'wi-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'tool/internal')
+  assert.match(result.error.message, /ELOOP/)
+  assert.equal(existsSync(join(repo, 'work.ts')), false, 'nothing was merged')
+  assert.equal(existsSync(clone.path), true)
+})
+
+test('an unexpected store failure while creating a work item maps to tool/internal', async (t) => {
+  const { repo } = initGitProject(t)
+  await seedToolStore(repo)
+  const { deps } = toolDeps()
+  const tools = registerToolSet({
+    ...deps,
+    createProjectStore: () => ({
+      readIndex: async () => { throw new Error('index read exploded by test') },
+    }),
+  })
+
+  const result = await tools.create.execute({}, toolExec('session-topic', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'tool/internal')
+  assert.match(result.error.message, /index read exploded by test/)
+  assert.equal(existsSync(join(repo, '.dsh-cowork', 'workitems')), false, 'no clone was attempted')
+})
+
+test('a work-items root that resolves outside the repository is refused as a path guard failure', async (t) => {
+  const { repo, base } = initGitProject(t)
+  const outside = mkdtempSync(join(tmpdir(), 'cowork-outside-'))
+  t.after(() => rmSync(outside, { recursive: true, force: true }))
+  await seedToolStore(repo, { workItems: [toolWorkItem(repo, base)] })
+  symlinkSync(outside, join(repo, '.dsh-cowork', 'workitems'))
+  const { deps } = toolDeps()
+  const tools = registerToolSet(deps)
+
+  const result = await tools.merge.execute({ workItemId: 'wi-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'checkout/path-guard')
+  assert.match(result.error.message, /resolves outside its expected location/)
+  assert.equal(result.error.details.workItemId, 'wi-1')
+  assert.equal(existsSync(join(outside, 'wi-1')), false, 'the guard refuses before touching the target')
+})
+
+test('a work item whose clone directory is missing is refused as not found', async (t) => {
+  const { repo, clone } = await seedMergeableProject(t)
+  rmSync(clone.path, { recursive: true, force: true })
+  const { deps } = toolDeps()
+  const tools = registerToolSet(deps)
+
+  const result = await tools.merge.execute({ workItemId: 'wi-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'checkout/not-found')
+  assert.match(result.error.message, /no work-item clone at/)
+  assert.deepEqual(result.error.details, { workItemId: 'wi-1', path: clone.path })
+  assert.equal(existsSync(join(repo, 'work.ts')), false)
+})
+
+test('a work item recorded without a head commit merges on the clone current head', async (t) => {
+  const { repo, base } = initGitProject(t)
+  const clone = makeWorkItemClone(repo, 'wi-1', base)
+  const store = await seedToolStore(repo, {
+    workItems: [toolWorkItem(repo, base, { headCommit: null, status: 'reviewing' })],
+  })
+  writeStoredRequest(repo, { baseCommit: base, headCommit: clone.head, status: 'pass' })
+  const { deps } = toolDeps()
+  const tools = registerToolSet(deps)
+
+  const result = await tools.merge.execute({ workItemId: 'wi-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, true, JSON.stringify(result))
+  assert.equal(result.headCommit, clone.head, 'the clone HEAD fills the missing record head')
+  const document = await store.readIndexDocument()
+  assert.equal(document.workItems[0].status, 'merged')
+  assert.equal(document.workItems[0].headCommit, clone.head)
+})
+
+test('a failed merge-base check is reported as checkout/git-failed without merging', async (t) => {
+  const { repo, clone } = await seedMergeableProject(t)
+  const { deps } = toolDeps()
+  const tools = registerToolSet({
+    ...deps,
+    runGit: async (args, cwd) => (args[0] === 'merge-base'
+      ? { code: 3, stdout: '', stderr: 'merge-base failed by test' }
+      : nodeGitRunner(args, cwd)),
+  })
+
+  const result = await tools.merge.execute({ workItemId: 'wi-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'checkout/git-failed')
+  assert.equal(result.error.details.exitCode, 3)
+  assert.match(result.error.message, /git merge-base --is-ancestor failed/)
+  assert.match(result.error.message, /merge-base failed by test/)
+  assert.equal(existsSync(join(repo, 'work.ts')), false, 'nothing was merged')
+  assert.equal(existsSync(clone.path), true)
+})
+
+test('a non-conflicting merge failure is reported as checkout/merge-failed and keeps the clone', async (t) => {
+  const { repo, clone } = await seedMergeableProject(t)
+  const { deps } = toolDeps()
+  const tools = registerToolSet({
+    ...deps,
+    runGit: async (args, cwd) => (args[0] === 'merge' && args[1] === '--no-ff'
+      ? { code: 2, stdout: '', stderr: 'merge refused by test' }
+      : nodeGitRunner(args, cwd)),
+  })
+
+  const result = await tools.merge.execute({ workItemId: 'wi-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'checkout/merge-failed')
+  assert.equal(result.error.details.workItemId, 'wi-1')
+  assert.equal(result.error.details.stage, 'merge')
+  assert.equal(result.error.details.exitCode, 2)
+  assert.match(result.error.message, /git merge --no-ff cowork\/wi-1 failed: merge refused by test/)
+  assert.equal(existsSync(join(repo, 'work.ts')), false, 'nothing was merged')
+  assert.equal(existsSync(clone.path), true, 'the clone is kept')
+  assert.equal(gitSync(repo, ['status', '--porcelain']), '', 'the repository is not left mid-merge')
+})
+
+test('a failed merge activity write is reported without failing the merge', async (t) => {
+  const { repo, clone, store } = await seedMergeableProject(t)
+  const { deps } = toolDeps({ workspaceId: 'workspace-1' })
+  deps.createProjectStore = () => storeWith(store, {
+    appendActivity: async () => { throw new Error('activity ledger is read-only') },
+  })
+  const tools = registerToolSet(deps)
+
+  const result = await tools.merge.execute({ workItemId: 'wi-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, true, JSON.stringify(result))
+  assert.equal(result.merged, true)
+  assert.match(result.activityError, /activity ledger is read-only/)
+  assert.equal(result.workItem.status, 'merged')
+  assert.equal(result.cleanup.removed, true)
+  assert.equal(existsSync(join(repo, 'work.ts')), true)
+  assert.equal(existsSync(clone.path), false)
+})
+
+test('the deprecated thread merge refuses a missing thread, a missing clone, and an unready status', async (t) => {
+  {
+    const { repo } = initGitProject(t)
+    await seedToolStore(repo)
+    const { deps } = toolDeps()
+    const result = await registerToolSet(deps).merge.execute(
+      { threadId: 'legacy-missing' },
+      toolExec('session-master', repo),
+    )
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'thread/not-found')
+    assert.deepEqual(result.error.details, { threadId: 'legacy-missing' })
+  }
+  {
+    const { repo } = initGitProject(t)
+    await seedToolStore(repo, { topics: [legacyTopic(repo)] })
+    const { deps } = toolDeps()
+    const result = await registerToolSet(deps).merge.execute(
+      { threadId: 'legacy-1' },
+      toolExec('session-master', repo),
+    )
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'checkout/not-found')
+    assert.deepEqual(result.error.details, { threadId: 'legacy-1' })
+  }
+  {
+    const { repo } = initGitProject(t)
+    await seedToolStore(repo, {
+      topics: [legacyTopic(repo, {
+        status: 'active',
+        legacyCheckoutPath: join(repo, '.dsh-cowork', 'threads', 'legacy-1'),
+      })],
+    })
+    const { deps } = toolDeps()
+    const result = await registerToolSet(deps).merge.execute(
+      { threadId: 'legacy-1' },
+      toolExec('session-master', repo),
+    )
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'checkout/not-ready')
+    assert.equal(result.error.details.threadId, 'legacy-1')
+    assert.equal(result.error.details.status, 'active')
+    assert.match(result.error.message, /merging is allowed for awaiting_review or done/)
+  }
+})
+
+test('a conflicting legacy thread merge keeps the clone and marks the thread blocked', async (t) => {
+  const { repo, base } = initGitProject(t)
+  const clonePath = makeLegacyClone(repo, 'legacy-1', base)
+  writeFileSync(join(repo, 'legacy.ts'), 'export const conflict = 2\n')
+  gitSync(repo, ['add', 'legacy.ts'])
+  gitSync(repo, ['commit', '-q', '-m', 'conflicting change'])
+  const store = await seedToolStore(repo, { topics: [legacyTopic(repo, { legacyCheckoutPath: clonePath })] })
+  const { deps } = toolDeps()
+  const tools = registerToolSet(deps)
+
+  const result = await tools.merge.execute({ threadId: 'legacy-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'checkout/merge-conflict')
+  assert.deepEqual(result.error.details.conflictFiles, ['legacy.ts'])
+  assert.equal(result.error.details.threadId, 'legacy-1')
+  assert.equal(result.error.details.status, 'blocked')
+  assert.equal(result.error.details.thread.status, 'blocked')
+  assert.equal('statusUpdateError' in result.error.details, false)
+  assert.equal(existsSync(clonePath), true, 'the clone is kept for the resolution')
+  assert.throws(() => gitSync(repo, ['rev-parse', '--verify', '-q', 'MERGE_HEAD']))
+  assert.equal(gitSync(repo, ['status', '--porcelain']), '')
+  const index = await store.readIndex()
+  assert.equal(index.threads[0].status, 'blocked', 'the blocked status is persisted')
+})
+
+test('a conflicting legacy merge whose blocked-status write fails still reports the conflict', async (t) => {
+  const { repo, base } = initGitProject(t)
+  const clonePath = makeLegacyClone(repo, 'legacy-1', base)
+  writeFileSync(join(repo, 'legacy.ts'), 'export const conflict = 2\n')
+  gitSync(repo, ['add', 'legacy.ts'])
+  gitSync(repo, ['commit', '-q', '-m', 'conflicting change'])
+  const store = await seedToolStore(repo, { topics: [legacyTopic(repo, { legacyCheckoutPath: clonePath })] })
+  const { deps } = toolDeps()
+  deps.createProjectStore = () => storeWith(store, {
+    updateThread: async () => { throw new Error('status write refused by test') },
+  })
+  const tools = registerToolSet(deps)
+
+  const result = await tools.merge.execute({ threadId: 'legacy-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'checkout/merge-conflict')
+  assert.equal(result.error.details.status, 'blocked')
+  assert.equal(result.error.details.thread, null)
+  assert.match(result.error.details.statusUpdateError, /status write refused by test/)
+  assert.equal(existsSync(clonePath), true)
+  const index = await store.readIndex()
+  assert.equal(index.threads[0].status, 'done', 'the failed write left the index unchanged')
+})
+
+test('a dirty legacy thread clone is refused without merging or changing the index', async (t) => {
+  const { repo, base } = initGitProject(t)
+  const clonePath = makeLegacyClone(repo, 'legacy-1', base)
+  writeFileSync(join(clonePath, 'legacy.ts'), 'export const legacy = 3\n')
+  const store = await seedToolStore(repo, { topics: [legacyTopic(repo, { legacyCheckoutPath: clonePath })] })
+  const { deps } = toolDeps()
+  const tools = registerToolSet(deps)
+
+  const result = await tools.merge.execute({ threadId: 'legacy-1' }, toolExec('session-master', repo))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'checkout/dirty')
+  assert.equal(result.error.details.threadId, 'legacy-1')
+  assert.equal(result.error.details.path, clonePath)
+  assert.match(result.error.message, /has uncommitted changes/)
+  assert.equal(existsSync(join(repo, 'legacy.ts')), false, 'nothing was merged')
+  assert.equal(existsSync(join(clonePath, 'legacy.ts')), true, 'the clone keeps the uncommitted work')
+  const index = await store.readIndex()
+  assert.equal(index.threads[0].status, 'done', 'the index is unchanged')
 })

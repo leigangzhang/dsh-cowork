@@ -80,13 +80,13 @@ function setup(repoPath, options = {}) {
   const store = options.store ?? new ProjectStore({ repoPath, clock: CLOCK })
   const slice = options.slice ?? fakeSlice()
   const host = fakeHost()
+  const openProject = options.openProject
+    ?? (async () => ({ repoPath, store, slice, index: await store.readIndex() }))
   registerReviewTools(host, {
     callerOf(exec) {
       return readCaller(exec) ?? failure('exec/agent-unavailable', 'no caller identity')
     },
-    async openProject() {
-      return { repoPath, store, slice, index: await store.readIndex() }
-    },
+    openProject,
     mapError(error) {
       return failure('tool/internal', error instanceof Error ? error.message : String(error))
     },
@@ -197,6 +197,35 @@ async function seed(store, repoPath, options = {}) {
   const filePath = join(directory, reviewRequestFileName('session-topic', REQUEST_ID))
   await writeFile(filePath, serializeReviewRequestRecord(record))
   return { record, filePath }
+}
+
+/**
+ * Seed a pending request file whose topic is absent from the index: this binds
+ * the verdict to the index entry instead of reusing the request tool's checks.
+ */
+async function seedOrphanRequest(store, repoPath, topicId, requestId) {
+  await store.initIndex('session-master')
+  const validated = validateReviewRequestInput(
+    {
+      purpose: 'review the change',
+      baseCommit: BASE,
+      headCommit: HEAD,
+      path: repoPath,
+      verification: [{ command: 'node --test tests/review-request.test.mjs', exitCode: 0, evidence: 'ok' }],
+    },
+    { topicId, workItemId: null, repoPath, workItemPath: null, branch: null, changedPaths: ['src/one.ts'] },
+  )
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? {} : validated.errors))
+  const record = buildReviewRequestRecord(validated.value, {
+    requestId,
+    reviewerSessionId: REVIEWER,
+    requestedAt: NOW,
+  })
+  const directory = join(repoPath, '.dsh-cowork', 'reviews')
+  await mkdir(directory, { recursive: true })
+  const filePath = join(directory, reviewRequestFileName(topicId, requestId))
+  await writeFile(filePath, serializeReviewRequestRecord(record))
+  return filePath
 }
 
 /** One well-formed finding. */
@@ -583,5 +612,181 @@ test('a failed index write is reported while the stored verdict stands', async (
     assert.equal(document.topics[0].reviewStatus, 'pending')
     const activity = await base.store.readActivity()
     assert.ok(activity.events.some((event) => event.type === 'error'))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// failures reported around a recorded verdict
+// ---------------------------------------------------------------------------
+
+test('a stored request whose topic left the index is refused as not found', async () => {
+  await withRepo(async (repoPath) => {
+    const { store, slice, verdict } = setup(repoPath)
+    const filePath = await seedOrphanRequest(store, repoPath, 'session-gone', 'req-gone')
+
+    const result = await verdict.execute(
+      { requestId: 'req-gone', verdict: 'pass', summary: 'holds up' },
+      fakeExec(REVIEWER, repoPath),
+    )
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'review/request-not-found', JSON.stringify(result.error))
+    assert.match(result.error.message, /is not in the project index/)
+    assert.deepEqual(result.error.details, { requestId: 'req-gone', topicId: 'session-gone' })
+    assert.equal((await storedRequest(filePath)).status, 'pending')
+    assert.equal(slice.calls.length, 0, 'no prompt and no archive may happen')
+  })
+})
+
+test('a verdict file write failure is reported with the request context', async () => {
+  await withRepo(async (repoPath) => {
+    const real = new ProjectStore({ repoPath, clock: CLOCK })
+    const { filePath } = await seed(real, repoPath)
+    const broken = Object.create(real)
+    broken.writeTextAtomic = async () => {
+      throw new Error('review volume is read-only')
+    }
+    const { slice, verdict } = setup(repoPath, { store: broken })
+
+    const result = await verdict.execute(
+      { requestId: REQUEST_ID, verdict: 'pass', summary: 'holds up' },
+      fakeExec(REVIEWER, repoPath),
+    )
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'review/write-failed', JSON.stringify(result.error))
+    assert.match(result.error.message, /review volume is read-only/)
+    assert.deepEqual(result.error.details, { requestId: REQUEST_ID, topicId: 'session-topic' })
+    assert.equal((await storedRequest(filePath)).status, 'pending')
+    assert.equal((await real.readIndexDocument()).topics[0].reviewStatus, 'pending')
+    assert.equal(slice.calls.length, 0, 'nothing may be delivered or archived before the verdict is stored')
+  })
+})
+
+test('a verdict that cannot be logged still succeeds and reports the activity error', async () => {
+  await withRepo(async (repoPath) => {
+    const real = new ProjectStore({ repoPath, clock: CLOCK })
+    await seed(real, repoPath)
+    const broken = Object.create(real)
+    broken.appendActivity = async () => {
+      throw new Error('activity store is read-only')
+    }
+    const { verdict } = setup(repoPath, { store: broken })
+
+    const result = await verdict.execute(
+      { requestId: REQUEST_ID, verdict: 'pass', summary: 'holds up' },
+      fakeExec(REVIEWER, repoPath),
+    )
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.match(result.activityError, /activity store is read-only/)
+    assert.equal((await storedRequest(result.reviewFilePath)).status, 'pass')
+    assert.equal((await real.readIndexDocument()).topics[0].reviewStatus, 'pass')
+    assert.equal(result.inbox.delivered, 1)
+  })
+})
+
+test('an unexpected project-open failure is mapped instead of thrown', async () => {
+  await withRepo(async (repoPath) => {
+    const { slice, verdict } = setup(repoPath, {
+      async openProject() {
+        throw new Error('project open exploded')
+      },
+    })
+
+    const result = await verdict.execute(
+      { requestId: REQUEST_ID, verdict: 'pass', summary: 'holds up' },
+      fakeExec(REVIEWER, repoPath),
+    )
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'tool/internal')
+    assert.match(result.error.message, /project open exploded/)
+    assert.equal(slice.calls.length, 0, 'a failed open must not archive the reviewer')
+  })
+})
+
+test('an inbox enqueue failure is reported without failing the stored verdict', async () => {
+  await withRepo(async (repoPath) => {
+    const real = new ProjectStore({ repoPath, clock: CLOCK })
+    await seed(real, repoPath)
+    const broken = Object.create(real)
+    broken.writeInbox = async () => {
+      throw new Error('inbox file is read-only')
+    }
+    const { verdict } = setup(repoPath, { store: broken })
+
+    const result = await verdict.execute(
+      { requestId: REQUEST_ID, verdict: 'pass', summary: 'holds up' },
+      fakeExec(REVIEWER, repoPath),
+    )
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(result.inbox.kind, 'merge-needed')
+    assert.equal(result.inbox.delivered, 0)
+    assert.equal(result.inbox.failed, 1)
+    assert.match(result.inbox.error, /^enqueue: inbox file is read-only/)
+    assert.equal((await storedRequest(result.reviewFilePath)).status, 'pass')
+    assert.equal((await real.readIndexDocument()).topics[0].reviewStatus, 'pass')
+  })
+})
+
+test('a delivery whose mark cannot be written reports the undelivered item', async () => {
+  await withRepo(async (repoPath) => {
+    const real = new ProjectStore({ repoPath, clock: CLOCK })
+    await seed(real, repoPath)
+    const broken = Object.create(real)
+    let writes = 0
+    broken.writeInbox = async (items) => {
+      writes += 1
+      if (writes === 1) return real.writeInbox(items)
+      throw new Error('inbox mark refused')
+    }
+    const { slice, verdict } = setup(repoPath, { store: broken })
+
+    const result = await verdict.execute(
+      { requestId: REQUEST_ID, verdict: 'pass', summary: 'holds up' },
+      fakeExec(REVIEWER, repoPath),
+    )
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(result.inbox.delivered, 0)
+    assert.equal(result.inbox.failed, 1)
+    assert.match(result.inbox.error, /could not be marked delivered/)
+    // The delivered batch stays undelivered for replay; the verdict itself stands.
+    const inbox = await real.readInbox()
+    assert.equal(inbox.length, 1)
+    assert.equal(inbox[0].deliveredAt, null)
+    assert.deepEqual(
+      slice.calls.filter((call) => call.type === 'prompt').map((call) => call.sessionId),
+      ['session-master'],
+    )
+  })
+})
+
+test('an inbox that cannot be read during delivery is reported, not thrown', async () => {
+  await withRepo(async (repoPath) => {
+    const real = new ProjectStore({ repoPath, clock: CLOCK })
+    await seed(real, repoPath)
+    const broken = Object.create(real)
+    let reads = 0
+    broken.readInbox = async () => {
+      reads += 1
+      if (reads === 1) return real.readInbox()
+      throw new Error('inbox file is unreadable')
+    }
+    const { slice, verdict } = setup(repoPath, { store: broken })
+
+    const result = await verdict.execute(
+      { requestId: REQUEST_ID, verdict: 'pass', summary: 'holds up' },
+      fakeExec(REVIEWER, repoPath),
+    )
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(result.inbox.kind, 'merge-needed')
+    assert.equal(result.inbox.delivered, 0)
+    assert.equal(result.inbox.failed, 1)
+    assert.equal(result.inbox.error, 'inbox file is unreadable')
+    assert.equal(slice.calls.filter((call) => call.type === 'prompt').length, 0)
   })
 })
