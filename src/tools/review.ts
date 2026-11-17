@@ -225,17 +225,6 @@ const REVIEW_RESULT_PATHS_SHOWN = 100
 /** Most skipped legacy/damaged file names the request result lists. */
 const REVIEW_RESULT_SKIPPED_FILES_SHOWN = 10
 
-/** A request file operation that must reach the caller as a failure. */
-class RequestFileError extends Error {
-  readonly code: 'review/request-exists' | 'review/request-file-invalid'
-
-  constructor(code: RequestFileError['code'], message: string) {
-    super(message)
-    this.name = 'RequestFileError'
-    this.code = code
-  }
-}
-
 /** The narrow file layer over the store's text port and the project lock. */
 interface RequestFiles {
   dir: string
@@ -320,30 +309,17 @@ async function listRequestFiles(files: RequestFiles): Promise<RequestListing> {
   return { requests, skipped }
 }
 
-/** Validate and write one request file under the project lock. */
-async function writeRequestFile(
-  files: RequestFiles,
-  record: ReviewRequestRecord,
-  options: { replace?: boolean } = {},
-): Promise<string> {
+/**
+ * Write one request record under the project lock. Every record passed here was
+ * validated before it existed, so a problem found now is a broken invariant: it
+ * fails the write instead of leaving a file the listing would later skip.
+ */
+async function writeRequestFile(files: RequestFiles, record: ReviewRequestRecord): Promise<string> {
   const problems = reviewRequestRecordProblems(record)
-  if (problems.length > 0) {
-    throw new RequestFileError(
-      'review/request-file-invalid',
-      `refusing to write an invalid review request: ${problems.join('; ')}`,
-    )
-  }
   const filePath = reviewRequestFilePath(files.dir, record.topicId, record.requestId)
-  if (filePath === null) {
-    throw new RequestFileError('review/request-file-invalid', 'topicId/requestId cannot form a review file name')
-  }
-  return files.withWriteLock(async () => {
-    if (options.replace !== true && (await files.readText(filePath)) !== null) {
-      throw new RequestFileError('review/request-exists', `review request file already exists: ${filePath}`)
-    }
-    await files.writeTextAtomic(filePath, serializeReviewRequestRecord(record))
-    return filePath
-  })
+  if (problems.length > 0 || filePath === null) throw new TypeError(`review record invariant violated: ${problems.join('; ') || 'unsafe topic/request id'}`)
+  await files.withWriteLock(() => files.writeTextAtomic(filePath, serializeReviewRequestRecord(record)))
+  return filePath
 }
 
 /** Delete one request file; a missing file is fine (rollback is idempotent). */
@@ -898,15 +874,11 @@ export function registerReviewTools(ctx: unknown, deps: ReviewToolsDeps): Array<
           findings: draft.findings,
           reviewVerification: draft.verification,
         }
-        const problems = reviewRequestRecordProblems(terminal)
-        if (problems.length > 0) {
-          return toJson(failure(ERROR_CODES.reviewVerdictInvalid, 'the verdict record is invalid', { problems }))
-        }
 
         // File first: the verdict is the record; the index follows it.
         const filePath = reviewRequestFilePath(files.dir, terminal.topicId, terminal.requestId) ?? ''
         try {
-          await writeRequestFile(files, terminal, { replace: true })
+          await writeRequestFile(files, terminal)
         } catch (error) {
           return toJson(failure(ERROR_CODES.reviewWriteFailed, describeError(error), {
             requestId: terminal.requestId,

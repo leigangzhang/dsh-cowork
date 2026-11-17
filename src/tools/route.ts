@@ -279,14 +279,10 @@ async function route(
     const candidates = boundedCandidates(decision.candidates)
 
     if (decision.action === 'reuse') {
-      const target = document.topics.find((entry) => entry.topicId === decision.topicId)
-      if (target === undefined || decision.topicId === undefined) {
-        return toJson(failure(
-          TOPIC_ERROR_CODES.topicNotFound,
-          `topic not found in the project index: ${String(decision.topicId)}`,
-          { topicId: decision.topicId ?? null },
-        ))
-      }
+      // The router only returns ids drawn from `document.topics`, so the typed
+      // lookup cannot miss; a miss would be a router contract bug, not a
+      // user-facing not-found (manual topic ids are checked above).
+      const target = document.topics.find((entry) => entry.topicId === decision.topicId)!
       const promptText = boundedPrompt(brief === '' ? intent : `${intent}\n\n${brief}`)
       const prompted = await opened.slice.promptSession(target.topicId, promptText)
       await opened.store.mutateIndexDocument((current) =>

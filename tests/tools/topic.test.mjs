@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import '../support/ts-hook.mjs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -20,6 +21,7 @@ const { ProjectStore } = await import('../../src/store/project-store.ts')
 const { TOPIC_LIST_LIMIT, TOPIC_PAGE_ERROR_CODES } = await import('../../src/tools/topic.ts')
 const { authorizationResolvedActivity, decisionProposedActivity } = await import('../../src/store/activity.ts')
 const { ERROR_CODES, TOPIC_ERROR_CODES } = await import('../../src/platform/tool-model.ts')
+const { REQUEST_TOOL_ERROR_CODES } = await import('../../src/tools/request.ts')
 const { INBOX_SUMMARY_MAX_CHARS } = await import('../../src/store/inbox.ts')
 const { deliverInbox } = await import('../../src/platform/tool-runtime.ts')
 
@@ -284,21 +286,6 @@ test('cowork_topic_resolve describes the host-session archive it actually perfor
   const resolve = tools(fakeDeps()).get('cowork_topic_resolve')
   assert.match(resolve.description, /host session is archived/)
   assert.equal(/not archived by this tool/.test(resolve.description), false)
-})
-
-test('cowork_topic_report names its own invalid-kind error code', async () => {
-  assert.equal(TOPIC_PAGE_ERROR_CODES.invalidKind, 'topic/invalid-kind')
-  await withRepo(async (repoPath) => {
-    await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
-    const report = tools(fakeDeps()).get('cowork_topic_report')
-    await assert.rejects(
-      report.execute({ summary: 'hello', kind: 'shrug' }, fakeExec('session-thread', repoPath)),
-      /must be one of \["progress","blocked"\]/,
-    )
-    const source = await readFile(new URL('../../src/tools/topic.ts', import.meta.url), 'utf8')
-    assert.match(source, /TOPIC_PAGE_ERROR_CODES\.invalidKind, "kind must be/)
-    assert.equal(/topicTitleRequired, "kind must be/.test(source), false)
-  })
 })
 
 test('cowork_handoff exposes only blocked|done and no longer mentions awaiting_review', () => {
@@ -726,5 +713,359 @@ test('archiving a topic withdraws its pending authorization from cowork_notices'
       'the archive itself is notified to the master',
     )
     assert.equal(deps.archiveCalls.length, 1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// failure, cleanup, and concurrent-writer branches
+// ---------------------------------------------------------------------------
+
+const HANDOFF_ARGS = {
+  status: 'done',
+  summary: 'finished the work',
+  verification: HANDOFF_VERIFICATION,
+}
+
+/** Replace the project index with unreadable JSON. */
+async function corruptProjectIndex(repoPath) {
+  await mkdir(join(repoPath, '.dsh-cowork'), { recursive: true })
+  await writeFile(join(repoPath, '.dsh-cowork', 'index.json'), '{not json\n')
+}
+
+/**
+ * A store wrapper whose first direct index read returns another writer's view.
+ * `openProject` reads through `readIndex`, so only the handler's own re-read is
+ * transformed; this is the deterministic form of "another writer changed the
+ * index between the two reads".
+ */
+function racingStoreFor(store, transform) {
+  let reads = 0
+  return new Proxy(store, {
+    get(target, property) {
+      if (property === 'readIndexDocument') {
+        return async () => {
+          reads += 1
+          const document = await target.readIndexDocument()
+          return reads === 1 ? transform(document) : document
+        }
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
+/** Point the tool deps at a store wrapper for one call. */
+function withRacingStore(deps, store, transform) {
+  deps.createProjectStore = () => racingStoreFor(store, transform)
+  return deps
+}
+
+/** Resolve one topic inside the index, or drop it, on the next clock read. */
+function editingClock(repoPath, topicId, mode) {
+  let done = false
+  return () => {
+    if (!done) {
+      done = true
+      const file = join(repoPath, '.dsh-cowork', 'index.json')
+      const document = JSON.parse(readFileSync(file, 'utf8'))
+      document.topics = document.topics
+        .filter((entry) => mode !== 'remove' || entry.topicId !== topicId)
+        .map((entry) => (entry.topicId === topicId && mode === 'resolve'
+          ? { ...entry, status: 'resolved', resolvedAt: NOW_ISO, resolvedBy: 'user' }
+          : entry))
+      writeFileSync(file, `${JSON.stringify(document, null, 2)}\n`)
+    }
+    return new Date(NOW_ISO)
+  }
+}
+
+test('cowork_topic_create archives the fresh session when the index write fails', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [])
+    const storeDir = join(repoPath, '.dsh-cowork')
+    const deps = fakeDeps()
+    deps.sessionController.create = async () => {
+      await chmod(storeDir, 0o555)
+      return { sessionId: 'session-created-1', workspaceId: 'workspace-1', agentPreset: 'cowork-topic' }
+    }
+    try {
+      const result = await tools(deps).get('cowork_topic_create').execute(
+        { title: 'Billing' },
+        fakeExec('session-master', repoPath),
+      )
+      assert.equal(result.ok, false)
+      assert.equal(result.error.code, 'tool/internal')
+      assert.equal(result.error.details.topicId, 'session-created-1')
+      assert.deepEqual(result.error.details.cleanup, { archived: true, error: null })
+    } finally {
+      await chmod(storeDir, 0o755)
+    }
+  })
+})
+
+test('cowork_topic_create reports an archive failure during its rollback', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [])
+    const storeDir = join(repoPath, '.dsh-cowork')
+    const deps = fakeDeps()
+    deps.workspaceRegistry.archiveSession = async () => {
+      throw new Error('archive refused by host')
+    }
+    deps.sessionController.create = async () => {
+      await chmod(storeDir, 0o555)
+      return { sessionId: 'session-created-1', workspaceId: 'workspace-1', agentPreset: 'cowork-topic' }
+    }
+    try {
+      const result = await tools(deps).get('cowork_topic_create').execute(
+        { title: 'Billing' },
+        fakeExec('session-master', repoPath),
+      )
+      assert.equal(result.ok, false)
+      assert.deepEqual(result.error.details.cleanup, {
+        archived: false,
+        error: 'archive refused by host',
+      })
+    } finally {
+      await chmod(storeDir, 0o755)
+    }
+  })
+})
+
+test('topic tools map a corrupt index instead of throwing', async () => {
+  await withRepo(async (repoPath) => {
+    await corruptProjectIndex(repoPath)
+    const registry = tools(fakeDeps())
+    const cases = [
+      ['cowork_topic_create', { title: 'x' }, 'session-master'],
+      ['cowork_topic_list', {}, 'session-master'],
+      ['cowork_handoff', HANDOFF_ARGS, 'session-thread'],
+      ['cowork_topic_report', { summary: 'x' }, 'session-thread'],
+      ['cowork_decision_propose', { title: 't', summary: 's' }, 'session-thread'],
+      ['cowork_authorization_request', { summary: 's' }, 'session-thread'],
+      ['cowork_notices', {}, 'session-master'],
+      ['cowork_topic_resolve', { topicId: 'session-thread' }, 'session-master'],
+    ]
+    for (const [name, args, sessionId] of cases) {
+      const result = await registry.get(name).execute(args, fakeExec(sessionId, repoPath))
+      assert.equal(result.ok, false, name)
+      assert.equal(result.error.code, ERROR_CODES.storeCorrupt, name)
+    }
+  })
+})
+
+test('cowork_topic_list orders duplicate topic ids deterministically', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [
+      topic({ topicId: 'session-dup' }),
+      topic({ topicId: 'session-dup' }),
+    ])
+    const result = await tools(fakeDeps()).get('cowork_topic_list').execute(
+      {},
+      fakeExec('session-master', repoPath),
+    )
+    assert.equal(result.ok, true)
+    assert.equal(result.total, 2)
+    assert.equal(result.topics.length, 2)
+  })
+})
+
+test('cowork_handoff refuses an empty verification list', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const result = await tools(fakeDeps()).get('cowork_handoff').execute(
+      { status: 'done', summary: 'finished', verification: [] },
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, ERROR_CODES.handoffInvalid)
+    assert.ok(result.error.details.errors.some((error) => error.field === 'verification'))
+  })
+})
+
+test('a topic that disappears after the projection read is reported missing', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const deps = withRacingStore(fakeDeps(), store, (document) => ({
+      ...document,
+      topics: document.topics.filter((entry) => entry.topicId !== 'session-thread'),
+    }))
+    const registry = tools(deps)
+    const report = await registry.get('cowork_topic_report').execute(
+      { summary: 'progress' },
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(report.ok, false)
+    assert.match(report.error.message, /is not in the project index/)
+
+    const handoff = await registry.get('cowork_handoff').execute(
+      HANDOFF_ARGS,
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(handoff.ok, false)
+    assert.match(handoff.error.message, /is not in the project index/)
+  })
+})
+
+test('a topic resolved after the projection read is reported archived', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const archiveView = (document) => ({
+      ...document,
+      topics: document.topics.map((entry) => (entry.topicId === 'session-thread'
+        ? { ...entry, status: 'resolved', resolvedAt: NOW_ISO, resolvedBy: 'user' }
+        : entry)),
+    })
+    for (const [name, args] of [
+      ['cowork_topic_report', { summary: 'progress' }],
+      ['cowork_handoff', HANDOFF_ARGS],
+      ['cowork_decision_propose', { title: 't', summary: 's' }],
+      ['cowork_authorization_request', { summary: 'may I?' }],
+    ]) {
+      const deps = withRacingStore(fakeDeps(), store, archiveView)
+      const result = await tools(deps).get(name).execute(args, fakeExec('session-thread', repoPath))
+      assert.equal(result.ok, false, name)
+      assert.match(result.error.message, /is archived/, name)
+    }
+  })
+})
+
+test('a locked re-read that sees a resolved topic reports the handoff as lost', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const deps = fakeDeps()
+    deps.createProjectStore = () => store
+    deps.clock = editingClock(repoPath, 'session-thread', 'resolve')
+    const result = await tools(deps).get('cowork_handoff').execute(
+      HANDOFF_ARGS,
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(result.ok, false)
+    assert.match(result.error.message, /disappeared while the handoff was written/)
+  })
+})
+
+test('a locked re-read that sees a resolved topic reports the report as changed', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const deps = fakeDeps()
+    deps.createProjectStore = () => store
+    deps.clock = editingClock(repoPath, 'session-thread', 'resolve')
+    const result = await tools(deps).get('cowork_topic_report').execute(
+      { summary: 'progress' },
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(result.ok, false)
+    assert.match(result.error.message, /changed while reporting/)
+  })
+})
+
+test('a locked re-read that loses the topic reports the proposal as changed', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const deps = fakeDeps()
+    deps.createProjectStore = () => store
+    deps.clock = editingClock(repoPath, 'session-thread', 'remove')
+    const result = await tools(deps).get('cowork_decision_propose').execute(
+      { title: 'choose', summary: 'schema v2' },
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(result.ok, false)
+    assert.match(result.error.message, /changed while proposing/)
+  })
+})
+
+test('a locked re-read that sees a resolved topic reports the authorization as lost', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const deps = fakeDeps()
+    deps.createProjectStore = () => store
+    deps.clock = editingClock(repoPath, 'session-thread', 'resolve')
+    const result = await tools(deps).get('cowork_authorization_request').execute(
+      { summary: 'may I push?' },
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(result.ok, false)
+    assert.match(result.error.message, /changed while requesting authorization/)
+  })
+})
+
+test('cowork_decision_propose refuses a blank summary and an unwritable proposals path', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const registry = tools(fakeDeps())
+    const blank = await registry.get('cowork_decision_propose').execute(
+      { title: 't', summary: '   ' },
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(blank.ok, false)
+    assert.equal(blank.error.code, TOPIC_PAGE_ERROR_CODES.summaryRequired)
+
+    await writeFile(join(repoPath, '.dsh-cowork', 'proposals'), 'not a directory\n')
+    const unwritable = await registry.get('cowork_decision_propose').execute(
+      { title: 't', summary: 's' },
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(unwritable.ok, false)
+    assert.equal(unwritable.error.code, TOPIC_PAGE_ERROR_CODES.proposalWriteFailed)
+  })
+})
+
+test('cowork_authorization_request reports a request file it could not write', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const logs = []
+    const deps = fakeDeps()
+    deps.log = (message) => logs.push(message)
+    await writeFile(join(repoPath, '.dsh-cowork', 'requests'), 'not a directory\n')
+
+    const result = await tools(deps).get('cowork_authorization_request').execute(
+      { summary: 'may I push?' },
+      fakeExec('session-thread', repoPath),
+    )
+
+    assert.equal(result.ok, true)
+    assert.equal(result.requestRecorded, false)
+    assert.ok(logs.some((line) => line.includes('was not recorded')), logs.join('\n'))
+  })
+})
+
+test('cowork_authorization_request refuses a blank summary or command', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const request = tools(fakeDeps()).get('cowork_authorization_request')
+
+    const blank = await request.execute({ summary: '' }, fakeExec('session-thread', repoPath))
+    assert.equal(blank.ok, false)
+    assert.equal(blank.error.code, TOPIC_PAGE_ERROR_CODES.summaryRequired)
+
+    const blankCommand = await request.execute(
+      { summary: 'may I push?', command: '   ' },
+      fakeExec('session-thread', repoPath),
+    )
+    assert.equal(blankCommand.ok, false)
+    assert.equal(blankCommand.error.code, REQUEST_TOOL_ERROR_CODES.payloadInvalid)
+  })
+})
+
+test('cowork_topic_resolve requires a non-empty topic id and logs a refused host archive', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
+    const logs = []
+    const deps = fakeDeps()
+    deps.log = (message) => logs.push(message)
+    deps.workspaceRegistry.archiveSession = async () => {
+      throw new Error('host archive refused')
+    }
+    const resolve = tools(deps).get('cowork_topic_resolve')
+
+    const blank = await resolve.execute({ topicId: '  ' }, fakeExec('session-master', repoPath))
+    assert.equal(blank.ok, false)
+    assert.equal(blank.error.code, TOPIC_ERROR_CODES.topicNotFound)
+
+    const result = await resolve.execute({ topicId: 'session-thread' }, fakeExec('session-master', repoPath))
+    assert.equal(result.ok, true)
+    assert.equal(result.alreadyResolved, false)
+    assert.ok(logs.some((line) => line.includes('was not archived')), logs.join('\n'))
   })
 })

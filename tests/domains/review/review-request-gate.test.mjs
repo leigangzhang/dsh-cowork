@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../../support/ts-hook.mjs'
@@ -286,7 +286,9 @@ function fakeExec(sessionId, cwd) {
 
 /**
  * A git runner that answers the request pre-checks by their arguments. Every
- * option is the answer to one question, so a test changes exactly one fact.
+ * option is the answer to one question, so a test changes exactly one fact:
+ * `resolveTo` makes every ref resolve to one commit, and the `*Failure` options
+ * return a failing command result instead of the default success.
  */
 function fakeGit(options = {}) {
   const calls = []
@@ -296,11 +298,17 @@ function fakeGit(options = {}) {
     if (args[1] === '--verify') {
       const ref = String(args[3]).replace('^{commit}', '')
       if (options.unknownRefs?.includes(ref)) return { code: 1, stdout: '', stderr: '' }
-      return { code: 0, stdout: `${ref}\n`, stderr: '' }
+      return { code: 0, stdout: `${options.resolveTo ?? ref}\n`, stderr: '' }
     }
-    if (args[0] === 'merge-base') return { code: options.ancestor === false ? 1 : 0, stdout: '', stderr: '' }
-    if (args[0] === 'status') return { code: 0, stdout: options.dirty === true ? ' M src/one.ts\n' : '', stderr: '' }
+    if (args[0] === 'merge-base') {
+      return options.mergeBaseFailure ?? { code: options.ancestor === false ? 1 : 0, stdout: '', stderr: '' }
+    }
+    if (args[0] === 'status') {
+      return options.statusFailure
+        ?? { code: 0, stdout: options.dirty === true ? ' M src/one.ts\n' : '', stderr: '' }
+    }
     if (args[0] === 'diff') {
+      if (options.diffFailure !== undefined) return options.diffFailure
       const paths = options.changedPaths ?? ['src/domains/review/review-request.ts']
       return { code: 0, stdout: paths.map((path) => `${path}\n`).join(''), stderr: '' }
     }
@@ -317,10 +325,12 @@ function fakeSlice(options = {}) {
     calls,
     async createReviewSession(request) {
       calls.push({ type: 'create', request })
+      if (options.createError !== undefined) throw options.createError
       return options.createResult ?? { sessionId: 'session-reviewer', workspaceId: 'workspace-1', title: 'cowork review: t' }
     },
     async promptSession(sessionId, text) {
       calls.push({ type: 'prompt', sessionId, text })
+      if (options.onPrompt !== undefined) await options.onPrompt(sessionId)
       if (options.throwFor === sessionId) throw new Error(`${sessionId} prompt failed`)
       return { accepted: options.rejectFor === sessionId ? false : true, requestId: 'prompt-1' }
     },
@@ -333,7 +343,7 @@ function fakeSlice(options = {}) {
 
 /** Register the review tools against a real store and fake host ports. */
 function setup(repoPath, options = {}) {
-  const store = new ProjectStore({ repoPath, clock: CLOCK })
+  const store = options.store ?? new ProjectStore({ repoPath, clock: CLOCK })
   const slice = options.slice ?? fakeSlice()
   const git = options.git ?? fakeGit()
   const host = fakeHost()
@@ -437,6 +447,24 @@ function toolRequest(repoPath, overrides = {}) {
     verification: [{ command: 'node --test tests/review-request.test.mjs', exitCode: 0, evidence: '28 pass' }],
     ...overrides,
   }
+}
+
+/** A validated pending shared-tree request record written as a request file. */
+function sharedTreeRecord(repoPath, requestId) {
+  const validated = validateReviewRequestInput(toolRequest(repoPath), {
+    topicId: 'session-topic',
+    workItemId: null,
+    repoPath,
+    workItemPath: null,
+    branch: null,
+    changedPaths: ['src/one.ts'],
+  })
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? {} : validated.errors))
+  return buildReviewRequestRecord(validated.value, {
+    requestId,
+    reviewerSessionId: 'session-reviewer',
+    requestedAt: REQUESTED_AT,
+  })
 }
 
 /** Run one request against a fresh repository and clean up afterwards. */
@@ -565,6 +593,68 @@ test('every failed pre-check leaves no reviewer, no file, and no index change', 
   }
 })
 
+test('a failing git pre-check becomes checkout/git-failed with the command context', async () => {
+  const cases = [
+    [
+      'merge-base',
+      { mergeBaseFailure: { code: 128, stdout: '', stderr: 'fatal: bad revision' } },
+      ['merge-base', '--is-ancestor', BASE, HEAD],
+      128,
+      /fatal: bad revision/,
+    ],
+    [
+      'status',
+      { statusFailure: { code: 128, stdout: '', stderr: 'fatal: not a git repository' } },
+      ['status', '--porcelain'],
+      128,
+      /fatal: not a git repository/,
+    ],
+    [
+      'diff',
+      { diffFailure: { code: 2, stdout: '', stderr: '' } },
+      ['diff', '--name-only', `${BASE}..${HEAD}`],
+      2,
+      /: exit 2$/,
+    ],
+  ]
+  for (const [label, gitOptions, args, exitCode, detail] of cases) {
+    await withRepo(async (repoPath) => {
+      const git = fakeGit(gitOptions)
+      const slice = fakeSlice()
+      const { store, request } = setup(repoPath, { git, slice })
+      await seedReviewProject(store, repoPath)
+
+      const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
+
+      assert.equal(result.ok, false, `${label} must be refused`)
+      assert.equal(result.error.code, 'checkout/git-failed', label)
+      assert.deepEqual(result.error.details, { args, cwd: repoPath, exitCode }, label)
+      assert.match(result.error.message, detail, label)
+      assert.equal(slice.calls.length, 0, `${label} must not create a reviewer`)
+      assert.equal((await canonical(store)).topics[0].awaitingReview, false, label)
+    })
+  }
+})
+
+test('two different refs that resolve to one commit are refused as base equals head', async () => {
+  await withRepo(async (repoPath) => {
+    const git = fakeGit({ resolveTo: BASE })
+    const slice = fakeSlice()
+    const { store, request } = setup(repoPath, { git, slice })
+    await seedReviewProject(store, repoPath)
+
+    const result = await request.execute(
+      toolRequest(repoPath, { baseCommit: BASE, headCommit: `${'a'.repeat(39)}b` }),
+      fakeExec('session-topic', repoPath),
+    )
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'review/base-equals-head', JSON.stringify(result.error))
+    assert.deepEqual(result.error.details, { baseCommit: BASE, headCommit: BASE })
+    assert.equal(slice.calls.length, 0, 'the refused range must not create a reviewer')
+  })
+})
+
 test('a path outside the work-item checkout is refused', async () => {
   await withRepo(async (repoPath) => {
     const item = workItemFixture(repoPath)
@@ -663,6 +753,52 @@ test('a legacy verdict-only file never counts as a pending request', async () =>
   })
 })
 
+test('a request file whose name disagrees with its record identity is skipped', async () => {
+  await withRepo(async (repoPath) => {
+    const { store, request } = setup(repoPath)
+    await seedReviewProject(store, repoPath)
+    const reviewsDir = join(repoPath, '.dsh-cowork', 'reviews')
+    await mkdir(reviewsDir, { recursive: true })
+    await writeFile(
+      join(reviewsDir, 'renamed.json'),
+      serializeReviewRequestRecord(sharedTreeRecord(repoPath, 'req-renamed')),
+    )
+
+    const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.deepEqual(result.skippedFiles, [
+      { fileName: 'renamed.json', problems: ['review file name does not match the record identity'] },
+    ])
+    assert.equal(result.skippedFilesTotal, 1)
+    assert.notEqual(result.requestId, 'req-renamed')
+    // The mismatched file is left as it was, never renamed or treated as pending.
+    assert.equal((await readdir(reviewsDir)).includes('renamed.json'), true)
+  })
+})
+
+test('requests with the same requestedAt are ordered by request id', async () => {
+  await withRepo(async (repoPath) => {
+    const { store, request } = setup(repoPath)
+    await seedReviewProject(store, repoPath)
+    const reviewsDir = join(repoPath, '.dsh-cowork', 'reviews')
+    await mkdir(reviewsDir, { recursive: true })
+    // Reverse order of the expected tie-break, so only the id ordering can pick req-a.
+    for (const requestId of ['req-b', 'req-a']) {
+      await writeFile(
+        join(reviewsDir, reviewRequestFileName('session-topic', requestId)),
+        serializeReviewRequestRecord(sharedTreeRecord(repoPath, requestId)),
+      )
+    }
+
+    const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'review/already-pending', JSON.stringify(result.error))
+    assert.equal(result.error.details.requestId, 'req-a')
+  })
+})
+
 test('the previous request must exist, belong to the same chain, and be answered', async () => {
   await withRepo(async (repoPath) => {
     const { store, request } = setup(repoPath)
@@ -740,6 +876,146 @@ test('a brief failure rolls the request back in order and records it', async () 
     assert.deepEqual(archives[0].options, { stopActivity: true })
     const activity = await store.readActivity()
     assert.ok(activity.events.some((event) => event.type === 'error'))
+  })
+})
+
+test('a rollback that cannot remove the file still restores the work item and reports it', async () => {
+  await withRepo(async (repoPath) => {
+    const reviewsDir = join(repoPath, '.dsh-cowork', 'reviews')
+    // Replace the written request file with a directory while the brief is in
+    // flight, so removing it fails for a reason other than ENOENT.
+    const slice = fakeSlice({
+      rejectFor: 'session-reviewer',
+      async onPrompt() {
+        const [fileName] = await readdir(reviewsDir)
+        const filePath = join(reviewsDir, fileName)
+        await unlink(filePath)
+        await mkdir(filePath)
+      },
+    })
+    const item = workItemFixture(repoPath)
+    const { store, request } = setup(repoPath, { slice })
+    await seedReviewProject(store, repoPath, { workItem: item })
+
+    const result = await request.execute(
+      toolRequest(repoPath, { path: item.path, workItemId: 'wi-1' }),
+      fakeExec('session-topic', repoPath),
+    )
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'review/prompt-failed', JSON.stringify(result.error))
+    assert.equal(result.error.details.cleanupErrors.length, 1)
+    assert.match(result.error.details.cleanupErrors[0], /^request file: /)
+    // The index markers are restored even though the file could not be removed.
+    const document = await canonical(store)
+    assert.equal(document.topics[0].awaitingReview, false)
+    assert.equal(document.topics[0].reviewStatus, null)
+    assert.equal(document.workItems[0].status, 'active')
+    assert.equal(document.workItems[0].headCommit, BASE)
+    const archives = slice.calls.filter((call) => call.type === 'archive')
+    assert.deepEqual(archives.map((call) => call.sessionId), ['session-reviewer'])
+  })
+})
+
+test('a request that cannot be logged still succeeds and reports the activity error', async () => {
+  await withRepo(async (repoPath) => {
+    const real = new ProjectStore({ repoPath, clock: CLOCK })
+    await seedReviewProject(real, repoPath)
+    const broken = Object.create(real)
+    broken.appendActivity = async () => {
+      throw new Error('activity store is read-only')
+    }
+    const { request } = setup(repoPath, { store: broken })
+
+    const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.match(result.activityError, /activity store is read-only/)
+    const stored = JSON.parse(await readFile(result.filePath, 'utf8'))
+    assert.equal(stored.status, 'pending')
+    assert.equal((await canonical(real)).topics[0].awaitingReview, true)
+  })
+})
+
+test('a rollback whose failure cannot be logged still reports the prompt failure', async () => {
+  await withRepo(async (repoPath) => {
+    const real = new ProjectStore({ repoPath, clock: CLOCK })
+    await seedReviewProject(real, repoPath)
+    const broken = Object.create(real)
+    broken.appendActivity = async () => {
+      throw new Error('activity store is read-only')
+    }
+    const slice = fakeSlice({ rejectFor: 'session-reviewer' })
+    const { request } = setup(repoPath, { store: broken, slice })
+
+    const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'review/prompt-failed', JSON.stringify(result.error))
+    assert.deepEqual(result.error.details.cleanupErrors, [])
+    assert.match(result.error.details.activityError, /activity store is read-only/)
+  })
+})
+
+test('a reviewer session that cannot be created leaves no file and no index change', async () => {
+  await withRepo(async (repoPath) => {
+    const slice = fakeSlice({ createError: new Error('the host refused the reviewer workspace') })
+    const { store, request } = setup(repoPath, { slice })
+    await seedReviewProject(store, repoPath)
+
+    const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'review/session-failed', JSON.stringify(result.error))
+    assert.match(result.error.message, /refused the reviewer workspace/)
+    assert.equal(result.error.details.topicId, 'session-topic')
+    assert.equal(slice.calls.filter((call) => call.type === 'archive').length, 0)
+    const files = await readdir(join(repoPath, '.dsh-cowork', 'reviews')).catch(() => [])
+    assert.deepEqual(files, [])
+    assert.equal((await canonical(store)).topics[0].awaitingReview, false)
+  })
+})
+
+test('a request file write failure archives the reviewer and leaves no pending marker', async () => {
+  await withRepo(async (repoPath) => {
+    const real = new ProjectStore({ repoPath, clock: CLOCK })
+    await seedReviewProject(real, repoPath)
+    const broken = Object.create(real)
+    broken.writeTextAtomic = async () => {
+      throw new Error('review volume is read-only')
+    }
+    const { slice, request } = setup(repoPath, { store: broken })
+
+    const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'review/write-failed', JSON.stringify(result.error))
+    assert.match(result.error.message, /review volume is read-only/)
+    assert.equal(result.error.details.topicId, 'session-topic')
+    assert.equal(result.error.details.reviewerSessionId, 'session-reviewer')
+    assert.deepEqual(result.error.details.archive, { archived: true, error: null })
+    const archives = slice.calls.filter((call) => call.type === 'archive')
+    assert.deepEqual(archives.map((call) => call.sessionId), ['session-reviewer'])
+    assert.equal((await canonical(real)).topics[0].awaitingReview, false)
+    const files = await readdir(join(repoPath, '.dsh-cowork', 'reviews')).catch(() => [])
+    assert.deepEqual(files, [])
+  })
+})
+
+test('an unreadable reviews directory becomes a mapped internal failure', async () => {
+  await withRepo(async (repoPath) => {
+    const { store, slice, request } = setup(repoPath)
+    await seedReviewProject(store, repoPath)
+    // A self-referential symlink makes readdir fail with ELOOP, not ENOENT.
+    await symlink('reviews', join(repoPath, '.dsh-cowork', 'reviews'))
+
+    const result = await request.execute(toolRequest(repoPath), fakeExec('session-topic', repoPath))
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'tool/internal', JSON.stringify(result.error))
+    assert.match(result.error.message, /ELOOP/)
+    assert.equal(slice.calls.length, 0, 'no reviewer may be created before the listing is read')
+    assert.equal((await canonical(store)).topics[0].awaitingReview, false)
   })
 })
 

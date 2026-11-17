@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import '../support/ts-hook.mjs'
 import { readFileSync } from 'node:fs'
-import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -432,6 +432,32 @@ test('project_init no longer reconciles a stale handoff into the index', async (
     const document = await store.readIndexDocument()
     assert.equal(document.topics[0].blocked, false, 'the old handoff file stays read-only')
     assert.equal(document.topics[0].awaitingReview, false)
+  })
+})
+
+test('project_init maps a store failure instead of throwing', async () => {
+  await withRepo(async (repoPath) => {
+    await mkdir(join(repoPath, '.dsh-cowork'), { recursive: true })
+    await writeFile(join(repoPath, '.dsh-cowork', 'index.json'), '{not json\n')
+
+    const result = await initTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, ERROR_CODES.storeCorrupt)
+    assert.match(result.error.message, /index/i)
+  })
+})
+
+test('project_status maps an unreadable index instead of throwing', async () => {
+  await withRepo(async (repoPath) => {
+    await mkdir(join(repoPath, '.dsh-cowork'), { recursive: true })
+    await writeFile(join(repoPath, '.dsh-cowork', 'index.json'), '{not json\n')
+
+    const result = await statusTool(fakeDeps()).execute({}, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, ERROR_CODES.storeCorrupt)
+    assert.equal(result.error.details.filePath, join(repoPath, '.dsh-cowork', 'index.json'))
   })
 })
 
