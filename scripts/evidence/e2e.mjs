@@ -293,7 +293,7 @@ async function main() {
     if (host !== null) await host.stop()
     if (model !== null) await model.close()
     if (values.keep) console.log(`kept run root ${runRoot}`)
-    else await rm(runRoot, { recursive: true, force: true })
+    else await rm(runRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 
   const passed = results.every((result) => result.passed)
