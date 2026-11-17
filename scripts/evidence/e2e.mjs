@@ -164,6 +164,7 @@ async function main() {
     strictSkip('live-model scenarios need DEEPSEEK_API_KEY; none is set')
     return
   }
+  for (const entry of selected) loadScenario(entry)
 
   const dsh = process.env.DSH_BIN ?? 'dsh'
   const versionResult = spawnSync(dsh, ['--version'], { encoding: 'utf8', timeout: 15_000 })
