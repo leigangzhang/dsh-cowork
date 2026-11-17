@@ -129,7 +129,7 @@ export function e2eEvidenceProblems({
       if (!evidenceHeadAncestor) {
         problems.push(`${label}: artifact.head is not an ancestor of HEAD`)
       } else if (changedPathsSinceEvidenceHead.some((path) => !isEvidenceNeutralPath(path))) {
-        problems.push(`${label}: files outside tests/e2e/evidence/ changed after artifact.head; re-record the lane`)
+        problems.push(`${label}: runtime files outside tests/e2e/evidence/, docs/, and README.md changed after artifact.head; re-record the lane`)
       }
     }
     if (artifact.dirty !== false) problems.push(`${label}: artifact.dirty must be false (record from a clean worktree)`)

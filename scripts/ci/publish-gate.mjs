@@ -90,9 +90,54 @@ export function decideGate(input) {
   if (input.metadataError) reasons.push(input.metadataError)
   if (input.diffError) reasons.push(input.diffError)
   if (input.overlap !== undefined && input.overlap.length > 0) {
-    reasons.push(`delta review required: main changed reviewed paths: ${input.overlap.join(', ')}`)
+    reasons.push(`delta review required: main changed reviewed paths (${input.overlap.join(', ')}); merge current main into the PR branch and review the new head`)
   }
   return { pass: reasons.length === 0, reasons }
+}
+
+/**
+ * Return the only check name allowed in each policy mode.
+ *
+ * `gate-artifact` is the required context. Report mode must never publish that
+ * name, because its conclusion is intentionally always success. `gate-artifact-v2`
+ * is report-only and must never become a required context.
+ *
+ * @param {'report'|'block'} mode Policy mode.
+ * @returns {'gate-artifact'|'gate-artifact-v2'} Check context.
+ */
+export function gateCheckNameForMode(mode) {
+  return mode === 'block' ? 'gate-artifact' : 'gate-artifact-v2'
+}
+
+/**
+ * Fail closed when a workflow supplies a check name that does not match the mode.
+ *
+ * @param {'report'|'block'} mode Policy mode.
+ * @param {string} name Supplied check context.
+ * @returns {string} The validated name.
+ * @throws {Error} When report mode targets the required context or block mode
+ *   targets the report-only context.
+ */
+export function assertGateCheckName(mode, name) {
+  const expected = gateCheckNameForMode(mode)
+  if (name !== expected) {
+    throw new Error(`${mode} mode must publish ${expected}, not ${name}`)
+  }
+  return name
+}
+
+/**
+ * Return the check conclusion for the selected policy mode.
+ *
+ * Report mode must stay green so it can observe without blocking; block mode
+ * must fail whenever the derived decision fails.
+ *
+ * @param {'report'|'block'} mode Policy mode.
+ * @param {boolean} pass Derived-gate decision.
+ * @returns {'success'|'failure'} Check conclusion.
+ */
+export function gateConclusionForMode(mode, pass) {
+  return mode === 'report' || pass ? 'success' : 'failure'
 }
 
 /**
@@ -166,7 +211,7 @@ function ensureCommit(cwd, sha) {
   git(['cat-file', '-e', `${sha}^{commit}`], cwd)
 }
 
-function isAncestor(cwd, ancestor, descendant) {
+export function isAncestor(cwd, ancestor, descendant) {
   const result = spawnSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], { cwd })
   if (result.error !== undefined) throw result.error
   if (result.status === 0) return true
@@ -175,12 +220,12 @@ function isAncestor(cwd, ancestor, descendant) {
   throw new Error(`git merge-base --is-ancestor ${ancestor} ${descendant}: ${detail}`)
 }
 
-function binaryDiffSha(cwd, base, head) {
-  const diff = git(['diff', '--no-ext-diff', '--no-textconv', '--binary', `${base}..${head}`], cwd)
+export function binaryDiffSha(cwd, base, head) {
+  const diff = git(['-c', 'diff.algorithm=myers', 'diff', '--no-ext-diff', '--no-textconv', '--binary', `${base}..${head}`], cwd)
   return createHash('sha256').update(diff).digest('hex')
 }
 
-function changedPaths(cwd, base, head) {
+export function changedPaths(cwd, base, head) {
   return git(['diff', '--name-only', `${base}..${head}`], cwd)
     .toString('utf8')
     .split('\n')
@@ -201,7 +246,7 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
     const prNumber = requiredEnv('PR_NUMBER')
     const apiUrl = process.env.GITHUB_API_URL ?? 'https://api.github.com'
     const mode = process.env.POLICY_MODE === 'block' ? 'block' : 'report'
-    const checkName = process.env.GATE_CHECK_NAME ?? (mode === 'block' ? 'gate-artifact' : 'gate-artifact-v2')
+    const checkName = assertGateCheckName(mode, process.env.GATE_CHECK_NAME ?? gateCheckNameForMode(mode))
     const detailsUrl = process.env.RUN_URL ?? ''
     const cwd = process.env.GATE_WORKSPACE ?? process.cwd()
     const currentMain = (await github({
@@ -305,7 +350,7 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
         model: verdict.model,
       },
     })
-    const conclusion = mode === 'report' || decision.pass ? 'success' : 'failure'
+    const conclusion = gateConclusionForMode(mode, decision.pass)
     const title = mode === 'report'
       ? (decision.pass ? 'REPORT: gate would pass' : 'REPORT: gate would fail')
       : (decision.pass ? 'gate-artifact: pass' : 'gate-artifact: blocked')

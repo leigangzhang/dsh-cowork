@@ -42,6 +42,28 @@ test('pre-merge publishes only a trusted check and does not notify or label conf
   assert.doesNotMatch(workflow, /@author/)
 })
 
+test('pre-merge test and publish jobs keep separate trust boundaries', () => {
+  const testJob = jobSection('pre-merge-test')
+  assert.match(testJob, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/)
+  assert.match(testJob, /permissions:\n      contents: read/)
+  assert.doesNotMatch(testJob, /checks: write/)
+
+  const publishJob = jobSection('publish')
+  assert.match(publishJob, /ref: main/)
+  assert.match(publishJob, /permissions:\n      contents: read\n      checks: write/)
+  assert.match(publishJob, /node scripts\/ci\/publish-pre-merge\.mjs/)
+  assert.doesNotMatch(publishJob, /npm ci/)
+})
+
+function jobSection(name) {
+  const marker = `\n  ${name}:\n`
+  const start = workflow.indexOf(marker)
+  assert.ok(start >= 0, `missing job ${name}`)
+  const rest = workflow.slice(start + 1)
+  const next = rest.search(/\n  [a-z0-9-]+:\n/)
+  return next === -1 ? rest : rest.slice(0, next)
+}
+
 test('pre-merge actions are pinned to commit SHAs', () => {
   const uses = [...workflow.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])
   assert.ok(uses.length >= 2)

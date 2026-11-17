@@ -77,6 +77,7 @@ test('gate-artifact workflow owns the review event and required check', () => {
   const workflow = read('.github/workflows/gate-artifact.yml')
   assert.match(workflow, /^name: Policy$/m)
   assert.match(workflow, /^on:\n  pull_request_review:\n    types: \[submitted, dismissed\]$/m)
+  assert.match(workflow, /vars\.MERGE_POLICY_MODE != 'block'/)
   assert.match(workflow, /^  gate-artifact:\n    name: gate-artifact$/m)
   assert.match(workflow, /REVIEW_STATE: \$\{\{ github\.event\.review\.state \}\}/)
   assert.match(workflow, /REVIEW_COMMIT_ID: \$\{\{ github\.event\.review\.commit_id \}\}/)

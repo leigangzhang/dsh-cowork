@@ -131,7 +131,7 @@ test('the evidence checker binds the catalog, host, and recorded head', () => {
   assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, headSha: 'd'.repeat(40), evidenceHeadAncestor: false })
     .some((problem) => problem.includes('is not an ancestor of HEAD')))
   assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, headSha: 'd'.repeat(40), changedPathsSinceEvidenceHead: ['tests/e2e/manifest.json'] })
-    .some((problem) => problem.includes('files outside tests/e2e/evidence/ changed')))
+    .some((problem) => problem.includes('runtime files outside tests/e2e/evidence/')))
 })
 
 test('documentation changes do not invalidate a committed E2E evidence recording', () => {
@@ -152,7 +152,7 @@ test('documentation changes do not invalidate a committed E2E evidence recording
     ...EVIDENCE_INPUT,
     headSha: 'd'.repeat(40),
     changedPathsSinceEvidenceHead: ['docs/github-workflow.md', 'src/app/apply.ts'],
-  }).some((problem) => problem.includes('files outside tests/e2e/evidence/ changed')))
+  }).some((problem) => problem.includes('runtime files outside tests/e2e/evidence/')))
 })
 
 test('the manifest covers the complete public tool and route surface', async () => {

@@ -2,7 +2,7 @@
 
 Status: implemented in report mode（2026-11-17；`pr-gate` docs/unit split、`pre-merge`、`gate-artifact-v2`、`base-recheck` added）
 
-本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-15-github-pr-gate-flow.md)。当前 `gate-artifact-v2` 以 report mode 运行；旧 `gate-artifact` 仍是 required check，切换 ruleset 后再退役。
+本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-15-github-pr-gate-flow.md)。当前 `gate-artifact-v2` 以 report mode 运行；required context 始终是 `gate-artifact`。block mode 后旧 workflow 停止发布，由新 workflow 发布同名的 required check。
 
 ## 目标与边界
 
@@ -156,7 +156,7 @@ npm run change-scope -- --base <verified-base>
 | 设置 | 当前值 |
 |---|---|
 | Require pull request | on |
-| Required checks | `pr-gate`、`gate-artifact`（迁移后改为 `gate-artifact-v2`） |
+| Required checks | `pr-gate`、`gate-artifact`（required context 不变；`gate-artifact-v2` 只做 report） |
 | Required approvals | 0（单人项目，review 为程序性约束） |
 | Require conversation resolution | on |
 | Require branches up to date | on（激活 pre-merge 后移除） |
@@ -191,7 +191,7 @@ npm run change-scope -- --base <verified-base>
 - PR 标题使用 Conventional Commits；
 - 正文按 [pr-description](../../../.agents/skills/pr-description/SKILL.md) 的 `Motivation`、`Changes`、`Testing`、`Evidence` 结构；
 - 不强制 Issue 引用；
-- 不新增 `.github/pull_request_template.md`；PR 结构仍由 `pr-description` 技能单点拥有。`gate-artifact-v2` 负责最终校验；可选的 `Policy / pr-metadata` 只做早期反馈，不设为 required。
+- 不新增 `.github/pull_request_template.md`；PR 结构仍由 `pr-description` 技能单点拥有。派生 gate 负责最终校验；required context 始终是 `gate-artifact`。`gate-artifact-v2` 只做 report，永不设为 required。
 
 ## 8. 失败与回环
 
@@ -200,7 +200,7 @@ npm run change-scope -- --base <verified-base>
 | 任一 hosted core 命令失败 | `pr-gate` 红 | 提交 |
 | 主审 verdict 非 pass | 不生成成功 gate | 提交 |
 | review 后 push 新 commit | 旧 verdict/旧 check 失效 | PR Gate |
-| main 前进 | `Policy Base` 把旧 gate 标 stale | 加 `recheck` 重跑 pre-merge；PR HEAD 不变 |
+| main 前进 | `Policy Base` 把旧 gate 标 stale | 加 `recheck` 重跑 pre-merge；若 main 改了 reviewed paths，合 main 产生新 HEAD 并 delta review |
 | pre-merge 冲突 | `pre-merge` 失败，日志列出冲突路径 | 人在 merge 阶段处理 |
 | 有未解决对话 | ruleset 阻止合并 | review |
 | force push / 直接 push main | ruleset 拒绝 | — |
@@ -211,7 +211,7 @@ npm run change-scope -- --base <verified-base>
 2. `pr-gate` docs/unit 拆分和 `pre-merge` 先以 report 方式运行。
 3. 接入 `gate-artifact-v2`，验证 review 早于 CI、main 前进和 recheck 的行为。
 4. 验证 base-recheck 能让旧绿色 gate 变 stale。
-5. 切换 ruleset：要求 `pr-gate` + `gate-artifact`，移除 strict up-to-date，退役旧 `gate-artifact.yml`。
+5. 设置 `MERGE_POLICY_MODE=block` 让旧 `gate-artifact.yml` 停止发布，验证新 workflow 的同名 required gate 变红/变绿后，再移除 strict up-to-date。
 6. heavy lane 仍按现有稳定门槛评估；不因本次改动升级为 required。
 
 ## 10. 验收
@@ -220,10 +220,10 @@ npm run change-scope -- --base <verified-base>
 - 故意失败一个测试：`pr-gate` 红，merge 不可用。
 - 没有 review verdict：派生 gate 不成功，merge 被阻止；CI 完成后自动重算。
 - review 后 push 新 commit：旧 verdict 和旧 check 失效，必须重新 review。
-- main 前进：PR HEAD 不变；旧 gate stale；加 `recheck` 重跑 pre-merge 后 gate 重算，通常不重审。
+- main 前进：PR HEAD 不变；旧 gate stale；加 `recheck` 重跑 pre-merge 后 gate 重算，通常不重审。reviewed-path overlap 时合 main 产生新 HEAD，再做 delta review。
 - pre-merge 冲突：检查失败，不产生合并；冲突由人处理。
 - 有未解决 conversation：merge 被阻止。
 - 直接 push main、force push、删除 main：全部拒绝。
 - `pre-merge` summary 的 base 等于当前 main，head 等于 PR head。
-- 旧 `gate-artifact` 在迁移完成前仍可阻止合并；迁移后由 `gate-artifact-v2` 接管。
+- required context 始终是 `gate-artifact`：report mode 由旧 workflow 发布，block mode 由新 workflow 发布；`gate-artifact-v2` 只做 report。
 - 合并后分支自动删除，main 上是 merge commit。

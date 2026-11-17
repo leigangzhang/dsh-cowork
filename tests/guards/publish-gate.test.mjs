@@ -1,7 +1,22 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
-import { decideGate, findPassingReview, overlapPaths, publishGateCheck } from '../../scripts/ci/publish-gate.mjs'
+import {
+  assertGateCheckName,
+  binaryDiffSha,
+  changedPaths,
+  decideGate,
+  findPassingReview,
+  gateCheckNameForMode,
+  gateConclusionForMode,
+  isAncestor,
+  overlapPaths,
+  publishGateCheck,
+} from '../../scripts/ci/publish-gate.mjs'
 
 const head = 'a'.repeat(40)
 const base = 'b'.repeat(40)
@@ -33,6 +48,21 @@ test('findPassingReview requires a current v2 verdict and respects later change 
   ], head))
 })
 
+test('policy modes cannot publish the other mode\'s gate context', () => {
+  assert.equal(gateCheckNameForMode('report'), 'gate-artifact-v2')
+  assert.equal(gateCheckNameForMode('block'), 'gate-artifact')
+  assert.equal(assertGateCheckName('report', 'gate-artifact-v2'), 'gate-artifact-v2')
+  assert.equal(assertGateCheckName('block', 'gate-artifact'), 'gate-artifact')
+  assert.throws(() => assertGateCheckName('report', 'gate-artifact'), /must publish gate-artifact-v2/)
+  assert.throws(() => assertGateCheckName('block', 'gate-artifact-v2'), /must publish gate-artifact/)
+})
+
+test('report mode stays green and block mode fails a failed decision', () => {
+  assert.equal(gateConclusionForMode('report', false), 'success')
+  assert.equal(gateConclusionForMode('block', false), 'failure')
+  assert.equal(gateConclusionForMode('block', true), 'success')
+})
+
 test('overlapPaths returns the sorted intersection of reviewed and main paths', () => {
   assert.deepEqual(overlapPaths(['src/b.ts', 'src/a.ts', 'docs/x.md'], ['src/a.ts', 'docs/x.md']), [
     'docs/x.md',
@@ -59,6 +89,47 @@ test('decideGate reports missing or stale inputs', () => {
   assert.match(decision.reasons.join('\n'), /pr-gate/)
   assert.match(decision.reasons.join('\n'), /pre-merge tested base old/)
   assert.match(decision.reasons.join('\n'), /delta review required/)
+  assert.match(decision.reasons.join('\n'), /merge current main into the PR branch/)
+})
+
+test('decideGate rejects a pre-merge result from an older base', () => {
+  const decision = decideGate({
+    prGate: {},
+    preMerge: { base: 'old' },
+    currentMain: 'new',
+  })
+  assert.equal(decision.pass, false)
+  assert.match(decision.reasons.join('\n'), /pre-merge tested base old/)
+})
+
+test('git identity helpers bind the reviewed diff and ancestry', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'cowork-gate-identity-'))
+  try {
+    git(repo, ['init', '-q'])
+    git(repo, ['config', 'user.name', 'test'])
+    git(repo, ['config', 'user.email', 'test@example.com'])
+    await writeFile(join(repo, 'a.txt'), 'base\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'base'])
+    const baseCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+    await writeFile(join(repo, 'a.txt'), 'head\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'head'])
+    const headCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+    const first = binaryDiffSha(repo, baseCommit, headCommit)
+    assert.match(first, /^[0-9a-f]{64}$/)
+    assert.deepEqual(changedPaths(repo, baseCommit, headCommit), ['a.txt'])
+    assert.equal(isAncestor(repo, baseCommit, headCommit), true)
+    assert.equal(isAncestor(repo, headCommit, baseCommit), false)
+
+    await writeFile(join(repo, 'a.txt'), 'head two\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'head two'])
+    const secondCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+    assert.notEqual(binaryDiffSha(repo, baseCommit, secondCommit), first)
+  } finally {
+    await rm(repo, { recursive: true, force: true })
+  }
 })
 
 test('publishGateCheck sends one completed check run', async () => {
@@ -83,3 +154,9 @@ test('publishGateCheck sends one completed check run', async () => {
   assert.equal(requests[0].body.head_sha, head)
   assert.equal(requests[0].body.output.title, 'REPORT: gate would pass')
 })
+
+function git(cwd, args) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  return result.stdout
+}

@@ -17,9 +17,10 @@ jobs:
   gate-artifact:
     name: gate-artifact
     if: >-
-      github.event.action == 'dismissed' ||
+      vars.MERGE_POLICY_MODE != 'block' &&
+      (github.event.action == 'dismissed' ||
       github.event.review.state == 'changes_requested' ||
-      contains(github.event.review.body || '', 'review-verdict')
+      contains(github.event.review.body || '', 'review-verdict'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
