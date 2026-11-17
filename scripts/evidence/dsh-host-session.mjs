@@ -49,20 +49,27 @@ export function authCookieFrom(headers) {
  *
  * `repoPath` is the repository the plugin points at; `enableDevRoutes` adds the
  * loopback health route used by readiness checks. Routing is disabled so the
- * host never asks a model to classify fixture intents.
+ * host never asks a model to classify fixture intents. `idleAfterMs` and
+ * `extraEntries` exist for the E2E lane, which pins a lifecycle threshold and
+ * replaces the model provider with its scripted endpoint; both are appended to
+ * the same patch so the plugin entry stays the first row.
  */
 export function profilePatch(repoPath, options = {}) {
   const enableDevRoutes = options.enableDevRoutes ?? true
   const routing = options.routing ?? false
-  return [
+  const extraEntries = options.extraEntries ?? []
+  const lines = [
     '- id: dsh-cowork',
     '  config:',
     `    repoPath: ${JSON.stringify(repoPath)}`,
     `    enableDevRoutes: ${enableDevRoutes ? 'true' : 'false'}`,
     '    routing:',
     `      enabled: ${routing ? 'true' : 'false'}`,
-    '',
-  ].join('\n')
+  ]
+  if (options.idleAfterMs !== undefined) lines.push(`    idleAfterMs: ${String(options.idleAfterMs)}`)
+  if (extraEntries.length > 0) lines.push('', ...extraEntries)
+  lines.push('')
+  return lines.join('\n')
 }
 
 /** Pure facts checked after the host answers; tests pin the failure shape. */
@@ -305,6 +312,7 @@ async function authenticateHost({ output }) {
  * @param {NodeJS.ProcessEnv} [options.env] Extra environment for every child.
  * @param {boolean} [options.keep] Keep the temporary tree after stop.
  * @param {string} [options.prefix] mkdtemp prefix.
+ * @param {object} [options.patchOptions] Optional `profilePatch` fields (idle threshold and extra entries).
  * @returns {Promise<{packageJson: object, tarball: string, tempRoot: string, dshHome: string, npmCache: string, origin: string, authenticatedUrl: string, cookie: string, child: import('node:child_process').ChildProcess, logTail: () => string, stop: () => Promise<void>}>}
  */
 export async function startDshHost(options = {}) {
@@ -323,7 +331,7 @@ export async function startDshHost(options = {}) {
   }
   try {
     const { manifest, tarball } = installHostPackage({ layout, hostEnv, dsh })
-    writeFileSync(layout.patchPath, profilePatch(layout.patchRepoPath), 'utf8')
+    writeFileSync(layout.patchPath, profilePatch(layout.patchRepoPath, options.patchOptions), 'utf8')
     connection = spawnHostProcess({ layout, hostEnv, dsh })
     const auth = await authenticateHost(connection)
     return {
