@@ -12,8 +12,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pr-gate:
-    name: pr-gate
+  classify:
+    name: classify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Classify changed paths
+        id: classify
+        run: >-
+          node scripts/ci/classify-change.mjs
+          --base "origin/${{ github.base_ref }}"
+          --github-output
+
+  docs-check:
+    name: docs-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run conventions
+        run: npm run check
+
+  unit:
+    name: unit
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -46,14 +104,54 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run conventions
-        run: npm run check
-
-      - name: Run tests
-        run: npm test
-
       - name: Run coverage gate
         run: npm run test:coverage
+
+  pr-gate:
+    name: pr-gate
+    needs: [classify, docs-check, unit]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require classification
+        if: ${{ needs.classify.result != 'success' }}
+        run: |
+          echo "::error::classification did not succeed"
+          exit 1
+
+      - name: Require documentation conventions
+        if: ${{ needs.docs-check.result != 'success' }}
+        run: |
+          echo "::error::docs-check did not succeed"
+          exit 1
+
+      - name: Require source lane for source changes
+        if: ${{ needs.classify.outputs.docs_only != 'true' && needs.unit.result != 'success' }}
+        run: |
+          echo "::error::unit did not succeed for a source change"
+          exit 1
+
+      - name: Reject unexpected source lane on docs-only changes
+        if: ${{ needs.classify.outputs.docs_only == 'true' && needs.unit.result != 'skipped' }}
+        run: |
+          echo "::error::unit ran or failed although the change was classified as docs-only"
+          exit 1
+
+      - name: Checkout PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
 
       # typecheck/build require a DSH source checkout and the installed app's
       # runtime packages; they run in the local heavy lane, not on a hosted runner.

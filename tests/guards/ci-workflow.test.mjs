@@ -9,45 +9,45 @@ const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
 
 const workflow = read('.github/workflows/ci.yml')
 
-test('CI workflow has one PR-owned pr-gate job', () => {
+test('CI workflow keeps one stable PR-owned pr-gate verdict', () => {
   assert.match(workflow, /^name: CI$/m)
-  assert.match(workflow, /^on:\n  pull_request:$/m)
-  assert.match(workflow, /^    branches: \[main\]$/m)
+  assert.match(workflow, /^on:\n  pull_request:\n    branches: \[main\]$/m)
   assert.doesNotMatch(workflow, /pull_request_target/)
   assert.match(workflow, /^permissions:\n  contents: read$/m)
   assert.match(workflow, /^concurrency:\n  group: ci-pr-\$\{\{ github\.event\.pull_request\.number \}\}\n  cancel-in-progress: true$/m)
   assert.match(workflow, /^  pr-gate:\n    name: pr-gate$/m)
-  assert.match(workflow, /^    runs-on: ubuntu-latest$/m)
-  for (const key of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']) {
-    assert.ok(workflow.includes(`${key}:`), `missing git identity for temporary test commits: ${key}`)
-  }
-  assert.ok(
-    workflow.includes('git config --global init.defaultBranch main'),
-    'temporary repositories must initialize on main',
-  )
+  assert.match(workflow, /^    needs: \[classify, docs-check, unit\]$/m)
+  assert.match(workflow, /^    if: \$\{\{ always\(\) \}\}$/m)
 })
 
-test('CI workflow runs the hosted core gates from the PR head', () => {
-  const commands = [
-    'npm ci',
-    'npm run check',
-    'npm test',
-    'npm run test:coverage',
-  ]
-  let previous = -1
-  for (const command of commands) {
-    const index = workflow.indexOf(`run: ${command}`)
-    assert.ok(index > previous, `missing or out-of-order command: ${command}`)
-    previous = index
+test('CI splits documentation conventions from the source coverage lane', () => {
+  for (const job of ['classify', 'docs-check', 'unit']) {
+    assert.match(workflow, new RegExp(`^  ${job}:\\n`, 'm'), `missing job ${job}`)
   }
+  assert.match(workflow, /node scripts\/ci\/classify-change\.mjs/)
+  assert.match(workflow, /needs\.classify\.outputs\.docs_only != 'true'/)
+  assert.match(workflow, /run: npm run check/)
+  assert.match(workflow, /run: npm run test:coverage/)
+  assert.doesNotMatch(workflow, /run: npm test/)
   assert.doesNotMatch(workflow, /run: npm run typecheck/)
   assert.doesNotMatch(workflow, /run: npm run build/)
+})
+
+test('pr-gate rejects failed or incorrectly skipped lanes before writing review context', () => {
+  for (const check of [
+    'classification did not succeed',
+    'docs-check did not succeed',
+    'unit did not succeed for a source change',
+    'unit ran or failed although the change was classified as docs-only',
+  ]) {
+    assert.ok(workflow.includes(check), `missing aggregate guard: ${check}`)
+  }
+  assert.match(workflow, /node scripts\/review\/gate-artifact\.mjs/)
+  assert.match(workflow, /name: review-context/)
   assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/)
   assert.match(workflow, /fetch-depth: 0/)
   assert.match(workflow, /git fetch --no-tags origin "\$\{\{ github\.base_ref \}\}"/)
   assert.match(workflow, /node-version-file: \.node-version/)
-  assert.match(workflow, /node scripts\/review\/gate-artifact\.mjs/)
-  assert.match(workflow, /name: review-context/)
 })
 
 test('CI workflow pins actions to commit SHAs and carries no secrets', () => {

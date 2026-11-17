@@ -1,0 +1,99 @@
+name: Pre-Merge
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pre-merge-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pre-merge-test:
+    name: pre-merge-test
+    if: ${{ github.event.action != 'labeled' || github.event.label.name == 'recheck' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      base_sha: ${{ steps.base.outputs.sha }}
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve current main
+        id: base
+        run: |
+          git fetch --no-tags origin main
+          echo "sha=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Classify PR paths
+        id: classify
+        run: >-
+          node scripts/ci/classify-change.mjs
+          --base "${{ steps.base.outputs.sha }}"
+          --github-output
+
+      - name: Merge current main into a temporary result
+        run: |
+          git config user.name pre-merge
+          git config user.email pre-merge@users.noreply.github.com
+          if ! git merge --no-ff --no-edit "${{ steps.base.outputs.sha }}"; then
+            echo "conflicting paths:"
+            git diff --name-only --diff-filter=U || true
+            exit 1
+          fi
+
+      - name: Install dependencies on the merged tree
+        run: npm ci
+
+      - name: Run conventions
+        run: npm run check
+
+      - name: Run coverage gate unless docs-only
+        if: ${{ steps.classify.outputs.docs_only != 'true' }}
+        run: npm run test:coverage
+
+  publish:
+    name: pre-merge
+    needs: pre-merge-test
+    if: ${{ always() && needs.pre-merge-test.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Publish pre-merge integration check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ needs.pre-merge-test.outputs.base_sha || github.event.pull_request.base.sha }}
+          RESULT: ${{ needs.pre-merge-test.result }}
+          DOCS_ONLY: ${{ needs.pre-merge-test.outputs.docs_only }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CHECK_NAME: pre-merge
+        run: node scripts/ci/publish-pre-merge.mjs

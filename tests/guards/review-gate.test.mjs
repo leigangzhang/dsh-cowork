@@ -15,7 +15,7 @@ test('review verdict must name the reviewed head and pass', () => {
   const body = `Reviewed the diff.\n<!-- review-verdict:v1 head=${head} verdict=pass reviewer=agentteam model=deepseek-v4-pro -->`
   assert.deepEqual(
     parseReviewVerdict({ state: 'commented', commitId: head, body, headSha: head }),
-    { headSha: head, verdict: 'pass', reviewer: 'agentteam', model: 'deepseek-v4-pro' },
+    { markerVersion: 'v1', headSha: head, verdict: 'pass', reviewer: 'agentteam', model: 'deepseek-v4-pro' },
   )
   assert.throws(
     () => parseReviewVerdict({ state: 'commented', commitId: 'f'.repeat(40), body, headSha: head }),
@@ -27,7 +27,27 @@ test('review verdict must name the reviewed head and pass', () => {
   )
   assert.throws(
     () => parseReviewVerdict({ state: 'commented', commitId: head, body: 'no marker', headSha: head }),
-    /no review-verdict:v1 marker/,
+    /no review-verdict/,
+  )
+})
+
+test('v2 review verdict binds the reviewed base and binary diff', () => {
+  const base = '1'.repeat(40)
+  const diffSha = '2'.repeat(64)
+  const body = `Reviewed.\n<!-- review-verdict:v2 head=${head} base=${base} diffSha=${diffSha} verdict=pass reviewer=human model=manual -->`
+  assert.deepEqual(
+    parseReviewVerdict({ state: 'commented', commitId: head, body, headSha: head, requireV2: true }),
+    { markerVersion: 'v2', headSha: head, baseSha: base, diffSha, verdict: 'pass', reviewer: 'human', model: 'manual' },
+  )
+  assert.throws(
+    () => parseReviewVerdict({
+      state: 'commented',
+      commitId: head,
+      body: `<!-- review-verdict:v1 head=${head} verdict=pass reviewer=agentteam model=deepseek-v4-pro -->`,
+      headSha: head,
+      requireV2: true,
+    }),
+    /no review-verdict:v2/,
   )
 })
 
