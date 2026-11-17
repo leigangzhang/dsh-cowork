@@ -17,6 +17,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | 这个词在这个仓库里是什么意思 | [glossary.md](glossary.md) |
 | 怎么向没读过术语表的人解释 | [plain-language.md](plain-language.md) |
 | 怎样才算“验证过” | [testing.md](testing.md) |
+| 代码改动怎么从分支经过测试、审查和证据检查进入 `main` | [github-workflow.md](github-workflow.md) |
 | 怎么查 heavy green、20 次后怎么加 ruleset | [heavy-runner.md](heavy-runner.md) |
 | 各阶段的 handoff、result 与 recon 记录 | [handoff/README.md](handoff/README.md) |
 | 哪些问题明确不修、什么时候重估 | [KNOWN_ISSUES.md](KNOWN_ISSUES.md) |
@@ -39,6 +40,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/PLAN.md` | plan | V0.1 产品范围、架构、M0–M4 完成记录 |
 | `docs/PLAN-V0.2.md` | plan | V0.2 主题会话模型重构：M6–M12 阶段、架构与验收 |
 | `docs/testing.md` | guide | 测试分层、证据、flake 政策 |
+| `docs/github-workflow.md` | guide | 从分支到 `main` 的 GitHub 测试、审查、证据校验和人工合并流程 |
 | `docs/heavy-runner.md` | guide | heavy runner 的手动触发、连续 green 计数与 ruleset 升级步骤 |
 | `docs/AGENTS.md` | guide | 文档种类、命名、目录架构、单一事实源、预算、发布开关与防劣质清单 |
 | `docs/agent-teams.md` | guide | 项目级 AgentTeams DAG、影响扫描、门禁、worktree、审查与交付规则 |
