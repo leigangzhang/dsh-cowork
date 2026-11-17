@@ -453,6 +453,70 @@ test('an unknown v1 status fails closed without touching the index', async () =>
   })
 })
 
+test('readIndexDocument reports a v1 index the migration refuses without writing', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    // v1 validation tolerates unknown document fields; the migration refuses one
+    // that already carries a v2 envelope field.
+    const original = await seedV1Index(store, [thread()], { topics: [] })
+    const before = await stat(store.indexFile)
+
+    await rejectsStore(store.readIndexDocument(), 'store/corrupt', 'index.topics is a v2 field on a v1 index')
+    await rejectsStore(store.readIndex(), 'store/corrupt', 'index.topics is a v2 field on a v1 index')
+
+    assert.equal(await readFile(store.indexFile, 'utf8'), original)
+    assert.equal((await stat(store.indexFile)).mtimeMs, before.mtimeMs)
+    assert.equal(existsSync(store.backupFile), false)
+    assert.equal(existsSync(store.activityFile), false)
+    assert.equal(store.lastMigrationReport, null)
+  })
+})
+
+test('the first write refuses a v1 extension that shadows a v2 field', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    // v1 validation ignores `digest`; the migrated topic would carry a number there.
+    const original = await seedV1Index(store, [thread({ digest: 123 })])
+    const before = await stat(store.indexFile)
+
+    await rejectsStore(
+      store.mutateIndexDocument((document) => document),
+      'store/corrupt',
+      'migrated project index is invalid',
+    )
+    await rejectsStore(store.updateThread('session-a', { subject: 'x' }), 'store/corrupt', 'migrated project index is invalid')
+
+    assert.equal(await readFile(store.indexFile, 'utf8'), original)
+    assert.equal((await stat(store.indexFile)).mtimeMs, before.mtimeMs)
+    assert.equal(existsSync(store.backupFile), false)
+    assert.equal(existsSync(store.activityFile), false)
+    assert.equal(store.lastMigrationReport, null)
+  })
+})
+
+test('a failed migration write leaves the v1 index and its backup untouched', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    const original = await seedV1Index(store, [thread()])
+    // A directory where the backup belongs makes the backup step unreadable.
+    await mkdir(store.backupFile, { recursive: true })
+    const before = await stat(store.indexFile)
+
+    const failure = await store.mutateIndexDocument((document) => document).catch((error) => error)
+    assert.equal(failure instanceof StoreError, true)
+    assert.equal(failure.code, 'store/corrupt')
+    assert.equal(failure.filePath, store.indexFile)
+    assert.match(failure.message, /project index migration failed/)
+    assert.match(failure.message, /EISDIR|directory/)
+
+    assert.equal(await readFile(store.indexFile, 'utf8'), original, 'the original v1 bytes survive')
+    assert.equal((await stat(store.indexFile)).mtimeMs, before.mtimeMs)
+    assert.equal(existsSync(store.activityFile), false)
+    assert.equal(store.lastMigrationReport, null, 'no migration is reported as done')
+    assert.deepEqual((await readdir(store.projectDir)).sort(), ['index.json', 'index.v1.backup.json'])
+  })
+})
+
 test('initIndex writes both routing targets as null', async () => {
   await withTempDir(async (repoPath) => {
     const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
@@ -685,9 +749,23 @@ test('a damaged notice ledger fails closed with its path', async () => {
     await mkdir(store.projectDir, { recursive: true })
     await writeFile(store.noticesFile, '{ not json', 'utf8')
     await rejectsStore(store.readNotices(), 'store/corrupt', store.noticesFile)
+    // A locked mutation maps the same damage instead of leaking the file error.
+    await rejectsStore(store.mutateNotices((ledger) => ledger), 'store/corrupt', 'invalid JSON')
 
     await writeFile(store.noticesFile, JSON.stringify({ version: 1, notices: [noticeRecord({ target: 'nobody' })] }), 'utf8')
     await rejectsStore(store.readNotices(), 'store/corrupt', 'notices[0].target')
+
+    // A mutator that returns an invalid ledger is its own code and writes nothing.
+    const empty = await store.writeNotices({ version: 1, notices: [] })
+    assert.deepEqual(empty, { version: 1, notices: [] })
+    const before = await readFile(store.noticesFile, 'utf8')
+    const failure = await store.mutateNotices(() => ({ version: 1, notices: [noticeRecord({ target: 'nobody' })] }))
+      .catch((error) => error)
+    assert.equal(failure instanceof StoreError, true)
+    assert.equal(failure.code, 'store/invalid-notices')
+    assert.equal(failure.filePath, store.noticesFile)
+    assert.match(failure.message, /notices\[0\]\.target/)
+    assert.equal(await readFile(store.noticesFile, 'utf8'), before, 'the refused mutation wrote nothing')
   })
 })
 
@@ -699,12 +777,17 @@ test('inbox damage fails closed and invalid items are refused before writing', a
     await writeFile(store.inboxFile, '{ not json', 'utf8')
     await rejectsStore(store.readInbox(), 'store/corrupt', store.inboxFile)
 
+    await writeFile(store.inboxFile, JSON.stringify({ items: [] }), 'utf8')
+    await rejectsStore(store.readInbox(), 'store/corrupt', 'inbox must be a JSON array')
+
     await writeFile(store.inboxFile, JSON.stringify([inboxItem('a'), { ...inboxItem('b'), kind: 'nope' }]), 'utf8')
     await rejectsStore(store.readInbox(), 'store/corrupt', 'inbox[1].kind')
 
     await store.writeInbox([])
     const empty = await readFile(store.inboxFile, 'utf8')
     await rejectsStore(store.writeInbox([inboxItem('a', { kind: 'needs-attention' })]), 'store/invalid-inbox', 'inbox[0].kind')
+    // A non-array is a stable invalid-inbox error, not a TypeError from the validators.
+    await rejectsStore(store.writeInbox({}), 'store/invalid-inbox', 'inbox must be an array of items')
     assert.equal(await readFile(store.inboxFile, 'utf8'), empty)
   })
 })

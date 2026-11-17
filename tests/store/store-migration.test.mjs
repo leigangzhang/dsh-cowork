@@ -479,6 +479,22 @@ test('a non-object document and a v1 document with v2 fields fail closed', () =>
   assert.match(collision.message, /index\.topics/)
 })
 
+test('a document whose version is neither v1 nor v2 fails closed', () => {
+  const error = migrationErrorOf({
+    version: 3,
+    projectId: 'project-1',
+    masterSessionId: 'session-master',
+    createdAt: CREATED_AT,
+    threads: [],
+  })
+  assert.ok(error instanceof MigrationError)
+  assert.equal(error.code, 'migration/invalid')
+  assert.match(error.message, /index\.version must be 1 or 2/)
+
+  // A document without a version tag is the same refusal.
+  assert.match(migrationErrorOf({}).message, /index\.version must be 1 or 2/)
+})
+
 test('isLegacyIndexDocument only claims documents that declare version 1', () => {
   assert.equal(isLegacyIndexDocument(indexV1()), true)
   assert.equal(isLegacyIndexDocument(indexV2()), false)
@@ -816,6 +832,32 @@ test('applyLegacyView appends a thread the legacy code created', () => {
     reviewedAt: null,
     latestReviewPath: null,
   })
+})
+
+test('applyLegacyView preserves unknown fields of a thread the legacy code added', () => {
+  const base = indexV2([topicV2({ topicId: 'topic-a' })])
+  const view = legacyViewOf(base)
+  view.threads.push({
+    threadId: 'session-new',
+    subject: 'a thread with a tolerated unknown field',
+    status: 'active',
+    cwd: '/repo',
+    checkoutPath: null,
+    createdAt: CREATED_AT,
+    updatedAt: UPDATED_AT,
+    lastHandoffAt: null,
+    reviewStatus: null,
+    reviewRequestedAt: null,
+    reviewedAt: null,
+    reviewerSessionId: null,
+    latestReviewPath: null,
+    masterFocusTopicId: 'topic-b',
+  })
+
+  const applied = applyLegacyView(base, view)
+
+  assert.equal(applied.topics[1].topicId, 'session-new')
+  assert.equal(applied.topics[1].masterFocusTopicId, 'topic-b', 'an unknown v1 field survives onto the new topic')
 })
 
 /** An in-flight v1 review fixture. */

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -130,6 +130,11 @@ test('initIndex creates the index once and never replaces the master', async () 
     assert.equal(await store.hasIndex(), false)
     await rejectsStore(store.readIndex(), 'store/not-found', store.indexFile)
 
+    // An empty or blank master is refused before the project directory exists.
+    await rejectsStore(store.initIndex(''), 'store/invalid', 'masterSessionId')
+    await rejectsStore(store.initIndex('   '), 'store/invalid', 'masterSessionId')
+    assert.equal(await store.hasIndex(), false)
+
     const first = await store.initIndex('session-master')
     assert.deepEqual(first, {
       index: {
@@ -249,6 +254,44 @@ test('readIndex reports a missing or damaged index without rebuilding it', async
 
     // initIndex must surface the damage instead of silently replacing the file.
     await rejectsStore(store.initIndex('session-master'), 'store/corrupt', store.indexFile)
+
+    // A directory where the document belongs is unreadable damage, not "missing".
+    await rm(store.indexFile, { force: true })
+    await mkdir(store.indexFile, { recursive: true })
+    await rejectsStore(store.readIndex(), 'store/corrupt', 'unreadable')
+  })
+})
+
+test('permission failures propagate from store reads instead of reading as empty', async () => {
+  await withTempDir(async (repoPath) => {
+    const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT), projectId: 'p' })
+    await store.initIndex('session-master')
+    await store.writeHandoff(handoff())
+    await store.writeReview(review())
+
+    // The current test user is not root, so mode 000 really denies the read.
+    const denies = async (path, operation) => {
+      await chmod(path, 0o000)
+      try {
+        await assert.rejects(operation(), (error) => {
+          assert.equal(error.code, 'EACCES', error.message)
+          return true
+        })
+      } finally {
+        await chmod(path, 0o700)
+      }
+    }
+
+    // A stat that fails is not "no index": only ENOENT/ENOTDIR may read as absent.
+    await denies(store.projectDir, () => store.hasIndex())
+    // An unreadable evidence directory is an error, not an empty listing.
+    await denies(store.handoffsDir, () => store.listHandoffs())
+    await denies(store.reviewsDir, () => store.listReviews())
+
+    // Restoring the permissions restores every read.
+    assert.equal(await store.hasIndex(), true)
+    assert.equal((await store.listHandoffs()).length, 1)
+    assert.equal((await store.listReviews()).length, 1)
   })
 })
 
@@ -323,6 +366,12 @@ test('addThread rejects duplicates and updateThread rejects unknown threads', as
     assert.equal(explicit.threads[0].updatedAt, '2026-01-01T00:00:00.000Z')
 
     await rejectsStore(store.updateThread('session-nope', { status: 'done' }), 'store/thread-not-found', 'session-nope')
+    // A status outside the six lifecycle states is refused before any read or write.
+    await rejectsStore(
+      store.updateThread('session-a', { status: 'flying' }),
+      'store/invalid',
+      'thread status must be one of',
+    )
     // The failed update wrote nothing.
     assert.equal((await store.readIndex()).threads.length, 1)
   })
@@ -586,6 +635,16 @@ test('handoffFileName stamps UTC with milliseconds', () => {
     'session-x-20260101T190405006Z.json',
   )
   assert.equal(handoffFileName('session-x', new Date('2026-11-05T00:00:00.000Z')), 'session-x-20261105T000000000Z.json')
+  // A Date the stamp format cannot express is a store error, not a broken name.
+  assert.throws(
+    () => handoffFileName('session-x', new Date(Number.NaN)),
+    (error) => {
+      assert.equal(error instanceof StoreError, true)
+      assert.equal(error.code, 'store/invalid-time')
+      assert.match(error.message, /handoff createdAt is not a valid Date/)
+      return true
+    },
+  )
 })
 
 test('projectIdFor prefers a normalized origin remote and hashes the path otherwise', async () => {
@@ -617,6 +676,10 @@ test('projectIdFor prefers a normalized origin remote and hashes the path otherw
     const store = new ProjectStore({ repoPath, clock: clockAt(CREATED_AT) })
     const created = await store.initIndex('session-master')
     assert.equal(created.index.projectId, 'gitlab.example.com-group-sub-repo')
+
+    // An origin that is not a parseable URL yields no identity; the path hash wins.
+    await git(['remote', 'set-url', 'origin', 'https://'])
+    assert.equal(await projectIdFor(repoPath), expected)
   })
 
   // A directory that is not a repository at all falls back to the path hash.
@@ -638,6 +701,14 @@ test('reviewFileName stamps UTC with milliseconds, like a handoff', () => {
   assert.equal(
     reviewFileName('session-x', new Date('2026-01-02T03:04:05.006+08:00')),
     'session-x-20260101T190405006Z.json',
+  )
+  assert.throws(
+    () => reviewFileName('session-x', new Date(Number.NaN)),
+    (error) => {
+      assert.equal(error instanceof StoreError, true)
+      assert.equal(error.code, 'store/invalid-time')
+      return true
+    },
   )
 })
 
@@ -677,6 +748,20 @@ test('listReviews orders by createdAt, then by file name', async () => {
     assert.deepEqual(listed.map((file) => file.record.createdAt), [older.createdAt, newer.createdAt])
     // An absent reviews directory is an empty list, not an error.
     assert.deepEqual(await new ProjectStore({ repoPath: join(repoPath, 'empty') }).listReviews(), [])
+
+    // A createdAt tie falls back to the file name, so the order is deterministic.
+    const sameTimeLate = review({ threadId: 'session-z', createdAt: '2026-11-05T06:00:00.000Z' })
+    const sameTimeEarly = review({ threadId: 'session-a', createdAt: sameTimeLate.createdAt })
+    await store.writeReview(sameTimeLate)
+    await store.writeReview(sameTimeEarly)
+    const tied = (await store.listReviews()).filter((file) => file.record.createdAt === sameTimeLate.createdAt)
+    assert.deepEqual(
+      tied.map((file) => file.fileName),
+      [
+        reviewFileName('session-a', new Date(sameTimeLate.createdAt)),
+        reviewFileName('session-z', new Date(sameTimeLate.createdAt)),
+      ],
+    )
   })
 })
 

@@ -108,6 +108,21 @@ function workspacePortsOf(registry: HostWorkspaceRegistry): CoworkWorkspacePorts
 }
 
 /**
+ * Open the project store one host port reads under a repository root.
+ *
+ * The panel routes, the topic event lifecycle, and the notice dispatcher all
+ * hand `ProjectStore` the same clock and archive-session owner; the
+ * construction lives here once instead of drifting between three closures.
+ */
+function projectStoreAt(registry: HostWorkspaceRegistry, repoPath: string): ProjectStore {
+  return new ProjectStore({
+    repoPath,
+    clock: () => new Date(),
+    archiveSession: (sessionId, options) => registry.archiveSession(sessionId, options),
+  })
+}
+
+/**
  * Render the project memory block for one repository.
  *
  * Synchronous by contract: the system-prompt provider is synchronous, so the
@@ -243,11 +258,7 @@ function createPanelPorts(
     findProjectRoot,
     // Same construction as the tool layer: a panel-triggered migration must
     // archive a cancelled reviewer through the host, not record a fake failure.
-    createStore: (repoPath) => new ProjectStore({
-      repoPath,
-      clock: () => new Date(),
-      archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
-    }),
+    createStore: (repoPath) => projectStoreAt(assembly.workspaceRegistry, repoPath),
     // M11: the panel's lifecycle read point uses the same clock and idle
     // threshold as the tool layer, and logs a failed activity row instead of
     // failing the request.
@@ -300,11 +311,7 @@ export function apply(ctx: Context, config: Config): void {
   // disposed with the fiber so an A2 adapter can replace only the port later.
   const noticePort = new NoopTopicNoticePort()
   const noticeDispatcher = new TopicNoticeDispatcher({
-    storeFor: (repoPath) => new ProjectStore({
-      repoPath,
-      clock: () => new Date(),
-      archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
-    }),
+    storeFor: (repoPath) => projectStoreAt(assembly.workspaceRegistry, repoPath),
     port: noticePort,
     clock: () => new Date(),
     log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
@@ -358,11 +365,7 @@ export function apply(ctx: Context, config: Config): void {
       if (typeof cwd !== 'string' || cwd === '') return null
       return findProjectRoot(cwd)
     },
-    storeFor: (repoPath) => new ProjectStore({
-      repoPath,
-      clock: () => new Date(),
-      archiveSession: (sessionId, options) => assembly.workspaceRegistry.archiveSession(sessionId, options),
-    }),
+    storeFor: (repoPath) => projectStoreAt(assembly.workspaceRegistry, repoPath),
     clock: () => new Date(),
     log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
   })

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
@@ -186,6 +186,64 @@ test('voidPendingForTopic voids exactly the pending requests of one topic', asyn
     assert.equal((await store.read('req-b')).status, 'pending', 'another topic is untouched')
     assert.equal((await store.read('req-c')).status, 'passed', 'a resolved request is untouched')
     assert.equal((await store.readAll()).records.length, 4, 'voiding never deletes history')
+  })
+})
+
+test('a missing requests directory scans as an empty store', async () => {
+  await withRepo(async (repoPath) => {
+    const store = new RequestStore({ repoPath })
+
+    const scan = await store.readAll()
+
+    assert.deepEqual(scan, { records: [], scanned: 0, skipped: 0, truncated: false })
+  })
+})
+
+test('a request directory read failure other than a missing directory propagates', async () => {
+  await withRepo(async (repoPath) => {
+    const store = new RequestStore({ repoPath })
+    await mkdir(store.projectDir, { recursive: true })
+    // A self-referential symlink makes readdir fail with ELOOP, which is neither
+    // a missing directory nor "not a directory" (both read as an empty store).
+    await symlink('requests', join(store.projectDir, 'requests'))
+
+    await assert.rejects(store.readAll(), (error) => error.code === 'ELOOP')
+  })
+})
+
+test('update refuses an invalid resolved record and leaves the stored file unchanged', async () => {
+  await withRepo(async (repoPath) => {
+    const store = new RequestStore({ repoPath })
+    await store.create(record('req-1'))
+
+    await assert.rejects(
+      () => store.update('req-1', (current) => ({ ...current, status: 'not-a-status' })),
+      /resolved request record is invalid: request\.status must be a known request status/,
+    )
+
+    assert.equal((await store.read('req-1')).status, 'pending')
+    const text = await readFile(join(store.requestsDir, 'req-1.json'), 'utf8')
+    assert.equal(JSON.parse(text).status, 'pending', 'a rejected mutation must never reach the disk')
+  })
+})
+
+test('an unreadable request file is skipped and logged, never fatal', async () => {
+  await withRepo(async (repoPath) => {
+    const logs = []
+    const store = new RequestStore({ repoPath, log: (message) => logs.push(message) })
+    await store.create(record('req-good'))
+    // A directory named like a request makes the read itself fail (EISDIR),
+    // which is the read-error path rather than a parse error or a missing file.
+    await mkdir(join(store.requestsDir, 'req-directory.json'), { recursive: true })
+
+    const scan = await store.readAll()
+
+    assert.deepEqual(scan.records.map((row) => row.requestId), ['req-good'])
+    assert.equal(scan.scanned, 2)
+    assert.equal(scan.skipped, 1)
+    assert.equal(logs.length, 1)
+    assert.match(logs[0], /req-directory\.json was skipped: unreadable \(/)
+    assert.equal(await store.read('req-directory'), null)
   })
 })
 

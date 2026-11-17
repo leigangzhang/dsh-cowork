@@ -12,11 +12,13 @@ import {
   TOPIC_STATUSES,
   WORK_ITEM_STATUSES,
   activityEventProblems,
+  handoffRecordProblems,
   inboxItemProblems,
   normalizeProjectIndexV1,
   normalizeProjectIndexV2,
   projectIndexV1Problems,
   projectIndexV2Problems,
+  reviewRecordProblems,
 } from '../../src/store/schema.ts'
 
 /**
@@ -105,6 +107,47 @@ const indexV2 = (topics = [topicV2()], overrides = {}) => ({
   createdAt: CREATED_AT,
   topics,
   workItems: [],
+  ...overrides,
+})
+
+/** A handoff record file the store may persist. */
+const handoffRecord = (overrides = {}) => ({
+  version: 1,
+  threadId: 'session-a',
+  masterSessionId: 'session-master',
+  status: 'awaiting_review',
+  subject: 'wire the store',
+  summary: 'implemented the store',
+  decisions: [],
+  changedPaths: [],
+  artifacts: [],
+  verification: [{ command: 'node --test tests/store/store-schema.test.mjs', exitCode: 0, evidence: 'pass' }],
+  openIssues: [],
+  nextStep: null,
+  createdAt: CREATED_AT,
+  deliveredAt: null,
+  ...overrides,
+})
+
+/** A legacy verdict-only review record file. */
+const reviewRecord = (overrides = {}) => ({
+  version: 1,
+  threadId: 'session-a',
+  reviewerSessionId: 'session-reviewer',
+  verdict: 'needs_revision',
+  summary: 'one fix before merge',
+  findings: [
+    {
+      id: 'F1',
+      severity: 'high',
+      problem: 'the merge gate can be skipped',
+      requiredFix: 'route the merge through the gate',
+      file: 'src/app/tools.ts',
+      line: 42,
+    },
+  ],
+  verification: [{ command: 'node --test tests/store/store-schema.test.mjs', exitCode: 0, evidence: 'pass' }],
+  createdAt: CREATED_AT,
   ...overrides,
 })
 
@@ -221,6 +264,52 @@ test('v1 validation names the offending field and path', () => {
     'index.masterSessionId must be a non-empty string',
     'index.createdAt must be an ISO 8601 timestamp',
     'index.threads must be an array',
+  ])
+})
+
+test('v1 validation accepts null, absent, and populated review attachments', () => {
+  // A thread the current store writes carries every attachment as null.
+  assert.deepEqual(projectIndexV1Problems(indexV1([threadV1()])), [])
+
+  // A pre-M3 thread predates the four review fields; only `lastHandoffAt` is
+  // required as null-or-timestamp by the current v1 shape.
+  const predatingReview = threadV1()
+  for (const field of ['reviewStatus', 'reviewRequestedAt', 'reviewedAt', 'reviewerSessionId', 'latestReviewPath']) {
+    delete predatingReview[field]
+  }
+  assert.deepEqual(projectIndexV1Problems(indexV1([predatingReview])), [])
+
+  const populated = threadV1({
+    lastHandoffAt: UPDATED_AT,
+    reviewStatus: 'reject',
+    reviewRequestedAt: UPDATED_AT,
+    reviewedAt: UPDATED_AT,
+    reviewerSessionId: 'session-reviewer',
+    latestReviewPath: '.dsh-cowork/reviews/session-a-1.json',
+  })
+  assert.deepEqual(projectIndexV1Problems(indexV1([populated])), [])
+})
+
+test('v1 validation rejects malformed review attachments', () => {
+  const problems = projectIndexV1Problems(
+    indexV1([
+      threadV1({
+        lastHandoffAt: 'yesterday',
+        reviewStatus: 'maybe',
+        reviewRequestedAt: 'soon',
+        reviewedAt: 7,
+        reviewerSessionId: '',
+        latestReviewPath: 42,
+      }),
+    ]),
+  )
+  assert.deepEqual(problems, [
+    'index.threads[0].lastHandoffAt must be an ISO 8601 timestamp or null',
+    'index.threads[0].reviewStatus must be one of pending|pass|needs_revision|reject or null',
+    'index.threads[0].reviewRequestedAt must be an ISO 8601 timestamp or null',
+    'index.threads[0].reviewedAt must be an ISO 8601 timestamp or null',
+    'index.threads[0].reviewerSessionId must be a non-empty string or null',
+    'index.threads[0].latestReviewPath must be a non-empty string or null',
   ])
 })
 
@@ -488,6 +577,24 @@ test('v2 validation rejects a broken or incoherent block', () => {
   )
 })
 
+test('v2 validation bounds the authorization summary in code points', () => {
+  /** The reviewed limit, mirrored here as the documented behavior. */
+  const SUMMARY_MAX_CHARS = 200
+  const authorized = (summary) => topicV2({
+    blocked: true,
+    blockedReason: 'authorization',
+    blockedFromStatus: 'active',
+    authorization: { requestId: 'request-1', summary, requestedAt: UPDATED_AT },
+  })
+  // The bound counts code points, not UTF-16 units: an astral character is one.
+  const atLimit = '😀'.repeat(SUMMARY_MAX_CHARS)
+  assert.deepEqual(projectIndexV2Problems(indexV2([authorized(atLimit)])), [])
+  assert.deepEqual(
+    projectIndexV2Problems(indexV2([authorized(`${atLimit}😀`)])),
+    [`index.topics[0].authorization.summary must be at most ${SUMMARY_MAX_CHARS} characters`],
+  )
+})
+
 test('an activity event is valid when every field matches the activity stream schema', () => {
   const event = {
     eventId: 'event-1',
@@ -556,4 +663,61 @@ test('an inbox item reports each invalid field by name', () => {
     ],
   )
   assert.deepEqual(inboxItemProblems(null), ['inbox must be a JSON object'])
+})
+
+test('a handoff record is valid when every field matches the handoff schema', () => {
+  assert.deepEqual(handoffRecordProblems(handoffRecord()), [])
+  // `nextStep` is optional text; `deliveredAt` flips from null to a timestamp.
+  assert.deepEqual(
+    handoffRecordProblems(handoffRecord({ nextStep: 'run the merge', deliveredAt: UPDATED_AT })),
+    [],
+  )
+})
+
+test('a handoff record reports a broken master, verification row, next step, and delivery time', () => {
+  assert.deepEqual(
+    handoffRecordProblems(handoffRecord({
+      masterSessionId: '',
+      verification: [handoffRecord().verification[0], 'not-a-row'],
+      nextStep: 42,
+      deliveredAt: 'later',
+    })),
+    [
+      'handoff.masterSessionId must be a non-empty string',
+      'handoff.verification[1] must be an object',
+      'handoff.nextStep must be a string or null',
+      'handoff.deliveredAt must be an ISO 8601 timestamp or null',
+    ],
+  )
+  assert.deepEqual(handoffRecordProblems(null), ['handoff must be a JSON object'])
+})
+
+test('a review record accepts a pass verdict with no findings', () => {
+  // A pass has nothing to fix; a non-pass verdict with findings is the other
+  // legal shape the review model writes.
+  assert.deepEqual(reviewRecordProblems(reviewRecord({ verdict: 'pass', findings: [] })), [])
+  assert.deepEqual(reviewRecordProblems(reviewRecord()), [])
+})
+
+test('a review record reports malformed findings and verification rows', () => {
+  assert.deepEqual(
+    reviewRecordProblems(reviewRecord({
+      findings: [
+        'not-a-finding',
+        { id: 'F2', severity: 'high', problem: '', requiredFix: 'fix it', file: '', line: 0 },
+        { id: 'F3', severity: 'high', problem: 'broken', requiredFix: '', file: 'src/a.ts', line: 1.5 },
+      ],
+      verification: ['not-a-row'],
+    })),
+    [
+      'review.findings[0] must be an object',
+      'review.findings[1].problem must be a non-empty string',
+      'review.findings[1].file must be a non-empty string when present',
+      'review.findings[1].line must be a positive integer when present',
+      'review.findings[2].requiredFix must be a non-empty string',
+      'review.findings[2].line must be a positive integer when present',
+      'review.verification[0] must be an object',
+    ],
+  )
+  assert.deepEqual(reviewRecordProblems(null), ['review must be a JSON object'])
 })

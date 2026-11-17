@@ -52,6 +52,17 @@ test('a non-reviewer preset is refused before any session is created', async () 
   assert.equal(ports.created.length, 0, 'no session may be created with the wrong preset')
 })
 
+test('a reviewer session requires a non-empty project repository path', async () => {
+  for (const repoPath of [undefined, '', '   ']) {
+    const ports = fakePorts()
+    await assert.rejects(
+      () => createReviewerSession(ports, { repoPath, subject: 's' }),
+      /a reviewer session needs the project repository path/,
+    )
+    assert.equal(ports.created.length, 0, 'no session may be created without a project root')
+  }
+})
+
 test('a create failure propagates and the host preset mismatch is not hidden', async () => {
   const ports = fakePorts({ createError: new Error('session/create-preset-mismatch: expected cowork-reviewer') })
   await assert.rejects(() => createReviewerSession(ports, { repoPath: '/repo', subject: 's' }), /preset-mismatch/)

@@ -230,3 +230,54 @@ test('a failing session listing returns an error result instead of throwing', as
   assert.match(result.errors[0], /session store unavailable/)
   assert.equal(result.scannedSessions, 0)
 })
+
+test('a session whose project lookup throws is reported and the scan continues', async () => {
+  const broken = '/projects/broken-session'
+  const { ports, attachCalls } = repairPorts({
+    sessions: [
+      { sessionId: 'session-broken', cwd: broken },
+      { sessionId: 'session-ok', cwd: ROOT },
+    ],
+    projectRoots: { [ROOT]: ROOT },
+  })
+  ports.resolveProjectRoot = async (cwd) => {
+    if (cwd === broken) throw new Error('project lookup failed')
+    return ROOT
+  }
+
+  const result = await repairCoworkWorkspaces(ports)
+
+  assert.equal(result.failed, 1)
+  assert.equal(result.errors.length, 1)
+  assert.match(result.errors[0], /^session session-broken: /)
+  assert.match(result.errors[0], /project lookup failed/)
+  assert.equal(result.scannedSessions, 2, 'the pass keeps scanning after one bad session')
+  assert.equal(result.attachedSessions, 1)
+  assert.deepEqual(attachCalls.map((call) => call.sessionId), ['session-ok'])
+})
+
+test('a project whose workspace cannot be created is reported without stopping another project', async () => {
+  const broken = '/projects/create-fails'
+  const other = '/projects/other'
+  const { ports, attachCalls } = repairPorts({
+    sessions: [
+      { sessionId: 'session-broken', cwd: broken },
+      { sessionId: 'session-other', cwd: other },
+    ],
+    projectRoots: { [broken]: broken, [other]: other },
+  })
+  ports.createWorkspace = async (path) => {
+    if (path === broken) throw new Error('registry refused the workspace')
+    return { id: 'workspace-other', path }
+  }
+
+  const result = await repairCoworkWorkspaces(ports)
+
+  assert.equal(result.failed, 1)
+  assert.equal(result.errors.length, 1)
+  assert.match(result.errors[0], /^workspace \/projects\/create-fails: /)
+  assert.match(result.errors[0], /registry refused the workspace/)
+  assert.equal(result.scannedProjects, 2, 'one failed project must not abort the remaining ones')
+  assert.equal(result.attachedSessions, 1)
+  assert.deepEqual(attachCalls, [{ workspaceId: 'workspace-other', sessionId: 'session-other' }])
+})
