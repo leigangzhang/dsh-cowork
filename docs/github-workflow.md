@@ -206,13 +206,13 @@ npm run change-scope -- --base origin/main
 
 测试范围由改动路径决定：
 
-- 文档改动至少运行 `npm run check`；
-- 源码和测试改动按 [testing.md](testing.md) 选择单元测试、覆盖率和相关检查；
-- 客户端、打包、构建或 host 相关改动还要在具备环境时运行 browser、host smoke 或分层覆盖率；
-- 版本或 E2E 范围变化要按 [testing.md](testing.md) 运行 `npm run test:e2e`，并在干净工作区更新当前版本的证据；
-- 需要本机 DSH 环境或 Chromium 的测试，当前通过 heavy 本机测试手动运行；`test:e2e:live` 只作观测，不能替代 keyless E2E 证据。
+> - **文档改动至少运行 `npm run check`；**
+> - **源码和测试改动按 [testing.md](testing.md) 选择单元测试、覆盖率和相关检查；**
+> - **客户端、打包、构建或 host 相关改动还要在具备环境时运行 browser、host smoke 或分层覆盖率；**
+> - **版本或 E2E 范围变化要按 [testing.md](testing.md) 运行 `npm run test:e2e`，并在干净工作区更新当前版本的证据；**
+> - **需要本机 DSH 环境或 Chromium 的测试，当前通过 heavy 本机测试手动运行；`test:e2e:live` 只作观测，不能替代 keyless E2E 证据。**
 
-测试失败时先修复或补测试，不要通过放宽断言、跳过测试或删除覆盖来变绿。无法运行时，要在 PR 里写明原因，不能写成通过。
+**测试失败时先修复或补测试，不要通过放宽断言、跳过测试或删除覆盖来变绿。无法运行时，要在 PR 里写明原因，不能写成通过。**
 
 记录当前提交对应的证据：
 
@@ -258,21 +258,21 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow 的 `pr-
 
 审查在 `pr-gate` 针对当前提交通过后进行。实现者不能担任自己改动的最终审查者。项目内使用 AgentTeams 时，审查者应使用新上下文和只读方式工作；详细规则见 [agent-teams.md](agent-teams.md) 和 [code-review](../.agents/skills/code-review/SKILL.md)。
 
-审查的范围包括代码是否正确、失败时如何处理、状态如何变化、安全、兼容性、测试设计、断言质量和文档是否一致。审查者不直接修改代码；发现问题时提出审查意见，由作者修复。
+审查的范围包括**代码是否正确、失败时如何处理、状态如何变化、安全、兼容性、测试设计、断言质量和文档是否一致**。审查者不直接修改代码；发现问题时提出审查意见，由作者修复。
 
 审查者至少要做这些事：
 
-- 用 `change-scope` 固定审查范围，确认 committed、staged、unstaged、untracked 四组路径；
-- 先读需求和验收，再读代码差异、调用方和测试；
-- 检查测试是否覆盖了 PR 声称的行为，断言是否验证外部结果，以及测试是否会在修复前失败；
-- 核对 PR 的 `Testing`、实际测试命令、结果和 `Not run` 是否一致；
-- E2E 范围或版本变化时，核对 `tests/e2e/evidence/<version>.json` 与当前版本、提交和测试清单；`test:e2e:live` 结果不能当作发布证据；
-- 对必要的行为变更在隔离副本中运行针对性测试；不能运行时说明这是静态审查，不能把别人的运行结果写成自己运行；
-- 检查失败场景的测试、资源清理，以及涉及打包或加载时是否走真实启动路径；
-- 给出 `路径:行号`、影响和修复要求；
-- 在同一提交上给出结论。
+> - **用 `change-scope` 固定审查范围，确认 committed、staged、unstaged、untracked 四组路径；**
+> - **先读需求和验收，再读代码差异、调用方和测试；**
+> - **检查测试是否覆盖了 PR 声称的行为，断言是否验证外部结果，以及测试是否会在修复前失败；**
+> - **核对 PR 的 `Testing`、实际测试命令、结果和 `Not run` 是否一致；**
+> - **E2E 范围或版本变化时，核对 `tests/e2e/evidence/<version>.json` 与当前版本、提交和测试清单；`test:e2e:live` 结果不能当作发布证据；**
+> - **对必要的行为变更在隔离副本中运行针对性测试；不能运行时说明这是静态审查，不能把别人的运行结果写成自己运行；**
+> - **检查失败场景的测试、资源清理，以及涉及打包或加载时是否走真实启动路径；**
+> - **给出 `路径:行号`、影响和修复要求；**
+> - **在同一提交上给出结论。**
 
-GitHub 的 review 不要求审查者把所有测试不加选择地重跑一遍。审查者按 [code-review](../.agents/skills/code-review/SKILL.md) 选择最小但完整的验证：文档改动运行 `npm run check`；行为变更运行覆盖率、构建和 host smoke；交付或浏览器变更再加分层覆盖率。AgentTeams 的独立验证任务会另外运行仓库检查，见 [agent-teams.md](agent-teams.md)。
+**GitHub 的 review 不要求审查者把所有测试不加选择地重跑一遍。审查者按 [code-review](../.agents/skills/code-review/SKILL.md) 选择最小但完整的验证：文档改动运行 `npm run check`；行为变更运行覆盖率、构建和 host smoke；交付或浏览器变更再加分层覆盖率。**AgentTeams 的独立验证任务会另外运行仓库检查，见 [agent-teams.md](agent-teams.md)。
 
 审查结论通过 GitHub review 评论提交。当前使用评论形式的标记，不使用 GitHub 的批准（`Approve`）：
 
