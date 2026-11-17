@@ -363,8 +363,8 @@
         "covered": 276
       },
       "branches": {
-        "total": 57,
-        "covered": 46
+        "total": 61,
+        "covered": 49
       },
       "functions": {
         "total": 14,
@@ -379,8 +379,8 @@
         "covered": 840
       },
       "branches": {
-        "total": 279,
-        "covered": 192
+        "total": 289,
+        "covered": 211
       },
       "functions": {
         "total": 25,
@@ -595,8 +595,8 @@
         "covered": 1251
       },
       "branches": {
-        "total": 943,
-        "covered": 590
+        "total": 945,
+        "covered": 591
       },
       "functions": {
         "total": 42,
@@ -643,12 +643,12 @@
         "covered": 261
       },
       "branches": {
-        "total": 151,
-        "covered": 129
+        "total": 100,
+        "covered": 78
       },
       "functions": {
-        "total": 16,
-        "covered": 14
+        "total": 12,
+        "covered": 12
       }
     },
     {
@@ -925,8 +925,8 @@
         "covered": 279
       },
       "branches": {
-        "total": 111,
-        "covered": 84
+        "total": 113,
+        "covered": 85
       },
       "functions": {
         "total": 9,
@@ -982,8 +982,8 @@
         "covered": 608
       },
       "branches": {
-        "total": 265,
-        "covered": 180
+        "total": 274,
+        "covered": 186
       },
       "functions": {
         "total": 39,
@@ -1091,8 +1091,8 @@
         "covered": 548
       },
       "branches": {
-        "total": 464,
-        "covered": 376
+        "total": 480,
+        "covered": 385
       },
       "functions": {
         "total": 45,
@@ -1177,12 +1177,12 @@
         "covered": 1215
       },
       "branches": {
-        "total": 1114,
-        "covered": 765
+        "total": 1147,
+        "covered": 783
       },
       "functions": {
-        "total": 130,
-        "covered": 100
+        "total": 131,
+        "covered": 101
       }
     },
     {
@@ -1250,87 +1250,28 @@
         "covered": 807
       },
       "branches": {
-        "total": 1569,
-        "covered": 654
+        "total": 1583,
+        "covered": 662
       },
       "functions": {
         "total": 55,
-        "covered": 41
+        "covered": 42
       }
     },
     {
       "path": "src/tools/isolation.ts",
-      "uncoveredLines": [
-        117,
-        118,
-        147,
-        148,
-        285,
-        286,
-        331,
-        332,
-        334,
-        335,
-        352,
-        353,
-        382,
-        383,
-        384,
-        385,
-        386,
-        387,
-        416,
-        417,
-        466,
-        467,
-        495,
-        496,
-        499,
-        500,
-        502,
-        503,
-        504,
-        505,
-        506,
-        507,
-        519,
-        520,
-        521,
-        522,
-        523,
-        524,
-        525,
-        526,
-        527,
-        528,
-        529,
-        530,
-        531,
-        532,
-        533,
-        534,
-        535,
-        536,
-        607,
-        608,
-        609,
-        610,
-        611,
-        612,
-        624,
-        625
-      ],
+      "uncoveredLines": [],
       "lines": {
-        "total": 630,
-        "covered": 572
+        "total": 632,
+        "covered": 632
       },
       "branches": {
-        "total": 167,
-        "covered": 124
+        "total": 207,
+        "covered": 169
       },
       "functions": {
-        "total": 41,
-        "covered": 33
+        "total": 44,
+        "covered": 36
       }
     },
     {

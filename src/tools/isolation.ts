@@ -347,10 +347,12 @@ async function mergeWorkItem(input: WorkItemMergeInput): Promise<{ ok: true } & 
     { repoPath: opened.repoPath, workItemId },
   )
   if (!captured.ok) return failure(captured.code, captured.message, captured.details)
+  // `captureWorkItemHead` only succeeds after reading a non-empty HEAD in the
+  // clone, so a null here is a broken domain contract, not a reachable input;
+  // the one-line guard still narrows the view's nullable field and answers
+  // defensively if that contract ever breaks.
   const headCommit = captured.workItem.headCommit
-  if (headCommit === null) {
-    return failure(CHECKOUT_ERROR.gitFailed, `work item ${workItemId} has no head commit`, { workItemId })
-  }
+  if (headCommit === null) return failure(CHECKOUT_ERROR.gitFailed, `work item ${workItemId} has no head commit`, { workItemId })
 
   const request = await readReviewRequests(opened)
   const passed = request.filter(
