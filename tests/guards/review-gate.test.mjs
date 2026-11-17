@@ -73,7 +73,7 @@ test('PR metadata requires a conventional title and four sections', () => {
   )
 })
 
-test('the retired legacy gate is replaced by one required publisher', () => {
+test('the retired legacy gate is replaced by one success publisher', () => {
   assert.equal(existsSync(resolve(root, '.github/workflows/gate-artifact.yml')), false)
   const workflow = read('.github/workflows/gate-artifact-v2.yml')
   assert.match(workflow, /^name: Policy V2$/m)

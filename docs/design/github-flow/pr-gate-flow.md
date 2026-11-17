@@ -147,7 +147,7 @@ npm run change-scope -- --base <verified-base>
   7. main 自 review base 以来未修改 reviewed paths；否则要求 delta review；
 - report mode 发布 required `gate-artifact` 的 legacy 结论，并另发 `gate-artifact-v2` success 作为 advisory；block mode 用同一个 publisher 发布 required `gate-artifact` 的 v2 + pre-merge 结论。
 
-旧 `.github/workflows/gate-artifact.yml` 已删除；唯一的 publisher 在 report/block 两种 mode 下发布 required `gate-artifact`。`Policy Base` 在 main push 时把旧 gate 标成 `action_required`，防止旧 base 成功被误合并。
+旧 `.github/workflows/gate-artifact.yml` 已删除；唯一的 success/decision publisher 在 report/block 两种 mode 下发布 required `gate-artifact`。`Policy Base` 在 main push 时只发布 `action_required`，防止旧 base 成功被误合并。
 
 ## 5. Ruleset 与合并
 
@@ -225,5 +225,5 @@ npm run change-scope -- --base <verified-base>
 - 有未解决 conversation：merge 被阻止。
 - 直接 push main、force push、删除 main：全部拒绝。
 - `pre-merge` summary 的 base 等于当前 main，head 等于 PR head。
-- required context 始终是 `gate-artifact`，由唯一 publisher 在 report/block 两种 mode 下发布；`gate-artifact-v2` 只做 report。
+- required context 始终是 `gate-artifact`，由唯一 success/decision publisher 在 report/block 两种 mode 下发布；`base-recheck` 只做 stale invalidation；`gate-artifact-v2` 只做 report。
 - 合并后分支自动删除，main 上是 merge commit。
