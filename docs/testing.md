@@ -14,7 +14,7 @@ One home for how dsh-cowork decides that something is verified.
 | Versioned E2E | `npm run test:e2e` | Keyless real-host sessions, tools, stores, and panel routes from the manifest; a local scripted endpoint replaces the provider. `npm run test:e2e:live` is the observational real-model lane | `tests/e2e/**`, `scripts/evidence/e2e.mjs`, `tools/e2e-coverage.mjs`, and every version change (the committed evidence is checked) |
 | Real-model transaction | M12 dev route under `.dsh-cowork/e2e/M12_E2E.json` | Cross-session behavior with a live model on a real host | Before a release until the versioned lane proves parity |
 | PR gate | GitHub Actions `pr-gate` | `npm run check`, `npm test`, and `npm run test:coverage` on the PR head | Every PR to `main` |
-| Local build gate | Heavy lane | `npm run typecheck`, `npm run build`, host smoke, and browser lane where the DSH source/app or Chromium exists | Every affected source/client change until the local heavy runner is stable enough to be required |
+| Local build gate | Heavy lane | `npm run typecheck`, `npm run build`, host smoke, browser, and keyless E2E where the DSH source/app or Chromium exists | Every affected source/client change until the local heavy runner is stable enough to be required |
 | Review evidence | GitHub Actions `gate-artifact` | A `review-verdict` marker at the PR head, a successful `pr-gate`, current `main` as an ancestor, and a clean worktree | Every PR before merge |
 
 A same-process value is not evidence for a cross-process claim: session waking, workspace attach, and worktree merge need a real DSH run; host smoke proves loading, not transactions.
