@@ -203,17 +203,24 @@ function artifactFailures({ unitMeta, browserClient, expectedArtifact }) {
   ]
 }
 
-/** Build the reviewed baseline from every present unit record. */
+/**
+ * Build the reviewed baseline from unit records that still have uncovered
+ * lines. A fully covered module needs no entry: leaving it out keeps `files`
+ * empty once the debt is paid, and an entry that just restates 100% would turn
+ * every improvement into a stale record to refresh.
+ */
 function buildBaseline({ byPath, unitRecords }) {
   const files = []
   for (const [path, entry] of byPath) {
     if (entry.lane !== 'unit') continue
     const record = unitRecords.get(path)
     if (record === undefined) continue
+    const uncovered = uncoveredLines(record)
+    if (uncovered.length === 0) continue
     const lines = lineTotals(record)
     files.push({
       path,
-      uncoveredLines: uncoveredLines(record),
+      uncoveredLines: uncovered,
       lines: { total: lines.total, covered: lines.covered },
       branches: branchTotals(record),
       functions: functionTotals(record),
