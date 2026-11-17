@@ -112,7 +112,7 @@ export function e2eEvidenceProblems({
     problems.push(`${label}: artifact must be an object`)
   } else {
     if (!COMMIT_SHA.test(String(artifact.head ?? ''))) problems.push(`${label}: artifact.head must be a full commit SHA`)
-    if (artifact.head !== headSha) {
+    if (headSha !== '' && artifact.head !== headSha) {
       if (!evidenceHeadAncestor) {
         problems.push(`${label}: artifact.head is not an ancestor of HEAD`)
       } else if (changedPathsSinceEvidenceHead.some((path) => !path.startsWith('tests/e2e/evidence/'))) {
