@@ -27,14 +27,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
-const DEV_DRIVERS = [
-  'src/dev/m12-e2e-contract.ts',
-  'src/dev/m12-e2e-driver.ts',
-  'src/dev/m12-e2e-evidence.ts',
-  'src/dev/m12-e2e-prompts.ts',
-  'src/dev/m12-e2e-support.ts',
-  'src/dev/m12-e2e.ts',
-]
+const DEV_DRIVERS = []
 const BROWSER_SOURCES = [
   'src/client/contracts.ts',
   'src/client/inbox.tsx',
@@ -200,10 +193,10 @@ test('the owner map classifies every source file exactly once', () => {
   const map = JSON.parse(read('tools/coverage-map.json'))
   const result = validateOwnershipMap(map, sources)
   assert.deepEqual(result.failures, [])
-  assert.equal(sources.length, 73)
+  assert.equal(sources.length, 67)
   const byLane = { unit: 0, browser: 0, dev: 0 }
   for (const entry of map.files) byLane[entry.lane] += 1
-  assert.deepEqual(byLane, { unit: 61, browser: 6, dev: 6 })
+  assert.deepEqual(byLane, { unit: 61, browser: 6, dev: 0 })
   assert.deepEqual(
     map.files.filter((entry) => entry.lane === 'dev').map((entry) => entry.path).sort(),
     DEV_DRIVERS,

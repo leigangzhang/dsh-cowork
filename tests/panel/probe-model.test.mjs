@@ -7,9 +7,6 @@ import {
   canonicalRepoPath,
   isLoopbackAddress,
   isLoopbackHost,
-  readPath,
-  readQuery,
-  requireRunId,
 } from '../../src/panel/probe-model.ts'
 
 test('loopback admission accepts only loopback peers and hosts', () => {
@@ -25,18 +22,6 @@ test('loopback admission accepts only loopback peers and hosts', () => {
   for (const host of [undefined, '', 'example.com', '192.168.1.20:3080']) {
     assert.equal(isLoopbackHost(host), false, String(host))
   }
-})
-
-test('request parsing drops the query and validates the run id', () => {
-  assert.equal(readPath('/dsh-cowork/probe/status?runId=abc'), '/dsh-cowork/probe/status')
-  assert.equal(readPath(undefined), '/')
-  assert.equal(readPath(''), '/')
-  assert.equal(readQuery('/dsh-cowork/e2e/m12/status?runId=abc&x=1', 'runId'), 'abc')
-  assert.equal(readQuery('/dsh-cowork/e2e/m12/status', 'runId'), undefined)
-  assert.equal(readQuery(undefined, 'runId'), undefined)
-  assert.equal(requireRunId(' abc '), 'abc')
-  assert.throws(() => requireRunId(undefined), /runId query parameter is required/)
-  assert.throws(() => requireRunId('   '), /runId query parameter is required/)
 })
 
 test('canonicalRepoPath resolves a symlink and passes a missing path through', () => {

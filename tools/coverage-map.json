@@ -66,42 +66,6 @@
       "lane": "unit"
     },
     {
-      "path": "src/dev/m12-e2e-contract.ts",
-      "lane": "dev",
-      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
-      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
-    },
-    {
-      "path": "src/dev/m12-e2e-driver.ts",
-      "lane": "dev",
-      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
-      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
-    },
-    {
-      "path": "src/dev/m12-e2e-evidence.ts",
-      "lane": "dev",
-      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
-      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
-    },
-    {
-      "path": "src/dev/m12-e2e-prompts.ts",
-      "lane": "dev",
-      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
-      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
-    },
-    {
-      "path": "src/dev/m12-e2e-support.ts",
-      "lane": "dev",
-      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
-      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
-    },
-    {
-      "path": "src/dev/m12-e2e.ts",
-      "lane": "dev",
-      "reason": "M12 real-host E2E driver; its live branches run only through the opt-in dev route",
-      "exitWhen": "the versioned E2E harness lands and the M12 driver is deleted"
-    },
-    {
       "path": "src/dev/panel-probe.ts",
       "lane": "unit"
     },

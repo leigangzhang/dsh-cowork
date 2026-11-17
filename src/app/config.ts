@@ -55,7 +55,7 @@ export interface Config {
    */
   worktreeRelativePath: string
   /**
-   * Register the M12 E2E run/status routes and the loopback health route. Off
+   * Register the loopback health route used by host smoke and readiness. Off
    * by default: an installed profile keeps only the business tools, presets,
    * and panel API.
    */

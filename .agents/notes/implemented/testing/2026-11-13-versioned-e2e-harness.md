@@ -28,7 +28,7 @@ Class: testing
 
 **把 `.dsh-cowork/e2e/` 整个提交。** 否决：里面混着机器路径、临时 profile、截图、失败运行和重复证据，无法区分测试代码与运行产物；只提交可复现的场景和去敏摘要。
 
-**继续维护 M12，在文件里加版本注释。** 否决：它绑定 dev route 和 0.2.0 的业务链，要真实模型，且没有机制阻止“新能力没有场景也算绿”。M12 暂留是因为它还有一条本机无法执行的断言，不是因为它是目标形态。
+**继续维护 M12，在文件里加版本注释。** 否决：它绑定 dev route 和 0.2.0 的业务链，要真实模型，且没有机制阻止“新能力没有场景也算绿”。M12 曾暂留是因为它还有一条本机无法执行的断言；该断言已由 host-bash heavy lane 覆盖后 M12 被删除。
 
 **只做单元/契约测试。** 否决：session 唤醒、工具执行的 store 写入、面板路由和 merge 都是跨进程事实；同进程 mock 不能证明。
 
@@ -47,7 +47,7 @@ Class: testing
 - 脚本化 provider 只证明宿主、工具、store 和路由的链路，不证明模型质量或真实工具的语义；真实模型 quality 由 `test:e2e:live` 观测，本机没有 `DEEPSEEK_API_KEY`，该 lane 只验证了 self-skip，未执行真实调用。
 - 矩阵证明“被场景点名”，不证明组合、边界值和负面路径；边界仍由 unit/contract 测试承担。
 - `inbox.open` 已确认没有安全的 headless 覆盖方式，保留债务条目；只有宿主提供可注入 opener 或允许带用户确认的桌面 lane 时才重新评估。
-- M12 dev route 和 `src/dev/m12-e2e*` 未退役：它的“topic 会话用 bash 提交”断言需要可用的 bash sandbox 后端，本机宿主拒绝执行该命令（[KI-46](../../../../docs/KNOWN_ISSUES.md)）。这是退役的前置条件，不是本决策的遗留实现缺口。
+- M12 dev 面已退役：`src/dev/m12-e2e*`、`tests/dev/m12-e2e.test.mjs` 与 run/status 路由已删除；host-bash 场景在 heavy runner 上证明了 topic 会话可用 bash 提交，`test:e2e:live` 也已真实执行一次。保留的唯一 dev 路由是 host smoke 使用的 health。
 - 一个 run 共享一个宿主；场景之间只靠独立 fixture 隔离。超时场景会终止整轮，避免把残留状态解释成下一场景的证据。
 
 ## Testing
