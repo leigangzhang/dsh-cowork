@@ -39,7 +39,10 @@ function isNonEmptyString(value) {
 }
 
 /**
- * Every public key the E2E matrix must cover.
+ * Every public key the E2E matrix must cover: tools, panel routes, presets, and
+ * topic/review/work-item lifecycle states. The inbox request action/status
+ * enums are wire constants whose matrix would be request shapes, not host
+ * capabilities; their contract tests own them.
  *
  * @returns {Promise<string[]>} Sorted, de-duplicated keys.
  */
@@ -71,9 +74,23 @@ export async function collectSurfaceKeys() {
  * @param {string} input.packageVersion Version from `package.json`.
  * @param {object|null} input.evidence Parsed `tests/e2e/evidence/<version>.json`, or null when absent.
  * @param {Set<string>} input.keylessScenarioIds Scenario ids the manifest declares keyless.
+ * @param {string} input.catalogSha256 Current content digest of `tests/e2e/`.
+ * @param {string[]} input.testedHosts DSH versions the manifest declares tested.
+ * @param {string} input.headSha Current HEAD.
+ * @param {boolean} input.evidenceHeadAncestor Whether the recorded head is an ancestor of HEAD.
+ * @param {string[]} input.changedPathsSinceEvidenceHead Paths changed between the recorded head and HEAD.
  * @returns {string[]} One message per violation.
  */
-export function e2eEvidenceProblems({ packageVersion, evidence, keylessScenarioIds }) {
+export function e2eEvidenceProblems({
+  packageVersion,
+  evidence,
+  keylessScenarioIds,
+  catalogSha256,
+  testedHosts,
+  headSha,
+  evidenceHeadAncestor,
+  changedPathsSinceEvidenceHead,
+}) {
   const label = `tests/e2e/evidence/${packageVersion}.json`
   if (evidence === null || typeof evidence !== 'object' || Array.isArray(evidence)) {
     return [`${label} is missing; run the keyless lane with --record from a clean worktree before release`]
@@ -82,11 +99,26 @@ export function e2eEvidenceProblems({ packageVersion, evidence, keylessScenarioI
   if (evidence.formatVersion !== 1) problems.push(`${label}: formatVersion must be 1`)
   if (evidence.pluginVersion !== packageVersion) problems.push(`${label}: pluginVersion must be ${packageVersion}`)
   if (evidence.result !== 'pass') problems.push(`${label}: result must be pass`)
+  if (!isNonEmptyString(evidence.catalogSha256) || !SHA256.test(evidence.catalogSha256)) {
+    problems.push(`${label}: catalogSha256 must be a SHA-256 of the current tests/e2e catalog`)
+  } else if (evidence.catalogSha256 !== catalogSha256) {
+    problems.push(`${label}: catalogSha256 does not match the current tests/e2e catalog; re-record the lane`)
+  }
+  if (!testedHosts.includes(String(evidence.dshVersion ?? ''))) {
+    problems.push(`${label}: dshVersion ${String(evidence.dshVersion)} is not in manifest.host.tested`)
+  }
   const artifact = evidence.artifact
   if (artifact === null || typeof artifact !== 'object' || Array.isArray(artifact)) {
     problems.push(`${label}: artifact must be an object`)
   } else {
     if (!COMMIT_SHA.test(String(artifact.head ?? ''))) problems.push(`${label}: artifact.head must be a full commit SHA`)
+    if (artifact.head !== headSha) {
+      if (!evidenceHeadAncestor) {
+        problems.push(`${label}: artifact.head is not an ancestor of HEAD`)
+      } else if (changedPathsSinceEvidenceHead.some((path) => !path.startsWith('tests/e2e/evidence/'))) {
+        problems.push(`${label}: files outside tests/e2e/evidence/ changed after artifact.head; re-record the lane`)
+      }
+    }
     if (artifact.dirty !== false) problems.push(`${label}: artifact.dirty must be false (record from a clean worktree)`)
     if (!SHA256.test(String(artifact.tarballSha256 ?? ''))) problems.push(`${label}: artifact.tarballSha256 must be a SHA-256`)
   }

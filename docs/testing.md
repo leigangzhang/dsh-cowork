@@ -17,7 +17,7 @@ One home for how dsh-cowork decides that something is verified.
 | Local build gate | Heavy lane | `npm run typecheck`, `npm run build`, host smoke, and browser lane where the DSH source/app or Chromium exists | Every affected source/client change until the local heavy runner is stable enough to be required |
 | Review evidence | GitHub Actions `gate-artifact` | A `review-verdict` marker at the PR head, a successful `pr-gate`, current `main` as an ancestor, and a clean worktree | Every PR before merge |
 
-Replayable expected output has no lane yet; do not cite it. The browser panel is observational and writes `coverage/client.json` and `coverage/browser.lcov`. A same-process value is not evidence for a cross-process claim: session waking, workspace attach, and worktree merge need a real DSH run; host smoke proves loading, not transactions.
+A same-process value is not evidence for a cross-process claim: session waking, workspace attach, and worktree merge need a real DSH run; host smoke proves loading, not transactions.
 
 ## Commands
 
@@ -54,7 +54,7 @@ The unit loader strips TypeScript in line-preserving mode; every `src` TypeScrip
 
 `test:host-smoke` uses a temporary `DSH_HOME`, npm cache, and port; it never writes the real profile and calls no model. Missing `dsh` prints a skip; `DSH_HOST_SMOKE_STRICT=1` makes it fatal.
 
-`test:e2e` packs `lib/`, boots one temporary host, and points the real adapter at a local scripted Messages endpoint through `baseURL`. Each scenario creates a fresh fixture, uses the host Remote API for real sessions and prompts, and calls panel routes with the cookie. It opens no provider connection and needs no model key; all temporary paths are removed in `finally`. Missing `dsh` is a named skip (`DSH_E2E_STRICT=1` fatal). `--record` writes a sanitized summary for a green run from a clean worktree; `npm run check` requires it for the current version and every keyless scenario. `--mode live` runs only with `DEEPSEEK_API_KEY`, is observational, and is never keyless evidence.
+`test:e2e` packs `lib/`, boots one temporary host, and points the real adapter at a local scripted Messages endpoint through `baseURL`. Each scenario creates a fresh fixture, uses the host Remote API for real sessions and prompts, and calls panel routes with the cookie. It opens no provider connection and needs no model key; host, profile, and fixture paths are removed in `finally`, while the gitignored `.dsh-cowork/e2e/<run>/` evidence is kept. Missing `dsh` skips (`DSH_E2E_STRICT=1` fatal); an out-of-range DSH major.minor fails, and `--record` requires a tested host. `--record` writes a sanitized summary for a green run from a clean worktree; `npm run check` requires it for the current version and every keyless scenario. `--mode live` runs only with `DEEPSEEK_API_KEY`, is observational, and is never keyless evidence.
 
 `test:browser` packs the same artifact, creates temporary workspaces and `.dsh-cowork` fixtures, opens the real right sidebar in one Chromium context, and removes host, profile, cache, and fixture paths in `finally`. Missing `dsh` or Chromium prints a named skip; `DSH_BROWSER_STRICT=1` makes either fatal. A standalone strict run needs a clean worktree (the layered command binds the dirty tree); page errors fail the run.
 

@@ -115,9 +115,8 @@ export async function runMasterChain(ctx) {
   ctx.check('the routed topic starts live', routedTopic?.status === 'active' || routedTopic?.status === 'idle', String(routedTopic?.status))
   ctx.check('the route was prompted into the topic session', routed.payload?.prompted === true, String(routed.payload?.prompted))
 
-  const brief = await ctx.waitUntil('the routed topic model turn', () =>
+  await ctx.waitUntil('the routed topic model turn', () =>
     ctx.model.calls.find((call) => call.sessionId === routedTopicId && call.role === 'topic' && call.prompt.includes(ROUTED_BRIEF)))
-  ctx.check('the brief arrived in the topic session', brief.role === 'topic', brief.role)
   await ctx.client.waitIdle(routedTopicId, {})
 
   const sessions = await ctx.client.listSessions()

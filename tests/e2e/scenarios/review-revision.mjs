@@ -169,7 +169,7 @@ export async function runReviewRevision(ctx) {
     if (review?.value.status !== 'reject' || topic?.reviewStatus !== 'reject') return undefined
     return { review, topic }
   })
-  ctx.check('the review file records reject', rejected.review.value.status === 'reject', String(rejected.review.value.status))
+  ctx.check('the reject verdict records the finding', rejected.review.value.findings.length === 1, String(rejected.review.value.findings.length))
   ctx.check('the topic records reject and is blocked', rejected.topic.reviewStatus === 'reject' && rejected.topic.blocked === true, `${String(rejected.topic.reviewStatus)} blocked=${String(rejected.topic.blocked)}`)
   const inbox = await ctx.waitUntil('the review-reject inbox record', async () => {
     const rows = await ctx.inbox()

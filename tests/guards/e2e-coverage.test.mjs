@@ -10,6 +10,7 @@ import {
   WORK_ITEM_STORE_ONLY_STATUSES,
 } from '../../tools/e2e-coverage.mjs'
 import { SCENARIOS } from '../../tests/e2e/scenarios/index.mjs'
+import { catalogSha256 } from '../../tests/e2e/support/catalog.mjs'
 import { hostSupport, parseHostVersion } from '../../tests/e2e/support/versions.mjs'
 
 /**
@@ -27,6 +28,17 @@ const debt = JSON.parse(readFileSync(resolve(manifestDir, 'coverage-debt.json'),
 const packageVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
 const evidence = JSON.parse(readFileSync(resolve(manifestDir, 'evidence', `${packageVersion}.json`), 'utf8'))
 const keylessIds = new Set(manifest.scenarios.filter((scenario) => scenario.mode === 'keyless').map((scenario) => scenario.id))
+const catalog = await catalogSha256(manifestDir)
+const EVIDENCE_INPUT = {
+  packageVersion,
+  evidence,
+  keylessScenarioIds: keylessIds,
+  catalogSha256: catalog,
+  testedHosts: manifest.host.tested,
+  headSha: evidence.artifact.head,
+  evidenceHeadAncestor: true,
+  changedPathsSinceEvidenceHead: [],
+}
 
 const SURFACE_KEYS = ['preset:p', 'route:/x GET', 'tool:a', 'topic-status:active']
 const SCENARIO = {
@@ -94,20 +106,31 @@ test('every manifest scenario id resolves to the same static module', () => {
 })
 
 test('the committed evidence matches the current version and every keyless scenario', () => {
-  assert.deepEqual(e2eEvidenceProblems({ packageVersion, evidence, keylessScenarioIds: keylessIds }), [])
+  assert.deepEqual(e2eEvidenceProblems(EVIDENCE_INPUT), [])
 })
 
 test('the evidence checker rejects a missing, failed, or partial summary', () => {
-  assert.ok(e2eEvidenceProblems({ packageVersion, evidence: null, keylessScenarioIds: keylessIds })
+  assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, evidence: null })
     .some((problem) => problem.includes('is missing')))
   const failed = structuredClone(evidence)
   failed.scenarios[0].passed = false
-  assert.ok(e2eEvidenceProblems({ packageVersion, evidence: failed, keylessScenarioIds: keylessIds })
+  assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, evidence: failed })
     .some((problem) => problem.includes('passed must be true')))
   const partial = structuredClone(evidence)
   partial.scenarios = partial.scenarios.slice(1)
-  assert.ok(e2eEvidenceProblems({ packageVersion, evidence: partial, keylessScenarioIds: keylessIds })
+  assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, evidence: partial })
     .some((problem) => problem.includes('has no recorded result')))
+})
+
+test('the evidence checker binds the catalog, host, and recorded head', () => {
+  assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, catalogSha256: 'd'.repeat(64) })
+    .some((problem) => problem.includes('does not match the current tests/e2e catalog')))
+  assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, testedHosts: ['9.9.9'] })
+    .some((problem) => problem.includes('is not in manifest.host.tested')))
+  assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, headSha: 'd'.repeat(40), evidenceHeadAncestor: false })
+    .some((problem) => problem.includes('is not an ancestor of HEAD')))
+  assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, headSha: 'd'.repeat(40), changedPathsSinceEvidenceHead: ['tests/e2e/manifest.json'] })
+    .some((problem) => problem.includes('files outside tests/e2e/evidence/ changed')))
 })
 
 test('the manifest covers the complete public tool and route surface', async () => {

@@ -14,6 +14,7 @@
  *   node tools/check-invariants.mjs --changed BASE  run only checks reading changed paths
  */
 
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,6 +29,7 @@ import {
   selfTest as engineSelfTest,
 } from './doc-gate-engine.mjs'
 import { collectSurfaceKeys, e2eEvidenceProblems, e2eManifestProblems } from './e2e-coverage.mjs'
+import { catalogSha256 } from '../tests/e2e/support/catalog.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
@@ -149,6 +151,20 @@ async function e2eErrors() {
       .map((scenario) => scenario.id)
       .filter((id) => typeof id === 'string'),
   )
+  const head = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
+  const headSha = head.status === 0 ? head.stdout.trim() : ''
+  const artifactHead = typeof evidence.value?.artifact?.head === 'string' ? evidence.value.artifact.head : ''
+  let evidenceHeadAncestor = false
+  let changedPathsSinceEvidenceHead = []
+  if (artifactHead !== '' && headSha !== '') {
+    if (artifactHead === headSha) {
+      evidenceHeadAncestor = true
+    } else {
+      evidenceHeadAncestor = spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', artifactHead, headSha]).status === 0
+      const diff = spawnSync('git', ['-C', root, 'diff', '--name-only', `${artifactHead}..${headSha}`], { encoding: 'utf8' })
+      if (diff.status === 0) changedPathsSinceEvidenceHead = diff.stdout.split('\n').filter(Boolean)
+    }
+  }
   return [
     ...e2eManifestProblems({
       packageVersion: packageJson.value.version,
@@ -160,6 +176,11 @@ async function e2eErrors() {
       packageVersion: packageJson.value.version,
       evidence: evidence.value,
       keylessScenarioIds,
+      testedHosts: Array.isArray(manifest.value.host?.tested) ? manifest.value.host.tested : [],
+      catalogSha256: await catalogSha256(resolve(root, 'tests/e2e')),
+      headSha,
+      evidenceHeadAncestor,
+      changedPathsSinceEvidenceHead,
     }),
   ]
 }
@@ -559,9 +580,21 @@ const E2E_DEBT = { entries: [] }
 const E2E_EVIDENCE = {
   formatVersion: 1,
   pluginVersion: '1.0.0',
+  dshVersion: '1.0.0',
+  catalogSha256: 'c'.repeat(64),
   result: 'pass',
   artifact: { head: 'a'.repeat(40), dirty: false, tarballSha256: 'b'.repeat(64) },
   scenarios: [{ id: 's1', mode: 'keyless', passed: true, checks: [{ name: 'c', passed: true }] }],
+}
+const E2E_EVIDENCE_INPUT = {
+  packageVersion: '1.0.0',
+  evidence: E2E_EVIDENCE,
+  keylessScenarioIds: new Set(['s1']),
+  testedHosts: ['1.0.0'],
+  catalogSha256: 'c'.repeat(64),
+  headSha: 'a'.repeat(40),
+  evidenceHeadAncestor: true,
+  changedPathsSinceEvidenceHead: [],
 }
 
 /** Evaluate one synthetic catalog; every file exists. */
@@ -601,21 +634,46 @@ function e2eSelfTestCases() {
   },
   {
     name: 'e2e evidence: a missing summary is red',
-    fail: () => e2eEvidenceProblems({ packageVersion: '1.0.0', evidence: null, keylessScenarioIds: new Set(['s1']) })
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, evidence: null })
       .some((problem) => problem.includes('is missing')),
   },
   {
     name: 'e2e evidence: a failed scenario is red',
     fail: () => e2eEvidenceProblems({
-      packageVersion: '1.0.0',
+      ...E2E_EVIDENCE_INPUT,
       evidence: { ...E2E_EVIDENCE, scenarios: [{ ...E2E_EVIDENCE.scenarios[0], passed: false }] },
-      keylessScenarioIds: new Set(['s1']),
     }).some((problem) => problem.includes('passed must be true')),
   },
   {
     name: 'e2e evidence: a missing keyless scenario is red',
-    fail: () => e2eEvidenceProblems({ packageVersion: '1.0.0', evidence: E2E_EVIDENCE, keylessScenarioIds: new Set(['s1', 's2']) })
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, keylessScenarioIds: new Set(['s1', 's2']) })
       .some((problem) => problem.includes('has no recorded result')),
+  },
+  {
+    name: 'e2e catalog: a duplicate scenario id is red',
+    fail: () => e2eProblems({
+      manifest: { ...E2E_MANIFEST, scenarios: [E2E_SCENARIO, { ...E2E_SCENARIO }] },
+    }).some((problem) => problem.includes('repeats s1')),
+  },
+  {
+    name: 'e2e evidence: a changed catalog is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, catalogSha256: 'd'.repeat(64) })
+      .some((problem) => problem.includes('does not match the current tests/e2e catalog')),
+  },
+  {
+    name: 'e2e evidence: an untested host is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, testedHosts: ['2.0.0'] })
+      .some((problem) => problem.includes('is not in manifest.host.tested')),
+  },
+  {
+    name: 'e2e evidence: a non-ancestor head is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, headSha: 'd'.repeat(40), evidenceHeadAncestor: false })
+      .some((problem) => problem.includes('is not an ancestor of HEAD')),
+  },
+  {
+    name: 'e2e evidence: a later non-evidence change is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, headSha: 'd'.repeat(40), changedPathsSinceEvidenceHead: ['tests/e2e/manifest.json'] })
+      .some((problem) => problem.includes('files outside tests/e2e/evidence/ changed')),
   },
   ]
 }

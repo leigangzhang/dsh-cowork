@@ -215,7 +215,7 @@ export async function runTopicPanel(ctx) {
   const movedTarget = (await ctx.index())?.topics.find((topic) => topic.topicId === targetTopicId)
   ctx.check(
     'route.move appended the intent tokens to the target aliases',
-    Array.isArray(movedTarget?.aliases) && movedTarget.aliases.length > 0,
+    ['routed', 'panel', 'intent'].every((token) => movedTarget?.aliases?.includes(token)),
     JSON.stringify(movedTarget?.aliases),
   )
 

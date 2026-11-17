@@ -158,9 +158,6 @@ export async function runReviewMerge(ctx) {
 
   await ctx.waitUntil('the reviewer read-only grep', () =>
     ctx.model.calls.find((call) => call.role === 'reviewer' && call.toolResults.some((row) => row.toolName === 'grep' && row.isError === false)))
-  const reviewerVerdict = await ctx.waitUntil('the reviewer verdict call', () =>
-    ctx.model.calls.find((call) => call.role === 'reviewer' && call.reply?.tool === 'cowork_review_verdict'))
-  ctx.check('the reviewer delivered a verdict', reviewerVerdict.reply.tool === 'cowork_review_verdict', reviewerVerdict.reply.tool)
   const passed = await ctx.waitUntil('the pass verdict in the request and index', async () => {
     const [reviews, index] = await Promise.all([ctx.reviews(), ctx.index()])
     const review = reviews.find((entry) => entry.value.requestId === reviewRequestId)
@@ -170,7 +167,7 @@ export async function runReviewMerge(ctx) {
       ? { review, topic, item }
       : undefined
   })
-  ctx.check('the pass verdict is recorded', passed.review.value.status === 'pass', String(passed.review.value.status))
+  ctx.check('the pass verdict records the review summary', passed.review.value.summary === REVIEW_SUMMARY, String(passed.review.value.summary))
   ctx.check('the work item is reviewing after the pass', passed.item.status === 'reviewing', String(passed.item.status))
   const mergeNotice = await ctx.waitUntil('the merge-needed delivery to the master', async () => {
     const rows = await ctx.inbox()
@@ -178,10 +175,10 @@ export async function runReviewMerge(ctx) {
       ? rows.find((entry) => entry.topicId === topicId && entry.kind === 'merge-needed' && entry.deliveredAt !== null)
       : undefined
   })
-  ctx.check('the pass wrote a delivered merge-needed inbox row', mergeNotice.deliveredAt !== null, String(mergeNotice.deliveredAt))
+  ctx.check('the merge-needed row names the work item', mergeNotice.summary.includes(workItem.workItemId), mergeNotice.summary)
   const mergeMessage = await ctx.waitUntil('the merge-needed model turn', () =>
     ctx.model.calls.find((call) => call.sessionId === masterId && call.prompt.includes('[merge-needed]')))
-  ctx.check('the master received the merge-needed message', mergeMessage.role === 'master', mergeMessage.role)
+  ctx.check('the merge-needed message names the work item', mergeMessage.prompt.includes(workItem.workItemId), 'missing work item id')
 
   await ctx.promptForTool(
     topicId,
@@ -199,7 +196,7 @@ export async function runReviewMerge(ctx) {
     const files = await ctx.handoffs()
     return files.find((entry) => entry.value.threadId === topicId && entry.value.status === 'done')
   })
-  ctx.check('the handoff file exists with done', handoffFile.value.status === 'done', String(handoffFile.value.status))
+  ctx.check('the handoff file records the summary', handoffFile.value.summary.includes('ready to merge'), String(handoffFile.value.summary))
 
   await ctx.promptForTool(
     masterId,

@@ -24,9 +24,9 @@ Class: testing
 
 **3. 覆盖矩阵从公开面自动推导。** 工具和路由取 `tests/support/public-surface.mjs`，preset 取 `src/platform/presets.ts`，生命周期状态取 `src/store/schema.ts`；`tools/e2e-coverage.mjs` 生成键并与 manifest 比较。矩阵只列有公开写路径的状态：`abandoned` 是 store/panel 可读但没有公开 abandon 动作的保留值，排除它的理由写在检查模块里，新增状态仍会自动进入矩阵。每个公开键必须被至少一个 keyless 场景覆盖，或在 `tests/e2e/coverage-debt.json` 记录原因和退出条件；live-model 场景不计入 keyless 覆盖。新增公开键没有场景或债务条目时 `npm run check` 变红；债务条目被覆盖或指向已删除的键时同样变红。这条检查不把单元行覆盖率当行为覆盖率。
 
-**4. 版本和宿主范围是 manifest 的一部分。** `pluginVersion` 必须等于 `package.json.version`；`host.tested` 记录实际验证过的 DSH 版本，`host.compatibleMajorMinor` 给出同一 minor 的兼容范围。runner 启动前执行 `dsh --version`，超出范围明确失败，同 minor 未测版本给出警告并记入证据。版本变更但不更新 manifest 时检查变红。
+**4. 版本和宿主范围是 manifest 的一部分。** `pluginVersion` 必须等于 `package.json.version`；`host.tested` 记录实际验证过的 DSH 版本，`host.compatibleMajorMinor` 给出同一 minor 的兼容范围。runner 启动前执行 `dsh --version`；超出范围的 major.minor 直接失败，同 minor 的未测补丁默认也失败（显式 `--allow-untested-host` 才运行，且 `--record` 仍拒绝）。版本变更但不更新 manifest 时检查变红。
 
-**5. 证据可移植，且有版本身份。** runner 在 `.dsh-cowork/e2e/<run>/` 写原始证据（场景、检查、模型调用）和 `summary.json`；成功运行可 `--record` 写出 `tests/e2e/evidence/<pluginVersion>.json`。摘要只含脱敏字段：插件版本、DSH 和 Node 版本、HEAD、worktree diff SHA-256、tarball SHA-256、场景与检查结果；不含 hostname、token、cookie 或绝对用户路径。`npm run check` 要求当前版本存在摘要、摘要为绿色、干净 worktree、且包含 manifest 的全部 keyless 场景，所以版本升级或新增 keyless 场景必须重新记录。live-model 运行只写本地证据，`--record` 拒绝它。
+**5. 证据可移植，且有版本身份。** runner 在 gitignored 的 `.dsh-cowork/e2e/<run>/` 写原始证据（场景、检查、模型调用）和 `summary.json`（本地输出保留，不随临时宿主删除）；成功运行可 `--record` 写出 `tests/e2e/evidence/<pluginVersion>.json`。摘要只含脱敏字段：插件版本、DSH 和 Node 版本、HEAD、worktree diff SHA-256、tarball SHA-256、场景与检查结果；不含 hostname、token、cookie 或绝对用户路径。`npm run check` 要求当前版本存在摘要、摘要为绿色、干净 worktree、且包含 manifest 的全部 keyless 场景，所以版本升级或新增 keyless 场景必须重新记录。live-model 运行只写本地证据，`--record` 拒绝它。
 
 **6. 分阶段替换 M12。** keyless lane 先覆盖 master / topic / panel / review / merge 的公开行为，连续稳定后再把 keyless 场景提升为发布阻塞；live-model 场景独立标记、无模型 self-skip，只做质量观测。覆盖 M12 现有断言后，删除 `src/dev/m12-e2e*` 和 M12 的 dev 路由，只保留 host smoke 需要的 health route；旧 `.dsh-cowork/e2e` 摘要只作历史证据，不再作为验收入口。
 

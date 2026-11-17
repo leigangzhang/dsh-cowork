@@ -10,9 +10,10 @@
  * The keyless run needs no model credentials and opens no provider connection.
  * `--mode live` is the observational lane: it uses the deployment's real provider
  * and `DEEPSEEK_API_KEY`, so it is opt-in and never written to the release
- * summary. Either run never writes the user's profile or `.dsh-cowork` tree:
- * every session, workspace, and fixture lives under one temporary root removed
- * in `finally`.
+ * summary. Neither run writes the user's profile; sessions, workspaces, and
+ * fixtures live under one temporary root removed in `finally`. The only local
+ * output is the gitignored `.dsh-cowork/e2e/<run>/` evidence directory, which
+ * is intentionally kept for inspection.
  *
  * Usage:
  *   node scripts/evidence/e2e.mjs [--scenario <id>]... [--keep] [--record] [--list]
@@ -31,6 +32,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { SCENARIOS } from '../../tests/e2e/scenarios/index.mjs'
+import { catalogSha256 } from '../../tests/e2e/support/catalog.mjs'
 import { startDshHost } from './dsh-host-session.mjs'
 import { sanitizeEvidenceText } from './evidence-sanitize.mjs'
 import { createHostClient } from '../../tests/e2e/support/host-client.mjs'
@@ -170,12 +172,10 @@ async function main() {
   }
   const dshVersion = versionResult.stdout.trim()
   const support = hostSupport(manifest.host, dshVersion)
-  if (!support.supported) {
-    strictSkip(support.reason)
-    if (!STRICT) return
-  }
+  if (!support.supported) throw new Error(support.reason)
   if (!support.tested) {
-    if (!values['allow-untested-host'] && STRICT) throw new Error(`${support.reason}; pass --allow-untested-host or set DSH_E2E_ALLOW_UNTESTED_HOST=1`)
+    if (!values['allow-untested-host']) throw new Error(`${support.reason}; pass --allow-untested-host to run an untested patch`)
+    if (values.record) throw new Error(`${support.reason}; release evidence requires a tested host`)
     console.log(`WARN e2e: ${support.reason}`)
   }
   for (const path of ['lib/index.js', 'lib/client.js']) {
@@ -241,15 +241,22 @@ async function main() {
       const scenarioStartedAt = new Date().toISOString()
       const scenarioStartMs = Date.now()
       let error = null
+      let timedOut = false
       try {
         const outcome = await withTimeout(scenario.run(context), SCENARIO_TIMEOUT_MS, entry.id)
         if (outcome !== undefined && outcome?.__timeout !== undefined) {
-          throw new Error(`scenario ${entry.id} exceeded ${String(SCENARIO_TIMEOUT_MS)}ms`)
+          timedOut = true
+          error = `scenario ${entry.id} exceeded ${String(SCENARIO_TIMEOUT_MS)}ms; the run stops here and never lets a stray scenario share the next fixture`
         }
       } catch (caught) {
         error = caught instanceof Error ? caught.message : String(caught)
       } finally {
-        if (values.keep) console.log(`kept fixture ${fixture.path}`)
+        // A timed-out scenario is still running. Its fixture and the shared host
+        // are torn down below before the run root is removed; never let the next
+        // scenario reuse the host or the scripted handler.
+        if (timedOut) {
+          // keep the fixture for the outer teardown
+        } else if (values.keep) console.log(`kept fixture ${fixture.path}`)
         else await removeFixture(fixture.path)
       }
       const result = {
@@ -279,6 +286,7 @@ async function main() {
       )
       if (error === null) console.log(`PASS ${entry.id}: ${result.checks.length} checks`)
       else console.log(`FAIL ${entry.id}: ${error}`)
+      if (timedOut) break
     }
   } finally {
     if (host !== null) await host.stop()
@@ -291,6 +299,7 @@ async function main() {
   const summary = {
     formatVersion: 1,
     mode,
+    hostTested: support.tested,
     pluginVersion: packageJson.version,
     dshVersion,
     nodeVersion: process.version,
@@ -309,6 +318,7 @@ async function main() {
       formatVersion: 1,
       pluginVersion: summary.pluginVersion,
       dshVersion: summary.dshVersion,
+      catalogSha256: await catalogSha256(join(root, 'tests/e2e')),
       nodeVersion: summary.nodeVersion,
       command: 'npm run test:e2e -- --record',
       recordedAt: summary.finishedAt,
