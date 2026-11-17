@@ -365,8 +365,8 @@
         "covered": 844
       },
       "branches": {
-        "total": 675,
-        "covered": 393
+        "total": 678,
+        "covered": 395
       },
       "functions": {
         "total": 73,
@@ -565,12 +565,12 @@
         "covered": 261
       },
       "branches": {
-        "total": 100,
-        "covered": 78
+        "total": 151,
+        "covered": 129
       },
       "functions": {
-        "total": 12,
-        "covered": 12
+        "total": 16,
+        "covered": 14
       }
     },
     {
@@ -1003,8 +1003,8 @@
         "covered": 548
       },
       "branches": {
-        "total": 483,
-        "covered": 388
+        "total": 484,
+        "covered": 390
       },
       "functions": {
         "total": 45,
@@ -1013,84 +1013,30 @@
     },
     {
       "path": "src/store/notice-store.ts",
-      "uncoveredLines": [
-        78,
-        79
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 92,
-        "covered": 90
+        "covered": 92
       },
       "branches": {
-        "total": 50,
-        "covered": 42
+        "total": 57,
+        "covered": 47
       },
       "functions": {
-        "total": 13,
-        "covered": 11
+        "total": 14,
+        "covered": 12
       }
     },
     {
       "path": "src/store/project-store.ts",
-      "uncoveredLines": [
-        237,
-        238,
-        260,
-        261,
-        333,
-        334,
-        383,
-        384,
-        385,
-        386,
-        387,
-        388,
-        389,
-        421,
-        422,
-        575,
-        576,
-        577,
-        578,
-        579,
-        580,
-        655,
-        656,
-        671,
-        672,
-        708,
-        709,
-        758,
-        759,
-        855,
-        856,
-        865,
-        1006,
-        1007,
-        1011,
-        1012,
-        1013,
-        1014,
-        1015,
-        1016,
-        1026,
-        1027,
-        1028,
-        1029,
-        1030,
-        1031,
-        1032,
-        1033,
-        1190,
-        1191
-      ],
+      "uncoveredLines": [],
       "lines": {
-        "total": 1265,
-        "covered": 1215
+        "total": 1266,
+        "covered": 1266
       },
       "branches": {
-        "total": 1196,
-        "covered": 811
+        "total": 1225,
+        "covered": 852
       },
       "functions": {
         "total": 131,
@@ -1162,12 +1108,12 @@
         "covered": 807
       },
       "branches": {
-        "total": 1585,
+        "total": 1586,
         "covered": 665
       },
       "functions": {
         "total": 55,
-        "covered": 42
+        "covered": 41
       }
     },
     {

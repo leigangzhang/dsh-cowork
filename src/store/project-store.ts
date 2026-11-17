@@ -996,14 +996,15 @@ export class ProjectStore {
     try {
       migrated = migrateV1ToV2(parsed)
     } catch (error) {
-      if (error instanceof MigrationError) {
-        throw new StoreError(
-          'store/corrupt',
-          problemMessage('project index cannot be migrated', this.indexFile, [error.message]),
-          this.indexFile,
-        )
-      }
-      throw error
+      // `migrateV1ToV2` reports every invalid-input case as a MigrationError;
+      // anything else is a programming error and must not be dressed as
+      // corruption. The one-line guard keeps the rethrow on the executed line.
+      if (!(error instanceof MigrationError)) throw error
+      throw new StoreError(
+        'store/corrupt',
+        problemMessage('project index cannot be migrated', this.indexFile, [error.message]),
+        this.indexFile,
+      )
     }
     migrated.document = normalizeProjectIndexV2(migrated.document) as ProjectIndexV2
     const problems = projectIndexV2Problems(migrated.document)
