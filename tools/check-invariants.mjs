@@ -673,7 +673,7 @@ function e2eSelfTestCases() {
   {
     name: 'e2e evidence: a later non-evidence change is red',
     fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, headSha: 'd'.repeat(40), changedPathsSinceEvidenceHead: ['tests/e2e/manifest.json'] })
-      .some((problem) => problem.includes('files outside tests/e2e/evidence/ changed')),
+      .some((problem) => problem.includes('runtime files outside tests/e2e/evidence/')),
   },
   ]
 }
