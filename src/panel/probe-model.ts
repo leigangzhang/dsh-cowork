@@ -33,25 +33,3 @@ export function canonicalRepoPath(path: string): string {
     return path
   }
 }
-
-/** Pathname of a request target, dropping the query. */
-export function readPath(url: string | undefined): string {
-  if (url === undefined || url === '') return '/'
-  const at = url.indexOf('?')
-  return at < 0 ? url : url.slice(0, at)
-}
-
-/** One query parameter of a request target, or undefined. */
-export function readQuery(url: string | undefined, name: string): string | undefined {
-  if (url === undefined) return undefined
-  const at = url.indexOf('?')
-  if (at < 0) return undefined
-  const value = new URLSearchParams(url.slice(at + 1)).get(name)
-  return value === null ? undefined : value
-}
-
-/** Validate a status query's run id. */
-export function requireRunId(value: string | undefined): string {
-  if (value === undefined || value.trim() === '') throw new Error('runId query parameter is required')
-  return value.trim()
-}

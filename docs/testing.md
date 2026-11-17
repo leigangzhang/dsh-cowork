@@ -12,7 +12,6 @@ One home for how dsh-cowork decides that something is verified.
 | Browser | `npm run test:browser` | The packed plugin boots in a temporary DSH web profile; one Chromium context drives the real sidebar and panel; DOM/ARIA/HTTP requests are asserted; client TSX line/function coverage is reported and the expected TSX set must be present | Every `src/client/**/*.tsx`, `tests/browser/**`, or browser-lane script change; after `npm run build` |
 | Built artifact | `npm run test:host-smoke` | The packed `lib/` installs into a temporary DSH profile, boots the host, serves its loopback health route, and proves the panel API rejects an unauthenticated request | Package, bundle-patch, build, or registration changes; after `npm run build` |
 | Versioned E2E | `npm run test:e2e` | Keyless real-host sessions, tools, stores, and panel routes from the manifest; a local scripted endpoint replaces the provider. `npm run test:e2e:live` is the observational real-model lane | `tests/e2e/**`, `scripts/evidence/e2e.mjs`, `tools/e2e-coverage.mjs`, and every version change (the committed evidence is checked) |
-| Real-model transaction | M12 dev route under `.dsh-cowork/e2e/M12_E2E.json` | Cross-session behavior with a live model on a real host | Before a release until the versioned lane proves parity |
 | PR gate | GitHub Actions `pr-gate` | `npm run check`, `npm test`, and `npm run test:coverage` on the PR head | Every PR to `main` |
 | Local build gate | Heavy lane | `npm run typecheck`, `npm run build`, host smoke, browser, keyless E2E, and the observational host-bash check where the DSH source/app or Chromium exists | Every affected source/client change until the local heavy runner is stable enough to be required |
 | Review evidence | GitHub Actions `gate-artifact` | A `review-verdict` marker at the PR head, a successful `pr-gate`, current `main` as an ancestor, and a clean worktree | Every PR before merge |
@@ -42,7 +41,7 @@ npm run gate-artifact -- --base <verified-base>  # record HEAD, binary diff SHA-
 
 `test:coverage` runs every test file in its own process, writes one LCOV report per process, and merges the reports by union. The aggregate `node --test` report is not used: it intermittently dropped a test file. The gate is [coverage-check.mjs](../scripts/evidence/coverage-check.mjs) and its policy data is `tools/coverage-map.json` plus `tools/coverage-debt.json`.
 
-Every `src/**/*.ts` and `src/client/**/*.tsx` is owned by exactly one lane: `unit`, `browser`, or `dev`. Ownership is exclusive. The six `src/dev/m12-e2e*` drivers are the only `dev` entries: they carry a reason and an exit condition, are reported for visibility, and are not gated. `src/client/notice.tsx` is a blocked browser entry until the host exposes `ctx.sessionNotices` (KI-40). A file with only type declarations is allowed to be absent from the coverage report; a file with runtime statements that no test loads fails.
+Every `src/**/*.ts` and `src/client/**/*.tsx` is owned by exactly one lane: `unit`, `browser`, or `dev`. Ownership is exclusive. No source file currently uses the `dev` lane; the owner map and checker still support it for an opt-in surface. `src/client/notice.tsx` is a blocked browser entry until the host exposes `ctx.sessionNotices` (KI-40). A file with only type declarations is allowed to be absent from the coverage report; a file with runtime statements that no test loads fails.
 
 Line coverage is per file: 100%, or exactly the uncovered-line set in `tools/coverage-debt.json`. The baseline only shrinks; an unlisted gap, a regression, or a stale entry after an improvement is red. `--update-debt` is the only writer; it refuses newly uncovered lines unless `--accept-regression` is explicit. Editing a covered file shifts stored line numbers, so the entry refreshes and may only shrink. `coverage:check` rejects a report whose recorded HEAD or porcelain no longer matches. Reports live in gitignored `coverage/`.
 
@@ -70,7 +69,7 @@ The unit loader strips TypeScript in line-preserving mode; every `src` TypeScrip
 ## Blocking and observational lanes
 
 - Blocking: `npm test`, `npm run test:coverage`, `npm run typecheck`, `npm run build`, and `npm run test:host-smoke` for package/bundle changes when DSH is available. `npm run test:coverage:layered` is blocking for delivery and merge once the browser lane can run locally; a missing lane is red.
-- Blocking for release: the keyless lane's committed evidence for the current version. Observational: `test:e2e:live`, browser floors, the M12 live chain, and host-specific checks; live results are never release evidence, and browser floors become blocking after three green runs and a reviewed floors file.
+- Blocking for release: the keyless lane's committed evidence for the current version. Observational: `test:e2e:live`, `test:e2e:bash`, browser floors, and host-specific checks; live/host-bash results are never release evidence, and browser floors become blocking after three green runs and a reviewed floors file.
 
 ## Flake policy
 

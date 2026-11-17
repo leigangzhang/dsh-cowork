@@ -5,7 +5,7 @@
  * cowork tools, the three presets, and the project-memory prompt section — and
  * starts the opt-in dev surface when `Config.enableDevRoutes` is true. The
  * configuration schema and its one defaults table live in `src/app/config.ts`; the
- * dev routes (loopback health plus the M12 E2E run/status pair) live in
+ * dev route (loopback health) lives in
  * `src/app/dev-surfaces.ts`.
  */
 import { createHash } from 'node:crypto'
@@ -242,7 +242,7 @@ export function createOpenWorkspacePathPort(
   }
 }
 
-/** The ten panel routes' shared ports; production and the M12 probe use the same ones. */
+/** The ten panel routes' shared ports. */
 function createPanelPorts(
   ctx: Context,
   assembly: CoworkAssemblyHost,
@@ -412,17 +412,12 @@ export function apply(ctx: Context, config: Config): void {
     }
   }, 'dsh-cowork: workspace repair')
 
-  // Dev surfaces are opt-in: an installed profile never exposes the dev
-  // routes or the M12 session event feed.
+  // The dev surface is opt-in: an installed profile never exposes it.
   if (settings.enableDevRoutes) {
     registerDevSurfaces(ctx, {
       repoPath,
-      promptTimeoutMs: settings.promptTimeoutMs,
-      idleAfterMs: settings.idleAfterMs,
-      resolveAfterMs: settings.resolveAfterMs,
       pluginName: PLUGIN_NAME,
       pluginVersion: PLUGIN_VERSION,
-      ports: panelPorts,
     })
   }
 

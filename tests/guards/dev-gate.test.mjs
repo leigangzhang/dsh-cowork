@@ -15,9 +15,9 @@ import { join } from 'node:path'
 // Everything else (dsh-tools, schemastery) resolves from the links that
 // `npm run build` creates, like tests/api-read.test.mjs already relies on.
 
-const { apply, Config, normalizeConfig, panelRoutePathname } = await import('../../src/app/apply.ts')
+const { apply, Config, normalizeConfig } = await import('../../src/app/apply.ts')
 const { CONFIG_DEFAULTS } = await import('../../src/app/config.ts')
-const { panelProbeRequest } = await import('../../src/dev/panel-probe.ts')
+const { panelProbeRequest, panelRoutePathname } = await import('../../src/dev/panel-probe.ts')
 const { DEFAULT_ISOLATION_PROVIDER } = await import('../../src/platform/tool-runtime.ts')
 const { CLONE_ISOLATION_PROVIDER } = await import('../../src/domains/isolation/checkout.ts')
 const { OVERVIEW_PATH } = await import('../../src/panel/api-contract.ts')
@@ -29,8 +29,6 @@ const BUSINESS_PRESETS = ['cowork-master', 'cowork-reviewer', 'cowork-topic']
 
 /** The opt-in dev surface: health plus the M12 E2E run/status pair, nothing else. */
 const DEV_ROUTES = [
-  '/dsh-cowork/e2e/m12/run',
-  '/dsh-cowork/e2e/m12/status',
   '/dsh-cowork/probe/health',
 ]
 
@@ -129,8 +127,7 @@ const fetchPaths = (host) => sorted(host.fetchRoutes.map((route) => route.path))
 
 /**
  * Invoke one registered dev route with a synthetic Node request/response pair.
- * The handlers are synchronous for the health route and status-only for the
- * M12 pair, so the captured response is enough for the assertions here.
+ * The health handler is synchronous, so the captured response is enough.
  */
 function callRoute(route, { method = 'GET', url = route.path, remoteAddress = '127.0.0.1', host = '127.0.0.1' } = {}) {
   const response = {
@@ -250,8 +247,8 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
   // Exactly the twenty-two business tools: the retired probe tool is absent.
   assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
 
-  // The M12 runner's session feed is not attached; the business topic
-  // lifecycle listener and the memory prompt's agent/created listener are.
+  // The business topic lifecycle listener and the memory prompt's
+  // agent/created listener are attached; no dev feed exists.
   assert.equal(sessionListeners(host).length, 1)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 
@@ -287,36 +284,35 @@ test('the remote roster hides topic/reviewer while registration stays complete',
   )
 })
 
-test('enableDevRoutes=true adds only the health and M12 E2E routes', async () => {
+test('enableDevRoutes=true adds only the loopback health route', async () => {
   const host = fakeHost()
   apply(host.ctx, config(true))
   await settle()
 
-  // Exactly three loopback-only routes with the exact-match shape.
+  // Exactly one loopback-only route with the exact-match shape.
   assert.deepEqual(sorted(host.routes.map((route) => route.path)), DEV_ROUTES)
   assert.equal(host.routes.every((route) => route.kind === 'exact'), true)
   assert.equal(host.routes.every((route) => typeof route.handler === 'function'), true)
 
   // Panel API, business tools, and business presets are untouched by the gate:
-  // the retired M0 probe tool, probe preset, and run/status routes stay gone.
+  // the retired M0 probe tool and preset stay gone.
   assert.deepEqual(fetchPaths(host), sorted(PANEL_PATHS))
   assert.deepEqual(toolNames(host), sorted(BUSINESS_TOOLS))
   assert.deepEqual(presetIds(host), sorted(BUSINESS_PRESETS))
   assert.equal(host.tools.some((tool) => tool.name === 'cowork_probe'), false)
   assert.equal(host.presets.some((preset) => preset.id === 'cowork-probe'), false)
 
-  // The M12 session feed plus the business topic lifecycle listener.
-  assert.equal(sessionListeners(host).length, 2)
+  // The business topic lifecycle listener; the retired dev feed is gone.
+  assert.equal(sessionListeners(host).length, 1)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 
-  // Every dev route and the M12 event feed are fiber-owned effects with a
-  // label a later diagnostic can recognise.
+  // Every dev route is a fiber-owned effect with a label a later diagnostic
+  // can recognise.
   const labels = host.effects.map((entry) => entry.label)
   for (const path of DEV_ROUTES) {
     assert.equal(labels.includes(`dsh-cowork: route ${path}`), true, `missing effect for ${path}`)
   }
-  assert.equal(labels.includes('dsh-cowork: M12 E2E session event feed'), true)
-  assert.equal(labels.includes('dsh-cowork: M12 E2E runner'), true)
+  assert.deepEqual(labels.filter((label) => /M12|e2e|session event feed/i.test(label)), [])
 })
 
 test('the dev health route reports the canonical repoPath and keeps the loopback gate (P0-F1)', async () => {
@@ -361,7 +357,7 @@ test('the retired M0 probe run and status routes are not registered', async () =
   }
 })
 
-test('the M12 panel probe matches a query-string path to the bare registered route (F1)', () => {
+test('the dev panel probe matches a query-string path to the bare registered route (F1)', () => {
   // The host registers the panel routes under the bare path; the probe calls
   // overview with `?sessionId=…`, so a raw Map lookup missed it in t6.
   const routes = new Map([[OVERVIEW_PATH, { path: OVERVIEW_PATH }]])
@@ -396,7 +392,7 @@ test('the entry stays a re-export barrel and the assembly stays under 30 KiB', (
   // The moved concerns live in their own modules and are imported, not restated.
   assert.match(source, /from '\.\/config\.js'/, 'the assembly must import src/app/config.ts')
   assert.match(source, /from '\.\/dev-surfaces\.js'/, 'the assembly must import src/app/dev-surfaces.ts')
-  for (const moved of [/z\.object\(/, /cowork_probe/, /probe\/run/, /createM12PanelProbe/]) {
+  for (const moved of [/z\.object\(/, /cowork_probe/, /probe\/run/, /M12E2ERunner/]) {
     assert.equal(moved.test(source), false, `the assembly must not restate ${moved}`)
   }
 })
@@ -405,7 +401,7 @@ test('disposing the plugin releases the dev session listeners', async () => {
   const host = fakeHost()
   apply(host.ctx, config(true))
   await settle()
-  assert.equal(sessionListeners(host).length, 2)
+  assert.equal(sessionListeners(host).length, 1)
 
   await disposeAll(host)
 
