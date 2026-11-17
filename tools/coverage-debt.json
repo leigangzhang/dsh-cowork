@@ -73,18 +73,18 @@
         403,
         404,
         405,
-        441,
-        442,
-        443,
-        444,
-        477,
-        478,
-        479,
-        480
+        436,
+        437,
+        438,
+        439,
+        472,
+        473,
+        474,
+        475
       ],
       "lines": {
-        "total": 485,
-        "covered": 408
+        "total": 480,
+        "covered": 403
       },
       "branches": {
         "total": 67,
@@ -113,81 +113,18 @@
     },
     {
       "path": "src/app/dev-surfaces.ts",
-      "uncoveredLines": [
-        105,
-        106,
-        107,
-        108,
-        109,
-        110,
-        111,
-        112,
-        113,
-        114,
-        115,
-        118,
-        119,
-        122,
-        123,
-        124,
-        127,
-        128,
-        129,
-        132,
-        133,
-        134,
-        180,
-        181,
-        182,
-        183,
-        184,
-        185,
-        186,
-        187,
-        188,
-        189,
-        190,
-        191,
-        192,
-        193,
-        194,
-        195,
-        196,
-        202,
-        203,
-        204,
-        205,
-        206,
-        207,
-        208,
-        209,
-        210,
-        211,
-        212,
-        213,
-        214,
-        215,
-        216,
-        217,
-        218,
-        219,
-        220,
-        221,
-        222,
-        223,
-        224
-      ],
+      "uncoveredLines": [],
       "lines": {
-        "total": 236,
-        "covered": 174
+        "total": 88,
+        "covered": 88
       },
       "branches": {
-        "total": 23,
-        "covered": 22
+        "total": 13,
+        "covered": 13
       },
       "functions": {
-        "total": 24,
-        "covered": 15
+        "total": 7,
+        "covered": 7
       }
     },
     {
@@ -443,8 +380,8 @@
         "covered": 844
       },
       "branches": {
-        "total": 662,
-        "covered": 386
+        "total": 659,
+        "covered": 382
       },
       "functions": {
         "total": 68,
@@ -595,12 +532,12 @@
         "covered": 1251
       },
       "branches": {
-        "total": 934,
-        "covered": 588
+        "total": 945,
+        "covered": 591
       },
       "functions": {
-        "total": 40,
-        "covered": 40
+        "total": 42,
+        "covered": 41
       }
     },
     {
@@ -792,16 +729,16 @@
       "path": "src/panel/probe-model.ts",
       "uncoveredLines": [],
       "lines": {
-        "total": 57,
-        "covered": 57
+        "total": 35,
+        "covered": 35
       },
       "branches": {
-        "total": 39,
-        "covered": 33
+        "total": 20,
+        "covered": 18
       },
       "functions": {
-        "total": 6,
-        "covered": 6
+        "total": 3,
+        "covered": 3
       }
     },
     {
@@ -1081,12 +1018,12 @@
         "covered": 548
       },
       "branches": {
-        "total": 487,
-        "covered": 391
+        "total": 480,
+        "covered": 385
       },
       "functions": {
-        "total": 37,
-        "covered": 32
+        "total": 45,
+        "covered": 35
       }
     },
     {
@@ -1171,8 +1108,8 @@
         "covered": 800
       },
       "functions": {
-        "total": 130,
-        "covered": 100
+        "total": 131,
+        "covered": 101
       }
     },
     {
@@ -1240,11 +1177,11 @@
         "covered": 807
       },
       "branches": {
-        "total": 1573,
-        "covered": 659
+        "total": 1531,
+        "covered": 653
       },
       "functions": {
-        "total": 50,
+        "total": 55,
         "covered": 41
       }
     },

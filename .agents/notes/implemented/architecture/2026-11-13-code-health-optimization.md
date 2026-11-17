@@ -10,7 +10,7 @@ Class: architecture
 
 - **入口过载。** [index.ts](../../../../src/app/apply.ts) 46,369 B / 1,126 行，同时持有 Config schema、`normalizeConfig`、368 行 dev 路由、M12 面板探针、workspace repair 与业务装配；读代码需要先跳过 dev 面。
 - **剩余历史脚手架。** M2/M3/S0 已在上一轮移除，但 M0 run/status、`cowork_probe`、`cowork-probe` preset 仍注册；health 仍是 host-smoke 的必要入口。
-- **文件贴 50 KiB 读上限。** [m12-e2e-support.ts](../../../../src/dev/m12-e2e-support.ts) 51,157 B、[m12-e2e.ts](../../../../src/dev/m12-e2e.ts) 50,942 B、[store.ts](../../../../src/store/project-store.ts) 49,435 B、[review-request.ts](../../../../src/domains/review/review-request.ts) 48,758 B；新增一行就可能越过 DSH 单文件读取上限。
+- **文件贴 50 KiB 读上限。** `m12-e2e-support.ts` 51,157 B、`m12-e2e.ts` 50,942 B、[store.ts](../../../../src/store/project-store.ts) 49,435 B、[review-request.ts](../../../../src/domains/review/review-request.ts) 48,758 B；新增一行就可能越过 DSH 单文件读取上限。
 - **投递语义四套。** inbox 批量 + `deliveredAt`、notice 1:1 账本 + 退避、request 卡片 `delivery.lastError`、review verdict 本地 `promptError`；重试/错误记录各写一遍，KI-17/KI-23 的不对称长期存在。
 - **授权跨文件双写。** 主题的 `authorization` 与 `requests/<id>.json` 分两次加锁写；卡片失败会留下「主题已解锁、卡片仍 pending」窗口（KI-45）。
 - **配置默认值两处。** zod schema 的 `.default()` 与 `normalizeConfig` 的 `??` 各维护一套；新增字段要改两处，漂移不会被测试发现。
@@ -28,7 +28,7 @@ Class: architecture
 
 1. **入口拆分。** [config.ts](../../../../src/app/config.ts) 持有 Config 类型族、`CONFIG_DEFAULTS`、schema 与 `normalizeConfig`；[dev-surfaces.ts](../../../../src/app/dev-surfaces.ts) 持有 health、M12 run/status、M12 面板探针与 loopback guard；[index.ts](../../../../src/app/apply.ts) 只保留 apply 编排与 13 项公开再导出，21,830 B。
 2. **退役剩余 M0 运行面。** 删除 run/status、`cowork_probe`、`cowork-probe` preset、`probe-engine.ts`、`probe-store.ts`；只保留 `/dsh-cowork/probe/health` 供 host-smoke，dev 面只剩 health + M12 run/status，0 个 dev 工具/preset。
-3. **拆 m12 与测试贴边。** support 拆为 [m12-e2e-contract.ts](../../../../src/dev/m12-e2e-contract.ts)、[m12-e2e-prompts.ts](../../../../src/dev/m12-e2e-prompts.ts)、[m12-e2e-evidence.ts](../../../../src/dev/m12-e2e-evidence.ts)，support 只剩 463 B 再导出；driver 生命周期拆到 [m12-e2e-driver.ts](../../../../src/dev/m12-e2e-driver.ts)。所有 m12 文件 <48 KiB（最大 37,719 B），[m12-e2e.test.mjs](../../../../tests/dev/m12-e2e.test.mjs) 预算改为 49,152。
+3. **拆 m12 与测试贴边。** support 拆为 `m12-e2e-contract.ts`、`m12-e2e-prompts.ts`、`m12-e2e-evidence.ts`，support 只剩 463 B 再导出；driver 生命周期拆到 `m12-e2e-driver.ts`。所有 m12 文件 <48 KiB（最大 37,719 B），`m12-e2e.test.mjs` 预算改为 49,152。
 4. **统一投递尝试。** 新增 [delivery.ts](../../../../src/domains/notices/delivery.ts)：`attemptDelivery`/`retryDelaySchedule`，唯一重试循环、永不抛异常、返回 `{attempts,delivered,error}`。5 个调用点接入（inbox flush、master verdict、reviewer brief、topic wake、notices dispatcher）；各域账本保留（KI-47）。
 5. **授权单锁事务。** [authorization-decision.ts](../../../../src/domains/requests/authorization-decision.ts) 只开一次 `store.withWriteLock`，内部使用免锁写 `mutateIndexDocumentUnlocked`（[store.ts](../../../../src/store/project-store.ts)）与 `RequestStore.updateUnlocked`（[request-store.ts](../../../../src/store/request-store.ts)）；index 先失败则卡片不动，卡片失败用锁内快照回写 index（补偿），补偿失败记录残余窗口（KI-45）。
 6. **配置默认值单源。** `CONFIG_DEFAULTS` 同时供 schema 与 `normalizeConfig`；`Config({})` 与 `normalizeConfig({})` 深相等，routing 解析不变。
@@ -69,7 +69,7 @@ Class: architecture
 ## Testing
 
 - [A1] [index.ts](../../../../src/app/apply.ts) ≤30 KiB 且只做编排；`CONFIG_DEFAULTS` 单源，`Config({})` 与 `normalizeConfig({})` 深相等 — `source`：[dev-gate.test.mjs](../../../../tests/guards/dev-gate.test.mjs)、[config.ts](../../../../src/app/config.ts)
-- [A2] 所有 `src/m12-e2e*.ts` <48 KiB；support 只再导出；m12 step/prompt/evidence 不变 — `source`：[m12-e2e-support.ts](../../../../src/dev/m12-e2e-support.ts)、[source-budget.test.mjs](../../../../tests/guards/source-budget.test.mjs)
+- [A2] 所有 `src/m12-e2e*.ts` <48 KiB；support 只再导出；m12 step/prompt/evidence 不变 — `source`：`m12-e2e-support.ts`、[source-budget.test.mjs](../../../../tests/guards/source-budget.test.mjs)
 - [A3] [delivery.ts](../../../../src/domains/notices/delivery.ts) 是唯一投递重试实现，5 个调用点接入；成功/重试/耗尽/不抛异常有测试 — `source`、`tests`：[delivery.test.mjs](../../../../tests/domains/notices/delivery.test.mjs)
 - [A4] authorization 两路径单次 `withWriteLock`，两种失败顺序与补偿窗口有测试；幂等 replay 不重复 prompt — `tests`：[authorization-transaction.test.mjs](../../../../tests/domains/requests/authorization-transaction.test.mjs)
 - [A5] [inbox-api.ts](../../../../src/panel/inbox-api.ts) 不再 import `./api.js`；[api-types.ts](../../../../src/panel/api-types.ts) 无环且 api 导出兼容 — `source`：[api-types.test.mjs](../../../../tests/panel/api-types.test.mjs)
