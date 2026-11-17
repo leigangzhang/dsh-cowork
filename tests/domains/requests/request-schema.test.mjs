@@ -177,6 +177,55 @@ test('payloadProblems accepts each kind and reports the malformed ones', () => {
     payloadProblems('authorization', { summary: 's', command: 'x'.repeat(REQUEST_PAYLOAD_MAX_BYTES) })[0],
     /bytes|command/,
   )
+
+  // Each optional review field names its own refusal instead of inheriting the
+  // purpose error.
+  assert.match(
+    payloadProblems('user-review', { purpose: 'x', changedPaths: 'src/a.ts' })[0],
+    /changedPaths must be an array/,
+  )
+  assert.match(
+    payloadProblems('user-review', { purpose: 'x', changedPaths: [''] })[0],
+    /changedPaths\[0\]/,
+  )
+  assert.match(
+    payloadProblems('user-review', { purpose: 'x', verification: 'npm test' })[0],
+    /verification must be an array/,
+  )
+  assert.match(
+    payloadProblems('user-review', { purpose: 'x', verification: [{ command: '', exitCode: 0, evidence: 'e' }] })[0],
+    /command must be a non-empty string/,
+  )
+  assert.match(
+    payloadProblems('user-review', { purpose: 'x', verification: [{ command: 'c', exitCode: 0, evidence: '' }] })[0],
+    /evidence must be a non-empty string/,
+  )
+  assert.match(payloadProblems('authorization', { summary: '' })[0], /payload\.summary/)
+
+  // Question shapes refuse a bad option, prompt, options container and flag.
+  const question = (spec) => payloadProblems('question', { questions: [spec] })
+  assert.match(
+    question({ id: 'q1', prompt: 'p', mode: 'single', options: [{ id: '', label: 'l' }] })[0],
+    /options\[0\]\.id/,
+  )
+  assert.match(
+    question({ id: 'q1', prompt: 'p', mode: 'single', options: [{ id: 'o1', label: '' }] })[0],
+    /options\[0\]\.label/,
+  )
+  assert.match(
+    question({ id: 'q1', prompt: 'p', mode: 'single', options: [{ id: 'o1', label: 'l', recommended: 'yes' }] })[0],
+    /recommended must be a boolean/,
+  )
+  assert.match(question({ id: 'q1', prompt: '', mode: 'single' })[0], /prompt must be a non-empty string/)
+  assert.match(question({ id: 'q1', prompt: 'p', mode: 'single', options: 'o1' })[0], /options must be an array/)
+  assert.match(question({ id: 'q1', prompt: 'p', mode: 'single', allowText: 'yes' })[0], /allowText must be a boolean/)
+
+  // Every field is inside its own bound and the payload as a whole is refused.
+  const bigButValid = {
+    purpose: 'x',
+    changedPaths: Array.from({ length: REVIEW_MAX_CHANGED_PATHS }, () => 'a'.repeat(200)),
+  }
+  assert.match(payloadProblems('user-review', bigButValid)[0], new RegExp(`the limit is ${REQUEST_PAYLOAD_MAX_BYTES}`))
 })
 
 test('requestRecordProblems validates the kind/status/payload combination and the pair', () => {
@@ -314,6 +363,8 @@ test('a malformed resolution block is refused', () => {
   })
   const tampered = { ...answered, resolution: { answers: [{ questionId: 'q1', selected: ['o9'] }] } }
   assert.match(requestRecordProblems(tampered).join(';'), /unknown option/)
+  const notAnArray = { ...answered, resolution: { answers: 'nope' } }
+  assert.match(requestRecordProblems(notAnArray).join(';'), /answers must be an array of answers/)
 })
 
 test('answerProblems validates questions, options, single mode and free text', () => {
@@ -340,6 +391,15 @@ test('answerProblems validates questions, options, single mode and free text', (
     /does not accept a free-text/,
   )
   assert.match(answerProblems(payload, [{ questionId: 'q1' }])[0], /has no answer/)
+  // A malformed answer row is named before the missing answers it implies.
+  assert.match(answerProblems(payload, [null])[0], /non-empty questionId/)
+  assert.match(answerProblems(payload, [{ questionId: '  ' }])[0], /non-empty questionId/)
+  assert.match(
+    answerProblems(payload, [{ questionId: 'q1', selected: ['o1'] }, { questionId: 'q1', text: 'x' }])[0],
+    /answered twice/,
+  )
+  assert.match(answerProblems(payload, [{ questionId: 'q1', selected: 'o1' }])[0], /array of option ids/)
+  assert.match(answerProblems(payload, [{ questionId: 'q1', text: 42 }])[0], /must be a string/)
 })
 
 test('parseRequestRecordText round-trips and refuses damaged documents', () => {

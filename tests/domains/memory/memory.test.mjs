@@ -184,6 +184,22 @@ test('parseMemoryFile reports an entry whose body is only the provenance line', 
   assert.match(parsed.issues[0].message, /text is empty/)
 })
 
+test('parseMemoryFile reports an entry that stops after its title', () => {
+  const parsed = parseMemoryFile('fact', 'facts.md', '## lonely title\n')
+  assert.equal(parsed.entries.length, 0)
+  assert.equal(parsed.issues.length, 1)
+  assert.equal(parsed.issues[0].line, 1)
+  assert.match(parsed.issues[0].message, /missing the "\(来源/)
+})
+
+test('parseMemoryFile reports a provenance line whose source is blank', () => {
+  const parsed = parseMemoryFile('fact', 'facts.md', `${block('blank source', 'body', '   ')}\n`)
+  assert.equal(parsed.entries.length, 0)
+  assert.equal(parsed.issues.length, 1)
+  assert.equal(parsed.issues[0].line, 5)
+  assert.match(parsed.issues[0].message, /source is empty/)
+})
+
 // ---------------------------------------------------------------------------
 // validateMemoryEntry
 // ---------------------------------------------------------------------------
@@ -327,6 +343,16 @@ test('renderMemoryBlock skips empty kinds and defaults to the 3000 token budget'
 
   const withBudget = renderMemoryBlock([{ kind: 'decision', entries: [entry()] }], 3000)
   assert.deepEqual(withBudget, blockResult)
+
+  // A non-numeric, non-finite, zero, or negative budget falls back to the
+  // default instead of truncating everything or overflowing the block.
+  for (const budget of [0, -10, Number.NaN, Number.POSITIVE_INFINITY, 'x', null]) {
+    assert.deepEqual(
+      renderMemoryBlock([{ kind: 'decision', entries: [entry()] }], budget),
+      blockResult,
+      String(budget),
+    )
+  }
 })
 
 test('renderMemoryBlock truncates on whole entries and appends the marker', () => {
@@ -404,6 +430,15 @@ test('searchMemory breaks ties by createdAt descending then title ascending', ()
     hits.map((hit) => hit.title),
     ['zzz newer', 'aaa older', 'bbb older'],
   )
+})
+
+test('searchMemory keeps input order for hits tied on every sort key', () => {
+  const first = searchable({ title: 'lock', text: 'lock', source: 'same' })
+  const second = searchable({ title: 'lock', text: 'lock', source: 'same' })
+  const hits = searchMemory([first, second], 'lock', { tokenize })
+  assert.equal(hits.length, 2)
+  assert.deepEqual(hits.map((hit) => hit.score), [5, 5])
+  assert.deepEqual(hits[0], hits[1])
 })
 
 test('searchMemory clamps the limit and falls back to the default', () => {

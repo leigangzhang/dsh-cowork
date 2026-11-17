@@ -540,6 +540,60 @@ test('openRequestTarget reveals a proposal file named by a notice id', async () 
   })
 })
 
+test('openRequestTarget refuses a notice path that is not repo-relative', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic()])
+    await store.appendActivity({
+      eventId: 'event-bad-path',
+      time: NOW_ISO,
+      type: 'decision-proposed',
+      topicId: TOPIC,
+      summary: 'proposed decision',
+      details: { topicId: TOPIC, proposalId: 'p-1', proposalPath: '../escape.md' },
+    })
+    await assert.rejects(
+      service.openRequestTarget(openInput(repoPath, store, {
+        noticeId: 'event-bad-path',
+        openWorkspacePath: async () => {},
+      })),
+      (error) => error.code === 'inbox/path-missing'
+        && /not a repo-relative POSIX path/.test(error.message),
+    )
+  })
+})
+
+test('openRequestTarget reports an unreachable repository root', async () => {
+  await withRepo(async (repoPath) => {
+    const missing = join(repoPath, '..', `cowork-missing-root-${process.pid}`)
+    const store = {
+      async readActivity() {
+        return {
+          events: [{
+            eventId: 'event-proposal-2',
+            time: NOW_ISO,
+            type: 'decision-proposed',
+            topicId: TOPIC,
+            summary: 'proposed decision',
+            details: { topicId: TOPIC, proposalId: 'p-1', proposalPath: 'docs/plan.md' },
+          }],
+        }
+      },
+    }
+    await assert.rejects(
+      service.openRequestTarget({
+        store,
+        repoPath: missing,
+        document: { masterSessionId: MASTER, topics: [topic()] },
+        sessionId: MASTER,
+        noticeId: 'event-proposal-2',
+        openWorkspacePath: async () => {},
+      }),
+      (error) => error.code === 'inbox/path-missing'
+        && /repository root is unreachable/.test(error.message),
+    )
+  })
+})
+
 test('the persisted file survives a fresh store instance (refresh path)', async () => {
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [topic()])

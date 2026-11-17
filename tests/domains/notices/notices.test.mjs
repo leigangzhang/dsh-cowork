@@ -207,6 +207,22 @@ test('the ledger trims to its newest 200 rows', () => {
   assert.equal(kept[199].noticeId, 'event-204')
 })
 
+test('the ledger trims rows whose updatedAt ties by input order', () => {
+  const rows = Array.from({ length: 205 }, (_, index) => ({
+    noticeId: `event-${index}`,
+    topicId: 'session-topic',
+    target: 'master',
+    status: 'pending',
+    attempts: 0,
+    lastError: null,
+    updatedAt: CREATED_AT,
+  }))
+  const kept = notices.trimNoticeLedger(rows)
+  assert.equal(kept.length, 200)
+  assert.equal(kept[0].noticeId, 'event-5')
+  assert.equal(kept[199].noticeId, 'event-204')
+})
+
 test('recordNoticesForEvent writes exactly one row per target and upserts on replay', async () => {
   await withRepo(async (repoPath) => {
     const store = await openStore(repoPath)
@@ -232,6 +248,26 @@ test('recordNoticesForEvent writes exactly one row per target and upserts on rep
     assert.deepEqual(await notices.recordNoticesForEvent(store, resolved, NOW), [])
     assert.equal((await store.readNotices()).notices.length, 2)
   })
+})
+
+test('recordNoticesForEvent falls back to a plain read+write ledger port', async () => {
+  const event = topicReportedActivity(topic(), { summary: 'progress', kind: 'progress' }, NOW)
+  let ledger = { version: 1, notices: [] }
+  const store = {
+    async readNotices() {
+      return ledger
+    },
+    async writeNotices(next) {
+      ledger = next
+      return next
+    },
+  }
+
+  const rows = await notices.recordNoticesForEvent(store, event, NOW)
+
+  assert.equal(rows.length, 2)
+  assert.deepEqual(ledger.notices.map((row) => row.target).sort(), ['master', 'topic'])
+  assert.equal(ledger.notices.every((row) => row.status === 'pending'), true)
 })
 
 // ---------------------------------------------------------------------------
@@ -271,6 +307,16 @@ test('the Noop and Fixture ports report an unsupported capability and claim noth
   })
   assert.equal(outcome, 'duplicate')
   assert.equal(fixture.appended.length, 1, 'the fixture records the attempt')
+
+  await assert.rejects(
+    noop.update('session-master', 'event-1', { status: 'void', updatedAt: NOW_ISO }),
+    /no topic notice channel/,
+  )
+  const patched = await fixture.update('session-master', 'event-1', { status: 'void', updatedAt: NOW_ISO })
+  assert.equal(patched, 'duplicate')
+  assert.deepEqual(fixture.updated, [
+    { sessionId: 'session-master', noticeId: 'event-1', patch: { status: 'void', updatedAt: NOW_ISO } },
+  ])
 })
 
 test('updateAuthorizationNotice is a no-op in B mode and values a host failure', async () => {
@@ -301,6 +347,67 @@ test('updateAuthorizationNotice is a no-op in B mode and values a host failure',
     decision: 'deny',
     now: NOW,
   }), 'failed')
+})
+
+test('voidAuthorizationNotice is a no-op without a ledger and tolerates a plain write port', async () => {
+  const empty = await notices.voidAuthorizationNotice({
+    store: {},
+    document: { masterSessionId: 'session-master', topics: [] },
+    topicId: 'session-topic',
+    requestId: 'request-1',
+    now: NOW,
+  })
+  assert.deepEqual(empty, { noticeId: null, voided: 0 })
+
+  let ledger = {
+    version: 1,
+    notices: [
+      { noticeId: 'event-auth-1', topicId: 'session-topic', target: 'master', status: 'pending', attempts: 0, lastError: null, updatedAt: NOW_ISO },
+      { noticeId: 'event-auth-1', topicId: 'session-topic', target: 'topic', status: 'pending', attempts: 0, lastError: null, updatedAt: NOW_ISO },
+      { noticeId: 'event-other', topicId: 'session-topic', target: 'master', status: 'pending', attempts: 0, lastError: null, updatedAt: NOW_ISO },
+    ],
+  }
+  const store = {
+    async readNotices() {
+      return ledger
+    },
+    async writeNotices(next) {
+      ledger = next
+      return next
+    },
+  }
+  const patches = []
+  const port = {
+    capabilities: () => ({ supported: true, actions: true, updates: true }),
+    append: async () => 'delivered',
+    update: async (sessionId, noticeId, patch) => {
+      patches.push({ sessionId, noticeId, patch })
+      throw new Error('host patch failed')
+    },
+  }
+
+  const outcome = await notices.voidAuthorizationNotice({
+    store,
+    document: { masterSessionId: 'session-master', topics: [] },
+    topicId: 'session-topic',
+    requestId: 'request-1',
+    noticeId: 'event-auth-1',
+    now: NOW,
+    port,
+  })
+
+  assert.deepEqual(outcome, { noticeId: 'event-auth-1', voided: 2 })
+  assert.deepEqual(
+    ledger.notices.map((row) => [row.noticeId, row.target, row.status]),
+    [
+      ['event-auth-1', 'master', 'void'],
+      ['event-auth-1', 'topic', 'void'],
+      ['event-other', 'master', 'pending'],
+    ],
+  )
+  // A host patch failure is delivery noise: the ledger keeps the void.
+  assert.equal(patches.length, 2)
+  assert.ok(patches.every((entry) => entry.patch.status === 'void'))
 })
 
 // ---------------------------------------------------------------------------
@@ -475,6 +582,103 @@ test('a ledger row whose event is gone fails closed instead of being guessed', a
     const row = (await store.readNotices()).notices[0]
     assert.equal(row.status, 'failed')
     assert.match(row.lastError, /activity event not found/)
+    dispatcher.dispose()
+  })
+})
+
+test('a ledger row whose event does not address its target is voided', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await openStore(repoPath)
+    // An archive notice addresses only the master, so a topic-target row for
+    // the same event must be void rather than retried forever.
+    const event = topicArchivedActivity(topic({ digest: 'done' }), { by: 'user' }, NOW)
+    await store.appendActivity(event)
+    await store.writeNotices({
+      version: 1,
+      notices: [{
+        noticeId: event.eventId,
+        topicId: 'session-topic',
+        target: 'topic',
+        status: 'pending',
+        attempts: 0,
+        lastError: null,
+        updatedAt: NOW_ISO,
+      }],
+    })
+    const port = fakePort()
+    const dispatcher = new notices.TopicNoticeDispatcher({ storeFor: () => store, port, clock: () => NOW })
+
+    await dispatcher.drain(repoPath)
+
+    assert.equal(port.appends.length, 0)
+    const row = (await store.readNotices()).notices[0]
+    assert.equal(row.status, 'void')
+    assert.match(row.lastError, /does not address topic/)
+    dispatcher.dispose()
+  })
+})
+
+test('a drain whose store read fails logs instead of throwing', async () => {
+  const errors = []
+  const dispatcher = new notices.TopicNoticeDispatcher({
+    storeFor: () => ({
+      async readNotices() {
+        throw new Error('ledger unavailable')
+      },
+    }),
+    port: fakePort(),
+    clock: () => NOW,
+    log: (message) => errors.push(message),
+  })
+
+  await dispatcher.drain('/repo')
+
+  assert.ok(
+    errors.some((line) => /notice drain failed: ledger unavailable/.test(line)),
+    errors.join('\n'),
+  )
+  dispatcher.dispose()
+})
+
+test('a rejected drain chain is logged by kick instead of escaping unhandled', async () => {
+  // `run` swallows its own failures today; this subclass pins the kick boundary
+  // so a future rejection is logged and the cleanup chain still settles.
+  class BrokenDispatcher extends notices.TopicNoticeDispatcher {
+    async run() {
+      throw new Error('drain crashed')
+    }
+  }
+  const errors = []
+  const dispatcher = new BrokenDispatcher({
+    storeFor: () => ({}),
+    port: fakePort(),
+    clock: () => NOW,
+    log: (message) => errors.push(message),
+  })
+
+  dispatcher.kick('/repo')
+  await new Promise((resolve) => setImmediate(resolve))
+
+  assert.ok(
+    errors.some((line) => /notice drain failed: drain crashed/.test(line)),
+    errors.join('\n'),
+  )
+  dispatcher.dispose()
+})
+
+test('the real backoff timer path delivers a retry without an injected sleep', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await openStore(repoPath)
+    await seedPending(store)
+    const port = fakePort({ failTimes: 1 })
+    const dispatcher = new notices.TopicNoticeDispatcher({ storeFor: () => store, port, clock: () => NOW })
+
+    await dispatcher.drain(repoPath)
+
+    const ledger = await store.readNotices()
+    assert.ok(ledger.notices.every((row) => row.status === 'delivered'))
+    assert.deepEqual(ledger.notices.map((row) => row.attempts).sort(), [1, 2])
+    assert.equal(port.appends.length, 2)
     dispatcher.dispose()
   })
 })

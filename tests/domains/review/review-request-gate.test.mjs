@@ -250,6 +250,11 @@ test('the brief without a previous round does not invent one', () => {
   assert.ok(brief.includes('req-1'))
 })
 
+test('the brief records that git reported no changed paths instead of listing an empty scope', () => {
+  const brief = buildReviewBrief({ request: { ...pendingRecord(), changedPaths: [] } })
+  assert.ok(brief.includes('Changed paths reported by git: none recorded.'), brief)
+})
+
 // ---------------------------------------------------------------------------
 // the request tool, its file layer, and the deterministic pre-checks
 // ---------------------------------------------------------------------------

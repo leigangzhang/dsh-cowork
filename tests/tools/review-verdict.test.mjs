@@ -465,6 +465,31 @@ test('invalid verdict input is refused by the model validator', () => {
   assert.equal(valid.ok, true, JSON.stringify(valid.ok ? {} : valid.errors))
 })
 
+test('a verdict that is not an object, or whose findings are malformed, is refused by field', () => {
+  for (const input of [null, 'a verdict', 42, []]) {
+    const result = validateReviewVerdictInput(input)
+    assert.equal(result.ok, false, String(input))
+    assert.equal(result.code, 'review/verdict-invalid')
+    assert.deepEqual(result.errors, [{ field: 'input', message: 'review verdict input must be an object' }])
+  }
+
+  const base = { requestId: REQUEST_ID, verdict: 'pass', summary: 'x' }
+  const tooMany = Array.from({ length: 201 }, () => finding())
+  const cases = [
+    [{ ...base, findings: 'npm test' }, 'findings'],
+    [{ ...base, findings: tooMany }, 'findings'],
+    [{ ...base, findings: [null] }, 'findings[0]'],
+    [{ ...base, findings: [finding({ severity: 'critical' })] }, 'findings[0].severity'],
+    [{ ...base, findings: [finding({ file: '' })] }, 'findings[0].file'],
+    [{ ...base, findings: [finding({ line: 0 })] }, 'findings[0].line'],
+  ]
+  for (const [input, field] of cases) {
+    const result = validateReviewVerdictInput(input)
+    assert.equal(result.ok, false)
+    assert.ok(result.errors.some((error) => error.field === field), `${field}: ${JSON.stringify(result.errors)}`)
+  }
+})
+
 test('a semantically invalid verdict changes no file and no index', async () => {
   await withRepo(async (repoPath) => {
     const { store, slice, verdict } = setup(repoPath)
