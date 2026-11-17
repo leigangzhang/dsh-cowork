@@ -53,7 +53,8 @@ Class: testing
 ## Testing
 
 - [A1] `npm run test:e2e` 从当前 `lib/` 的 tarball 在临时 `DSH_HOME` 启动真实宿主和本机脚本化 Messages 服务，运行 manifest 中的 keyless 场景；成功与失败路径都删除进程、profile、fixture 和缓存，且不读写用户 profile — `e2e`
-- [A2] `tests/e2e/manifest.json` 的 `pluginVersion` 与 `package.json` 一致；未知/重复场景、未知公开键、未覆盖且无债务的键、已覆盖或已消失的债务条目、目录哈希不匹配、未测宿主、失效 HEAD 都让 `npm run check` 变红，且 self-test 与 guard test 证明每一类能失败 — `workflow`
+- [A2] `tests/e2e/manifest.json` 的 `pluginVersion` 与 `package.json` 一致；重复场景、未知公开键、未覆盖且无债务的键、已覆盖或已消失的债务条目、目录哈希不匹配、未测宿主、失效 HEAD 都让 `npm run check` 变红，且 self-test 证明每一类能失败 — `workflow`
+- [A6] manifest 的每个场景 id 与 `tests/e2e/scenarios/index.mjs` 的静态 registry 双向对应，未知 id 在启动宿主前失败；guard test 固定该映射 — `tests`
 - [A3] 覆盖矩阵从公开面源码推导，逐项列出工具、面板路由、preset、topic / review 状态和有公开写路径的 work-item 状态；每项至少绑定一个 keyless 场景或有带原因和退出条件的债务条目 — `e2e`
 - [A4] `npm run test:e2e:live` 以独立 mode 声明，只有显式调用且 `DEEPSEEK_API_KEY` 存在时运行，缺 key 时 self-skip；结果只进本地证据，不计入 keyless 覆盖；真实 provider 执行本机未跑，只有 self-skip 被验证 — `e2e`
 - [A5] 绿色 keyless 运行写出 `tests/e2e/evidence/<pluginVersion>.json`，包含场景/检查结果与 artifact identity（HEAD、worktree diff SHA-256、tarball SHA-256、`tests/e2e/` 目录 SHA-256、插件与 DSH 版本），去敏且可从同一版本重新生成；红色或脏工作区运行拒绝记录，`npm run check` 验证摘要 — `e2e`
