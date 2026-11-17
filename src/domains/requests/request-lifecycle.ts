@@ -122,9 +122,10 @@ export interface ResolveRequestOutcome {
  *
  * The terminal write is durable before the prompt is attempted, so a refused
  * or failed queue prompt is reported in `delivery.lastError` instead of
- * rolling the decision back. A replay of the same action is idempotent
- * (`changed: false`); a different action on a terminal request is
- * `inbox/request-resolved`.
+ * rolling the decision back. Only the call whose locked write applied the
+ * action appends the activity and wakes the topic; a concurrent call that lost
+ * the write is answered as an idempotent replay (`changed: false`) or, for a
+ * different action, `inbox/request-resolved`.
  */
 export async function resolveRequest(input: ResolveRequestInput): Promise<ResolveRequestOutcome> {
   const store = new RequestStore({ repoPath: input.repoPath, log: input.log })
@@ -209,18 +210,23 @@ export async function resolveRequest(input: ResolveRequestInput): Promise<Resolv
       promptError: delivered.promptError,
     }
   }
-  const next = await store.update(input.requestId, (current) => (
-    current.status === 'pending'
-      ? applyResolution(current, {
-        status,
-        comment: comment ?? undefined,
-        ...(record.kind === 'question' && input.answers !== undefined ? { answers: input.answers } : {}),
-        resolvedBy: 'user',
-        now: input.now,
-      })
-      : null
-  ))
-  if (next === null) {
+  // `RequestStore.update` answers a declined mutator with the current record,
+  // not null, so a non-null result alone does not prove this call's action was
+  // applied. Only the mutator runs inside the lock, and only it knows whether it
+  // saw a pending record and wrote the terminal state.
+  let applied = false
+  const next = await store.update(input.requestId, (current) => {
+    if (current.status !== 'pending') return null
+    applied = true
+    return applyResolution(current, {
+      status,
+      comment: comment ?? undefined,
+      ...(record.kind === 'question' && input.answers !== undefined ? { answers: input.answers } : {}),
+      resolvedBy: 'user',
+      now: input.now,
+    })
+  })
+  if (!applied || next === null || next.status !== status) {
     // Another writer resolved the request between the read and the lock. The
     // same action is still an idempotent replay; a different one is a conflict.
     const current = await store.read(input.requestId)

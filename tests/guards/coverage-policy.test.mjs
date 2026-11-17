@@ -355,7 +355,9 @@ test('updateDebt writes the reviewed baseline from the unit report', () => {
     const result = check(project, { updateDebt: true })
     assert.deepEqual(result.failures, [])
     const baseline = JSON.parse(readFileSync(project.paths.debt, 'utf8'))
-    assert.deepEqual(baseline.files.map((entry) => entry.path), ['src/a.ts', 'src/d.ts'])
+    // `src/d.ts` is at 100%, so it needs no baseline entry; only the module
+    // with uncovered lines is recorded.
+    assert.deepEqual(baseline.files.map((entry) => entry.path), ['src/a.ts'])
     assert.deepEqual(baseline.files[0].uncoveredLines, [2])
     assert.equal(baseline.files[0].branches.covered, 1)
   } finally {

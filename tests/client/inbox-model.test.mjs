@@ -467,6 +467,24 @@ test('parseInboxResolveResponse keeps the reply and the prompt outcome', () => {
   assert.throws(() => parseInboxResolveResponse({ ok: true, item: null }), /收件箱项/)
 })
 
+test('openInboxTarget keeps only the host success envelope', async () => {
+  const original = globalThis.fetch
+  for (const payload of [{ ok: true }, { ok: true, opened: false }]) {
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => payload })
+    try {
+      await assert.rejects(
+        () => openInboxTarget({ sessionId: 'session-master', requestId: 'req-plan' }),
+        (error) => error instanceof PanelApiError
+          && error.code === 'internal'
+          && error.message === '打开响应缺少 ok: true 与 opened: true',
+        JSON.stringify(payload),
+      )
+    } finally {
+      globalThis.fetch = original
+    }
+  }
+})
+
 test('loadInbox sends a same-origin uncached GET and encodes an optional topic filter', async () => {
   const original = globalThis.fetch
   const calls = []
@@ -593,6 +611,23 @@ test('openInboxTarget sends ids only and refuses a target without one', async ()
   assert.equal(calls[0].url, '/api/cowork.inbox.open')
   assert.deepEqual(JSON.parse(calls[0].init.body), { sessionId: 'session-master', requestId: 'req-plan' })
   assert.deepEqual(JSON.parse(calls[1].init.body), { sessionId: 'session-master', noticeId: 'notice-proposal' })
+})
+
+test('a failed inbox write surfaces the transport error as an internal PanelApiError', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => {
+    throw new TypeError('connection refused')
+  }
+  try {
+    await assert.rejects(
+      () => openInboxTarget({ sessionId: 'session-master', requestId: 'req-plan' }),
+      (reason) => reason instanceof PanelApiError
+        && reason.code === 'internal'
+        && reason.message === '请求失败：connection refused',
+    )
+  } finally {
+    globalThis.fetch = original
+  }
 })
 
 test('the frozen geometry constants are consumed by the stylesheet, not just asserted', async () => {
