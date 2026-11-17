@@ -92,6 +92,7 @@ npm run test:coverage:layered -- --base <ref>  # unit + browser lanes, one artif
 npm run coverage:check     # re-check existing coverage reports
 npm run test:e2e           # pack current lib/, run the keyless E2E scenarios in a temporary host
 npm run test:e2e:live      # observational real-model E2E; needs DEEPSEEK_API_KEY, never release evidence
+npm run test:e2e:bash      # observational topic-bash check; needs a usable bash sandbox, never keyless evidence
 npm run test:host-smoke    # pack current lib/ and boot a temporary DSH profile
 npm run change-scope -- --base <verified-base>  # committed/staged/unstaged/untracked review scope
 npm run typecheck          # TypeScript check (requires deps installed)

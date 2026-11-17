@@ -138,20 +138,21 @@ async function main() {
 
   const manifest = readJson(manifestPath, 'the E2E manifest')
   const mode = values.mode
-  if (mode !== 'keyless' && mode !== 'live') throw new Error(`--mode must be keyless or live, got ${JSON.stringify(mode)}`)
+  const MODE_FILTER = { keyless: 'keyless', live: 'live-model', bash: 'host-bash' }
+  if (!Object.hasOwn(MODE_FILTER, mode)) throw new Error(`--mode must be keyless, live, or bash, got ${JSON.stringify(mode)}`)
   if (values.list) {
     for (const scenario of manifest.scenarios) console.log(`${scenario.mode} ${scenario.id} — ${scenario.summary}`)
     return
   }
   const requested = values.scenario
   const selected = requested === undefined || requested.length === 0
-    ? manifest.scenarios.filter((scenario) => scenario.mode === (mode === 'live' ? 'live-model' : 'keyless'))
+    ? manifest.scenarios.filter((scenario) => scenario.mode === MODE_FILTER[mode])
     : manifest.scenarios.filter((scenario) => requested.includes(scenario.id))
   if (selected.length === 0) {
-    throw new Error(`no ${mode === 'live' ? 'live-model' : 'keyless'} scenario matched ${JSON.stringify(requested ?? [])}`)
+    throw new Error(`no ${MODE_FILTER[mode]} scenario matched ${JSON.stringify(requested ?? [])}`)
   }
   const hasLive = selected.some((scenario) => scenario.mode === 'live-model')
-  if (hasLive && values.record) throw new Error('live-model evidence is observational; --record is keyless-only')
+  if ((hasLive || mode === 'bash') && values.record) throw new Error('observational evidence cannot be recorded as release evidence; --record is keyless-only')
   if (values.record && !hasLive) {
     const declared = manifest.scenarios.filter((scenario) => scenario.mode === 'keyless').map((scenario) => scenario.id).sort()
     const chosen = selected.map((scenario) => scenario.id).sort()
@@ -342,7 +343,8 @@ async function main() {
     const failed = results.filter((result) => !result.passed).map((result) => result.id)
     throw new Error(`e2e failed: ${failed.join(', ')}`)
   }
-  console.log(`PASS ${hasLive ? 'live e2e (observational)' : 'e2e'}: ${results.length} scenarios, ${checkCount} checks, plugin ${packageJson.version} on DSH ${dshVersion}`)
+  const lane = mode === 'keyless' ? 'e2e' : `${mode} e2e (observational)`
+  console.log(`PASS ${lane}: ${results.length} scenarios, ${checkCount} checks, plugin ${packageJson.version} on DSH ${dshVersion}`)
 }
 
 main().catch((error) => {

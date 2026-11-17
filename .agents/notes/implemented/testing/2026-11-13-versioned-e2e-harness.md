@@ -12,7 +12,7 @@ Class: testing
 
 ## Decision
 
-**`tests/e2e/` 是场景的唯一入口。** `manifest.json` 声明场景 id、mode、summary 和覆盖键，`coverage-debt.json` 记录未覆盖项的排除理由，`scenarios/index.mjs` 是静态 registry（manifest 的 id 必须解析到同名模块），`support/` 提供宿主客户端、脚本化 provider、fixture、catalog 和版本判断。runner 是 `scripts/evidence/e2e.mjs`；`npm run test:e2e` 跑 keyless 场景，`npm run test:e2e:live` 跑观测性真实模型场景；heavy lane 的手动 workflow 也执行 `npm run test:e2e`。`.dsh-cowork/e2e/<run>/` 只保存本次运行输出。
+**`tests/e2e/` 是场景的唯一入口。** `manifest.json` 声明场景 id、mode、summary 和覆盖键，`coverage-debt.json` 记录未覆盖项的排除理由，`scenarios/index.mjs` 是静态 registry（manifest 的 id 必须解析到同名模块），`support/` 提供宿主客户端、脚本化 provider、fixture、catalog 和版本判断。runner 是 `scripts/evidence/e2e.mjs`；`npm run test:e2e` 跑 keyless 场景，`npm run test:e2e:live` 跑观测性真实模型场景，`npm run test:e2e:bash` 跑观测性 host-bash 场景；heavy lane 的手动 workflow 执行 keyless 和 host-bash 两个 lane。`.dsh-cowork/e2e/<run>/` 只保存本次运行输出。
 
 **keyless 运行走真实宿主和公开 provider 配置。** runner 打包当前 `lib/`，用 `scripts/evidence/dsh-host-session.mjs` 在临时 `DSH_HOME` 安装并启动 `dsh web`，通过 `llm-deepseek.baseURL` 把真实 adapter 指向本机脚本化 Anthropic Messages 服务；场景通过宿主 Remote API 创建/唤醒真实会话，用带会话 cookie 的 HTTP 调面板路由。每个场景使用独立 git fixture；等待是状态轮询加 bounded deadline；场景超时会停止整轮，fixture 和宿主不会交给下一场景；临时宿主、profile、fixture 和 npm 缓存都在 `finally` 删除。
 
@@ -22,7 +22,7 @@ Class: testing
 
 **发布证据是门禁。** `scripts/evidence/e2e.mjs --record` 在干净 worktree 上写出 `tests/e2e/evidence/<pluginVersion>.json`，只接受完整 keyless manifest；摘要包含插件/DSH/Node 版本、HEAD、worktree diff SHA-256、tarball SHA-256、`tests/e2e/` 内容 SHA-256（不含 `evidence/`）、场景与检查结果。`npm run check` 要求当前版本的摘要存在、绿色、覆盖全部 keyless 场景、目录哈希匹配、DSH 版本在 `host.tested` 中，并且 `artifact.head` 是 HEAD 或其后只有 `tests/e2e/evidence/` 变更的祖先。live-model 结果只写本地证据，不能记录为发布证据。
 
-**当前覆盖范围。** 4 个 keyless 场景共 104 项检查：`master-chain`（初始化、memory、topic 创建/别名、route、status/notices、会话可见性），`topic-panel`（work item、report、decision、authorization、question、plan、user review、overview/activity/topic/resolve/reopen/route.move/authorization.resolve/inbox.resolve、resolved 目标的 follow-up），`review-merge`（work item、review 请求、reviewer 的只读 grep 与 pass verdict、handoff、merge-needed 投递、handoff 文件、merge 与 activity），`review-revision`（needs_revision、修复、二次请求、reject、block 与 review-reject inbox）。`inbox.open` 仍在债务文件：宿主 opener 直接绑定 session controller，没有注入点，headless lane 不应触发原生桌面动作。
+**当前覆盖范围。** 4 个 keyless 场景共 104 项检查：`master-chain`（初始化、memory、topic 创建/别名、route、status/notices、会话可见性），`topic-panel`（work item、report、decision、authorization、question、plan、user review、overview/activity/topic/resolve/reopen/route.move/authorization.resolve/inbox.resolve、resolved 目标的 follow-up），`review-merge`（work item、review 请求、reviewer 的只读 grep 与 pass verdict、handoff、merge-needed 投递、handoff 文件、merge 与 activity），`review-revision`（needs_revision、修复、二次请求、reject、block 与 review-reject inbox）。`inbox.open` 仍在债务文件：宿主 opener 直接绑定 session controller，没有注入点，headless lane 不应触发原生桌面动作。host-bash 场景 `topic-bash` 由脚本化模型驱动 topic 调用 bash 提交；它需要可用的 bash sandbox，因此只作为观测 lane，不进入 keyless 证据。
 
 ## Alternatives considered
 
@@ -57,4 +57,5 @@ Class: testing
 - [A6] manifest 的每个场景 id 与 `tests/e2e/scenarios/index.mjs` 的静态 registry 双向对应，未知 id 在启动宿主前失败；guard test 固定该映射 — `tests`
 - [A3] 覆盖矩阵从公开面源码推导，逐项列出工具、面板路由、preset、topic / review 状态和有公开写路径的 work-item 状态；每项至少绑定一个 keyless 场景或有带原因和退出条件的债务条目 — `e2e`
 - [A4] `npm run test:e2e:live` 以独立 mode 声明，只有显式调用且 `DEEPSEEK_API_KEY` 存在时运行，缺 key 时 self-skip；结果只进本地证据，不计入 keyless 覆盖；真实 provider 执行本机未跑，只有 self-skip 被验证 — `e2e`
+- [A7] `npm run test:e2e:bash` 在可用 bash sandbox 的宿主上驱动 topic 会话用 bash 提交，断言 clone HEAD 与文件；该 lane 不计入 keyless 证据，本地 agent 的嵌套 sandbox 下预期失败 — `e2e`
 - [A5] 绿色 keyless 运行写出 `tests/e2e/evidence/<pluginVersion>.json`，包含场景/检查结果与 artifact identity（HEAD、worktree diff SHA-256、tarball SHA-256、`tests/e2e/` 目录 SHA-256、插件与 DSH 版本），去敏且可从同一版本重新生成；红色或脏工作区运行拒绝记录，`npm run check` 验证摘要 — `e2e`

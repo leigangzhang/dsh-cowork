@@ -34,6 +34,7 @@ test('heavy workflow runs its prerequisites in order', () => {
     'DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke',
     'npm run test:coverage:layered',
     'npm run test:e2e',
+    'npm run test:e2e:bash',
   ]
   let previous = -1
   for (const command of commands) {
