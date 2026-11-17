@@ -11,7 +11,7 @@
 
 import { text, tool } from '../support/scripted-model.mjs'
 
-export const id = 'topic-panel'
+export const topicPanelId = 'topic-panel'
 
 const TOPIC_INTENT = 'Build the panel E2E topic'
 const TOPIC_BRIEF = 'Panel E2E brief.'
@@ -19,7 +19,7 @@ const REPORT_SUMMARY = 'Progress from the keyless E2E topic'
 const MOVE_INTENT = 'move the routed panel intent'
 
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
-export async function run(ctx) {
+export async function runTopicPanel(ctx) {
   let topicResolveArgs = null
   let routeArgs = { intent: TOPIC_INTENT, brief: TOPIC_BRIEF }
   ctx.model.setHandler(({ role, prompt, toolResults }) => {

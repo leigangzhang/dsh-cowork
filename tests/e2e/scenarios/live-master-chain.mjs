@@ -8,12 +8,12 @@
  * with `--mode live`, and is never part of the keyless release evidence.
  */
 
-export const id = 'live-master-chain'
+export const liveMasterChainId = 'live-master-chain'
 
 const LIVE_TIMEOUT_MS = 300_000
 
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
-export async function run(ctx) {
+export async function runLiveMasterChain(ctx) {
   const master = await ctx.client.createSession({ cwd: ctx.fixture.path, agentPreset: 'cowork-master' })
   const masterId = master.sessionId
   ctx.check('a real master session mounted cowork-master', master.agentPreset === 'cowork-master', String(master.agentPreset))

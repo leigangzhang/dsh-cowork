@@ -11,14 +11,14 @@
 import { commitFile, readText, readGitHead } from '../support/fixture.mjs'
 import { text, tool } from '../support/scripted-model.mjs'
 
-export const id = 'review-revision'
+export const reviewRevisionId = 'review-revision'
 
 const FILE_NAME = 'e2e-review.txt'
 const FIRST_CONTENT = 'first E2E review attempt'
 const FIXED_CONTENT = 'second E2E review attempt'
 
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
-export async function run(ctx) {
+export async function runReviewRevision(ctx) {
   let workItem = null
   let reviewedHead = null
   let previousRequestId = null

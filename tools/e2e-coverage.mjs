@@ -16,11 +16,9 @@
  */
 
 import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { BUSINESS_TOOLS, PANEL_ROUTES } from '../tests/support/public-surface.mjs'
 
 const SCENARIO_MODES = new Set(['keyless', 'live-model'])
-const FILE_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/
 const HOST_LINE = /^\d+\.\d+$/
 const COMMIT_SHA = /^[0-9a-f]{40}$/
 const SHA256 = /^[0-9a-f]{64}$/
@@ -130,8 +128,6 @@ export function e2eEvidenceProblems({ packageVersion, evidence, keylessScenarioI
  * @param {object} input.manifest Parsed `tests/e2e/manifest.json`.
  * @param {object} input.debt Parsed `tests/e2e/coverage-debt.json`.
  * @param {string[]} input.surfaceKeys Output of {@link collectSurfaceKeys}.
- * @param {string} input.manifestDir Absolute directory that scenario files resolve against.
- * @param {(path: string) => boolean} [input.fileExists] File probe, for tests.
  * @returns {string[]} One message per violation.
  */
 export function e2eManifestProblems({
@@ -139,8 +135,6 @@ export function e2eManifestProblems({
   manifest,
   debt,
   surfaceKeys,
-  manifestDir,
-  fileExists = existsSync,
 }) {
   const problems = []
   if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) return ['tests/e2e/manifest.json must be a JSON object']
@@ -178,11 +172,6 @@ export function e2eManifestProblems({
     if (!isNonEmptyString(scenario.id)) problems.push(`${where}.id must be a non-empty string`)
     else if (ids.has(scenario.id)) problems.push(`${where}.id repeats ${scenario.id}`)
     else ids.add(scenario.id)
-    if (!isNonEmptyString(scenario.file) || !FILE_PATH.test(scenario.file)) {
-      problems.push(`${where}.file must be a contained repo-relative path`)
-    } else if (!fileExists(resolve(manifestDir, scenario.file))) {
-      problems.push(`${where}.file does not exist: tests/e2e/${scenario.file}`)
-    }
     if (!SCENARIO_MODES.has(scenario.mode)) problems.push(`${where}.mode must be keyless or live-model`)
     if (!isNonEmptyString(scenario.summary)) problems.push(`${where}.summary must be a non-empty string`)
     if (!Array.isArray(scenario.covers) || scenario.covers.length === 0) {

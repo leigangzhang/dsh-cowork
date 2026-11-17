@@ -10,7 +10,6 @@
   "scenarios": [
     {
       "id": "master-chain",
-      "file": "scenarios/master-chain.mjs",
       "mode": "keyless",
       "summary": "A real master session initializes the project, writes and searches memory, creates topics through both canonical and alias tools, routes an intent into a briefed topic session, then reads the bounded status and notice ledger.",
       "covers": [
@@ -31,7 +30,6 @@
     },
     {
       "id": "topic-panel",
-      "file": "scenarios/topic-panel.mjs",
       "mode": "keyless",
       "summary": "A routed topic creates an isolated work item, reports progress, proposes a decision, requests authorization, asks a question, submits a plan, and requests a user review; the panel routes authorize, answer, approve, pass, move, archive, and reopen the topic.",
       "covers": [
@@ -61,7 +59,6 @@
     },
     {
       "id": "review-merge",
-      "file": "scenarios/review-merge.mjs",
       "mode": "keyless",
       "summary": "A topic commits an isolated work item, requests an independent review, the reviewer session runs its own check and passes it, the topic hands off, and the master merges the reviewed range without moving main.",
       "covers": [
@@ -78,7 +75,6 @@
     },
     {
       "id": "review-revision",
-      "file": "scenarios/review-revision.mjs",
       "mode": "keyless",
       "summary": "A reviewer returns needs_revision with a finding, the topic commits a fix and re-requests the review, and the next reviewer rejects the range, blocks the topic, and writes the review-reject inbox record.",
       "covers": [
@@ -88,7 +84,6 @@
     },
     {
       "id": "live-master-chain",
-      "file": "scenarios/live-master-chain.mjs",
       "mode": "live-model",
       "summary": "The real provider initializes the project and routes one topic; the index and panel state are the observation. Requires DEEPSEEK_API_KEY and --mode live.",
       "covers": [

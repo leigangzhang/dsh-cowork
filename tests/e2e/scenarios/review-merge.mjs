@@ -11,14 +11,14 @@
 import { commitFile, readText, readGitHead } from '../support/fixture.mjs'
 import { text, tool } from '../support/scripted-model.mjs'
 
-export const id = 'review-merge'
+export const reviewMergeId = 'review-merge'
 
 const FILE_NAME = 'e2e-review.txt'
 const FILE_CONTENT = 'reviewed by the keyless E2E lane'
 const REVIEW_SUMMARY = 'The reviewed commit adds the expected E2E file.'
 
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
-export async function run(ctx) {
+export async function runReviewMerge(ctx) {
   let workItem = null
   let reviewedHead = null
   let reviewerRequestId = null

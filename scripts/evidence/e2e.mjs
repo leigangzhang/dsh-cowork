@@ -30,6 +30,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { SCENARIOS } from '../../tests/e2e/scenarios/index.mjs'
 import { startDshHost } from './dsh-host-session.mjs'
 import { sanitizeEvidenceText } from './evidence-sanitize.mjs'
 import { createHostClient } from '../../tests/e2e/support/host-client.mjs'
@@ -89,14 +90,11 @@ function strictSkip(message) {
   console.log(`SKIP e2e: ${message} (set DSH_E2E_STRICT=1 to make this fatal)`)
 }
 
-async function loadScenario(entry) {
-  const modulePath = join(root, 'tests/e2e', entry.file)
-  if (!existsSync(modulePath)) throw new Error(`scenario ${entry.id} names a missing file: tests/e2e/${entry.file}`)
-  const module = await import(modulePath)
-  if (module.id !== entry.id) {
-    throw new Error(`scenario file ${entry.file} exports id "${String(module.id)}" but the manifest names "${entry.id}"`)
-  }
-  if (typeof module.run !== 'function') throw new Error(`scenario ${entry.id} has no run() export`)
+function loadScenario(entry) {
+  const module = SCENARIOS.get(entry.id)
+  if (module === undefined) throw new Error(`scenario ${entry.id} has no module in tests/e2e/scenarios/index.mjs`)
+  if (module.id !== entry.id) throw new Error(`scenario ${entry.id} resolves to module id "${module.id}"`)
+  if (typeof module.run !== 'function') throw new Error(`scenario ${entry.id} has no run() function`)
   return module
 }
 
@@ -236,7 +234,7 @@ async function main() {
     const client = createHostClient(host)
 
     for (const entry of selected) {
-      const scenario = await loadScenario(entry)
+      const scenario = loadScenario(entry)
       const fixture = await createFixture(runRoot)
       model.reset()
       const context = createScenarioContext({ scenarioId: entry.id, fixture, client, model })

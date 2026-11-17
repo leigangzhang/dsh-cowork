@@ -11,14 +11,14 @@
 import { realpath } from 'node:fs/promises'
 import { text, tool } from '../support/scripted-model.mjs'
 
-export const id = 'master-chain'
+export const masterChainId = 'master-chain'
 
 const MEMORY_TITLE = 'E2E memory entry'
 const ROUTED_INTENT = 'Prove the routed E2E topic receives its brief'
 const ROUTED_BRIEF = 'One keyless real-host E2E brief.'
 
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
-export async function run(ctx) {
+export async function runMasterChain(ctx) {
   ctx.model.setHandler(({ role, prompt, toolResults }) => {
     // The routed topic receives the route brief as its first user message.
     if (role === 'topic') return text('Topic brief acknowledged.')

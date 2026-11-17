@@ -9,6 +9,7 @@ import {
   e2eManifestProblems,
   WORK_ITEM_STORE_ONLY_STATUSES,
 } from '../../tools/e2e-coverage.mjs'
+import { SCENARIOS } from '../../tests/e2e/scenarios/index.mjs'
 import { hostSupport, parseHostVersion } from '../../tests/e2e/support/versions.mjs'
 
 /**
@@ -30,7 +31,6 @@ const keylessIds = new Set(manifest.scenarios.filter((scenario) => scenario.mode
 const SURFACE_KEYS = ['preset:p', 'route:/x GET', 'tool:a', 'topic-status:active']
 const SCENARIO = {
   id: 's1',
-  file: 'scenarios/s1.mjs',
   mode: 'keyless',
   summary: 'fixture',
   covers: [...SURFACE_KEYS],
@@ -49,8 +49,6 @@ function problems(overrides = {}) {
     manifest: BASE_MANIFEST,
     debt: { entries: [] },
     surfaceKeys: SURFACE_KEYS,
-    manifestDir: '/fixture/tests/e2e',
-    fileExists: () => true,
     ...overrides,
   })
 }
@@ -84,12 +82,15 @@ test('the live repository catalog is green against the derived public surface', 
   )
 })
 
-test('every manifest scenario file exports the same id and a run function', async () => {
+test('every manifest scenario id resolves to the same static module', () => {
+  const manifestIds = new Set(manifest.scenarios.map((scenario) => scenario.id))
   for (const entry of manifest.scenarios) {
-    const module = await import(resolve(manifestDir, entry.file))
-    assert.equal(module.id, entry.id, `${entry.file} id`)
-    assert.equal(typeof module.run, 'function', `${entry.file} run export`)
+    const module = SCENARIOS.get(entry.id)
+    assert.ok(module !== undefined, `${entry.id} has a module`)
+    assert.equal(module.id, entry.id, `${entry.id} module id`)
+    assert.equal(typeof module.run, 'function', `${entry.id} run function`)
   }
+  for (const id of SCENARIOS.keys()) assert.ok(manifestIds.has(id), `${id} is declared in the manifest`)
 })
 
 test('the committed evidence matches the current version and every keyless scenario', () => {
@@ -144,9 +145,7 @@ test('a covered or unknown debt entry is stale', () => {
   assert.ok(unknown.some((problem) => problem.includes('no live public surface')))
 })
 
-test('a missing scenario file or unknown cover is red', () => {
-  const missing = problems({ fileExists: () => false })
-  assert.ok(missing.some((problem) => problem.includes('file does not exist')))
+test('an unknown cover is red', () => {
   const unknown = problems({ manifest: { ...BASE_MANIFEST, scenarios: [{ ...SCENARIO, covers: ['tool:gone'] }] } })
   assert.ok(unknown.some((problem) => problem.includes('unknown public key')))
 })

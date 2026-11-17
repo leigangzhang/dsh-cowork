@@ -155,7 +155,6 @@ async function e2eErrors() {
       manifest: manifest.value,
       debt: debt.value,
       surfaceKeys,
-      manifestDir: resolve(root, 'tests/e2e'),
     }),
     ...e2eEvidenceProblems({
       packageVersion: packageJson.value.version,
@@ -546,7 +545,6 @@ function staleNameErrors(files) {
 const E2E_SURFACE_KEYS = ['preset:p', 'route:/x GET', 'tool:a', 'topic-status:active']
 const E2E_SCENARIO = {
   id: 's1',
-  file: 'scenarios/s1.mjs',
   mode: 'keyless',
   summary: 'fixture',
   covers: ['tool:a', 'route:/x GET', 'preset:p', 'topic-status:active'],
@@ -573,14 +571,58 @@ function e2eProblems(overrides = {}) {
     manifest: E2E_MANIFEST,
     debt: E2E_DEBT,
     surfaceKeys: E2E_SURFACE_KEYS,
-    manifestDir: '/fixture/tests/e2e',
-    fileExists: () => true,
     ...overrides,
   })
 }
 
+/** Negative controls for the E2E catalog and release-evidence checks. */
+function e2eSelfTestCases() {
+  return [
+  {
+    name: 'e2e catalog: a manifest version mismatch is red',
+    fail: () => e2eProblems({ packageVersion: '2.0.0' }).some((problem) => problem.includes('does not match package.json')),
+  },
+  {
+    name: 'e2e catalog: a live-model-only cover leaves the key uncovered',
+    fail: () => e2eProblems({
+      manifest: { ...E2E_MANIFEST, scenarios: [{ ...E2E_SCENARIO, mode: 'live-model' }] },
+    }).some((problem) => problem.includes('public key has no keyless scenario')),
+  },
+  {
+    name: 'e2e catalog: a covered debt entry is stale',
+    fail: () => e2eProblems({
+      debt: { entries: [...E2E_DEBT.entries, { key: 'tool:a', reason: 'r', exitCondition: 'e' }] },
+    }).some((problem) => problem.includes('already covered')),
+  },
+  {
+    name: 'e2e catalog: a new public key without a scenario or debt is red',
+    fail: () => e2eProblems({ surfaceKeys: [...E2E_SURFACE_KEYS, 'tool:new'] })
+      .some((problem) => problem.includes('tool:new')),
+  },
+  {
+    name: 'e2e evidence: a missing summary is red',
+    fail: () => e2eEvidenceProblems({ packageVersion: '1.0.0', evidence: null, keylessScenarioIds: new Set(['s1']) })
+      .some((problem) => problem.includes('is missing')),
+  },
+  {
+    name: 'e2e evidence: a failed scenario is red',
+    fail: () => e2eEvidenceProblems({
+      packageVersion: '1.0.0',
+      evidence: { ...E2E_EVIDENCE, scenarios: [{ ...E2E_EVIDENCE.scenarios[0], passed: false }] },
+      keylessScenarioIds: new Set(['s1']),
+    }).some((problem) => problem.includes('passed must be true')),
+  },
+  {
+    name: 'e2e evidence: a missing keyless scenario is red',
+    fail: () => e2eEvidenceProblems({ packageVersion: '1.0.0', evidence: E2E_EVIDENCE, keylessScenarioIds: new Set(['s1', 's2']) })
+      .some((problem) => problem.includes('has no recorded result')),
+  },
+  ]
+}
+
 function projectSelfTest() {
   const cases = [
+    ...e2eSelfTestCases(),
     {
       name: 'implemented record without alternatives',
       fail: () => noteErrors(
@@ -620,45 +662,6 @@ function projectSelfTest() {
         '# Rejected: x\n\nStatus: rejected\nDate: 2026-01-01\nClass: process\n\n## Problem\n\np\n\n## Proposal\n\nd\n\n### Acceptance criteria\n\n- [A1] lost — `source`\n\n## Alternatives considered\n\na\n\n## Why rejected\n\nwhy\n',
         new Set(['source']),
       ).length === 0,
-    },
-    {
-      name: 'e2e catalog: a manifest version mismatch is red',
-      fail: () => e2eProblems({ packageVersion: '2.0.0' }).some((problem) => problem.includes('does not match package.json')),
-    },
-    {
-      name: 'e2e catalog: a live-model-only cover leaves the key uncovered',
-      fail: () => e2eProblems({
-        manifest: { ...E2E_MANIFEST, scenarios: [{ ...E2E_SCENARIO, mode: 'live-model' }] },
-      }).some((problem) => problem.includes('public key has no keyless scenario')),
-    },
-    {
-      name: 'e2e catalog: a covered debt entry is stale',
-      fail: () => e2eProblems({
-        debt: { entries: [...E2E_DEBT.entries, { key: 'tool:a', reason: 'r', exitCondition: 'e' }] },
-      }).some((problem) => problem.includes('already covered')),
-    },
-    {
-      name: 'e2e catalog: a new public key without a scenario or debt is red',
-      fail: () => e2eProblems({ surfaceKeys: [...E2E_SURFACE_KEYS, 'tool:new'] })
-        .some((problem) => problem.includes('tool:new')),
-    },
-    {
-      name: 'e2e evidence: a missing summary is red',
-      fail: () => e2eEvidenceProblems({ packageVersion: '1.0.0', evidence: null, keylessScenarioIds: new Set(['s1']) })
-        .some((problem) => problem.includes('is missing')),
-    },
-    {
-      name: 'e2e evidence: a failed scenario is red',
-      fail: () => e2eEvidenceProblems({
-        packageVersion: '1.0.0',
-        evidence: { ...E2E_EVIDENCE, scenarios: [{ ...E2E_EVIDENCE.scenarios[0], passed: false }] },
-        keylessScenarioIds: new Set(['s1']),
-      }).some((problem) => problem.includes('passed must be true')),
-    },
-    {
-      name: 'e2e evidence: a missing keyless scenario is red',
-      fail: () => e2eEvidenceProblems({ packageVersion: '1.0.0', evidence: E2E_EVIDENCE, keylessScenarioIds: new Set(['s1', 's2']) })
-        .some((problem) => problem.includes('has no recorded result')),
     },
     {
       name: 'export audit: a dead export is red',
