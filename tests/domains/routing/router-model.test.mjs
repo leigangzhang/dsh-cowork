@@ -276,6 +276,55 @@ test('a port error falls back and keeps modelError bounded', async () => {
   assert.ok(outcome.modelError.length <= ROUTING_MODEL_ERROR_MAX_CHARS)
 })
 
+test('an empty model reply falls back as invalid-reply', async () => {
+  for (const reply of ['', '   ']) {
+    const port = recordingPort(reply)
+    const outcome = await recommendWithModel({
+      intent: INTENT,
+      candidates: makeCandidates(),
+      config: makeConfig(),
+      port,
+    })
+    assert.equal(outcome.action, 'fallback', JSON.stringify(reply))
+    assert.equal(outcome.topicId, 'topic-a')
+    assert.match(outcome.modelError, /^invalid-reply: the model returned no text/)
+  }
+})
+
+test('a port that throws synchronously falls back as a port error', async () => {
+  const port = {
+    run() {
+      throw new Error('sync boom')
+    },
+  }
+  const outcome = await recommendWithModel({
+    intent: INTENT,
+    candidates: makeCandidates(),
+    config: makeConfig(),
+    port,
+  })
+
+  assert.equal(outcome.action, 'fallback')
+  assert.match(outcome.modelError, /^port-error: sync boom/)
+})
+
+test('an abort surfaced as a TimeoutError is reported as a timeout', async () => {
+  const port = recordingPort(() => {
+    const error = new Error('aborted by the host')
+    error.name = 'TimeoutError'
+    throw error
+  })
+  const outcome = await recommendWithModel({
+    intent: INTENT,
+    candidates: makeCandidates(),
+    config: makeConfig(),
+    port,
+  })
+
+  assert.equal(outcome.action, 'fallback')
+  assert.match(outcome.modelError, /^timeout: aborted by the host/)
+})
+
 test('a slow port is aborted at timeoutMs and falls back in well under a second', async () => {
   const port = {
     calls: 0,

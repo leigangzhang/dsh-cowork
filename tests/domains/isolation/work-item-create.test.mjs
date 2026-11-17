@@ -80,7 +80,8 @@ const cloneOk = () => ({ args }) => {
 /**
  * Fake store port: one in-memory v2 document, recorded activity events, and
  * queued failures. `mutateSeesExtra` simulates a concurrent writer whose row
- * only appears inside the lock (the duplicate race `createWorkItem` guards).
+ * only appears inside the lock (the duplicate race `createWorkItem` guards);
+ * `mutateDropsWorkItems` simulates a row removed before the lock is acquired.
  */
 function fakeStore(document, options = {}) {
   const state = {
@@ -90,10 +91,13 @@ function fakeStore(document, options = {}) {
     mutateFailures: [...(options.mutateFailures ?? [])],
     activityError: options.activityError ?? null,
   }
-  const seenDocument = () =>
-    options.mutateSeesExtra === undefined
-      ? state.document
-      : { ...state.document, workItems: [...state.document.workItems, ...options.mutateSeesExtra] }
+  const seenDocument = () => {
+    if (options.mutateSeesExtra !== undefined) {
+      return { ...state.document, workItems: [...state.document.workItems, ...options.mutateSeesExtra] }
+    }
+    if (options.mutateDropsWorkItems === true) return { ...state.document, workItems: [] }
+    return state.document
+  }
   return {
     state,
     store: {
@@ -545,6 +549,97 @@ test('createWorkItem reports cleanup-failed when the activity rollback is itself
   assert.equal(state.events.length, 0)
 })
 
+test('createWorkItem refuses a blank topic id before reading the index or git', async (t) => {
+  const repo = makeRepo(t)
+  const git = makeGit()
+  const { store, state } = fakeStore(projectDocument())
+
+  const result = await createWorkItem(depsFor(store, git), {
+    repoPath: repo,
+    topicId: '   ',
+    workItemId: 'wi-1',
+    isolationProvider: 'clone',
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'workitem/create-failed')
+  assert.match(result.message, /topicId must be a non-empty topic id/)
+  assert.equal(git.calls.length, 0)
+  assert.equal(state.mutations, 0)
+})
+
+test('createWorkItem maps an escaping checkout root to checkout/path-guard', async (t) => {
+  const repo = makeRepo(t)
+  const outside = mkdtempSync(join(tmpdir(), 'cowork-work-item-outside-'))
+  t.after(() => rmSync(outside, { recursive: true, force: true }))
+  mkdirSync(join(repo, '.dsh-cowork'), { recursive: true })
+  symlinkSync(outside, join(repo, '.dsh-cowork', 'workitems'))
+  const git = makeGit()
+  const { store, state } = fakeStore(projectDocument())
+
+  const result = await createWorkItem(depsFor(store, git), {
+    repoPath: repo,
+    topicId: 'session-topic',
+    workItemId: 'wi-1',
+    isolationProvider: 'clone',
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'checkout/path-guard')
+  assert.match(result.message, /resolves outside its expected location/)
+  assert.equal(result.details.workItemId, 'wi-1')
+  assert.equal(git.calls.length, 0)
+  assert.equal(state.mutations, 0)
+})
+
+test('createWorkItem removes the fresh clone when the record cannot be stamped', async (t) => {
+  const repo = makeRepo(t)
+  const paths = workItemCheckoutPaths(repo, 'wi-1')
+  const git = makeGit(
+    ok(`${BASE}\n`),
+    cloneOk(),
+    ok(''),
+    ok('refs/heads/cowork/wi-1\n'),
+    ok(''),
+  )
+  const { store, state } = fakeStore(projectDocument())
+
+  const result = await createWorkItem(depsFor(store, git, { now: () => new Date(Number.NaN) }), {
+    repoPath: repo,
+    topicId: 'session-topic',
+    workItemId: 'wi-1',
+    isolationProvider: 'clone',
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'workitem/create-failed')
+  assert.match(result.message, /cannot build the work-item record/)
+  assert.deepEqual(result.details.cleanup, { removed: true, branchDeleted: true, error: null })
+  assert.equal(state.mutations, 0)
+  assert.equal(existsSync(paths.path), false)
+})
+
+test('createWorkItem reports cleanup-failed when the clone removal throws', async (t) => {
+  const repo = makeRepo(t)
+  const paths = workItemCheckoutPaths(repo, 'wi-1')
+  const git = makeGit(ok(`${BASE}\n`), cloneOk(), ok(''))
+  const { store, state } = fakeStore(projectDocument(), { mutateFailures: ['store/invalid: disk full'] })
+
+  const result = await createWorkItem(depsFor(store, git), {
+    repoPath: repo,
+    topicId: 'session-topic',
+    workItemId: 'wi-1',
+    isolationProvider: 'clone',
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'workitem/cleanup-failed')
+  assert.match(result.details.indexError, /disk full/)
+  assert.match(result.details.cleanup.error, /unexpected git call/)
+  assert.deepEqual(state.document.workItems, [])
+  assert.equal(existsSync(paths.path), false)
+})
+
 // ---------------------------------------------------------------------------
 // head capture
 // ---------------------------------------------------------------------------
@@ -672,4 +767,39 @@ test('captureWorkItemHead accepts a symlinked repository path for a canonical re
   assert.equal(result.ok, true)
   assert.equal(result.workItem.headCommit, HEAD)
   assert.equal(git.calls[0].cwd, workItemCheckoutPaths(repo, 'wi-1').path)
+})
+
+test('captureWorkItemHead refuses an empty HEAD without writing', async (t) => {
+  const repo = makeRepo(t)
+  const git = makeGit(ok(''))
+  const { store, state } = fakeStore(projectDocument({ workItems: [storedWorkItem(repo)] }))
+
+  const result = await captureWorkItemHead(
+    { runGit: git.runGit, store, now: () => UPDATED_AT },
+    { repoPath: repo, workItemId: 'wi-1' },
+  )
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'checkout/git-failed')
+  assert.match(result.message, /HEAD .* is empty/)
+  assert.equal(state.mutations, 0)
+})
+
+test('captureWorkItemHead reports a row removed before its head is written', async (t) => {
+  const repo = makeRepo(t)
+  const git = makeGit(ok(`${HEAD}\n`))
+  const { store, state } = fakeStore(
+    projectDocument({ workItems: [storedWorkItem(repo)] }),
+    { mutateDropsWorkItems: true },
+  )
+
+  const result = await captureWorkItemHead(
+    { runGit: git.runGit, store, now: () => UPDATED_AT },
+    { repoPath: repo, workItemId: 'wi-1' },
+  )
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'workitem/not-found')
+  assert.match(result.message, /disappeared/)
+  assert.equal(state.document.workItems.length, 1, 'a null mutation never rewrites the document')
 })

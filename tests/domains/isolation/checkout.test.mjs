@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import '../../support/ts-hook.mjs'
@@ -18,6 +18,7 @@ import {
   mergeCheckout,
   nodeGitRunner,
   removeCheckout,
+  resolveIsolationTarget,
   threadIsolationTarget,
   workItemCheckoutPaths,
   workItemIsolationTarget,
@@ -135,6 +136,19 @@ test('createCheckout rejects an invalid base ref without cloning', async (t) => 
   assert.equal(git.calls.length, 1)
 })
 
+test('createCheckout rejects a base ref that resolved to an empty commit id', async (t) => {
+  const repo = makeRepo(t)
+  const git = fakeGit(ok('   \n'))
+
+  const result = await createCheckout({ runGit: git.runGit }, { repoPath: repo, threadId: 't3' })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, CHECKOUT_ERROR.invalidBaseRef)
+  assert.match(result.message, /resolved to an empty commit id/)
+  assert.deepEqual(result.details, { baseRef: 'HEAD' })
+  assert.equal(git.calls.length, 1)
+})
+
 test('createCheckout refuses an existing checkout without running git', async (t) => {
   const repo = makeRepo(t)
   makeCheckout(repo, 't4')
@@ -214,6 +228,30 @@ test('createCheckout cleans up when the branch checkout fails', async (t) => {
   assert.match(result.message, /fatal: invalid reference/)
   assert.equal(existsSync(target), false)
   assert.equal(git.calls.length, 3)
+})
+
+test('createCheckout reports a clone it created but could not remove', async (t) => {
+  const repo = makeRepo(t)
+  const root = join(repo, CHECKOUT_ROOT_RELATIVE)
+  const target = join(root, 't7')
+  mkdirSync(root, { recursive: true })
+  const git = fakeGit(ok('abc123\n'), ({ args }) => {
+    mkdirSync(args[3], { recursive: true })
+    // The clone directory exists; make its parent read-only so the failure
+    // cleanup cannot unlink it.
+    chmodSync(root, 0o555)
+    return failed('fatal: clone failed')
+  })
+  try {
+    const result = await createCheckout({ runGit: git.runGit }, { repoPath: repo, threadId: 't7' })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.code, CHECKOUT_ERROR.createFailed)
+    assert.match(result.details.cleanupError, /EACCES|permission denied/i)
+    assert.equal(existsSync(target), true, 'the failed cleanup leaves the directory behind')
+  } finally {
+    chmodSync(root, 0o755)
+  }
 })
 
 test('inspectCheckout reports an all-empty status for a missing checkout', async (t) => {
@@ -386,6 +424,37 @@ test('mergeCheckout skips branch deletion when no stale branch exists and honors
   assert.equal(git.calls[3].cwd, repo)
 })
 
+test('mergeCheckout reports gitFailed when git status fails', async (t) => {
+  const repo = makeRepo(t)
+  const paths = makeCheckout(repo, 't12')
+  const git = fakeGit(failed('fatal: index unreadable', 2))
+
+  const result = await mergeCheckout({ runGit: git.runGit }, { repoPath: repo, threadId: 't12' })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, CHECKOUT_ERROR.gitFailed)
+  assert.match(result.message, /git status failed/)
+  assert.equal(result.details.path, paths.path)
+  assert.equal(result.details.exitCode, 2)
+  assert.equal(result.details.stderr, 'fatal: index unreadable')
+  assert.equal(git.calls.length, 1)
+})
+
+test('mergeCheckout reports mergeFailed when a stale branch cannot be deleted', async (t) => {
+  const repo = makeRepo(t)
+  makeCheckout(repo, 't12')
+  const git = fakeGit(ok(''), ok('refs/heads/cowork/t12\n'), failed('error: cannot delete branch'))
+
+  const result = await mergeCheckout({ runGit: git.runGit }, { repoPath: repo, threadId: 't12' })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.code, CHECKOUT_ERROR.mergeFailed)
+  assert.match(result.message, /cannot delete stale branch/)
+  assert.equal(result.details.stage, 'delete-stale-branch')
+  assert.equal(result.details.branch, 'cowork/t12')
+  assert.equal(git.calls.length, 3)
+})
+
 test('mergeCheckout reports mergeFailed when fetch fails', async (t) => {
   const repo = makeRepo(t)
   makeCheckout(repo, 't13')
@@ -511,6 +580,23 @@ test('removeCheckout reports gitFailed when the branch cannot be deleted', async
   assert.equal(result.ok, false)
   assert.equal(result.code, CHECKOUT_ERROR.gitFailed)
   assert.equal(result.details.branch, 'cowork/t20')
+})
+
+test('removeCheckout reports gitFailed when the checkout directory cannot be removed', async (t) => {
+  const repo = makeRepo(t)
+  const root = join(repo, CHECKOUT_ROOT_RELATIVE)
+  const paths = makeCheckout(repo, 't20')
+  chmodSync(root, 0o555)
+  try {
+    const result = await removeCheckout({ runGit: fakeGit().runGit }, { repoPath: repo, threadId: 't20' })
+
+    assert.equal(result.ok, false)
+    assert.equal(result.code, CHECKOUT_ERROR.gitFailed)
+    assert.match(result.message, /cannot remove/)
+    assert.equal(result.details.path, paths.path)
+  } finally {
+    chmodSync(root, 0o755)
+  }
 })
 
 test('mergeCheckout reports gitFailed when aborting a conflicted merge fails', async (t) => {
@@ -690,6 +776,34 @@ test('createCheckout refuses a target whose root escapes the repository', async 
     assert.equal(result.code, CHECKOUT_ERROR.pathGuard, rootRelative)
     assert.equal(git.calls.length, 0, rootRelative)
   }
+})
+
+test('an explicit target with an unusable branch name is refused by the path guard', () => {
+  for (const branchPrefix of ['-bad/', 'cowork/../', 'bad prefix/']) {
+    const resolution = resolveIsolationTarget('/repo', {
+      id: 'wi-1',
+      rootRelative: CHECKOUT_ROOT_RELATIVE,
+      branchPrefix,
+    })
+    assert.equal(resolution.ok, false, branchPrefix)
+    assert.match(resolution.message, /branch/, branchPrefix)
+  }
+
+  const valid = resolveIsolationTarget('/repo', {
+    id: 'wi-1',
+    rootRelative: CHECKOUT_ROOT_RELATIVE,
+    branchPrefix: 'cowork/',
+  })
+  assert.equal(valid.ok, true)
+  assert.equal(valid.branch, 'cowork/wi-1')
+})
+
+test('nodeGitRunner reports a spawn failure as exit code 1 with the error text', async () => {
+  const missing = join(tmpdir(), `cowork-missing-cwd-${process.pid}`)
+  const result = await nodeGitRunner(['status'], missing)
+  assert.equal(result.code, 1)
+  assert.equal(result.stdout, '')
+  assert.match(result.stderr, /ENOENT|no such file/i)
 })
 
 test('checkout operations reject an invalid target id or an ambiguous selector', async (t) => {

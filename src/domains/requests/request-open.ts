@@ -51,10 +51,10 @@ async function planTargetOfRequest(repoPath: string, requestId: string): Promise
   if (record.kind !== 'plan') {
     throw new PanelServiceError('inbox/path-missing', `request ${requestId} carries no openable file`)
   }
-  const payload = record.payload as { planPath?: unknown }
-  if (typeof payload.planPath !== 'string') {
-    throw new PanelServiceError('inbox/path-missing', `request ${requestId} carries no planPath`)
-  }
+  // `RequestStore.read` parses the record and refuses a plan payload whose
+  // planPath is not a bounded repo-relative path, so the validated record is
+  // the trust boundary and the payload is read without a second shape check.
+  const payload = record.payload as { planPath: string }
   return { topicId: record.topicId, relativePath: payload.planPath }
 }
 
@@ -93,10 +93,10 @@ async function resolveOpenableFile(repoPath: string, relative: unknown): Promise
   } catch (error) {
     throw new PanelServiceError('inbox/path-missing', `the repository root is unreachable: ${messageOf(error)}`)
   }
+  // The repo-relative guard above already rejects absolute paths, separators
+  // and `..` segments, so the lexical candidate cannot leave `root`; the
+  // realpath check below is what catches a symlink that does.
   const candidate = resolve(root, relative)
-  if (candidate === root || !candidate.startsWith(`${root}${sep}`)) {
-    throw new PanelServiceError('inbox/path-missing', `the stored path leaves the repository: ${relative}`)
-  }
   let real: string
   let info: Awaited<ReturnType<typeof stat>>
   try {

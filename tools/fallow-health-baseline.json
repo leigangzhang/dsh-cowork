@@ -6,11 +6,6 @@
         "count": 2
       }
     },
-    "scripts/evidence/host-smoke.mjs": {
-      "crap_high": {
-        "count": 1
-      }
-    },
     "src/app/apply.ts": {
       "crap_moderate": {
         "count": 1
@@ -322,11 +317,6 @@
         "count": 2
       }
     },
-    "tests/guards/workflow.test.mjs": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
     "tools/check-invariants.mjs": {
       "complexity_critical": {
         "count": 3
@@ -373,22 +363,26 @@
   "runtime_coverage_findings": [],
   "target_keys": [
     "src/domains/notices/notices.ts:complexity",
+    "src/tools/route.ts:complexity",
+    "scripts/evidence/browser-panel.mjs:hidden coupling",
     "src/client/panel.tsx:complexity",
     "src/store/schema.ts:complexity",
-    "src/tools/route.ts:complexity",
     "tools/check-invariants.mjs:complexity",
     "src/domains/requests/request-schema.ts:high impact",
     "src/domains/requests/request-lifecycle.ts:complexity",
+    "scripts/evidence/client-coverage.mjs:high impact",
     "src/client/api.ts:hidden coupling",
-    "tools/doc-gate-engine.mjs:complexity",
-    "src/panel/probe-model.ts:high impact",
+    "scripts/evidence/coverage-check.mjs:high impact",
     "src/domains/review/review-request.ts:complexity",
+    "src/panel/probe-model.ts:high impact",
+    "tools/doc-gate-engine.mjs:complexity",
     "src/tools/review.ts:complexity",
     "src/domains/requests/authorization-decision.ts:complexity",
     "tests/guards/architecture.test.mjs:untested risk",
     "src/client/model.ts:hidden coupling",
     "src/client/list.tsx:hidden coupling",
     "src/dev/m12-e2e.ts:untested risk",
+    "tests/browser/coverage-map.test.mjs:hidden coupling",
     "src/platform/workspace-repair.ts:complexity",
     "src/client/styles.ts:hidden coupling"
   ]

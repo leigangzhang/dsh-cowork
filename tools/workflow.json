@@ -96,6 +96,7 @@
         "src/client/**/*.tsx",
         "tests/browser/**",
         "scripts/evidence/browser-panel.mjs",
+        "scripts/evidence/browser-evidence.mjs",
         "scripts/evidence/client-coverage.mjs",
         "scripts/evidence/dsh-host-session.mjs",
         "scripts/evidence/evidence-sanitize.mjs"

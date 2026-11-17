@@ -26,11 +26,14 @@ import {
 } from './client-coverage.mjs'
 import { gateArtifactFromEnv } from './test-coverage.mjs'
 import { sanitizeEvidenceText } from './evidence-sanitize.mjs'
+import { failurePayload, redactUrl } from './browser-evidence.mjs'
 import { seedBrowserProject, seedSecondaryProject } from '../../tests/browser/fixtures.mjs'
 import { runBrowserScenarios } from '../../tests/browser/scenarios.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
+const CLIENT_BUNDLE_PATH = resolve(root, 'lib/client.js')
+const CLIENT_MAP_PATH = resolve(root, 'lib/client.js.map')
 const STRICT = process.env.DSH_BROWSER_STRICT === '1'
 const KEEP = process.env.DSH_BROWSER_KEEP === '1'
 const HEADFUL = process.env.DSH_BROWSER_HEADFUL === '1'
@@ -54,17 +57,6 @@ function sha256(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex')
 }
 
-/** Remove credentials from URL-shaped evidence before it reaches disk. */
-function redactUrl(value) {
-  try {
-    const url = new URL(value)
-    url.searchParams.delete('token')
-    return url.toString()
-  } catch {
-    return value
-  }
-}
-
 /** The host Remote envelope uses a different args field for the list endpoint. */
 function remoteRequest(method, request) {
   const args = method === 'session/list' ? { _request: {} } : { request }
@@ -76,10 +68,12 @@ function remoteRequest(method, request) {
   }
 }
 
+function remoteErrorMessage(method, body) {
+  return `${method}: ${JSON.stringify(body?.result?.error ?? body)}`
+}
+
 function remoteResult(method, body) {
-  if (body?.result?.ok !== true) {
-    throw new Error(`${method}: ${JSON.stringify(body?.result?.error ?? body)}`)
-  }
+  if (body?.result?.ok !== true) throw new Error(remoteErrorMessage(method, body))
   return body.result.value
 }
 
@@ -123,35 +117,6 @@ async function openPanel(page) {
     await footer.click()
   }
   await panel.waitFor({ timeout: 15_000 })
-}
-
-function coverageEntryEvidence(entry) {
-  return {
-    url: redactUrl(entry.url ?? ''),
-    generatedLength: (entry.source ?? entry.text ?? '').length,
-    functions: Array.isArray(entry.functions) ? entry.functions.length : 0,
-    ranges: (entry.functions ?? []).reduce((total, fn) => total + (fn.ranges?.length ?? 0), 0),
-  }
-}
-
-/** Keep only the coverage shape needed to diagnose a failure, never the bundle source. */
-function coverageEvidence(entries) {
-  return (entries ?? []).map(coverageEntryEvidence)
-}
-
-function failurePayload({ error, pageErrors, consoleMessages, network, coverage, hostLogs }) {
-  return {
-    error: sanitizeEvidenceText(error instanceof Error ? error.message : String(error)),
-    stack: sanitizeEvidenceText(error instanceof Error ? error.stack ?? '' : ''),
-    pageErrors: pageErrors.map(sanitizeEvidenceText),
-    consoleMessages: consoleMessages.map(message => ({
-      type: message.type,
-      text: sanitizeEvidenceText(message.text),
-    })),
-    network: network.map(row => ({ ...row, url: sanitizeEvidenceText(row.url) })),
-    hostLogs: sanitizeEvidenceText(hostLogs ?? ''),
-    coverage: coverageEvidence(coverage),
-  }
 }
 
 /** Save the bounded evidence a failed browser run needs for diagnosis. */
@@ -231,50 +196,70 @@ async function openBrowserPage(chromium, host, state) {
   return page
 }
 
-async function publishCoverage({ host, probe, coverageEntries }) {
+/** The combo entry, section index, and served map URL for this plugin's bundle. */
+function coverageSource(coverageEntries) {
   const entry = pluginBundleEntry(coverageEntries)
   if (entry === null) throw new Error('the plugin client bundle was not present in JSCoverage')
-  const mapPath = join(root, 'lib', 'client.js.map')
-  const bundlePath = join(root, 'lib', 'client.js')
   const sectionIndex = comboSectionIndex(entry.url)
   if (sectionIndex === null) throw new Error('the plugin package is missing from the combo URL')
-  const servedMapUrl = comboSourceMapUrl(entry.url)
-  const servedMapResponse = await fetch(servedMapUrl, { headers: { cookie: host.cookie } })
-  if (!servedMapResponse.ok) {
-    throw new Error(`the host combo source map returned ${servedMapResponse.status}`)
-  }
+  return { entry, sectionIndex, servedMapUrl: comboSourceMapUrl(entry.url) }
+}
+
+async function servedSourceMap(host, servedMapUrl) {
+  const response = await fetch(servedMapUrl, { headers: { cookie: host.cookie } })
+  if (!response.ok) throw new Error(`the host combo source map returned ${response.status}`)
+  return response.json()
+}
+
+function mappedCoverageReport({ entry, sectionIndex, sourceMapPayload }) {
   const report = clientCoverageFromEntry({
     entry,
-    sourceMapPayload: await servedMapResponse.json(),
+    sourceMapPayload,
     repoRoot: root,
-    mapDirectory: dirname(mapPath),
+    mapDirectory: dirname(CLIENT_MAP_PATH),
     sectionIndex,
   })
   const completeness = coverageCompletenessFailures(report)
   if (completeness.length > 0) {
     throw new Error(`browser coverage completeness failed: ${completeness.join('; ')}`)
   }
-  const gitStatus = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout.trim()
-  const gateArtifact = gateArtifactFromEnv()
-  const artifact = {
-    head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim(),
-    dirty: gitStatus !== '',
-    gitStatus: gitStatus === '' ? [] : gitStatus.split('\n').slice(0, 100),
-    gateArtifact,
+  return report
+}
+
+function gitState() {
+  const status = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout.trim()
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim()
+  return {
+    head,
+    dirty: status !== '',
+    gitStatus: status === '' ? [] : status.split('\n').slice(0, 100),
+  }
+}
+
+function coverageArtifact({ host, probe, servedMapUrl }) {
+  return {
+    ...gitState(),
+    gateArtifact: gateArtifactFromEnv(),
     generatedAt: new Date().toISOString(),
     pluginVersion: host.packageJson.version,
     playwrightVersion: host.packageJson.devDependencies?.playwright ?? 'unknown',
     dshVersion: probe.stdout.trim(),
-    clientSha256: sha256(bundlePath),
-    mapSha256: sha256(mapPath),
+    clientSha256: sha256(CLIENT_BUNDLE_PATH),
+    mapSha256: sha256(CLIENT_MAP_PATH),
     servedMapUrl,
   }
-  // A standalone strict run needs a clean tree. The layered gate binds the exact
-  // dirty tree through COVERAGE_GATE_ARTIFACT, so it can judge uncommitted work.
-  if (STRICT && artifact.dirty && gateArtifact === null) {
+}
+
+// A standalone strict run needs a clean tree. The layered gate binds the exact
+// dirty tree through COVERAGE_GATE_ARTIFACT, so it can judge uncommitted work.
+function assertStrictEvidence(artifact) {
+  if (STRICT && artifact.dirty && artifact.gateArtifact === null) {
     throw new Error('browser lane requires a clean worktree before standalone strict evidence')
   }
-  const output = {
+}
+
+function coverageOutput(artifact, report) {
+  return {
     formatVersion: 1,
     artifact,
     policy: {
@@ -286,57 +271,100 @@ async function publishCoverage({ host, probe, coverageEntries }) {
     summary: coverageSummary(report),
     ...report,
   }
+}
+
+function writeCoverageFiles(output, report) {
   mkdirSync(resolve(root, 'coverage'), { recursive: true })
   writeFileSync(resolve(root, 'coverage', 'client.json'), `${JSON.stringify(output, null, 2)}\n`, 'utf8')
   writeFileSync(resolve(root, 'coverage', 'browser.lcov'), clientCoverageLcov(report), 'utf8')
+}
+
+function reportCoverageResult(output, report, artifact) {
   const counted = report.files.filter(file => file.status === 'counted').length
   console.log(
     `PASS browser-panel: ${counted} counted client files, ${report.files.length} reported`
     + `${artifact.dirty ? ' (dirty worktree)' : ''}`,
   )
   for (const line of output.summary) console.log(`  ${line}`)
-  if (KEEP) {
-    const target = resolve(root, '.dsh-cowork', 'browser', `browser-${randomUUID()}`)
-    mkdirSync(target, { recursive: true })
-    writeFileSync(join(target, 'summary.json'), `${JSON.stringify(output, null, 2)}\n`, 'utf8')
-    console.log(`  kept summary: ${target}`)
-  }
+  if (!KEEP) return
+  const target = resolve(root, '.dsh-cowork', 'browser', `browser-${randomUUID()}`)
+  mkdirSync(target, { recursive: true })
+  writeFileSync(join(target, 'summary.json'), `${JSON.stringify(output, null, 2)}\n`, 'utf8')
+  console.log(`  kept summary: ${target}`)
+}
+
+async function publishCoverage({ host, probe, coverageEntries }) {
+  const { entry, sectionIndex, servedMapUrl } = coverageSource(coverageEntries)
+  const sourceMapPayload = await servedSourceMap(host, servedMapUrl)
+  const report = mappedCoverageReport({ entry, sectionIndex, sourceMapPayload })
+  const artifact = coverageArtifact({ host, probe, servedMapUrl })
+  assertStrictEvidence(artifact)
+  const output = coverageOutput(artifact, report)
+  writeCoverageFiles(output, report)
+  reportCoverageResult(output, report, artifact)
   return report
 }
 
-async function main() {
-  const dsh = process.env.DSH_BIN || 'dsh'
+function dshProbe(dsh) {
   const probe = spawnSync(dsh, ['--version'], { encoding: 'utf8', timeout: 15_000 })
-  if (probe.error !== undefined || probe.status !== 0) {
-    skipOrFail(`'${dsh}' is not available`)
-    return
-  }
+  return probe.error !== undefined || probe.status !== 0 ? null : probe
+}
 
-  let chromium
+async function loadChromium() {
+  let playwright
   try {
-    ({ chromium } = await import('playwright'))
+    playwright = await import('playwright')
   } catch {
-    skipOrFail('playwright is not installed; run npm ci && npx playwright install chromium')
-    return
+    return {
+      chromium: null,
+      reason: 'playwright is not installed; run npm ci && npx playwright install chromium',
+    }
   }
-  const executable = chromium.executablePath()
+  const executable = playwright.chromium.executablePath()
   if (!existsSync(executable)) {
-    skipOrFail(`Chromium is not installed at ${executable}; run npx playwright install chromium`)
-    return
+    return {
+      chromium: null,
+      reason: `Chromium is not installed at ${executable}; run npx playwright install chromium`,
+    }
   }
+  return { chromium: playwright.chromium, reason: null }
+}
 
+async function closeLane({ browser, host }) {
+  if (browser !== undefined) await browser.close().catch(() => {})
+  if (host !== undefined) await host.stop()
+}
+
+function errorText(error) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function reportLaneFailure({ page, error, pageErrors, consoleMessages, network, coverage, host }) {
+  const target = await writeFailureArtifacts({
+    page,
+    error,
+    pageErrors,
+    consoleMessages,
+    network,
+    coverage,
+    hostLogs: host?.logTail?.() ?? '',
+  })
+  console.error(`FAIL browser-panel: ${errorText(error)}`)
+  console.error(`  evidence: ${target}`)
+  process.exitCode = 1
+}
+
+async function runBrowserLane({ chromium, probe }) {
   const laneRoot = mkdtempSync(join(tmpdir(), 'cowork-browser-lane-'))
   const primaryRepo = join(laneRoot, 'primary-repo')
   const secondaryRepo = join(laneRoot, 'secondary-repo')
   mkdirSync(primaryRepo, { recursive: true })
   mkdirSync(secondaryRepo, { recursive: true })
+  const state = { pageErrors: [], consoleMessages: [], network: [] }
   let host
   let browser
   let page
   let coverageEntries
-  const pageErrors = []
-  const consoleMessages = []
-  const network = []
   try {
     host = await startDshHost({
       patchRepoPath: primaryRepo,
@@ -346,34 +374,37 @@ async function main() {
     })
     const fixtures = await prepareFixtures(host, primaryRepo, secondaryRepo)
     browser = await chromium.launch({ headless: !HEADFUL })
-    page = await openBrowserPage(browser, host, { pageErrors, consoleMessages, network })
+    page = await openBrowserPage(browser, host, state)
     await runBrowserScenarios(page, fixtures)
     coverageEntries = await page.coverage.stopJSCoverage()
-    if (pageErrors.length > 0) throw new Error(`page errors: ${pageErrors.join(' | ')}`)
+    if (state.pageErrors.length > 0) throw new Error(`page errors: ${state.pageErrors.join(' | ')}`)
     await publishCoverage({ host, probe, coverageEntries })
   } catch (error) {
-    const target = await writeFailureArtifacts({
-      page,
-      error,
-      pageErrors,
-      consoleMessages,
-      network,
-      coverage: coverageEntries,
-      hostLogs: host?.logTail?.() ?? '',
-    })
-    console.error(`FAIL browser-panel: ${error instanceof Error ? error.message : String(error)}`)
-    console.error(`  evidence: ${target}`)
-    process.exitCode = 1
+    await reportLaneFailure({ page, error, ...state, coverage: coverageEntries, host })
   } finally {
-    if (browser !== undefined) await browser.close().catch(() => {})
-    if (host !== undefined) await host.stop()
+    await closeLane({ browser, host })
     rmSync(laneRoot, { recursive: true, force: true })
   }
 }
 
+async function main() {
+  const dsh = process.env.DSH_BIN || 'dsh'
+  const probe = dshProbe(dsh)
+  if (probe === null) {
+    skipOrFail(`'${dsh}' is not available`)
+    return
+  }
+  const { chromium, reason } = await loadChromium()
+  if (chromium === null) {
+    skipOrFail(reason)
+    return
+  }
+  await runBrowserLane({ chromium, probe })
+}
+
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
-    console.error(`FAIL browser-panel: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`FAIL browser-panel: ${errorText(error)}`)
     process.exitCode = 1
   })
 }

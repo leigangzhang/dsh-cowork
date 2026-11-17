@@ -123,6 +123,16 @@ test('buildWorkItemRecord refuses an unsafe id, path, or branch', () => {
   assert.throws(() => buildWorkItemRecord({ ...opened, branch: '' }, CREATED_AT), TypeError)
 })
 
+test('buildWorkItemRecord refuses a blank topic and an empty base commit', () => {
+  const opened = { workItemId: 'wi-1', topicId: 'session-topic', path: '/repo/workitems/wi-1', branch: 'cowork/wi-1', baseCommit: BASE }
+  for (const topicId of ['', '   ']) {
+    assert.throws(() => buildWorkItemRecord({ ...opened, topicId }, CREATED_AT), TypeError)
+  }
+  assert.throws(() => buildWorkItemRecord({ ...opened, baseCommit: '' }, CREATED_AT), TypeError)
+  // A null base is the recorded answer for a clone whose base could not be read.
+  assert.equal(buildWorkItemRecord({ ...opened, baseCommit: null }, CREATED_AT).baseCommit, null)
+})
+
 test('markWorkItem stamps updatedAt and the new head, keeping the rest', () => {
   const marked = markWorkItem(item(), { status: 'reviewing', headCommit: HEAD }, UPDATED_AT)
   assert.deepEqual(marked, item({ status: 'reviewing', headCommit: HEAD, updatedAt: UPDATED_AT.toISOString() }))
@@ -140,6 +150,13 @@ test('markWorkItem stamps updatedAt and the new head, keeping the rest', () => {
 test('markWorkItem refuses an invalid status or an empty head', () => {
   assert.throws(() => markWorkItem(item(), { status: 'bogus' }, UPDATED_AT), TypeError)
   assert.throws(() => markWorkItem(item(), { headCommit: '' }, UPDATED_AT), TypeError)
+})
+
+test('markWorkItem refuses a blank path or branch and accepts a cleared base', () => {
+  assert.throws(() => markWorkItem(item(), { path: '' }, UPDATED_AT), TypeError)
+  assert.throws(() => markWorkItem(item(), { branch: '   ' }, UPDATED_AT), TypeError)
+  const cleared = markWorkItem(item(), { baseCommit: null }, UPDATED_AT)
+  assert.equal(cleared.baseCommit, null)
 })
 
 // ---------------------------------------------------------------------------

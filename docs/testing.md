@@ -17,7 +17,7 @@ One home for how dsh-cowork decides that something is verified.
 | Local build gate | Heavy lane | `npm run typecheck`, `npm run build`, host smoke, and browser lane where the DSH source/app or Chromium exists | Every affected source/client change until the local heavy runner is stable enough to be required |
 | Review evidence | GitHub Actions `gate-artifact` | A `review-verdict` marker at the PR head, a successful `pr-gate`, current `main` as an ancestor, and a clean worktree | Every PR before merge |
 
-A same-process typed value is not evidence for a cross-process claim: session waking, workspace attach, and worktree merge need a real DSH run. Host smoke proves loading and routing, not transactions.
+Replayable expected output has no lane yet; do not cite it. The browser panel is observational and writes `coverage/client.json` and `coverage/browser.lcov`. A same-process value is not evidence for a cross-process claim: session waking, workspace attach, and worktree merge need a real DSH run; host smoke proves loading, not transactions.
 
 ## Commands
 
@@ -40,23 +40,23 @@ npm run gate-artifact -- --base <verified-base>  # record HEAD, binary diff SHA-
 
 `npm test` runs `tests/**/*.test.mjs`; the glob is quoted so Node expands it recursively. `test:coverage` uses the same recursive discovery from [scripts/evidence/test-coverage.mjs](../scripts/evidence/test-coverage.mjs), so a test moved into a subdirectory cannot be silently skipped on either lane.
 
-`test:coverage` runs every test file in its own process, writes one LCOV report per process, and merges the reports by union. The aggregate `node --test` report is not used: it intermittently dropped a whole test file, which is fatal for a per-file gate. The gate is [coverage-check.mjs](../scripts/evidence/coverage-check.mjs) and its policy data is `tools/coverage-map.json` plus `tools/coverage-debt.json`.
+`test:coverage` runs every test file in its own process, writes one LCOV report per process, and merges the reports by union. The aggregate `node --test` report is not used: it intermittently dropped a test file. The gate is [coverage-check.mjs](../scripts/evidence/coverage-check.mjs) and its policy data is `tools/coverage-map.json` plus `tools/coverage-debt.json`.
 
-Every `src/**/*.ts` and `src/client/**/*.tsx` is owned by exactly one lane: `unit`, `browser`, or `dev`. Ownership is exclusive; a file is judged by its own lane only. The six `src/dev/m12-e2e*` drivers are the only `dev` entries: they carry a reason and an exit condition, are reported for visibility, and are not gated. `src/client/notice.tsx` is a blocked browser entry until the host exposes `ctx.sessionNotices` (KI-40). A file with only type declarations is allowed to be absent from the coverage report; a file with runtime statements that no test loads fails.
+Every `src/**/*.ts` and `src/client/**/*.tsx` is owned by exactly one lane: `unit`, `browser`, or `dev`. Ownership is exclusive. The six `src/dev/m12-e2e*` drivers are the only `dev` entries: they carry a reason and an exit condition, are reported for visibility, and are not gated. `src/client/notice.tsx` is a blocked browser entry until the host exposes `ctx.sessionNotices` (KI-40). A file with only type declarations is allowed to be absent from the coverage report; a file with runtime statements that no test loads fails.
 
 Line coverage is per file: 100%, or exactly the uncovered-line set in `tools/coverage-debt.json`. The baseline only shrinks; an unlisted gap, a regression, or a stale entry after an improvement is red. `--update-debt` is the only writer; it refuses newly uncovered lines unless `--accept-regression` is explicit. Editing a covered file shifts stored line numbers, so the entry refreshes and may only shrink. `coverage:check` rejects a report whose recorded HEAD or porcelain no longer matches. Reports live in gitignored `coverage/`.
 
 The unit loader strips TypeScript in line-preserving mode; every `src` TypeScript file must be strip-compatible, because Node's transform-mode source-map remapping is not precise enough for a per-line gate. A transform fallback exists for future syntax but turns the coverage guard red. The mapping fixture in [tests/guards/coverage-policy.test.mjs](../tests/guards/coverage-policy.test.mjs) pins an executed line and an unexecuted line through the real loader and proves the transform fallback misattributes the latter.
 
-`test:coverage:layered` rebuilds `lib/`, runs the unit lane and `test:browser` under one `gate-artifact` identity, and refuses a missing lane, a mismatched identity, an incomplete browser surface, or a browser LCOV without an owned file. The browser lane is strict here: missing `dsh`, Playwright, or Chromium is a failure. Browser percentages stay observational until a reviewed `tools/coverage-browser-floors.json` covers every non-blocked browser-owned file. A dirty-tree run is diagnostic; release evidence runs from a clean commit.
+`test:coverage:layered` rebuilds `lib/`, runs the unit lane and `test:browser` under one `gate-artifact` identity, and refuses a missing lane, a mismatched identity, an incomplete browser surface, or a browser LCOV without an owned file. The browser lane is strict here. Browser percentages stay observational until a reviewed `tools/coverage-browser-floors.json` covers every non-blocked browser-owned file. A dirty-tree run is diagnostic; release evidence runs from a clean commit.
 
 `lib/` is local build output and is gitignored. After changing `src/`, run `npm run build` before packaging, `test:browser`, or `test:host-smoke`; both consumers read the current local `lib/`. A stale local `lib/` is not detected by a source hash, so the build step is part of the evidence.
 
-`test:host-smoke` uses a temporary `DSH_HOME`, npm cache, and port; it never writes the real profile and calls no model. Missing `dsh` prints a skip; set `DSH_HOST_SMOKE_STRICT=1` to make it fatal.
+`test:host-smoke` uses a temporary `DSH_HOME`, npm cache, and port; it never writes the real profile and calls no model. Missing `dsh` prints a skip; `DSH_HOST_SMOKE_STRICT=1` makes it fatal.
 
 `test:e2e` packs `lib/`, boots one temporary host, and points the real adapter at a local scripted Messages endpoint through `baseURL`. Each scenario creates a fresh fixture, uses the host Remote API for real sessions and prompts, and calls panel routes with the cookie. It opens no provider connection and needs no model key; all temporary paths are removed in `finally`. Missing `dsh` is a named skip (`DSH_E2E_STRICT=1` fatal). `--record` writes a sanitized summary for a green run from a clean worktree; `npm run check` requires it for the current version and every keyless scenario. `--mode live` runs only with `DEEPSEEK_API_KEY`, is observational, and is never keyless evidence.
 
-`test:browser` packs the same artifact, creates temporary workspaces and `.dsh-cowork` fixtures, opens the real right sidebar in one Chromium context, and removes host, profile, cache, and fixture paths in `finally`. It never touches the user's profile or project data. Missing `dsh` or Chromium prints a named skip; `DSH_BROWSER_STRICT=1` makes either fatal. A standalone strict run also needs a clean worktree; `test:coverage:layered` binds the exact dirty tree through its gate artifact instead. Browser page errors fail the run.
+`test:browser` packs the same artifact, creates temporary workspaces and `.dsh-cowork` fixtures, opens the real right sidebar in one Chromium context, and removes host, profile, cache, and fixture paths in `finally`. Missing `dsh` or Chromium prints a named skip; `DSH_BROWSER_STRICT=1` makes either fatal. A standalone strict run needs a clean worktree (the layered command binds the dirty tree); page errors fail the run.
 
 ## Determinism
 
@@ -87,6 +87,7 @@ First run `npm run change-scope -- --base <verified-base>` and record the identi
 - `tests/e2e/**`, `scripts/evidence/e2e.mjs`, `tools/e2e-coverage.mjs` → `npm run test:e2e` + `npm run check` + `npm test`; re-record the evidence whenever the keyless manifest changes.
 - `package.json`, `cordis.patch.yml`, build config → `npm run check` + typecheck + `npm test` + build + host smoke.
 - `tools/workflow.json`, `tools/check-invariants.mjs`, `.gitignore` → `npm run check` + `npm run check:self-test`.
+- `tools/fallow-health-baseline.json` → `fallow health --baseline tools/fallow-health-baseline.json` (zero new findings) and `fallow audit --base <verified-base>` (change gate); refresh the baseline only in a dedicated maintenance PR naming the CLI version and HEAD, with each added entry reviewed.
 - `AGENTS.md`, `docs/*` → `npm run check` and read the changed section as its reader.
 
 A delivery is not verified unless the commands that ran, their three-state result, and the entries that did not run are named in the final report.

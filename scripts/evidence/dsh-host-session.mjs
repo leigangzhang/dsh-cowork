@@ -193,6 +193,115 @@ async function stopChild(child) {
   }
 }
 
+const ARTIFACT_FILES = ['lib/index.js', 'lib/client.js']
+
+function assertArtifact(root) {
+  for (const path of ARTIFACT_FILES) {
+    if (!existsSync(resolve(root, path))) {
+      throw new Error(`${path} is missing; run \`npm run build\` first`)
+    }
+  }
+}
+
+/**
+ * The paths one temporary host owns, all derived from one `mkdtemp` root so
+ * `stop` can remove the whole tree without tracking each file separately.
+ *
+ * @param {object} [options] The same options `startDshHost` accepts.
+ * @param {string} [root] Package root the artifact and tarball come from.
+ * @returns {{root: string, patchRepoPath: string, cwd: string, profileName: string, tempRoot: string, dshHome: string, npmCache: string, patchPath: string}}
+ */
+export function hostLayout(options = {}, root = packageRoot) {
+  const prefix = options.prefix ?? 'cowork-host-session-'
+  const tempRoot = mkdtempSync(join(tmpdir(), prefix))
+  return {
+    root,
+    patchRepoPath: options.patchRepoPath ?? root,
+    cwd: options.cwd ?? root,
+    profileName: options.profileName ?? 'cowork-evidence',
+    tempRoot,
+    dshHome: join(tempRoot, 'dsh-home'),
+    npmCache: join(tempRoot, 'npm-cache'),
+    patchPath: join(tempRoot, 'profile-patch.yml'),
+  }
+}
+
+/**
+ * The child environment: the caller's values with an isolated DSH home and npm
+ * cache, so a lane never reads or writes the user's real profile.
+ *
+ * @param {{dshHome: string, npmCache: string}} layout
+ * @param {object} [options]
+ * @param {NodeJS.ProcessEnv} [options.env] Extra environment for every child.
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function hostEnvironment(layout, options = {}) {
+  return {
+    ...process.env,
+    ...(options.env ?? {}),
+    DSH_HOME: layout.dshHome,
+    npm_config_cache: layout.npmCache,
+  }
+}
+
+function removeTempRoot(tempRoot, keep) {
+  if (keep !== true) rmSync(tempRoot, { recursive: true, force: true })
+}
+
+async function stopConnection(connection) {
+  if (connection === null) return
+  connection.output.detach()
+  await stopChild(connection.child)
+}
+
+/** Install the current package artifact into the temporary profile. */
+function installHostPackage({ layout, hostEnv, dsh }) {
+  const manifest = JSON.parse(readFileSync(resolve(layout.root, 'package.json'), 'utf8'))
+  const packResult = runCommand('npm', ['pack', '--json', '--pack-destination', layout.tempRoot], {
+    cwd: layout.root,
+    env: hostEnv,
+  })
+  const packed = JSON.parse(packResult.stdout)[0]
+  if (typeof packed?.filename !== 'string' || packed.filename === '') throw new Error('npm pack returned no filename')
+  const tarball = join(layout.tempRoot, packed.filename)
+  runCommand(dsh, ['--profile', layout.profileName, '--from-default-profile', 'web', '--dump-config'], {
+    cwd: layout.cwd,
+    env: hostEnv,
+  })
+  runCommand(dsh, ['plugin', '--profile', layout.profileName, 'add', tarball], {
+    cwd: layout.cwd,
+    env: hostEnv,
+  })
+  return { manifest, tarball }
+}
+
+/** Spawn the host process and attach its bounded output. */
+function spawnHostProcess({ layout, hostEnv, dsh }) {
+  const child = spawn(dsh, ['--profile', layout.profileName, '--patch', layout.patchPath, '--port', '0', '--no-open'], {
+    cwd: layout.cwd,
+    env: hostEnv,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  return { child, output: attachHostOutput(child) }
+}
+
+/**
+ * Wait for the printed URL and exchange it for a cookie.
+ *
+ * The caller owns the spawned child; a failure here leaves cleanup to the
+ * caller's stop path, which has the provisional connection.
+ */
+async function authenticateHost({ output }) {
+  const authenticatedUrl = await output.ready
+  const origin = new URL(authenticatedUrl).origin
+  const auth = await fetch(authenticatedUrl, { redirect: 'manual' })
+  const cookie = authCookieFrom(auth.headers)
+  if (auth.status !== 303 || cookie === '') {
+    throw new Error(`DSH token exchange failed (status ${String(auth.status)}, cookie=${cookie === '' ? 'missing' : 'present'})`)
+  }
+  return { origin, authenticatedUrl, cookie }
+}
+
 /**
  * Start one throwaway DSH host from the current package artifact.
  *
@@ -208,82 +317,34 @@ async function stopChild(child) {
  */
 export async function startDshHost(options = {}) {
   const root = options.packageRoot ?? packageRoot
-  for (const path of ['lib/index.js', 'lib/client.js']) {
-    if (!existsSync(resolve(root, path))) {
-      throw new Error(`${path} is missing; run \`npm run build\` first`)
-    }
-  }
-  const patchRepoPath = options.patchRepoPath ?? root
-  const cwd = options.cwd ?? root
-  const profileName = options.profileName ?? 'cowork-evidence'
-  const prefix = options.prefix ?? 'cowork-host-session-'
-  const tempRoot = mkdtempSync(join(tmpdir(), prefix))
-  const dshHome = join(tempRoot, 'dsh-home')
-  const npmCache = join(tempRoot, 'npm-cache')
-  const patchPath = join(tempRoot, 'profile-patch.yml')
-  const hostEnv = {
-    ...process.env,
-    ...(options.env ?? {}),
-    DSH_HOME: dshHome,
-    npm_config_cache: npmCache,
-  }
+  assertArtifact(root)
+  const layout = hostLayout(options, root)
+  const hostEnv = hostEnvironment(layout, options)
   const dsh = hostEnv.DSH_BIN ?? 'dsh'
-  let child = null
-  let output = null
   let stopped = false
-
+  let connection = null
   const stop = async () => {
     if (stopped) return
     stopped = true
-    output?.detach()
-    await stopChild(child)
-    if (options.keep !== true) rmSync(tempRoot, { recursive: true, force: true })
+    await stopConnection(connection)
+    removeTempRoot(layout.tempRoot, options.keep)
   }
-
   try {
-    const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
-    const packResult = runCommand('npm', ['pack', '--json', '--pack-destination', tempRoot], {
-      cwd: root,
-      env: hostEnv,
-    })
-    const packed = JSON.parse(packResult.stdout)[0]
-    if (typeof packed?.filename !== 'string' || packed.filename === '') throw new Error('npm pack returned no filename')
-    const tarball = join(tempRoot, packed.filename)
-
-    runCommand(dsh, ['--profile', profileName, '--from-default-profile', 'web', '--dump-config'], {
-      cwd,
-      env: hostEnv,
-    })
-    runCommand(dsh, ['plugin', '--profile', profileName, 'add', tarball], {
-      cwd,
-      env: hostEnv,
-    })
-
-    writeFileSync(patchPath, profilePatch(patchRepoPath, options.patchOptions), 'utf8')
-    child = spawn(dsh, ['--profile', profileName, '--patch', patchPath, '--port', '0', '--no-open'], {
-      cwd,
-      env: hostEnv,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    output = attachHostOutput(child)
-    const authenticatedUrl = await output.ready
-    const origin = new URL(authenticatedUrl).origin
-    const auth = await fetch(authenticatedUrl, { redirect: 'manual' })
-    const cookie = authCookieFrom(auth.headers)
-    if (auth.status !== 303 || cookie === '') {
-      throw new Error(`DSH token exchange failed (status ${String(auth.status)}, cookie=${cookie === '' ? 'missing' : 'present'})`)
-    }
+    const { manifest, tarball } = installHostPackage({ layout, hostEnv, dsh })
+    writeFileSync(layout.patchPath, profilePatch(layout.patchRepoPath, options.patchOptions), 'utf8')
+    connection = spawnHostProcess({ layout, hostEnv, dsh })
+    const auth = await authenticateHost(connection)
     return {
       packageJson: manifest,
       tarball,
-      tempRoot,
-      dshHome,
-      npmCache,
-      origin,
-      authenticatedUrl,
-      cookie,
-      child,
-      logTail: () => output?.tail() ?? '',
+      tempRoot: layout.tempRoot,
+      dshHome: layout.dshHome,
+      npmCache: layout.npmCache,
+      origin: auth.origin,
+      authenticatedUrl: auth.authenticatedUrl,
+      cookie: auth.cookie,
+      child: connection.child,
+      logTail: () => connection?.output?.tail() ?? '',
       stop,
     }
   } catch (error) {
