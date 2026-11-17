@@ -1,6 +1,6 @@
 # GitHub 协作流程
 
-本文说明一次代码改动如何从本地分支进入 `main`，以及测试、审查、证据检查和人工合并在什么时候发生、由谁执行、覆盖什么范围。PR（Pull Request，拉取请求）是这里的合并入口。内容以 2026-11-16 的 `origin/main` 和仓库当前 GitHub 设置为准。
+本文说明一次代码改动如何从本地分支进入 `main`，以及测试、审查、证据检查和人工合并在什么时候发生、由谁执行、覆盖什么范围。PR（Pull Request，拉取请求）是这里的合并入口。内容以 2026-11-17 的 `origin/main` 和仓库当前 GitHub 设置为准。
 
 本文只讲代码如何通过 GitHub 进入 `main`。插件内部的 topic、work item 与 review request 如何协作，见 [routing.md](routing.md)；测试命令和证据选择见 [testing.md](testing.md)；审查方法见 [code-review](../.agents/skills/code-review/SKILL.md)。
 
@@ -27,8 +27,8 @@
 | 合并方式 | 人工合并提交（merge commit） |
 | 合并前必需检查 | `pr-gate`、`gate-artifact` |
 | GitHub 自动测试 | `pr-gate` 运行 `check`、`test`、`test:coverage`；`check` 同时校验 E2E 清单和当前版本证据 |
-| 本机扩展测试 | `heavy-gate` 手动运行 `typecheck`、`build`、host smoke 和分层覆盖率 |
-| 本机 E2E | `npm run test:e2e` 单独运行；`test:e2e:live` 只做观测，不计入发布证据 |
+| 本机扩展测试 | `heavy-gate` 手动运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash |
+| E2E 证据 | `npm run test:e2e -- --record` 在干净工作区录制；`test:e2e:live` 和 `test:e2e:bash` 只做观测，不计入发布证据 |
 | 代码审查 | 独立 review 给出 `review-verdict`，再由 `gate-artifact` 校验 |
 | 自动发布 | 无；详见第 7 节 |
 
@@ -70,13 +70,13 @@ flowchart TD
 |---|---|---|---|---|
 | `CI / pr-gate` | PR 创建或更新，目标为 `main` | GitHub 提供的 Ubuntu 运行器 | 是 | 运行 `check`、`test`、`test:coverage`；`check` 还校验 E2E 清单和当前版本证据，但不运行 E2E 场景；不审查代码，不运行 `typecheck`、`build`、host smoke、browser 或分层覆盖率 |
 | `Policy / gate-artifact` | 提交或撤销 PR review | GitHub 提供的 Ubuntu 运行器 | 是 | 校验 review 标记、PR 当前提交、`pr-gate`、`main` 和工作区；不运行测试，也不判断测试质量 |
-| `Heavy / heavy-gate` | 有写权限的人手动启动 | 标记为 `self-hosted, heavy` 的本机运行器 | 否 | 运行 `typecheck`、`build`、host smoke 和分层覆盖率；不审查代码 |
+| `Heavy / heavy-gate` | 有写权限的人手动启动 | 标记为 `self-hosted, heavy` 的本机运行器 | 否 | 运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash；不审查代码 |
 
 `pr-gate` 和 `gate-artifact` 是 `main` 规则集里的必需检查。`heavy-gate` 不在必需检查中，PR 描述必须把未运行的 heavy 检查写进 `Not run`，不能把“没有运行”写成通过。
 
 `pr-gate` 变绿只表示那三条命令在当前提交上运行成功，不表示所有行为都已被测试覆盖。测试是否覆盖了目标行为、断言是否验证外部结果，仍要由审查者检查。
 
-`npm run check` 会校验 `tests/e2e/manifest.json`、公开面覆盖和当前版本的 `tests/e2e/evidence/<version>.json`，但它不会运行 E2E 场景。E2E 由本机 `npm run test:e2e` 单独运行；`test:e2e:live` 需要 `DEEPSEEK_API_KEY`，只作为观测结果。
+`npm run check` 会校验 `tests/e2e/manifest.json`、公开面覆盖和当前版本的 `tests/e2e/evidence/<version>.json`，但它不会运行 E2E 场景。E2E 由 heavy 本机测试运行 `npm run test:e2e` 和观测性的 `npm run test:e2e:bash`；版本或 E2E 范围变化时，作者还要在干净工作区运行 `npm run test:e2e -- --record` 更新证据。`test:e2e:live` 需要 `DEEPSEEK_API_KEY`，只作为观测结果。
 
 ### 3.2 一次改动的时序
 
@@ -91,7 +91,7 @@ sequenceDiagram
   participant R as 独立审查者
   participant P as Policy / gate-artifact
   participant H as Heavy / heavy-gate
-  participant E as E2E 本机测试
+  participant E as E2E 证据录制
   participant M as 维护者
 
   A->>G: push agent/topic，创建 PR
@@ -102,7 +102,7 @@ sequenceDiagram
   C-->>A: 失败时返回日志
   opt 改动需要本机环境
     A->>H: 手动 workflow_dispatch
-    H->>H: typecheck、build、host smoke、分层覆盖率
+    H->>H: typecheck、build、host smoke、分层覆盖率、keyless E2E、host-bash
     H-->>A: 本机测试结果
   end
   opt 版本或 E2E 范围变化
@@ -142,8 +142,8 @@ flowchart LR
     F["给出审查意见或 pass"]
   end
   subgraph LOCAL[本机扩展检查]
-    G["heavy<br/>typecheck、build、host smoke、分层覆盖率"]
-    L["E2E<br/>npm run test:e2e"]
+    G["heavy<br/>typecheck、build、host smoke、分层覆盖率、keyless E2E、host-bash"]
+    L["E2E 证据<br/>npm run test:e2e -- --record"]
   end
   subgraph GATE[证据校验]
     H["gate-artifact<br/>只校验同一提交上的 pr-gate 和 review"]
@@ -164,11 +164,11 @@ flowchart LR
 | 本地 | 作者按改动范围运行测试，失败先修复 | 作者自查，不是独立审查 | PR 的 `Testing`、`Evidence`、`Not run` | 否 |
 | `pr-gate` | 运行 `check`、`test`、`test:coverage` | 不审查代码和测试质量 | GitHub check 结果和运行日志 | 是 |
 | 独立审查 | 审查者读测试设计，核对断言和证据，并按改动范围复跑针对性检查 | 给出审查意见或 pass 结论；实现者不能做最终审查 | PR review 评论和 `review-verdict` | review 标记和对话解决是；测试是否实际复跑不是 |
-| `heavy-gate` | 手动运行 `typecheck`、`build`、host smoke 和分层覆盖率 | 不审查代码 | workflow 日志；PR 的 `Not run` | 否 |
-| 本机 E2E | 手动运行 `npm run test:e2e`；版本或 E2E 范围变化时重新录制证据 | 审查者核对场景清单和证据 | `tests/e2e/evidence/<version>.json`；PR 的 `Testing`、`Not run` | 否；`npm run check` 校验清单和证据 |
+| `heavy-gate` | 手动运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash | 不审查代码 | workflow 日志；PR 的 `Not run` | 否 |
+| 本机 E2E | heavy 运行 keyless E2E；版本或 E2E 范围变化时，作者另外用 `--record` 录制证据；host-bash 只作观测 | 审查者核对场景清单和证据 | `tests/e2e/evidence/<version>.json`；PR 的 `Testing`、`Not run` | 否；`npm run check` 校验清单和证据 |
 | `gate-artifact` | 不运行测试 | 校验 review 标记、同一提交、`pr-gate`、`main` 和工作区 | 固定 PR 评论和 JSON 文件 | 是 |
 
-测试范围由改动路径决定。文档改动至少运行 `npm run check`；源码、测试、客户端、打包和覆盖率策略改动要按 [tools/workflow.json](../tools/workflow.json) 与 [testing.md](testing.md) 选择对应测试。版本或 E2E 范围变化还要运行 `npm run test:e2e`，并在干净工作区用 `--record` 更新当前版本的证据。E2E 证据绑定录制时的提交；之后修改任何 `tests/e2e/evidence/` 之外的文件，`npm run check` 都会要求重新录制。不要把“本地测试通过”写成 `pr-gate` 通过，也不要把 `pr-gate` 通过写成“测试范围内所有行为都已覆盖”。
+测试范围由改动路径决定。文档改动至少运行 `npm run check`；源码、测试、客户端、打包和覆盖率策略改动要按 [tools/workflow.json](../tools/workflow.json) 与 [testing.md](testing.md) 选择对应测试。版本或 E2E 范围变化还要运行 `npm run test:e2e`，并在干净工作区用 `--record` 更新当前版本的证据。heavy 会运行 keyless E2E 和 host-bash，但不负责写版本证据；正式证据仍要单独录制。E2E 证据绑定录制时的提交；之后修改任何 `tests/e2e/evidence/` 之外的文件，`npm run check` 都会要求重新录制。不要把“本地测试通过”写成 `pr-gate` 通过，也不要把 `pr-gate` 通过写成“测试范围内所有行为都已覆盖”。
 
 审查者不需要不加选择地重跑所有 CI 命令，而要按改动范围选择针对性验证。重点是确认测试是否覆盖了 PR 声称的行为、断言是否验证外部结果、`Not run` 是否写明，以及测试结果是否属于当前提交。`review-verdict` 只记录提交、结论、审查者和模型，不记录测试命令；测试行为仍要看 PR 描述、review 内容和运行日志。
 
@@ -210,7 +210,7 @@ npm run change-scope -- --base origin/main
 > - **源码和测试改动按 [testing.md](testing.md) 选择单元测试、覆盖率和相关检查；**
 > - **客户端、打包、构建或 host 相关改动还要在具备环境时运行 browser、host smoke 或分层覆盖率；**
 > - **版本或 E2E 范围变化要按 [testing.md](testing.md) 运行 `npm run test:e2e`，并在干净工作区更新当前版本的证据；**
-> - **需要本机 DSH 环境或 Chromium 的测试，当前通过 heavy 本机测试手动运行；`test:e2e:live` 只作观测，不能替代 keyless E2E 证据。**
+> - **需要本机 DSH 环境、Chromium 或 bash sandbox 的测试，当前通过 heavy 本机测试手动运行；其中 host-bash 和 `test:e2e:live` 只作观测，不能替代 keyless E2E 证据。**
 
 **测试失败时先修复或补测试，不要通过放宽断言、跳过测试或删除覆盖来变绿。无法运行时，要在 PR 里写明原因，不能写成通过。**
 
@@ -266,13 +266,13 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow 的 `pr-
 > - **先读需求和验收，再读代码差异、调用方和测试；**
 > - **检查测试是否覆盖了 PR 声称的行为，断言是否验证外部结果，以及测试是否会在修复前失败；**
 > - **核对 PR 的 `Testing`、实际测试命令、结果和 `Not run` 是否一致；**
-> - **E2E 范围或版本变化时，核对 `tests/e2e/evidence/<version>.json` 与当前版本、提交和测试清单；`test:e2e:live` 结果不能当作发布证据；**
+> - **E2E 范围或版本变化时，核对 `tests/e2e/evidence/<version>.json` 与当前版本、提交和测试清单；`test:e2e:live` 和 `test:e2e:bash` 结果不能当作发布证据；**
 > - **对必要的行为变更在隔离副本中运行针对性测试；不能运行时说明这是静态审查，不能把别人的运行结果写成自己运行；**
 > - **检查失败场景的测试、资源清理，以及涉及打包或加载时是否走真实启动路径；**
 > - **给出 `路径:行号`、影响和修复要求；**
 > - **在同一提交上给出结论。**
 
-**GitHub 的 review 不要求审查者把所有测试不加选择地重跑一遍。审查者按 [code-review](../.agents/skills/code-review/SKILL.md) 选择最小但完整的验证：文档改动运行 `npm run check`；行为变更运行覆盖率、构建和 host smoke；交付或浏览器变更再加分层覆盖率。**AgentTeams 的独立验证任务会另外运行仓库检查，见 [agent-teams.md](agent-teams.md)。
+**GitHub 的 review 不要求审查者把所有测试不加选择地重跑一遍。审查者按 [code-review](../.agents/skills/code-review/SKILL.md) 选择最小但完整的验证：文档改动运行 `npm run check`；行为变更运行覆盖率、构建和 host smoke；交付、浏览器或 E2E 变更再核对分层覆盖率和 heavy 的 E2E 结果，并检查当前版本证据。**AgentTeams 的独立验证任务会另外运行仓库检查，见 [agent-teams.md](agent-teams.md)。
 
 审查结论通过 GitHub review 评论提交。当前使用评论形式的标记，不使用 GitHub 的批准（`Approve`）：
 
@@ -341,13 +341,15 @@ npm run typecheck
 npm run build
 DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke
 npm run test:coverage:layered -- --base origin/<base>
+npm run test:e2e
+npm run test:e2e:bash
 ```
 
 workflow 会从 `repo_path` 指向的本地仓库目录克隆 `$GITHUB_SHA`，检查 Node 是否匹配 `.node-version`，并使用临时环境运行。默认 `repo_path` 是维护者本机路径，换机器时要显式传入正确路径。
 
-`heavy-gate` 覆盖 `typecheck`、构建、打包后 host smoke 和分层覆盖率。它不运行 `pr-gate`，不运行 E2E，不审查代码，也不判断测试断言是否有效。它不能替代 `pr-gate`；`pr-gate` 也不能替代它。需要本机 DSH 环境或 Chromium 才能发现的构建、加载和浏览器问题，只能由 heavy 本机测试或等价的真实环境提供证据。
+`heavy-gate` 覆盖 `typecheck`、构建、打包后 host smoke、分层覆盖率、keyless E2E 和主机 bash 检查。它不运行 `pr-gate`，不审查代码，也不判断测试断言是否有效。它不能替代 `pr-gate`；`pr-gate` 也不能替代它。需要本机 DSH 环境、Chromium 或 bash sandbox 才能发现的构建、加载和浏览器问题，只能由 heavy 本机测试或等价的真实环境提供证据。
 
-E2E 是另一条本机测试。它由 `npm run test:e2e` 单独运行，不包含在 `pr-gate` 或 heavy workflow 中。keyless E2E 的当前版本证据由 `npm run check` 校验；`test:e2e:live` 只作观测。
+E2E 在 heavy 中运行 `npm run test:e2e` 和观测性的 `npm run test:e2e:bash`；版本或 E2E 范围变化时，作者还要在干净工作区用 `npm run test:e2e -- --record` 录制当前版本的证据。keyless E2E 的当前版本证据由 `npm run check` 校验；`test:e2e:live` 和 host-bash 只作观测。
 
 审查者可以引用在目标提交上运行的 heavy 结果，但必须核对提交、命令和日志；如果 heavy 没有在目标提交上运行，就按 `Not run` 处理，不能引用在 `main` 或其他提交上的结果。
 
@@ -370,7 +372,7 @@ E2E 是另一条本机测试。它由 `npm run test:e2e` 单独运行，不包�
 - [ ] 所有 review 对话（conversation）已解决。
 - [ ] 分支包含当前 `origin/main`。
 - [ ] heavy 检查已在该提交上运行，或在 `Not run` 中写明原因。
-- [ ] E2E 范围或版本变化时，`npm run test:e2e` 已通过，`tests/e2e/evidence/<version>.json` 对应当前版本和提交；最后一次非证据文件修改之后已经重新录制；`test:e2e:live` 未当作发布证据。
+- [ ] E2E 范围或版本变化时，`npm run test:e2e` 已通过，`tests/e2e/evidence/<version>.json` 对应当前版本和提交；最后一次非证据文件修改之后已经重新录制；`test:e2e:live` 和 host-bash 未当作发布证据。
 - [ ] 维护者核对了测试证据和审查结果，然后手动合并，不使用自动合并（auto-merge）。
 
 ## 7. 合并之后与发布
@@ -384,7 +386,7 @@ npm run build
 npm pack
 ```
 
-发布前还需要当前版本的 keyless E2E 证据：`tests/e2e/evidence/<version>.json` 必须由 `npm run test:e2e -- --record` 在干净工作区生成，并通过 `npm run check`。`test:e2e:live` 的真实模型结果只作观测，不作为发布证据。
+发布前还需要当前版本的 keyless E2E 证据：`tests/e2e/evidence/<version>.json` 必须由 `npm run test:e2e -- --record` 在干净工作区生成，并通过 `npm run check`。`test:e2e:live` 的真实模型结果和 `test:e2e:bash` 的 host-bash 结果只作观测，不作为发布证据。
 
 发布流程若以后加入 GitHub Actions，应单独说明触发条件、版本来源和回滚方式，不应默认认为合并后就会自动发布。
 
@@ -428,19 +430,20 @@ stateDiagram-v2
 | 有未解决的 review 对话（conversation） | 合并被阻止 | 解决对话并确认结果 |
 | heavy 没运行 | 没有本机测试证据 | 在需要的提交上运行，或在 PR 写 `Not run` |
 | `npm run test:e2e` 失败 | E2E 范围没有通过 | 修复后重新运行；从干净工作区重新录制证据 |
+| `npm run test:e2e:bash` 失败 | host-bash 观测没有通过，但不等于 keyless E2E 没有通过 | 记录为观测结果；修复环境或代码后重跑；不要把它当成 keyless E2E 证据 |
 | E2E 证据与当前版本、清单或提交不一致 | `npm run check` 失败，`pr-gate` 也会失败 | 重新运行 `npm run test:e2e -- --record`，确认证据对应当前版本和干净提交 |
 | 直接推送、强制推送或删除 `main` | 规则集拒绝 | 改用 PR 流程 |
 
 ## 9. 当前流程的优点
 
 1. **测试和审查绑定到同一个提交。** `pr-gate`、review 标记和 `gate-artifact` 都围绕 PR 当前提交工作，新提交会让旧测试结果、旧审查结论和旧证据失效。
-2. **测试分层清楚。** 作者在本地运行受影响测试，`pr-gate` 在 GitHub 上运行基础自动化检查，heavy 本机测试补充真实环境和真实浏览器测试；三种结果不会被写成同一种“通过”。
+2. **测试分层清楚。** 作者在本地运行受影响测试，`pr-gate` 在 GitHub 上运行基础自动化检查，heavy 本机测试补充真实环境、真实浏览器、keyless E2E 和 host-bash；这些结果不会被写成同一种“通过”。
 3. **审查范围包含测试本身。** 审查者不只看实现，还检查测试设计、断言、失败场景测试和 `Not run`，因此可以发现“代码能跑但测试没有验证目标行为”的问题。
 4. **`main` 不靠人工记忆保护。** 直接推送、强制推送、删除分支、未通过测试、未解决对话和落后于 `main` 的分支都会被规则集阻止。
 5. **GitHub 上的基础测试可重复。** Node 版本来自 `.node-version`，依赖使用 `npm ci`，GitHub Actions 固定到具体版本，`pr-gate` 只读仓库内容且不使用 secret。
 6. **人工合并保留最终决定权。** 没有自动合并、合并队列或自动改 `main` 的步骤，维护者可以检查测试证据和审查内容。
 7. **测试证据有固定位置。** 实际命令、结果和未运行项写在 PR 的 `Testing`、`Evidence` 和 `Not run` 中；`review-verdict` 绑定审查结论；`gate-artifact` 保存同一提交的 JSON 记录。
-8. **E2E 证据绑定版本和清单。** `npm run check` 会拒绝版本不符、场景缺失或录制后关键文件变化的 keyless E2E 证据；`test:e2e:live` 不会被当成发布证据。
+8. **E2E 证据绑定版本和清单。** `npm run check` 会拒绝版本不符、场景缺失或录制后关键文件变化的 keyless E2E 证据；`test:e2e:live` 和 host-bash 不会被当成发布证据。
 9. **合并后自动清理来源分支。** 减少遗留分支，规则集同时阻止删除 `main`。
 
 ## 10. 可能存在的挑战
@@ -452,9 +455,10 @@ stateDiagram-v2
 | 测试通过不等于行为被覆盖 | 逐文件行覆盖率可以通过，但断言可能只检查实现细节，或者没有覆盖用户可见结果 | 审查者检查测试是否会在修复前失败、是否验证外部结果；维护者不要把覆盖率当成行为覆盖率的替代品 |
 | `review-verdict` 没有测试记录字段 | 审查标记只记录提交、结论、审查者和模型，`gate-artifact` 无法判断审查者是否运行过测试，也无法判断审查意见是否检查了测试质量 | 审查者在 review 正文写实际运行命令和结论；维护者阅读 review；高风险改动使用 AgentTeams 独立验证；需要更强保证时再增加机器可校验的测试证据 |
 | PR 正文校验只检查四个一级标题 | `Testing` 和 `Evidence` 可能内容缺失或与当前提交不一致，`gate-artifact` 不会判断文字是否真实 | 审查者对照实际命令和日志检查；维护者合并前阅读 PR；需要更强保证时增加可执行的内容校验 |
-| `heavy-gate` 不是必需检查 | 类型检查、构建、host smoke 和分层覆盖率可能在合并前没有运行 | 在需要的提交上手动运行；PR 的 `Not run` 写清原因；满足 20 次 green 和 PR 提交发布检查的条件后再升级 |
-| E2E 不在 GitHub 自动运行 | `pr-gate` 只读取 E2E 清单和证据，不重新运行场景；本地录制环境、DSH 版本和证据文件仍可能和审查者预期不同 | E2E 变化或版本变化时在目标提交上运行 `npm run test:e2e`；审查者核对证据；`test:e2e:live` 只作观测 |
+| `heavy-gate` 不是必需检查 | 类型检查、构建、host smoke、分层覆盖率、keyless E2E 和 host-bash 可能在合并前没有运行 | 在需要的提交上手动运行；PR 的 `Not run` 写清原因；满足 20 次 green 和 PR 提交发布检查的条件后再升级 |
+| E2E 不在 GitHub 托管运行 | `pr-gate` 只读取 E2E 清单和证据，不重新运行场景；heavy 是本机手动流程，当前也不是必需检查；本地录制环境和 DSH 版本仍可能和审查者预期不同 | E2E 变化或版本变化时在目标提交上运行 `npm run test:e2e` 并更新证据；审查者核对证据；`test:e2e:live` 和 host-bash 只作观测 |
 | E2E 证据绑定录制提交 | 在证据提交之后修改任何 `tests/e2e/evidence/` 之外的文件，`npm run check` 都会失败并要求重新录制；即使是文档改动，也可能需要额外跑一遍 E2E | 把 E2E 录制放在最后；任何非证据修改后重新运行 `npm run test:e2e -- --record`；不要手工修改证据头部来绕过检查 |
+| host-bash 依赖本机 bash sandbox | 环境不可用时不能产生结果，而且它只作观测，不能替代 keyless E2E 证据 | 在 PR 里写明观测结果或 `Not run`；不要用 host-bash 替代 keyless E2E 证据 |
 | 本地测试和 CI 测试的环境不同 | 本地通过可能在 GitHub 托管环境中失败，或者 CI 通过但本机打包和浏览器路径没有运行 | 以 `pr-gate` 作为 GitHub 环境的测试结果；需要真实 host 或浏览器的行为用 heavy 本机测试补证据；不要互相替代 |
 | PR 描述中的测试证据会过期 | 任何编辑、暂存或未跟踪文件都会改变工作区状态；旧的 `Testing`、`change-scope` 和 `gate-artifact` 输出不能继续使用 | 最后一次修改后重新运行并更新 PR；审查者对照当前提交检查命令和结果 |
 | `gate-artifact` 只在 review 事件上运行 | 如果先提交 review、后等 `pr-gate` 变绿，`gate-artifact` 不会自动重跑 | 先等 `pr-gate` 通过再提交 review；已经失败时重新提交一次 review 触发检查 |
@@ -470,7 +474,7 @@ stateDiagram-v2
 1. workflow 和命令：`.github/workflows/`、[tools/workflow.json](../tools/workflow.json)；
 2. review 和 PR 校验：`.github/workflows/gate-artifact.yml`、[review-verdict.mjs](../scripts/ci/review-verdict.mjs)、[pr-metadata.mjs](../scripts/ci/pr-metadata.mjs)；
 3. heavy 本机测试：`.github/workflows/heavy.yml`、[heavy-runner.md](heavy-runner.md)；
-4. E2E：`tests/e2e/manifest.json`、`tests/e2e/evidence/<version>.json`、[testing.md](testing.md)；
+4. E2E 和 host-bash：`tests/e2e/manifest.json`、`tests/e2e/scenarios/topic-bash.mjs`、`tests/e2e/evidence/<version>.json`、[package.json](../package.json)、[testing.md](testing.md)；
 5. GitHub 远端设置：仓库 Settings → Rules → `main-pr-gate`；
 6. 测试策略和审查规则：[testing.md](testing.md)、[agent-teams.md](agent-teams.md)、[code-review](../.agents/skills/code-review/SKILL.md)。
 
@@ -485,7 +489,7 @@ workflow、脚本或 ruleset 改动后，同步更新本文，并按 [tools/work
 | PR 标题和正文结构 | [pr-metadata.mjs](../scripts/ci/pr-metadata.mjs)、[pr-description](../.agents/skills/pr-description/SKILL.md) |
 | 本地证据记录 | [gate-artifact.mjs](../scripts/review/gate-artifact.mjs)、[change-scope.mjs](../scripts/review/change-scope.mjs) |
 | heavy 本机测试 | [.github/workflows/heavy.yml](../.github/workflows/heavy.yml)、[heavy-runner.md](heavy-runner.md) |
-| 版本化 E2E | [tests/e2e/manifest.json](../tests/e2e/manifest.json)、`tests/e2e/evidence/<version>.json`、[testing.md](testing.md) |
+| 版本化 E2E 和 host-bash | [.github/workflows/heavy.yml](../.github/workflows/heavy.yml)、[tests/e2e/manifest.json](../tests/e2e/manifest.json)、`tests/e2e/scenarios/topic-bash.mjs`、`tests/e2e/evidence/<version>.json`、[package.json](../package.json)、[testing.md](testing.md) |
 | 测试分层和命令 | [testing.md](testing.md) |
 | 审查流程和独立审查 | [agent-teams.md](agent-teams.md)、[code-review](../.agents/skills/code-review/SKILL.md) |
 | 分支到合并的设计背景 | [pr-gate-flow.md](design/github-flow/pr-gate-flow.md) |
