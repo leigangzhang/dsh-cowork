@@ -77,7 +77,6 @@ export const TOPIC_PAGE_ERROR_CODES = {
   summaryTooLong: 'topic/summary-too-long',
   proposalTitleRequired: 'topic/proposal-title-required',
   proposalWriteFailed: 'topic/proposal-write-failed',
-  invalidKind: 'topic/invalid-kind',
 } as const
 
 /** The bounded topic view used by every topic tool. */
@@ -407,10 +406,9 @@ async function reportTopic(args: Record<string, unknown>, exec: unknown, deps: C
       `summary must be a non-empty string of at most ${TOPIC_SUMMARY_MAX_CHARS} characters`,
     ))
   }
-  const kind = args.kind === undefined ? 'progress' : args.kind
-  if (kind !== 'progress' && kind !== 'blocked') {
-    return toJson(failure(TOPIC_PAGE_ERROR_CODES.invalidKind, "kind must be 'progress' or 'blocked'"))
-  }
+  // The tool schema rejects any other value before this handler runs; the
+  // cast records that single validation home.
+  const kind = (args.kind === undefined ? 'progress' : args.kind) as 'progress' | 'blocked'
   try {
     const opened = await openCallerTopic(caller, deps)
     if ('failure' in opened) return opened.failure
