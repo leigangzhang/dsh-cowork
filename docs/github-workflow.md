@@ -25,7 +25,7 @@
 | 默认分支 | `main` |
 | 分支约定 | 一个工作流使用一个 `agent/<topic>` 分支；GitHub 不强制分支名 |
 | 合并方式 | 人工合并提交（merge commit）；不使用 merge queue |
-| 合并前必需检查 | 当前 ruleset 仍要求 `pr-gate`、`gate-artifact`；唯一 publisher 已接管 required context，`gate-artifact-v2` 只做 report advisory |
+| 合并前必需检查 | 当前 `main` ruleset 仍要求 `pr-gate`、`gate-artifact`，仍由旧 workflow 发布；目标是唯一 publisher 接管 required context，`gate-artifact-v2` 只做 report advisory。PR #57 的 bootstrap 尚未完成 |
 | GitHub 自动测试 | `pr-gate` 的 docs lane 运行 `check`；非 docs 改动再运行 `test:coverage`。`npm test` 不再在 `pr-gate` 中重复执行 |
 | 合并结果测试 | `Pre-Merge` 在 `pull_request_target` 中把当前 `main` 合到 PR HEAD，运行路径相关检查，并发布 `pre-merge` 检查 |
 | Base 前进 | 不更新 PR 分支；`Policy Base` 使旧 `gate-artifact` 和 `gate-artifact-v2` 变为 stale，维护者给 PR 加 `recheck` 标签后重新运行 pre-merge |
@@ -33,6 +33,8 @@
 | E2E 证据 | `npm run test:e2e -- --record` 在干净工作区录制；`docs/**` 和 `README.md` 的后续改动不会使证据失效；`test:e2e:live` 和 `test:e2e:bash` 只做观测 |
 | 代码审查 | 独立 review 给出 `review-verdict:v2`；required `gate-artifact` 在 report mode 校验 legacy 身份，在 block mode 校验 v2 + pre-merge |
 | 自动发布 | 无；详见第 7 节 |
+
+**当前分支状态（2026-11-17）：** PR #57 仍为 `BLOCKED`。该 PR 的 head 删除了旧 `gate-artifact.yml`，而新的 `publish-gate.mjs` 尚未进入 `main`，所以 `pull_request_review` 触发的 `policy-gate` 找不到脚本，required `gate-artifact` 没有产生。最终方案要求先保留旧 workflow、把 publisher 落到 `main`，再用后续 PR 删除旧 workflow；详见 §4.7。
 
 ## 3. 总流程概览
 
@@ -323,28 +325,43 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow。`pr-ga
 6. PR 标题符合 Conventional Commits，正文包含 `## Motivation`、`## Changes`、`## Testing`、`## Evidence`；
 7. main 自 review base 以来修改的路径，与 PR 修改的路径没有重叠；有重叠时要求 delta review。
 
-迁移期行为：
+### Report / block 模式
 
-- `MERGE_POLICY_MODE` 未设置时按 `report` 处理；
-- report mode 由唯一 publisher 发布 required `gate-artifact`，使用 legacy 校验；同时发布 report-only `gate-artifact-v2`，结论为 success 并记录 would-fail 原因；
-- block mode 由同一个 publisher 发布 required `gate-artifact`，使用 v2 review + pre-merge 校验；不再发布 `gate-artifact-v2`。
+- `MERGE_POLICY_MODE` 未设置时按 `report` 处理。
+- report mode 由唯一 publisher 发布 required `gate-artifact`，使用 legacy 校验：当前 head 的 review marker（v1 或 v2）、`pr-gate`、当前 main 是 head 的祖先、PR metadata。
+- block mode 由同一个 publisher 发布 required `gate-artifact`，使用最新 review marker + v2 `base`/`diffSha` + 当前 base 的 `pre-merge` + metadata + reviewed-path overlap；latest marker 不是 `pass` 时必须失败。
+- report mode 同时发布 report-only `gate-artifact-v2`，永远 success，只记录 would-fail 原因；block mode 不发布它。`gate-artifact-v2` 永远不能加入 required checks。
 
-`Policy Base` 在 main push 时把当前 mode 对应的绿色 gate 标成 `action_required`，防止旧 base 上的成功被误合并。它只更新检查状态，不评论、不打标签、不修改 PR 分支。
+`Policy Base` 在 main push 时把旧的绿色 `gate-artifact` 和 `gate-artifact-v2` 都标成 `action_required`，防止旧 base 上的成功被误合并。它只更新检查状态，不评论、不打标签、不修改 PR 分支。
+
+### Bootstrap：旧 workflow 必须先保留
+
+`pull_request_review` 运行的是 PR head 上的 workflow。新的 publisher 脚本必须先进入 `main`，否则替代 workflow 检出 `main` 后找不到 `scripts/ci/publish-gate.mjs`，required `gate-artifact` 不会产生。
+
+正确顺序：
+
+1. 保留旧 `.github/workflows/gate-artifact.yml`，让当前 PR 仍能产生 required `gate-artifact`。
+2. 把 publisher、pre-merge、gate、base-recheck 和测试落到 `main`；此时旧 workflow 仍存在。
+3. 用后续 PR 删除旧 workflow，并验证 review 事件仍能产生 required `gate-artifact`。
+4. 最后才进入 block mode。
+
+当前 PR #57 在 head 删除了旧 workflow，而 publisher 尚未进入 `main`，所以它无法满足自己的 required check，保持 `BLOCKED`。这不是最终流程，只是未完成的 bootstrap。
 
 **激活顺序：**
 
-1. 合并 workflow 代码，保持 report mode，确认 required `gate-artifact` 仍使用 legacy 校验，且 `gate-artifact-v2` advisory 和 pre-merge 结果正确。
-2. 设置 `MERGE_POLICY_MODE=block`；同一个 publisher 改为用 v2 + pre-merge 校验 required `gate-artifact`。
-3. 在一个失败 PR 上确认 required gate 变红，在通过 PR 上确认变绿。
-4. 最后才移除 ruleset 的 strict up-to-date。
+1. 完成 bootstrap：publisher 已在 `main`，旧 workflow 已由后续 PR 删除。
+2. 保持 report mode，确认 required `gate-artifact` 的 legacy 校验、`gate-artifact-v2` advisory 和 `pre-merge` 结果正确。
+3. 设置 `MERGE_POLICY_MODE=block`；同一个 publisher 改为 v2 + `pre-merge` 校验 required `gate-artifact`。
+4. 在一个失败 PR 上确认 required gate 变红，在通过 PR 上确认变绿。
+5. 最后才移除 ruleset 的 strict up-to-date。
 
 **回滚顺序：**
 
 1. 先恢复 ruleset 的 strict up-to-date，挡住旧 base。
 2. 把 `MERGE_POLICY_MODE` 切回 `report`；同一个 publisher 恢复 legacy required 校验，`gate-artifact-v2` 回到 report-only。
-3. 用一次新的 review 事件重新生成 required gate；不要沿用 block mode 留下的 success。
+3. 如果旧 workflow 已被删除，先恢复它，再用一次新的 review 事件重新生成 required gate；不要沿用 block mode 留下的 success。
 
-实现细节见 [gate-artifact-v2.yml](../.github/workflows/gate-artifact-v2.yml)、[publish-gate.mjs](../scripts/ci/publish-gate.mjs)、[base-recheck.yml](../.github/workflows/base-recheck.yml)。旧 `gate-artifact.yml` 已删除；required context 只有一个 success/decision publisher，`base-recheck` 只发布 `action_required` 失效状态，不发布 success。
+实现细节见 [gate-artifact-v2.yml](../.github/workflows/gate-artifact-v2.yml)、[publish-gate.mjs](../scripts/ci/publish-gate.mjs)、[base-recheck.yml](../.github/workflows/base-recheck.yml)。required context 只能有一个 success/decision publisher；`base-recheck` 只发布 `action_required`，不发布 success。
 
 ### 4.8 `main` 规则集与人工合并
 
