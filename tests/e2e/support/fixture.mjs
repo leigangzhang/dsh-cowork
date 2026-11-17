@@ -42,7 +42,10 @@ export async function createFixture(parent) {
 
 /** Remove the fixture tree; safe when it was already removed. */
 export async function removeFixture(path) {
-  await rm(path, { recursive: true, force: true })
+  // A background store write can still be creating the final file when the
+  // scenario's last wait settles; retry the tree removal instead of turning a
+  // cleanup race into a red run.
+  await rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 /** Read one JSON file, or `undefined` while the writer has not created it yet. */
