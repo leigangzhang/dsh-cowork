@@ -216,14 +216,18 @@ async function disposeAll(host) {
 const settle = () => new Promise((resolve) => setImmediate(resolve))
 
 /**
- * Yield to the event loop until `predicate` holds. This observes work the
- * plugin starts asynchronously (repair, session events) without a timer or a
- * fixed delay: each iteration drains microtasks and pending I/O callbacks.
+ * Yield to the event loop until `predicate` holds, bounded by a real deadline.
+ *
+ * A `setImmediate`-only loop exhausts before the filesystem callbacks of the
+ * startup repair complete on a loaded CI runner. The 5 ms yield gives pending
+ * I/O a chance; the 10 s deadline turns a hung repair into a named failure
+ * instead of a job timeout.
  */
-async function waitFor(predicate, label, attempts = 1000) {
-  for (let i = 0; i < attempts; i += 1) {
+async function waitFor(predicate, label, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
     if (await predicate()) return
-    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setTimeout(resolve, 5))
   }
   throw new Error(`timed out waiting for ${label}`)
 }
