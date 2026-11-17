@@ -14,6 +14,7 @@
  *   node tools/check-invariants.mjs --changed BASE  run only checks reading changed paths
  */
 
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,6 +28,8 @@ import {
   selectChecks,
   selfTest as engineSelfTest,
 } from './doc-gate-engine.mjs'
+import { collectSurfaceKeys, e2eEvidenceProblems, e2eManifestProblems } from './e2e-coverage.mjs'
+import { catalogSha256 } from '../tests/e2e/support/catalog.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
@@ -115,6 +118,71 @@ function noteErrors(rel, doc, declaredSurfaces, { template = false } = {}) {
     }
   }
   return errors
+}
+
+/**
+ * The versioned E2E catalog is a project rule, not a document check: it reads
+ * the live public surface from source and compares it with one manifest and one
+ * reviewed debt file.
+ *
+ * @returns {Promise<string[]>} One message per catalog violation.
+ */
+async function e2eErrors() {
+  const readJson = (rel) => {
+    try {
+      return { value: JSON.parse(read(rel)) }
+    } catch (error) {
+      return { error: `${rel} is missing or invalid: ${error instanceof Error ? error.message : String(error)}` }
+    }
+  }
+  const manifest = readJson('tests/e2e/manifest.json')
+  if (manifest.error !== undefined) return [manifest.error]
+  const debt = readJson('tests/e2e/coverage-debt.json')
+  if (debt.error !== undefined) return [debt.error]
+  const packageJson = readJson('package.json')
+  if (packageJson.error !== undefined) return [packageJson.error]
+  const surfaceKeys = await collectSurfaceKeys()
+  const evidencePath = `tests/e2e/evidence/${packageJson.value.version}.json`
+  const evidence = exists(evidencePath) ? readJson(evidencePath) : { value: null }
+  if (evidence.error !== undefined) return [evidence.error]
+  const keylessScenarioIds = new Set(
+    (manifest.value.scenarios ?? [])
+      .filter((scenario) => scenario?.mode === 'keyless')
+      .map((scenario) => scenario.id)
+      .filter((id) => typeof id === 'string'),
+  )
+  const head = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
+  const headSha = head.status === 0 ? head.stdout.trim() : ''
+  const artifactHead = typeof evidence.value?.artifact?.head === 'string' ? evidence.value.artifact.head : ''
+  let evidenceHeadAncestor = false
+  let changedPathsSinceEvidenceHead = []
+  if (artifactHead !== '' && headSha !== '') {
+    if (artifactHead === headSha) {
+      evidenceHeadAncestor = true
+    } else {
+      evidenceHeadAncestor = spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', artifactHead, headSha]).status === 0
+      const diff = spawnSync('git', ['-C', root, 'diff', '--name-only', `${artifactHead}..${headSha}`], { encoding: 'utf8' })
+      if (diff.status === 0) changedPathsSinceEvidenceHead = diff.stdout.split('\n').filter(Boolean)
+    }
+  }
+  return [
+    ...e2eManifestProblems({
+      packageVersion: packageJson.value.version,
+      manifest: manifest.value,
+      debt: debt.value,
+      surfaceKeys,
+    }),
+    ...e2eEvidenceProblems({
+      packageVersion: packageJson.value.version,
+      evidence: evidence.value,
+      keylessScenarioIds,
+      testedHosts: Array.isArray(manifest.value.host?.tested) ? manifest.value.host.tested : [],
+      catalogSha256: await catalogSha256(resolve(root, 'tests/e2e')),
+      headSha,
+      evidenceHeadAncestor,
+      changedPathsSinceEvidenceHead,
+    }),
+  ]
 }
 
 function projectRuleErrors(config) {
@@ -495,8 +563,124 @@ function staleNameErrors(files) {
   return errors
 }
 
+const E2E_SURFACE_KEYS = ['preset:p', 'route:/x GET', 'tool:a', 'topic-status:active']
+const E2E_SCENARIO = {
+  id: 's1',
+  mode: 'keyless',
+  summary: 'fixture',
+  covers: ['tool:a', 'route:/x GET', 'preset:p', 'topic-status:active'],
+}
+const E2E_MANIFEST = {
+  formatVersion: 1,
+  pluginVersion: '1.0.0',
+  host: { tested: ['1.0.0'], compatibleMajorMinor: '1.0' },
+  scenarios: [E2E_SCENARIO],
+}
+const E2E_DEBT = { entries: [] }
+const E2E_EVIDENCE = {
+  formatVersion: 1,
+  pluginVersion: '1.0.0',
+  dshVersion: '1.0.0',
+  catalogSha256: 'c'.repeat(64),
+  result: 'pass',
+  artifact: { head: 'a'.repeat(40), dirty: false, tarballSha256: 'b'.repeat(64) },
+  scenarios: [{ id: 's1', mode: 'keyless', passed: true, checks: [{ name: 'c', passed: true }] }],
+}
+const E2E_EVIDENCE_INPUT = {
+  packageVersion: '1.0.0',
+  evidence: E2E_EVIDENCE,
+  keylessScenarioIds: new Set(['s1']),
+  testedHosts: ['1.0.0'],
+  catalogSha256: 'c'.repeat(64),
+  headSha: 'a'.repeat(40),
+  evidenceHeadAncestor: true,
+  changedPathsSinceEvidenceHead: [],
+}
+
+/** Evaluate one synthetic catalog; every file exists. */
+function e2eProblems(overrides = {}) {
+  return e2eManifestProblems({
+    packageVersion: '1.0.0',
+    manifest: E2E_MANIFEST,
+    debt: E2E_DEBT,
+    surfaceKeys: E2E_SURFACE_KEYS,
+    ...overrides,
+  })
+}
+
+/** Negative controls for the E2E catalog and release-evidence checks. */
+function e2eSelfTestCases() {
+  return [
+  {
+    name: 'e2e catalog: a manifest version mismatch is red',
+    fail: () => e2eProblems({ packageVersion: '2.0.0' }).some((problem) => problem.includes('does not match package.json')),
+  },
+  {
+    name: 'e2e catalog: a live-model-only cover leaves the key uncovered',
+    fail: () => e2eProblems({
+      manifest: { ...E2E_MANIFEST, scenarios: [{ ...E2E_SCENARIO, mode: 'live-model' }] },
+    }).some((problem) => problem.includes('public key has no keyless scenario')),
+  },
+  {
+    name: 'e2e catalog: a covered debt entry is stale',
+    fail: () => e2eProblems({
+      debt: { entries: [...E2E_DEBT.entries, { key: 'tool:a', reason: 'r', exitCondition: 'e' }] },
+    }).some((problem) => problem.includes('already covered')),
+  },
+  {
+    name: 'e2e catalog: a new public key without a scenario or debt is red',
+    fail: () => e2eProblems({ surfaceKeys: [...E2E_SURFACE_KEYS, 'tool:new'] })
+      .some((problem) => problem.includes('tool:new')),
+  },
+  {
+    name: 'e2e evidence: a missing summary is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, evidence: null })
+      .some((problem) => problem.includes('is missing')),
+  },
+  {
+    name: 'e2e evidence: a failed scenario is red',
+    fail: () => e2eEvidenceProblems({
+      ...E2E_EVIDENCE_INPUT,
+      evidence: { ...E2E_EVIDENCE, scenarios: [{ ...E2E_EVIDENCE.scenarios[0], passed: false }] },
+    }).some((problem) => problem.includes('passed must be true')),
+  },
+  {
+    name: 'e2e evidence: a missing keyless scenario is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, keylessScenarioIds: new Set(['s1', 's2']) })
+      .some((problem) => problem.includes('has no recorded result')),
+  },
+  {
+    name: 'e2e catalog: a duplicate scenario id is red',
+    fail: () => e2eProblems({
+      manifest: { ...E2E_MANIFEST, scenarios: [E2E_SCENARIO, { ...E2E_SCENARIO }] },
+    }).some((problem) => problem.includes('repeats s1')),
+  },
+  {
+    name: 'e2e evidence: a changed catalog is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, catalogSha256: 'd'.repeat(64) })
+      .some((problem) => problem.includes('does not match the current tests/e2e catalog')),
+  },
+  {
+    name: 'e2e evidence: an untested host is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, testedHosts: ['2.0.0'] })
+      .some((problem) => problem.includes('is not in manifest.host.tested')),
+  },
+  {
+    name: 'e2e evidence: a non-ancestor head is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, headSha: 'd'.repeat(40), evidenceHeadAncestor: false })
+      .some((problem) => problem.includes('is not an ancestor of HEAD')),
+  },
+  {
+    name: 'e2e evidence: a later non-evidence change is red',
+    fail: () => e2eEvidenceProblems({ ...E2E_EVIDENCE_INPUT, headSha: 'd'.repeat(40), changedPathsSinceEvidenceHead: ['tests/e2e/manifest.json'] })
+      .some((problem) => problem.includes('files outside tests/e2e/evidence/ changed')),
+  },
+  ]
+}
+
 function projectSelfTest() {
   const cases = [
+    ...e2eSelfTestCases(),
     {
       name: 'implemented record without alternatives',
       fail: () => noteErrors(
@@ -745,6 +929,14 @@ if (!args.changed) {
     violations += projectErrors.length
   } else {
     console.log('PASS project-rules')
+  }
+  const catalogErrors = await e2eErrors()
+  if (catalogErrors.length > 0) {
+    console.log('FAIL e2e-catalog')
+    for (const error of catalogErrors) console.log(`  ${error}`)
+    violations += catalogErrors.length
+  } else {
+    console.log('PASS e2e-catalog')
   }
 }
 

@@ -1,0 +1,96 @@
+{
+  "formatVersion": 1,
+  "pluginVersion": "0.2.0",
+  "host": {
+    "tested": [
+      "0.2.1-rc.2"
+    ],
+    "compatibleMajorMinor": "0.2"
+  },
+  "scenarios": [
+    {
+      "id": "master-chain",
+      "mode": "keyless",
+      "summary": "A real master session initializes the project, writes and searches memory, creates topics through both canonical and alias tools, routes an intent into a briefed topic session, then reads the bounded status and notice ledger.",
+      "covers": [
+        "tool:cowork_project_init",
+        "tool:cowork_project_status",
+        "tool:cowork_memory_write",
+        "tool:cowork_memory_search",
+        "tool:cowork_topic_create",
+        "tool:cowork_thread_create",
+        "tool:cowork_topic_list",
+        "tool:cowork_thread_list",
+        "tool:cowork_route",
+        "tool:cowork_notices",
+        "preset:cowork-master",
+        "preset:cowork-topic",
+        "topic-status:active"
+      ]
+    },
+    {
+      "id": "topic-panel",
+      "mode": "keyless",
+      "summary": "A routed topic creates an isolated work item, reports progress, proposes a decision, requests authorization, asks a question, submits a plan, and requests a user review; the panel routes authorize, answer, approve, pass, move, archive, and reopen the topic.",
+      "covers": [
+        "tool:cowork_work_item_create",
+        "tool:cowork_topic_report",
+        "tool:cowork_decision_propose",
+        "tool:cowork_authorization_request",
+        "tool:cowork_request_question",
+        "tool:cowork_request_plan",
+        "tool:cowork_user_review_request",
+        "tool:cowork_topic_resolve",
+        "route:/api/cowork.overview GET",
+        "route:/api/cowork.activity GET",
+        "route:/api/cowork.topic GET",
+        "route:/api/cowork.topic.resolve POST",
+        "route:/api/cowork.topic.reopen POST",
+        "route:/api/cowork.route.move POST",
+        "route:/api/cowork.authorization.resolve POST",
+        "route:/api/cowork.inbox GET",
+        "route:/api/cowork.inbox.resolve POST",
+        "preset:cowork-master",
+        "preset:cowork-topic",
+        "topic-status:resolved",
+        "topic-status:idle",
+        "work-item-status:active"
+      ]
+    },
+    {
+      "id": "review-merge",
+      "mode": "keyless",
+      "summary": "A topic commits an isolated work item, requests an independent review, the reviewer session runs its own check and passes it, the topic hands off, and the master merges the reviewed range without moving main.",
+      "covers": [
+        "tool:cowork_handoff",
+        "tool:cowork_review_request",
+        "tool:cowork_review_verdict",
+        "tool:cowork_checkout_merge",
+        "preset:cowork-reviewer",
+        "review-status:pending",
+        "review-status:pass",
+        "work-item-status:reviewing",
+        "work-item-status:merged"
+      ]
+    },
+    {
+      "id": "review-revision",
+      "mode": "keyless",
+      "summary": "A reviewer returns needs_revision with a finding, the topic commits a fix and re-requests the review, and the next reviewer rejects the range, blocks the topic, and writes the review-reject inbox record.",
+      "covers": [
+        "review-status:needs_revision",
+        "review-status:reject"
+      ]
+    },
+    {
+      "id": "live-master-chain",
+      "mode": "live-model",
+      "summary": "The real provider initializes the project and routes one topic; the index and panel state are the observation. Requires DEEPSEEK_API_KEY and --mode live.",
+      "covers": [
+        "tool:cowork_project_init",
+        "tool:cowork_route",
+        "topic-status:active"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,462 @@
+{
+  "formatVersion": 1,
+  "pluginVersion": "0.2.0",
+  "dshVersion": "0.2.1-rc.2",
+  "catalogSha256": "6eaac8524b383cfbae855039e294d5344d742629b1f6a87569a29028c959db99",
+  "nodeVersion": "v22.22.1",
+  "command": "npm run test:e2e -- --record",
+  "recordedAt": "2026-11-17T06:55:30.109Z",
+  "result": "pass",
+  "artifact": {
+    "head": "a3f6310be95d00058befc943c6516b4c1b6280e7",
+    "dirty": false,
+    "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tarballSha256": "242c785ff0bb358b21425de765106422efa7a3f2028b44c9b8b1b9ae225ec340"
+  },
+  "scenarios": [
+    {
+      "id": "master-chain",
+      "mode": "keyless",
+      "passed": true,
+      "checks": [
+        {
+          "name": "a real master session mounted cowork-master",
+          "passed": true
+        },
+        {
+          "name": "the project index names the created master",
+          "passed": true
+        },
+        {
+          "name": "the index starts with no topics",
+          "passed": true
+        },
+        {
+          "name": "memory_write appended the fact file",
+          "passed": true
+        },
+        {
+          "name": "memory_search returned the entry",
+          "passed": true
+        },
+        {
+          "name": "topic_create returned the new topic",
+          "passed": true
+        },
+        {
+          "name": "thread_create (deprecated alias) returned a distinct topic",
+          "passed": true
+        },
+        {
+          "name": "two topics exist before routing",
+          "passed": true
+        },
+        {
+          "name": "route created a new topic",
+          "passed": true
+        },
+        {
+          "name": "the routed topic is a real session id",
+          "passed": true
+        },
+        {
+          "name": "the routed topic starts live",
+          "passed": true
+        },
+        {
+          "name": "the route was prompted into the topic session",
+          "passed": true
+        },
+        {
+          "name": "session session-50b3eba8-2… runs in the fixture",
+          "passed": true
+        },
+        {
+          "name": "session session-50b3eba8-2… is not running",
+          "passed": true
+        },
+        {
+          "name": "session session-2660df8f-3… runs in the fixture",
+          "passed": true
+        },
+        {
+          "name": "session session-2660df8f-3… is not running",
+          "passed": true
+        },
+        {
+          "name": "session session-77bfe149-4… runs in the fixture",
+          "passed": true
+        },
+        {
+          "name": "session session-77bfe149-4… is not running",
+          "passed": true
+        },
+        {
+          "name": "session session-7df3575c-c… runs in the fixture",
+          "passed": true
+        },
+        {
+          "name": "session session-7df3575c-c… is not running",
+          "passed": true
+        },
+        {
+          "name": "topic session-2660df8f-3… is a real session",
+          "passed": true
+        },
+        {
+          "name": "topic session-2660df8f-3… mounted cowork-topic",
+          "passed": true
+        },
+        {
+          "name": "topic session-77bfe149-4… is a real session",
+          "passed": true
+        },
+        {
+          "name": "topic session-77bfe149-4… mounted cowork-topic",
+          "passed": true
+        },
+        {
+          "name": "topic session-7df3575c-c… is a real session",
+          "passed": true
+        },
+        {
+          "name": "topic session-7df3575c-c… mounted cowork-topic",
+          "passed": true
+        },
+        {
+          "name": "project_status lists the three topics",
+          "passed": true
+        },
+        {
+          "name": "notices is an ok read",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "topic-panel",
+      "mode": "keyless",
+      "passed": true,
+      "checks": [
+        {
+          "name": "route created the scenario topic",
+          "passed": true
+        },
+        {
+          "name": "a second topic exists for route.move",
+          "passed": true
+        },
+        {
+          "name": "work_item_create returned an id",
+          "passed": true
+        },
+        {
+          "name": "the work item is active in the index",
+          "passed": true
+        },
+        {
+          "name": "the work item branch is cowork/<id>",
+          "passed": true
+        },
+        {
+          "name": "the work item clone exists",
+          "passed": true
+        },
+        {
+          "name": "topic_report updated the topic digest",
+          "passed": true
+        },
+        {
+          "name": "decision_propose returned a proposal id",
+          "passed": true
+        },
+        {
+          "name": "the proposal file exists",
+          "passed": true
+        },
+        {
+          "name": "authorization_request returned a request id",
+          "passed": true
+        },
+        {
+          "name": "the topic is blocked by the authorization",
+          "passed": true
+        },
+        {
+          "name": "overview reports the pending authorization",
+          "passed": true
+        },
+        {
+          "name": "POST authorization.resolve returns 200",
+          "passed": true
+        },
+        {
+          "name": "the authorization decision is recorded",
+          "passed": true
+        },
+        {
+          "name": "the topic is unblocked after allow",
+          "passed": true
+        },
+        {
+          "name": "request_question returned a request id",
+          "passed": true
+        },
+        {
+          "name": "the inbox lists the pending question",
+          "passed": true
+        },
+        {
+          "name": "POST inbox.resolve skips the question",
+          "passed": true
+        },
+        {
+          "name": "request_plan returned a request id",
+          "passed": true
+        },
+        {
+          "name": "POST inbox.resolve approves the plan",
+          "passed": true
+        },
+        {
+          "name": "user_review_request returned a request id",
+          "passed": true
+        },
+        {
+          "name": "POST inbox.resolve passes the user review",
+          "passed": true
+        },
+        {
+          "name": "GET cowork.activity returns 200",
+          "passed": true
+        },
+        {
+          "name": "GET cowork.topic returns 200",
+          "passed": true
+        },
+        {
+          "name": "GET cowork.topic names the scenario topic",
+          "passed": true
+        },
+        {
+          "name": "POST route.move returns 200",
+          "passed": true
+        },
+        {
+          "name": "route.move appended the intent tokens to the target aliases",
+          "passed": true
+        },
+        {
+          "name": "POST topic.resolve archives the topic",
+          "passed": true
+        },
+        {
+          "name": "the overview counts the resolved topic",
+          "passed": true
+        },
+        {
+          "name": "POST topic.reopen restores the topic",
+          "passed": true
+        },
+        {
+          "name": "cowork_topic_resolve archives the topic",
+          "passed": true
+        },
+        {
+          "name": "the index records the tool resolution",
+          "passed": true
+        },
+        {
+          "name": "a resolved target reports resolved_match",
+          "passed": true
+        },
+        {
+          "name": "resolved_match names the old topic",
+          "passed": true
+        },
+        {
+          "name": "the follow-up created a replacement topic",
+          "passed": true
+        },
+        {
+          "name": "the replacement topic starts live",
+          "passed": true
+        },
+        {
+          "name": "the resolved topic received no follow-up turn",
+          "passed": true
+        },
+        {
+          "name": "project_status reports a live idle topic",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "review-merge",
+      "mode": "keyless",
+      "passed": true,
+      "checks": [
+        {
+          "name": "route created the review topic",
+          "passed": true
+        },
+        {
+          "name": "work_item_create returned a clone path",
+          "passed": true
+        },
+        {
+          "name": "the clone starts at the fixture HEAD",
+          "passed": true
+        },
+        {
+          "name": "the commit advanced the clone beyond its base",
+          "passed": true
+        },
+        {
+          "name": "the committed file exists in the clone",
+          "passed": true
+        },
+        {
+          "name": "review_request returned a pending request",
+          "passed": true
+        },
+        {
+          "name": "review_request created a reviewer session",
+          "passed": true
+        },
+        {
+          "name": "the reviewer mounted cowork-reviewer",
+          "passed": true
+        },
+        {
+          "name": "the review file records the request range",
+          "passed": true
+        },
+        {
+          "name": "the pass verdict records the review summary",
+          "passed": true
+        },
+        {
+          "name": "the work item is reviewing after the pass",
+          "passed": true
+        },
+        {
+          "name": "the merge-needed row names the work item",
+          "passed": true
+        },
+        {
+          "name": "the merge-needed message names the work item",
+          "passed": true
+        },
+        {
+          "name": "the handoff confirms the delivery",
+          "passed": true
+        },
+        {
+          "name": "the handoff file records the summary",
+          "passed": true
+        },
+        {
+          "name": "the work item is merged",
+          "passed": true
+        },
+        {
+          "name": "the merged clone was removed",
+          "passed": true
+        },
+        {
+          "name": "the merged file is on the integration branch",
+          "passed": true
+        },
+        {
+          "name": "main did not move",
+          "passed": true
+        },
+        {
+          "name": "the integration branch moved",
+          "passed": true
+        },
+        {
+          "name": "activity records review-requested",
+          "passed": true
+        },
+        {
+          "name": "activity records review-verdict",
+          "passed": true
+        },
+        {
+          "name": "activity records work-item-merged",
+          "passed": true
+        },
+        {
+          "name": "project_status reports the reviewed topic",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "review-revision",
+      "mode": "keyless",
+      "passed": true,
+      "checks": [
+        {
+          "name": "route created the revision topic",
+          "passed": true
+        },
+        {
+          "name": "work_item_create returned a clone path",
+          "passed": true
+        },
+        {
+          "name": "the first review request is pending",
+          "passed": true
+        },
+        {
+          "name": "the review file records needs_revision",
+          "passed": true
+        },
+        {
+          "name": "the topic records needs_revision",
+          "passed": true
+        },
+        {
+          "name": "the work item returns to active after needs_revision",
+          "passed": true
+        },
+        {
+          "name": "the revision verdict was delivered to the topic",
+          "passed": true
+        },
+        {
+          "name": "the re-review request is pending",
+          "passed": true
+        },
+        {
+          "name": "the re-review names the previous request",
+          "passed": true
+        },
+        {
+          "name": "the reject verdict records the finding",
+          "passed": true
+        },
+        {
+          "name": "the topic records reject and is blocked",
+          "passed": true
+        },
+        {
+          "name": "the rejection inbox record names the rejected topic",
+          "passed": true
+        },
+        {
+          "name": "the rejected clone keeps the revised file",
+          "passed": true
+        },
+        {
+          "name": "the clone head is the second reviewed commit",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}
