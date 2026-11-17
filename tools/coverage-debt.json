@@ -67,20 +67,14 @@
     },
     {
       "path": "src/client/api.ts",
-      "uncoveredLines": [
-        480,
-        481,
-        548,
-        549,
-        550
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 654,
-        "covered": 649
+        "covered": 654
       },
       "branches": {
-        "total": 255,
-        "covered": 219
+        "total": 261,
+        "covered": 225
       },
       "functions": {
         "total": 53,
@@ -121,35 +115,14 @@
     },
     {
       "path": "src/client/model.ts",
-      "uncoveredLines": [
-        300,
-        301,
-        302,
-        303,
-        304,
-        305,
-        306,
-        307,
-        308,
-        309,
-        333,
-        334,
-        335,
-        336,
-        337,
-        338,
-        339,
-        340,
-        341,
-        342
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 515,
-        "covered": 495
+        "covered": 515
       },
       "branches": {
-        "total": 115,
-        "covered": 107
+        "total": 118,
+        "covered": 110
       },
       "functions": {
         "total": 29,
@@ -174,28 +147,18 @@
     },
     {
       "path": "src/client/styles.ts",
-      "uncoveredLines": [
-        1291,
-        1292,
-        1293,
-        1294,
-        1295,
-        1296,
-        1297,
-        1298,
-        1299
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 1299,
-        "covered": 1290
+        "covered": 1299
       },
       "branches": {
-        "total": 1,
-        "covered": 1
+        "total": 8,
+        "covered": 7
       },
       "functions": {
         "total": 1,
-        "covered": 0
+        "covered": 1
       }
     },
     {
@@ -318,8 +281,8 @@
         "covered": 501
       },
       "branches": {
-        "total": 464,
-        "covered": 275
+        "total": 524,
+        "covered": 307
       },
       "functions": {
         "total": 38,
@@ -328,54 +291,14 @@
     },
     {
       "path": "src/domains/requests/request-lifecycle.ts",
-      "uncoveredLines": [
-        77,
-        78,
-        84,
-        85,
-        170,
-        171,
-        172,
-        173,
-        174,
-        175,
-        176,
-        177,
-        178,
-        179,
-        180,
-        181,
-        182,
-        183,
-        186,
-        187,
-        188,
-        189,
-        190,
-        224,
-        225,
-        226,
-        227,
-        228,
-        229,
-        230,
-        231,
-        232,
-        233,
-        234,
-        235,
-        236,
-        237,
-        324,
-        325
-      ],
+      "uncoveredLines": [],
       "lines": {
-        "total": 389,
-        "covered": 350
+        "total": 395,
+        "covered": 395
       },
       "branches": {
-        "total": 194,
-        "covered": 125
+        "total": 255,
+        "covered": 167
       },
       "functions": {
         "total": 10,
@@ -406,11 +329,11 @@
         "covered": 797
       },
       "branches": {
-        "total": 1336,
-        "covered": 810
+        "total": 1453,
+        "covered": 870
       },
       "functions": {
-        "total": 80,
+        "total": 82,
         "covered": 65
       }
     },
@@ -438,7 +361,7 @@
         "covered": 70
       },
       "branches": {
-        "total": 26,
+        "total": 28,
         "covered": 17
       },
       "functions": {
@@ -560,55 +483,30 @@
     },
     {
       "path": "src/panel/api.ts",
-      "uncoveredLines": [
-        461,
-        462,
-        463,
-        464,
-        610,
-        611,
-        626,
-        627,
-        628,
-        629,
-        630,
-        702,
-        703,
-        704,
-        711,
-        712,
-        770,
-        771,
-        806,
-        809
-      ],
+      "uncoveredLines": [],
       "lines": {
-        "total": 1037,
-        "covered": 1017
+        "total": 1029,
+        "covered": 1029
       },
       "branches": {
-        "total": 535,
-        "covered": 399
+        "total": 548,
+        "covered": 417
       },
       "functions": {
-        "total": 139,
-        "covered": 87
+        "total": 136,
+        "covered": 84
       }
     },
     {
       "path": "src/panel/inbox-api.ts",
-      "uncoveredLines": [
-        234,
-        291,
-        292
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 381,
-        "covered": 378
+        "covered": 381
       },
       "branches": {
-        "total": 119,
-        "covered": 95
+        "total": 121,
+        "covered": 99
       },
       "functions": {
         "total": 31,
@@ -911,8 +809,8 @@
         "covered": 1266
       },
       "branches": {
-        "total": 1263,
-        "covered": 882
+        "total": 1276,
+        "covered": 890
       },
       "functions": {
         "total": 130,
@@ -927,8 +825,8 @@
         "covered": 246
       },
       "branches": {
-        "total": 237,
-        "covered": 162
+        "total": 252,
+        "covered": 176
       },
       "functions": {
         "total": 30,

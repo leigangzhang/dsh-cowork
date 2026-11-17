@@ -172,6 +172,61 @@ test('write routes refuse a missing or wrong content type with 415', async () =>
   assert.equal(portBag.state.writes, 0)
 })
 
+test('a genuinely missing content-type header is refused with its own message', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  // `Request` fills in `content-type: text/plain` for a string body, so the
+  // header can only be absent when the body is bytes.
+  const byteRequest = (path, body) => {
+    const request = new Request(`http://${HOST}${path}`, {
+      method: 'POST',
+      headers: { host: HOST },
+      body: new TextEncoder().encode(JSON.stringify(body)),
+    })
+    assert.equal(request.headers.get('content-type'), null)
+    return request
+  }
+  const cases = [
+    [contract.RESOLVE_PATH, { sessionId: MASTER, topicId: 'topic-1' }],
+    [contract.REOPEN_PATH, { sessionId: MASTER, topicId: 'topic-1' }],
+    [contract.ROUTE_MOVE_PATH, { sessionId: MASTER, fromTopicId: 'topic-1', toTopicId: 'topic-2', intent: 'alpha' }],
+  ]
+  for (const [path, body] of cases) {
+    const { status, body: payload } = await readResponse(
+      await routes.get(path).fetch(byteRequest(path, body)),
+    )
+    assert.equal(status, 415, path)
+    assert.deepEqual(payload.error, {
+      code: 'request/content-type',
+      message: 'content-type must be application/json',
+    }, path)
+  }
+  assert.equal(portBag.state.storeCalls.length, 0)
+})
+
+test('a declared body over 8 KiB is refused before the stream is read', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const request = new Request(`http://${HOST}${contract.RESOLVE_PATH}`, {
+    method: 'POST',
+    headers: {
+      host: HOST,
+      'content-type': 'application/json',
+      'content-length': String(contract.MAX_REQUEST_BODY_BYTES + 1),
+    },
+    body: '{}',
+  })
+  const { status, body } = await readResponse(
+    await routes.get(contract.RESOLVE_PATH).fetch(request),
+  )
+  assert.equal(status, 413)
+  assert.deepEqual(body.error, {
+    code: 'request/body-too-large',
+    message: `request body must not exceed ${contract.MAX_REQUEST_BODY_BYTES} bytes`,
+  })
+  assert.equal(portBag.state.storeCalls.length, 0, 'the declared size is rejected before any store work')
+})
+
 test('write routes refuse a body over 8 KiB with 413', async () => {
   const portBag = fakePorts({ now: () => NOW })
   const { routes } = await registerRoutes(portBag)
@@ -276,6 +331,26 @@ test('resolve reports an unknown topic with 404 and no write', async () => {
   assert.equal(portBag.state.appended.length, 0)
 })
 
+test('resolve reports an internal error when the re-read index lost the written topic', async () => {
+  // The pre-lock read and the write see the topic; the response's read-back
+  // does not. The response has no row to report, so it fails as `internal`
+  // while the committed write stays committed.
+  const portBag = fakePorts({
+    document: makeDocument(),
+    readDocument: makeDocument({ topics: [] }),
+    now: () => NOW,
+  })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.RESOLVE_PATH)
+      .fetch(postRequest(contract.RESOLVE_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(status, 500)
+  assert.equal(body.error.code, 'internal')
+  assert.match(body.error.message, /topic disappeared from the index: topic-1/)
+  assert.equal(portBag.state.writes, 1, 'the index write is already committed')
+})
+
 test('resolve keeps a committed write when the activity append fails', async () => {
   const portBag = fakePorts({ now: () => NOW, appendError: new Error('activity lock timed out') })
   const { routes } = await registerRoutes(portBag)
@@ -339,6 +414,47 @@ test('reopen of a topic that is not resolved is an idempotent 200 with no write'
   assert.equal(body.topic.status, 'active')
   assert.equal(portBag.state.writes, 0, 'an already live topic is not rewritten')
   assert.equal(portBag.state.appended.length, 0, 'and produces no second reopen event')
+})
+
+test('reopen reports an unknown topic with 404 and zero writes', async () => {
+  const portBag = fakePorts({ now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.REOPEN_PATH)
+      .fetch(postRequest(contract.REOPEN_PATH, { sessionId: MASTER, topicId: 'ghost' })),
+  )
+  assert.equal(status, 404)
+  assert.equal(body.error.code, 'topic/not-found')
+  assert.match(body.error.message, /ghost/)
+  assert.equal(portBag.state.writes, 0)
+  assert.equal(portBag.state.appended.length, 0)
+})
+
+test('reopen keeps the committed reopen when the activity append fails', async () => {
+  const document = makeDocument({
+    topics: [makeTopic({
+      topicId: 'topic-1',
+      status: 'resolved',
+      resolvedAt: '2026-01-01T12:00:00.000Z',
+      resolvedBy: 'user',
+    })],
+  })
+  const portBag = fakePorts({
+    document,
+    appendError: new Error('activity lock timed out'),
+    now: () => NOW,
+  })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(
+    await routes.get(contract.REOPEN_PATH)
+      .fetch(postRequest(contract.REOPEN_PATH, { sessionId: MASTER, topicId: 'topic-1' })),
+  )
+  assert.equal(status, 200, 'the index write is already committed')
+  assert.equal(body.topic.status, 'active')
+  assert.equal(portBag.state.writes, 1)
+  assert.deepEqual(portBag.state.appended, [])
+  assert.equal(portBag.state.logs.length, 1)
+  assert.match(portBag.state.logs[0], /panel write: activity not recorded: activity lock timed out/)
 })
 
 // ---------------------------------------------------------------------------

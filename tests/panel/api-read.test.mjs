@@ -760,6 +760,43 @@ test('topic caps review requests at 10, newest first', async (t) => {
   ])
 })
 
+test('a reviews directory that is absent or is a file degrades to no review requests', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'cowork-topic-reviews-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const readTopic = async (reviewsDir) => {
+    const portBag = fakePorts({ reviewsDir, now: () => NOW })
+    const { routes } = await registerRoutes(portBag)
+    return readResponse(await routes.get(contract.TOPIC_PATH)
+      .fetch(getRequest(contract.TOPIC_PATH, `${overviewQuery()}&topicId=topic-1`)))
+  }
+
+  // ENOENT: a project that never created a review request has no directory.
+  const missing = await readTopic(join(root, 'not-created-yet'))
+  assert.equal(missing.status, 200)
+  assert.deepEqual(missing.body.reviewRequests, [])
+
+  // ENOTDIR: a regular file sits where the directory would be.
+  const asFile = join(root, 'reviews-as-file')
+  await writeFile(asFile, 'not a directory\n')
+  const notDir = await readTopic(asFile)
+  assert.equal(notDir.status, 200)
+  assert.deepEqual(notDir.body.reviewRequests, [])
+})
+
+test('a reviews directory that cannot be listed at all fails the topic read', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'cowork-topic-reviews-error-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  // ENAMETOOLONG is neither ENOENT nor ENOTDIR: the read is a real failure,
+  // not an empty project, so the route must report it instead of hiding it.
+  const portBag = fakePorts({ reviewsDir: join(root, 'x'.repeat(300)), now: () => NOW })
+  const { routes } = await registerRoutes(portBag)
+  const { status, body } = await readResponse(await routes.get(contract.TOPIC_PATH)
+    .fetch(getRequest(contract.TOPIC_PATH, `${overviewQuery()}&topicId=topic-1`)))
+  assert.equal(status, 500)
+  assert.equal(body.error.code, 'internal')
+  assert.match(body.error.message, /ENAMETOOLONG/)
+})
+
 test('topic requires its ids and reports an unknown topic', async () => {
   const portBag = fakePorts({ now: () => NOW })
   const { routes } = await registerRoutes(portBag)

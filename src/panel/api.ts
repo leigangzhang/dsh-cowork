@@ -85,7 +85,7 @@ import type {
 import { buildActivityEvent, topicReopenedActivity } from '../store/activity.js'
 import { inboxPanelRoutes } from './inbox-api.js'
 import type { InboxApiKit } from './inbox-api.js'
-import type { TopicNoticePort } from '../domains/notices/notices.js'
+import { NoopTopicNoticePort, type TopicNoticePort } from '../domains/notices/notices.js'
 import { isLoopbackHost } from './probe-model.js'
 import { parseReviewRequestRecord, reviewRequestFileName } from '../domains/review/review-request.js'
 import type { ReviewRequestRecord } from '../domains/review/review-request.js'
@@ -800,15 +800,7 @@ function messageOf(error: unknown): string {
  * through the store, and the dispatcher (when wired) is what drains it, so the
  * core never needs to append through this port.
  */
-const noNoticePort: TopicNoticePort = {
-  capabilities: () => ({ supported: false, actions: false, updates: false }),
-  append: async () => {
-    throw new Error('the host exposes no topic notice channel')
-  },
-  update: async () => {
-    throw new Error('the host exposes no topic notice channel')
-  },
-}
+const noNoticePort: TopicNoticePort = new NoopTopicNoticePort()
 
 /**
  * `POST authorization.resolve`: record the user's decision on one pending

@@ -281,6 +281,31 @@ test('the topic filter narrows the items but never the counts', async () => {
   })
 })
 
+test('a pending plan request is counted under plan and shows its approve/revise actions', async () => {
+  await withRepo(async (repoPath) => {
+    const store = await seedProject(repoPath, [topic(TOPIC, 'Inbox backend')])
+    await seedRequest(repoPath, store, {
+      requestId: 'req-plan-pending',
+      kind: 'plan',
+      payload: { planPath: 'docs/plan.md', planTitle: 'PLAN' },
+    })
+    const { ports } = fakePorts(repoPath)
+    const routes = registerRoutes(ports)
+    const { status, body } = await readResponse(
+      await routes.get(inboxContract.INBOX_PATH)
+        .fetch(getRequest(inboxContract.INBOX_PATH, inboxQuery())),
+    )
+    assert.equal(status, 200)
+    assert.deepEqual(body.counts, { pending: 1, review: 0, authorization: 0, question: 0, plan: 1 })
+    const plan = body.items.find((item) => item.kind === 'request')
+    assert.equal(plan.requestId, 'req-plan-pending')
+    assert.equal(plan.requestKind, 'plan')
+    assert.equal(plan.status, 'pending')
+    assert.deepEqual(plan.actions, ['revise', 'approve'])
+    assert.equal(plan.payload.planPath, 'docs/plan.md')
+  })
+})
+
 test('the inbox read writes nothing and wakes nobody', async () => {
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [topic(TOPIC, 'Inbox backend')])
@@ -430,6 +455,12 @@ test('resolve validates question answers and the comment', async () => {
     const invalid = await resolve({ sessionId: MASTER, requestId: 'req-q', action: 'submit', answers: [{ questionId: 'q1', selected: ['o9'] }] })
     assert.equal(invalid.status, 400)
     assert.equal(invalid.body.error.code, 'inbox/invalid-answer')
+    const notAnArray = await resolve({ sessionId: MASTER, requestId: 'req-q', action: 'submit', answers: 'q1=o1' })
+    assert.equal(notAnArray.status, 400)
+    assert.deepEqual(notAnArray.body.error, {
+      code: 'inbox/invalid-answer',
+      message: 'answers must be an array of answers',
+    })
     const tooLong = await resolve({ sessionId: MASTER, requestId: 'req-q', action: 'submit', comment: 'c'.repeat(2001) })
     assert.equal(tooLong.status, 400)
     assert.equal(tooLong.body.error.code, 'inbox/invalid-comment')
