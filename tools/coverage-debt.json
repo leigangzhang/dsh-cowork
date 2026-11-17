@@ -411,8 +411,8 @@
         "covered": 608
       },
       "branches": {
-        "total": 138,
-        "covered": 132
+        "total": 221,
+        "covered": 195
       },
       "functions": {
         "total": 28,
@@ -443,8 +443,8 @@
         "covered": 844
       },
       "branches": {
-        "total": 660,
-        "covered": 384
+        "total": 662,
+        "covered": 386
       },
       "functions": {
         "total": 68,
@@ -627,8 +627,8 @@
         "covered": 435
       },
       "branches": {
-        "total": 217,
-        "covered": 185
+        "total": 219,
+        "covered": 186
       },
       "functions": {
         "total": 24,
@@ -643,12 +643,12 @@
         "covered": 261
       },
       "branches": {
-        "total": 100,
-        "covered": 78
+        "total": 151,
+        "covered": 129
       },
       "functions": {
-        "total": 12,
-        "covered": 12
+        "total": 16,
+        "covered": 14
       }
     },
     {
@@ -925,8 +925,8 @@
         "covered": 279
       },
       "branches": {
-        "total": 113,
-        "covered": 85
+        "total": 133,
+        "covered": 95
       },
       "functions": {
         "total": 9,
@@ -961,33 +961,23 @@
         384,
         389,
         390,
-        447,
-        448,
-        449,
-        450,
-        451,
-        452,
         465,
         466,
         467,
         468,
-        469,
-        477,
-        478,
-        479,
-        480
+        469
       ],
       "lines": {
         "total": 648,
-        "covered": 608
+        "covered": 618
       },
       "branches": {
-        "total": 281,
-        "covered": 191
+        "total": 295,
+        "covered": 202
       },
       "functions": {
-        "total": 39,
-        "covered": 30
+        "total": 42,
+        "covered": 34
       }
     },
     {
@@ -1177,8 +1167,8 @@
         "covered": 1215
       },
       "branches": {
-        "total": 1158,
-        "covered": 790
+        "total": 1173,
+        "covered": 800
       },
       "functions": {
         "total": 131,
@@ -1250,8 +1240,8 @@
         "covered": 807
       },
       "branches": {
-        "total": 1584,
-        "covered": 662
+        "total": 1586,
+        "covered": 664
       },
       "functions": {
         "total": 55,
@@ -1276,87 +1266,18 @@
     },
     {
       "path": "src/tools/memory.ts",
-      "uncoveredLines": [
-        56,
-        57,
-        58,
-        59,
-        60,
-        61,
-        62,
-        63,
-        64,
-        65,
-        66,
-        67,
-        68,
-        69,
-        70,
-        71,
-        72,
-        73,
-        74,
-        75,
-        76,
-        77,
-        78,
-        79,
-        80,
-        81,
-        82,
-        83,
-        84,
-        85,
-        86,
-        87,
-        88,
-        89,
-        90,
-        91,
-        92,
-        93,
-        94,
-        95,
-        96,
-        97,
-        98,
-        99,
-        114,
-        115,
-        116,
-        117,
-        118,
-        119,
-        120,
-        121,
-        122,
-        123,
-        124,
-        125,
-        126,
-        127,
-        128,
-        129,
-        130,
-        131,
-        132,
-        133,
-        134,
-        135,
-        136,
-        137
-      ],
+      "uncoveredLines": [],
       "lines": {
         "total": 142,
-        "covered": 74
+        "covered": 142
       },
       "branches": {
-        "total": 2,
-        "covered": 2
+        "total": 31,
+        "covered": 29
       },
       "functions": {
-        "total": 3,
-        "covered": 1
+        "total": 7,
+        "covered": 6
       }
     },
     {
