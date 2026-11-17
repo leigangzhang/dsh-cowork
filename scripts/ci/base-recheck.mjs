@@ -17,12 +17,13 @@ import { fileURLToPath } from 'node:url'
  *
  * @param {{ draft: boolean, checkRuns: Array<{ name: string, conclusion: string }> }} input
  *   PR state and check runs on the current head.
- * @param {string} checkName Required gate context.
+ * @param {string | string[]} checkNames Gate contexts to invalidate.
  * @returns {boolean} True when the PR is open for merge and had a green gate.
  */
-export function shouldInvalidateGate(input, checkName) {
+export function shouldInvalidateGate(input, checkNames) {
   if (input.draft) return false
-  return input.checkRuns.some((check) => check.name === checkName && check.conclusion === 'success')
+  const names = new Set(Array.isArray(checkNames) ? checkNames : [checkNames])
+  return input.checkRuns.some((check) => names.has(check.name) && check.conclusion === 'success')
 }
 
 async function github({ token, apiUrl, path, method = 'GET', body }) {
@@ -96,8 +97,7 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
     const token = requiredEnv('GH_TOKEN')
     const repository = requiredEnv('GITHUB_REPOSITORY')
     const apiUrl = process.env.GITHUB_API_URL ?? 'https://api.github.com'
-    const mode = process.env.POLICY_MODE === 'block' ? 'block' : 'report'
-    const checkName = process.env.GATE_CHECK_NAME ?? (mode === 'block' ? 'gate-artifact' : 'gate-artifact-v2')
+    const checkNames = ['gate-artifact', 'gate-artifact-v2']
     const runUrl = process.env.RUN_URL ?? ''
     const mainSha = (await github({
       token,
@@ -116,19 +116,23 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
         apiUrl,
         path: `/repos/${repository}/commits/${pull.head.sha}/check-runs?per_page=100`,
       })).check_runs
-      if (!shouldInvalidateGate({ draft: pull.draft, checkRuns: checks }, checkName)) continue
-      await publishStaleGate({
-        token,
-        repository,
-        apiUrl,
-        checkName,
-        head: pull.head.sha,
-        mainSha,
-        runUrl,
-      })
-      invalidated += 1
+      if (!shouldInvalidateGate({ draft: pull.draft, checkRuns: checks }, checkNames)) continue
+      const greenNames = checkNames.filter((name) =>
+        checks.some((check) => check.name === name && check.conclusion === 'success'))
+      for (const checkName of greenNames) {
+        await publishStaleGate({
+          token,
+          repository,
+          apiUrl,
+          checkName,
+          head: pull.head.sha,
+          mainSha,
+          runUrl,
+        })
+        invalidated += 1
+      }
     }
-    process.stdout.write(`${JSON.stringify({ mainSha, checkName, mode, invalidated })}\n`)
+    process.stdout.write(`${JSON.stringify({ mainSha, checkNames, invalidated })}\n`)
   } catch (error) {
     process.stderr.write(`base-recheck: ${error instanceof Error ? error.message : String(error)}\n`)
     process.exitCode = 1

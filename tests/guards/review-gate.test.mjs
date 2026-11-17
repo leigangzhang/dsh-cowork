@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -73,22 +73,15 @@ test('PR metadata requires a conventional title and four sections', () => {
   )
 })
 
-test('gate-artifact workflow owns the review event and required check', () => {
-  const workflow = read('.github/workflows/gate-artifact.yml')
-  assert.match(workflow, /^name: Policy$/m)
-  assert.match(workflow, /^on:\n  pull_request_review:\n    types: \[submitted, dismissed\]$/m)
-  assert.match(workflow, /vars\.MERGE_POLICY_MODE != 'block'/)
-  assert.match(workflow, /^  gate-artifact:\n    name: gate-artifact$/m)
-  assert.match(workflow, /REVIEW_STATE: \$\{\{ github\.event\.review\.state \}\}/)
-  assert.match(workflow, /REVIEW_COMMIT_ID: \$\{\{ github\.event\.review\.commit_id \}\}/)
-  assert.match(workflow, /node scripts\/ci\/review-verdict\.mjs/)
-  assert.match(workflow, /node scripts\/ci\/pr-metadata\.mjs/)
-  assert.match(workflow, /select\(\.name == "pr-gate" and \.conclusion == "success"\)/)
-  assert.match(workflow, /git merge-base --is-ancestor origin\/main/)
-  assert.match(workflow, /name: gate-artifact/)
-  assert.match(workflow, /<!-- gate-artifact:v1 head=\$HEAD_SHA base=\$BASE_SHA -->/)
-  assert.doesNotMatch(workflow, /pull_request_target/)
-
+test('the retired legacy gate is replaced by one required publisher', () => {
+  assert.equal(existsSync(resolve(root, '.github/workflows/gate-artifact.yml')), false)
+  const workflow = read('.github/workflows/gate-artifact-v2.yml')
+  assert.match(workflow, /^name: Policy V2$/m)
+  assert.match(workflow, /^  pull_request_review:/m)
+  assert.match(workflow, /^  workflow_run:/m)
+  assert.match(workflow, /node scripts\/ci\/publish-gate\.mjs/)
+  assert.match(workflow, /^  checks: write$/m)
+  assert.doesNotMatch(workflow, /GATE_CHECK_NAME/)
   const uses = [...workflow.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])
   for (const use of uses) {
     assert.match(use, /^[^@]+@[0-9a-f]{40}$/, `action is not pinned to a commit SHA: ${use}`)

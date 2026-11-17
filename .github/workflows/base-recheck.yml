@@ -35,7 +35,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          POLICY_MODE: ${{ vars.MERGE_POLICY_MODE || 'report' }}
-          GATE_CHECK_NAME: ${{ vars.MERGE_POLICY_MODE == 'block' && 'gate-artifact' || 'gate-artifact-v2' }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node scripts/ci/base-recheck.mjs

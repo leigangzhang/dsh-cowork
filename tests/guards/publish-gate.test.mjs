@@ -6,16 +6,19 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 import {
-  assertGateCheckName,
   binaryDiffSha,
   changedPaths,
   decideGate,
+  decideLegacyGate,
   findPassingReview,
-  gateCheckNameForMode,
-  gateConclusionForMode,
   isAncestor,
   overlapPaths,
   publishGateCheck,
+  readPreMerge,
+  REPORT_GATE_CHECK,
+  REQUIRED_GATE_CHECK,
+  requiredGateDecision,
+  validateReviewedIdentity,
 } from '../../scripts/ci/publish-gate.mjs'
 
 const head = 'a'.repeat(40)
@@ -34,6 +37,11 @@ function review(overrides = {}) {
 
 test('findPassingReview requires a current v2 verdict and respects later change requests', () => {
   assert.equal(findPassingReview([review()], head).verdict.markerVersion, 'v2')
+  const v1 = review({
+    body: `<!-- review-verdict:v1 head=${head} verdict=pass reviewer=agentteam model=deepseek-v4-pro -->`,
+  })
+  assert.equal(findPassingReview([v1], head, { requireV2: false }).verdict.markerVersion, 'v1')
+  assert.throws(() => findPassingReview([v1], head), /no passing review-verdict:v2/)
   assert.throws(() => findPassingReview([review({ commit_id: 'd'.repeat(40) })], head), /no passing/)
   assert.throws(
     () => findPassingReview([
@@ -48,19 +56,37 @@ test('findPassingReview requires a current v2 verdict and respects later change 
   ], head))
 })
 
-test('policy modes cannot publish the other mode\'s gate context', () => {
-  assert.equal(gateCheckNameForMode('report'), 'gate-artifact-v2')
-  assert.equal(gateCheckNameForMode('block'), 'gate-artifact')
-  assert.equal(assertGateCheckName('report', 'gate-artifact-v2'), 'gate-artifact-v2')
-  assert.equal(assertGateCheckName('block', 'gate-artifact'), 'gate-artifact')
-  assert.throws(() => assertGateCheckName('report', 'gate-artifact'), /must publish gate-artifact-v2/)
-  assert.throws(() => assertGateCheckName('block', 'gate-artifact-v2'), /must publish gate-artifact/)
+test('the required and report contexts have distinct fixed names', () => {
+  assert.equal(REQUIRED_GATE_CHECK, 'gate-artifact')
+  assert.equal(REPORT_GATE_CHECK, 'gate-artifact-v2')
+  assert.notEqual(REQUIRED_GATE_CHECK, REPORT_GATE_CHECK)
 })
 
-test('report mode stays green and block mode fails a failed decision', () => {
-  assert.equal(gateConclusionForMode('report', false), 'success')
-  assert.equal(gateConclusionForMode('block', false), 'failure')
-  assert.equal(gateConclusionForMode('block', true), 'success')
+test('requiredGateDecision switches the required context by mode', () => {
+  const legacy = { pass: false, reasons: ['legacy'] }
+  const modern = { pass: true, reasons: [] }
+  assert.deepEqual(requiredGateDecision('report', legacy, modern), legacy)
+  assert.deepEqual(requiredGateDecision('block', legacy, modern), modern)
+})
+
+test('decideLegacyGate keeps the current required review behavior', () => {
+  assert.deepEqual(decideLegacyGate({
+    reviewError: null,
+    prGate: {},
+    mainContainsHead: true,
+    metadataError: null,
+  }), { pass: true, reasons: [] })
+  const decision = decideLegacyGate({
+    reviewError: 'no review',
+    prGate: null,
+    mainContainsHead: false,
+    metadataError: 'bad title',
+  })
+  assert.equal(decision.pass, false)
+  assert.match(decision.reasons.join('\n'), /no review/)
+  assert.match(decision.reasons.join('\n'), /pr-gate/)
+  assert.match(decision.reasons.join('\n'), /not an ancestor/)
+  assert.match(decision.reasons.join('\n'), /bad title/)
 })
 
 test('overlapPaths returns the sorted intersection of reviewed and main paths', () => {
@@ -130,6 +156,74 @@ test('git identity helpers bind the reviewed diff and ancestry', async () => {
   } finally {
     await rm(repo, { recursive: true, force: true })
   }
+})
+
+test('validateReviewedIdentity rejects wrong diffs, non-ancestor bases, and reports overlap', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'cowork-gate-review-'))
+  try {
+    git(repo, ['init', '-q'])
+    git(repo, ['config', 'user.name', 'test'])
+    git(repo, ['config', 'user.email', 'test@example.com'])
+    await writeFile(join(repo, 'a.txt'), 'base\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'base'])
+    const baseCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+
+    await writeFile(join(repo, 'a.txt'), 'main\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'main'])
+    const mainCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+
+    git(repo, ['checkout', '-qb', 'head', baseCommit])
+    await writeFile(join(repo, 'a.txt'), 'head\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'head'])
+    const headCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+    const diffSha = binaryDiffSha(repo, baseCommit, headCommit)
+    const review = { baseSha: baseCommit, diffSha }
+
+    const valid = validateReviewedIdentity({
+      cwd: repo,
+      head: headCommit,
+      currentMain: mainCommit,
+      review,
+      ensure: () => {},
+    })
+    assert.equal(valid.mainContainsHead, false)
+    assert.equal(valid.diffError, null)
+    assert.deepEqual(valid.overlap, ['a.txt'])
+
+    const wrongDiff = validateReviewedIdentity({
+      cwd: repo,
+      head: headCommit,
+      currentMain: mainCommit,
+      review: { ...review, diffSha: '0'.repeat(64) },
+      ensure: () => {},
+    })
+    assert.match(wrongDiff.diffError, /does not match current authored diff/)
+
+    const nonAncestor = validateReviewedIdentity({
+      cwd: repo,
+      head: headCommit,
+      currentMain: mainCommit,
+      review: { ...review, baseSha: mainCommit },
+      ensure: () => {},
+    })
+    assert.match(nonAncestor.diffError, /not an ancestor of the PR head/)
+  } finally {
+    await rm(repo, { recursive: true, force: true })
+  }
+})
+
+test('readPreMerge rejects malformed or stale summaries', () => {
+  const head = 'a'.repeat(40)
+  assert.deepEqual(readPreMerge([], head), { value: null, error: null })
+  assert.match(readPreMerge([{ name: 'pre-merge', conclusion: 'success', output: { summary: 'not json' } }], head).error, /not valid JSON/)
+  assert.match(readPreMerge([{
+    name: 'pre-merge',
+    conclusion: 'success',
+    output: { summary: JSON.stringify({ head, base: 'old', result: 'success', staleBase: true }) },
+  }], head).error, /older base/)
 })
 
 test('publishGateCheck sends one completed check run', async () => {

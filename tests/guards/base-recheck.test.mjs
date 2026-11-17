@@ -7,10 +7,10 @@ const head = 'a'.repeat(40)
 
 test('only a non-draft PR with a previous green gate is invalidated', () => {
   const green = [{ name: 'gate-artifact-v2', conclusion: 'success' }]
-  assert.equal(shouldInvalidateGate({ draft: false, checkRuns: green }, 'gate-artifact-v2'), true)
-  assert.equal(shouldInvalidateGate({ draft: true, checkRuns: green }, 'gate-artifact-v2'), false)
-  assert.equal(shouldInvalidateGate({ draft: false, checkRuns: [{ name: 'gate-artifact-v2', conclusion: 'failure' }] }, 'gate-artifact-v2'), false)
-  assert.equal(shouldInvalidateGate({ draft: false, checkRuns: [{ name: 'other', conclusion: 'success' }] }, 'gate-artifact-v2'), false)
+  assert.equal(shouldInvalidateGate({ draft: false, checkRuns: green }, ['gate-artifact', 'gate-artifact-v2']), true)
+  assert.equal(shouldInvalidateGate({ draft: true, checkRuns: green }, ['gate-artifact', 'gate-artifact-v2']), false)
+  assert.equal(shouldInvalidateGate({ draft: false, checkRuns: [{ name: 'gate-artifact-v2', conclusion: 'failure' }] }, ['gate-artifact', 'gate-artifact-v2']), false)
+  assert.equal(shouldInvalidateGate({ draft: false, checkRuns: [{ name: 'other', conclusion: 'success' }] }, ['gate-artifact', 'gate-artifact-v2']), false)
 })
 
 test('publishStaleGate writes an action_required check without modifying the PR', async () => {

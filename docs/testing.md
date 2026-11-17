@@ -15,7 +15,7 @@ One home for how dsh-cowork decides that something is verified.
 | PR gate | GitHub Actions `pr-gate` | Documentation conventions on every PR; the source coverage lane additionally runs for non-docs changes | Every PR to `main` |
 | Pre-merge | GitHub Actions `pre-merge` | A temporary merge of the current `main` and PR head passes the path-selected tests | Every PR before merge; rerun after `main` advances |
 | Local build gate | Heavy lane | `npm run typecheck`, `npm run build`, host smoke, browser, keyless E2E, and the observational host-bash check where the DSH source/app or Chromium exists | Every affected source/client change until the local heavy runner is stable enough to be required |
-| Derived gate | GitHub Actions `gate-artifact` in block mode; `gate-artifact-v2` in report mode | A `review-verdict:v2` marker for the PR head, a successful `pr-gate`, a current `pre-merge` base, and valid PR metadata | Report mode now; block keeps required `gate-artifact`. |
+| Derived gate | GitHub Actions `gate-artifact` (required) | Review, `pr-gate`, and current-main integration identity; `gate-artifact-v2` is report-only | Report mode uses legacy validation; block uses v2 plus pre-merge. |
 
 A same-process value is not evidence for a cross-process claim: session waking, workspace attach, and worktree merge need a real DSH run; host smoke proves loading, not transactions.
 

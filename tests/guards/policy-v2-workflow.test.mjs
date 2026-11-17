@@ -17,7 +17,8 @@ test('derived gate recalculates from PR, review, and completed CI/pre-merge even
   assert.match(workflow, /^  policy-gate:\n    name: policy-gate$/m)
   assert.match(workflow, /ref: main/)
   assert.match(workflow, /node scripts\/ci\/publish-gate\.mjs/)
-  assert.match(workflow, /GATE_CHECK_NAME: \$\{\{ vars\.MERGE_POLICY_MODE == 'block' && 'gate-artifact' \|\| 'gate-artifact-v2' \}\}/)
+  assert.match(workflow, /POLICY_MODE:/)
+  assert.doesNotMatch(workflow, /GATE_CHECK_NAME/)
   assert.doesNotMatch(workflow, /run: npm /)
   assert.doesNotMatch(workflow, /pull-requests: write/)
 })
@@ -31,6 +32,8 @@ test('base recheck invalidates old gates without notifying or editing PRs', () =
   assert.doesNotMatch(workflow, /pull-requests: write/)
   assert.doesNotMatch(workflow, /gh pr comment/)
   assert.doesNotMatch(workflow, /merge-conflict/)
+  assert.doesNotMatch(workflow, /GATE_CHECK_NAME/)
+  assert.doesNotMatch(workflow, /POLICY_MODE/)
 })
 
 test('policy workflows pin actions to commit SHAs', () => {

@@ -25,13 +25,13 @@
 | 默认分支 | `main` |
 | 分支约定 | 一个工作流使用一个 `agent/<topic>` 分支；GitHub 不强制分支名 |
 | 合并方式 | 人工合并提交（merge commit）；不使用 merge queue |
-| 合并前必需检查 | 当前 ruleset 仍要求 `pr-gate`、`gate-artifact`；新的 `gate-artifact-v2` 先以 report mode 运行 |
+| 合并前必需检查 | 当前 ruleset 仍要求 `pr-gate`、`gate-artifact`；唯一 publisher 已接管 required context，`gate-artifact-v2` 只做 report advisory |
 | GitHub 自动测试 | `pr-gate` 的 docs lane 运行 `check`；非 docs 改动再运行 `test:coverage`。`npm test` 不再在 `pr-gate` 中重复执行 |
 | 合并结果测试 | `Pre-Merge` 在 `pull_request_target` 中把当前 `main` 合到 PR HEAD，运行路径相关检查，并发布 `pre-merge` 检查 |
-| Base 前进 | 不更新 PR 分支；`Policy Base` 使旧 `gate-artifact-v2` 变为 stale，维护者给 PR 加 `recheck` 标签后重新运行 pre-merge |
+| Base 前进 | 不更新 PR 分支；`Policy Base` 使旧 `gate-artifact` 和 `gate-artifact-v2` 变为 stale，维护者给 PR 加 `recheck` 标签后重新运行 pre-merge |
 | 本机扩展测试 | `heavy-gate` 手动运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash |
 | E2E 证据 | `npm run test:e2e -- --record` 在干净工作区录制；`docs/**` 和 `README.md` 的后续改动不会使证据失效；`test:e2e:live` 和 `test:e2e:bash` 只做观测 |
-| 代码审查 | 独立 review 给出 `review-verdict:v2`，再由 `gate-artifact-v2` 校验 |
+| 代码审查 | 独立 review 给出 `review-verdict:v2`；required `gate-artifact` 在 report mode 校验 legacy 身份，在 block mode 校验 v2 + pre-merge |
 | 自动发布 | 无；详见第 7 节 |
 
 ## 3. 总流程概览
@@ -57,7 +57,7 @@ flowchart TD
   I --> J{"审查结论是 pass？"}
   J -- 否 --> C
   J -- 是 --> K["提交 review-verdict:v2 标记"]
-  K --> L["Policy V2 / gate-artifact-v2<br/>校验 review、pr-gate、pre-merge、metadata"]
+  K --> L["Policy V2 / gate-artifact<br/>report: legacy gate；block: v2 + pre-merge"]
   L --> M{"gate 通过？"}
   M -- 否 --> C
   M -- 是 --> N{"main 规则集要求满足？"}
@@ -68,7 +68,7 @@ flowchart TD
   D -. 需要本机环境时手动运行测试 .-> X["Heavy / heavy-gate<br/>当前不参与合并判定"]
 ```
 
-图 1 把 review 和测试拆成两个身份：PR HEAD 上的 review 绑定作者改动；pre-merge 绑定当前 main 的临时合并结果。`main` 前进不会改变 PR HEAD，也不会自动让 review 失效；旧 `gate-artifact-v2` 会被标成 stale，重新运行 pre-merge 后再由派生 gate 重算。
+图 1 把 review 和测试拆成两个身份：PR HEAD 上的 review 绑定作者改动；pre-merge 绑定当前 main 的临时合并结果。`main` 前进不会改变 PR HEAD，也不会自动让 review 失效；旧 `gate-artifact` 会被标成 stale，重新运行 pre-merge 后再由派生 gate 重算。
 
 ### 3.1 三个自动检查
 
@@ -76,11 +76,11 @@ flowchart TD
 |---|---|---|---|---|
 | `CI / pr-gate` | PR 创建或更新，目标为 `main` | GitHub 提供的 Ubuntu 运行器 | 是 | `docs-check` 始终运行 `npm run check`；非 docs 改动再运行 `npm run test:coverage`。不运行 `npm test`、`typecheck`、`build`、host smoke、browser 或分层覆盖率 |
 | `Pre-Merge / pre-merge` | PR 创建、更新、ready 或 `recheck` 标签 | GitHub 提供的 Ubuntu 运行器；`pull_request_target` | 否，供派生 gate 使用 | 把当前 `main` merge 到 PR HEAD，在临时合并结果上运行 `check` 和按路径选择的 coverage |
-| `Policy V2 / gate-artifact-v2` | PR 更新、review 事件、CI/Pre-Merge 完成 | GitHub 提供的 Ubuntu 运行器；从受信任的 `main` 执行脚本 | report mode 暂不阻止；block mode 阻止 | 校验 `review-verdict:v2`、`pr-gate`、`pre-merge`、PR metadata 和 reviewed paths |
-| `Policy` / `gate-artifact`（旧） | 提交或撤销 PR review | GitHub 提供的 Ubuntu 运行器 | 当前 ruleset 仍要求 | report mode 保留；`MERGE_POLICY_MODE=block` 后停止发布，由新 workflow 发布同名的 required `gate-artifact` |
+| `Policy V2 / policy-gate` | PR 更新、review 事件、CI/Pre-Merge 完成 | GitHub 提供的 Ubuntu 运行器；从受信任的 `main` 执行脚本 | 是；由它发布唯一 required `gate-artifact` | report mode 校验 legacy review、`pr-gate`、main ancestor；block mode 校验 v2 review、`pre-merge`、metadata 和 reviewed paths |
+| `gate-artifact-v2`（report advisory） | 同一 Policy V2 运行 | 同上 | 否，永不加入 required checks | report mode 记录 v2 would-fail 原因；block mode 不发布 |
 | `Heavy / heavy-gate` | 有写权限的人手动启动 | 标记为 `self-hosted, heavy` 的本机运行器 | 否 | 运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash；不审查代码 |
 
-`gate-artifact-v2` 先在 report mode 运行，不改变当前 required checks。切换到 block mode 前，必须先验证 `pre-merge` 能稳定发布当前 base，且 base-recheck 能把旧绿色 gate 标成 stale。
+`gate-artifact-v2` 只做 report，永不加入 required checks。required context 始终是 `gate-artifact`：report mode 用 legacy 校验，block mode 用 v2 + pre-merge 校验。切换到 block mode 前，必须先验证 `pre-merge` 能稳定发布当前 base，且 base-recheck 能把旧绿色 gate 标成 stale。
 
 `pr-gate` 变绿只表示它选中的 hosted 命令在当前提交上运行成功，不表示所有行为都已被测试覆盖。测试是否覆盖了目标行为、断言是否验证外部结果，仍要由审查者检查。
 
@@ -98,7 +98,7 @@ sequenceDiagram
   participant C as CI / pr-gate
   participant PM as Pre-Merge
   participant R as 独立审查者
-  participant P as Policy V2 / gate-artifact-v2
+  participant P as Policy V2 / gate-artifact
   participant H as Heavy / heavy-gate
   participant E as E2E 证据录制
   participant M as 维护者
@@ -126,7 +126,7 @@ sequenceDiagram
   R->>G: 对 PR 当前提交给出 review-verdict:v2
   G->>P: PR/review/CI/pre-merge 事件触发
   P->>P: 校验 review、pr-gate、pre-merge、metadata 和 reviewed paths
-  P-->>G: gate-artifact-v2 结果
+  P-->>G: required gate-artifact 结果
   M->>G: 核对测试证据、审查结果和规则后人工 merge commit
 ```
 
@@ -159,7 +159,7 @@ flowchart LR
     L["E2E 证据<br/>npm run test:e2e -- --record"]
   end
   subgraph GATE[派生检查]
-    H["gate-artifact-v2<br/>review + pr-gate + pre-merge + metadata"]
+    H["gate-artifact<br/>report: legacy；block: v2 + pre-merge"]
   end
   A --> B --> C
   A --> PM
@@ -183,7 +183,8 @@ flowchart LR
 | 独立审查 | 审查者读测试设计，核对断言和证据，并按改动范围复跑针对性检查 | 给出审查意见或 pass 结论；实现者不能做最终审查 | PR review 评论和 `review-verdict:v2` | review 标记和对话解决是；测试是否实际复跑不是 |
 | `heavy-gate` | 手动运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash | 不审查代码 | workflow 日志；PR 的 `Not run` | 否 |
 | 本机 E2E | heavy 运行 keyless E2E；版本或 E2E 范围变化时，作者另外用 `--record` 录制证据；host-bash 只作观测 | 审查者核对场景清单和证据 | `tests/e2e/evidence/<version>.json`；PR 的 `Testing`、`Not run` | 否；`npm run check` 校验清单和证据 |
-| `gate-artifact-v2` | 不运行测试 | 校验 review v2、`pr-gate`、当前 base 的 `pre-merge`、PR metadata 和 reviewed paths | GitHub check run | report mode 否；block mode 是 |
+| `gate-artifact` | 不运行测试 | report mode 校验 legacy review、`pr-gate`、main ancestor；block mode 校验 review v2、`pr-gate`、当前 base 的 `pre-merge`、PR metadata 和 reviewed paths | GitHub check run | 是 |
+| `gate-artifact-v2` | 不运行测试 | report mode 的 v2 advisory 结果 | GitHub check run | 否，永不 required |
 
 测试范围由改动路径决定。文档改动运行 `npm run check`；源码、测试、客户端、打包和覆盖率策略改动要按 [tools/workflow.json](../tools/workflow.json) 与 [testing.md](testing.md) 选择对应测试。版本或 E2E 范围变化还要运行 `npm run test:e2e`，并在干净工作区用 `--record` 更新当前版本的证据。heavy 会运行 keyless E2E 和 host-bash，但不负责写版本证据；正式证据仍要单独录制。E2E 证据绑定录制时的提交；`docs/**` 和 `README.md` 的后续改动不再使证据失效，其他文件变化仍会要求重新录制。不要把“本地测试通过”写成 `pr-gate` 通过，也不要把 `pr-gate` 通过写成“测试范围内所有行为都已覆盖”。
 
@@ -278,7 +279,7 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow。`pr-ga
 
 它不会把合并结果 push 回 PR 分支。测试结果由受信任的 publisher job 发布为 `pre-merge` check，summary 记录 `head`、`base`、`currentBase`、`docsOnly` 和 `result`。
 
-`main` 前进后，旧 `pre-merge` 的 base 已经不是当前 main。`Policy Base` 会把当前 mode 对应的绿色 gate（report 为 `gate-artifact-v2`，block 为 `gate-artifact`）标成 `action_required`。维护者给 PR 加 `recheck` 标签后重新运行 `pre-merge`；通常不需要更新 PR 分支或重审。唯一例外是 gate 报 reviewed-path overlap：此时必须把当前 main 合入 PR 分支，产生新 HEAD，再对新 merge-base 做 delta review，`recheck` 本身不能解除该状态。
+`main` 前进后，旧 `pre-merge` 的 base 已经不是当前 main。`Policy Base` 会把旧的绿色 `gate-artifact` 和 `gate-artifact-v2` 都标成 `action_required`。维护者给 PR 加 `recheck` 标签后重新运行 `pre-merge`；通常不需要更新 PR 分支或重审。唯一例外是 gate 报 reviewed-path overlap：此时必须把当前 main 合入 PR 分支，产生新 HEAD，再对新 merge-base 做 delta review，`recheck` 本身不能解除该状态。
 
 ### 4.6 独立审查
 
@@ -306,9 +307,9 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow。`pr-ga
 <!-- review-verdict:v2 head=<40 位提交 SHA> base=<40 位 merge-base SHA> diffSha=<64 位 diff SHA-256> verdict=pass reviewer=agentteam model=<模型名> -->
 ```
 
-`reviewer` 只能是 `agentteam` 或 `human`，`model` 不能为空。v2 额外记录 review 时的 merge-base 和二进制 diff 的 SHA-256。迁移期 report mode 下，review 正文还要同时带一条相同 head/verdict/reviewer/model 的 v1 marker，因为当前 required 旧 workflow 只解析 v1；block mode 激活后移除 v1。新提交会让旧结论失效；base 前进但 PR HEAD 不变时，只要 main 没有修改 PR 也修改的路径，review 仍然有效。审查循环通常控制在 2–3 轮内。
+`reviewer` 只能是 `agentteam` 或 `human`，`model` 不能为空。v2 额外记录 review 时的 merge-base 和二进制 diff 的 SHA-256。新的单一 publisher 在 report mode 接受 v1 或 v2 marker；推荐使用 v2，因为它同时记录 base 和 diffSha。新提交会让旧结论失效；base 前进但 PR HEAD 不变时，只要 main 没有修改 PR 也修改的路径，review 仍然有效。审查循环通常控制在 2–3 轮内。
 
-### 4.7 `gate-artifact-v2`：派生检查
+### 4.7 `gate-artifact`：派生检查
 
 新的派生检查在 `.github/workflows/gate-artifact-v2.yml` 中运行，从受信任的 `main` 检出脚本，不执行 PR 代码。它监听 PR 更新、review 事件，以及 `CI`/`Pre-Merge` 完成事件，因此 review 早于 CI 不会永久卡住。
 
@@ -325,25 +326,25 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow。`pr-ga
 迁移期行为：
 
 - `MERGE_POLICY_MODE` 未设置时按 `report` 处理；
-- report mode 发布 `gate-artifact-v2`，结论为 success，但 summary 写明 would-fail 的原因；这个名字只用于观察，不能加入 required checks；
-- block mode 发布 required `gate-artifact`，真实 success/failure；旧 `gate-artifact.yml` 在 block mode 下停止发布，避免两个发布者。
+- report mode 由唯一 publisher 发布 required `gate-artifact`，使用 legacy 校验；同时发布 report-only `gate-artifact-v2`，结论为 success 并记录 would-fail 原因；
+- block mode 由同一个 publisher 发布 required `gate-artifact`，使用 v2 review + pre-merge 校验；不再发布 `gate-artifact-v2`。
 
 `Policy Base` 在 main push 时把当前 mode 对应的绿色 gate 标成 `action_required`，防止旧 base 上的成功被误合并。它只更新检查状态，不评论、不打标签、不修改 PR 分支。
 
 **激活顺序：**
 
-1. 合并 workflow 代码，保持 report mode，确认 `gate-artifact-v2` summary 和 pre-merge 结果正确。
-2. 设置 `MERGE_POLICY_MODE=block`；旧 `gate-artifact.yml` 自动停止发布，新 workflow 开始发布 required `gate-artifact`。
+1. 合并 workflow 代码，保持 report mode，确认 required `gate-artifact` 仍使用 legacy 校验，且 `gate-artifact-v2` advisory 和 pre-merge 结果正确。
+2. 设置 `MERGE_POLICY_MODE=block`；同一个 publisher 改为用 v2 + pre-merge 校验 required `gate-artifact`。
 3. 在一个失败 PR 上确认 required gate 变红，在通过 PR 上确认变绿。
 4. 最后才移除 ruleset 的 strict up-to-date。
 
 **回滚顺序：**
 
 1. 先恢复 ruleset 的 strict up-to-date，挡住旧 base。
-2. 把 `MERGE_POLICY_MODE` 切回 `report`；旧 workflow 恢复发布，`gate-artifact-v2` 回到 report-only。
+2. 把 `MERGE_POLICY_MODE` 切回 `report`；同一个 publisher 恢复 legacy required 校验，`gate-artifact-v2` 回到 report-only。
 3. 用一次新的 review 事件重新生成 required gate；不要沿用 block mode 留下的 success。
 
-实现细节见 [gate-artifact-v2.yml](../.github/workflows/gate-artifact-v2.yml)、[publish-gate.mjs](../scripts/ci/publish-gate.mjs)、[base-recheck.yml](../.github/workflows/base-recheck.yml)。旧的 [gate-artifact.yml](../.github/workflows/gate-artifact.yml) 在迁移完成前保留。
+实现细节见 [gate-artifact-v2.yml](../.github/workflows/gate-artifact-v2.yml)、[publish-gate.mjs](../scripts/ci/publish-gate.mjs)、[base-recheck.yml](../.github/workflows/base-recheck.yml)。旧 `gate-artifact.yml` 已删除，required context 只有一个 publisher。
 
 ### 4.8 `main` 规则集与人工合并
 
@@ -367,7 +368,7 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow。`pr-ga
 
 批准数为 0 表示 GitHub 不会用第二个账号的 `Approve` 来强制独立审查；独立审查由 `review-verdict` 和派生 gate 共同记录。维护者仍然手动合并，不使用 auto-merge、merge queue 或 merge train。
 
-迁移到 pre-merge 模型后，移除“分支必须包含最新 `main`”，改由 `pre-merge` 证明当前 main 的合并结果；`Policy Base` 负责让旧 gate 在 main 前进后失效。required context 始终是 `gate-artifact`：report mode 由旧 workflow 发布，block mode 由新 workflow 发布；`gate-artifact-v2` 永远不能被列为 required。激活和回滚顺序见 §4.7。
+迁移到 pre-merge 模型后，移除“分支必须包含最新 `main`”，改由 `pre-merge` 证明当前 main 的合并结果；`Policy Base` 负责让旧 gate 在 main 前进后失效。required context 始终是 `gate-artifact`，由唯一 publisher 在 report/block 两种 mode 下发布；`gate-artifact-v2` 永远不能被列为 required。激活和回滚顺序见 §4.7。
 
 规则集能强制 `pr-gate` 和派生 gate 通过，但不能判断测试是否覆盖了目标行为，也不能判断审查者是否认真检查了测试。下面这些内容仍要由审查者和维护者阅读：
 
@@ -415,7 +416,7 @@ E2E 在 heavy 中运行 `npm run test:e2e` 和观测性的 `npm run test:e2e:bas
 - [ ] 审查者检查了测试设计、断言和证据，而不只是看 `pr-gate` 是否通过。
 - [ ] 独立审查在同一个提交上给出 `review-verdict:v2 verdict=pass`。
 - [ ] `pre-merge` 在当前 main 上成功；main 前进后已经重新运行 `recheck`。
-- [ ] 派生 gate 成功：report mode 检查 `gate-artifact-v2` 的 summary；block mode 检查 required `gate-artifact`。
+- [ ] required `gate-artifact` 成功；report mode 的 `gate-artifact-v2` 只作为 advisory 参考。
 - [ ] 所有 review 对话（conversation）已解决。
 - [ ] 迁移期 ruleset 仍要求分支包含 `origin/main`；激活 pre-merge 模型后，以 `pre-merge.base == current main` 代替分支更新。
 - [ ] heavy 检查已在该提交上运行，或在 `Not run` 中写明原因。
@@ -461,7 +462,7 @@ stateDiagram-v2
   Review --> Local: 代码或测试审查意见
   Review --> Gate: review-verdict:v2 pass
   Gate --> Local: 新提交或 review 失效
-  Gate --> Ready: gate-artifact-v2 通过
+  Gate --> Ready: gate-artifact 通过
   Ready --> Local: main 前进，旧 pre-merge 过期
   Ready --> Merged: 人工 merge
   Merged --> [*]
@@ -475,7 +476,7 @@ stateDiagram-v2
 | 审查结论为 `needs_revision` 或 `reject` | 没有通过的 review 标记 | 按审查意见修复，再审查 |
 | PR 描述中的测试结果与日志不一致 | 派生 gate 不会自动发现 | 重新运行命令，修正 `Testing`、`Evidence` 或 `Not run`，再审查 |
 | 审查者没有运行测试却给出 pass | 派生 gate 仍可能通过 | 这是审查质量问题；维护者要读 review 内容，必要时要求重新审查 |
-| `pr-gate` 还没通过就提交 review | `gate-artifact-v2` 先报 waiting，CI 完成后自动重算 | 不需要重新提交 review；等 CI 完成后看 gate 结果 |
+| `pr-gate` 还没通过就提交 review | required `gate-artifact` 先报 waiting，CI 完成后自动重算 | 不需要重新提交 review；等 CI 完成后看 gate 结果 |
 | 审查后又 push 新提交 | 旧 review v2 不再对应当前提交 | 重新运行 `pr-gate`，重新审查 |
 | `main` 前进 | PR HEAD 不变；旧 `pre-merge` 的 base 过期 | 加 `recheck` 标签重跑 `pre-merge`；通常不需要更新分支或重审 |
 | 有未解决的 review 对话（conversation） | 合并被阻止 | 解决对话并确认结果 |
@@ -512,7 +513,7 @@ stateDiagram-v2
 | host-bash 依赖本机 bash sandbox | 环境不可用时不能产生结果，而且它只作观测，不能替代 keyless E2E 证据 | 在 PR 里写明观测结果或 `Not run`；不要用 host-bash 替代 keyless E2E 证据 |
 | 本地测试和 CI 测试的环境不同 | 本地通过可能在 GitHub 托管环境中失败，或者 CI 通过但本机打包和浏览器路径没有运行 | 以 `pr-gate` 作为 GitHub 环境的测试结果；需要真实 host 或浏览器的行为用 heavy 本机测试补证据；不要互相替代 |
 | PR 描述中的测试证据会过期 | 任何编辑、暂存或未跟踪文件都会改变工作区状态；旧的 `Testing`、`change-scope` 和 `gate-artifact` 输出不能继续使用 | 最后一次修改后重新运行并更新 PR；审查者对照当前提交检查命令和结果 |
-| 迁移期双 gate | required context 始终是 `gate-artifact`；`gate-artifact-v2` 只做 report。block mode 后旧 workflow 停止发布，避免两个发布者 | 按 §4.7 的顺序激活；回滚先恢复 strict up-to-date，再切回 report |
+| report/block mode 切换 | required context 始终是 `gate-artifact`，只有一个 publisher；`gate-artifact-v2` 只做 report | 按 §4.7 的顺序激活；回滚先恢复 strict up-to-date，再切回 report |
 | base-recheck 是异步的 | main 前进到旧 gate 被标 stale 之间有短暂窗口 | 激活前验证 main push workflow 的时效；保留 strict up-to-date 直到稳定；长期用 merge queue 才能消除该窗口 |
 | 没有合并后自动测试或审查 | `main` 上的 merge commit 没有对应的自动测试、审查或证据记录 | 依赖严格的 up-to-date 规则和人工合并；需要更强保证时新增合并后或者定时测试 |
 | docs-only 判断错误 | 混合改动若被误判为 docs-only，会跳过 coverage | 分类器对空 diff 和非 `docs/**`/`README.md` 路径返回 false；混合改动走完整 lane |
@@ -539,7 +540,6 @@ workflow、脚本或 ruleset 改动后，同步更新本文，并按 [tools/work
 | PR 基础检查 | [.github/workflows/ci.yml](../.github/workflows/ci.yml) |
 | 合并结果检查 | [.github/workflows/pre-merge.yml](../.github/workflows/pre-merge.yml)、[publish-pre-merge.mjs](../scripts/ci/publish-pre-merge.mjs) |
 | 派生 gate 和 base stale | [.github/workflows/gate-artifact-v2.yml](../.github/workflows/gate-artifact-v2.yml)、[.github/workflows/base-recheck.yml](../.github/workflows/base-recheck.yml)、[publish-gate.mjs](../scripts/ci/publish-gate.mjs)、[review-verdict.mjs](../scripts/ci/review-verdict.mjs) |
-| 旧 review 和证据检查 | [.github/workflows/gate-artifact.yml](../.github/workflows/gate-artifact.yml)（迁移期保留） |
 | PR 标题和正文结构 | [pr-metadata.mjs](../scripts/ci/pr-metadata.mjs)、[pr-description](../.agents/skills/pr-description/SKILL.md) |
 | 本地证据记录 | [gate-artifact.mjs](../scripts/review/gate-artifact.mjs)、[change-scope.mjs](../scripts/review/change-scope.mjs) |
 | heavy 本机测试 | [.github/workflows/heavy.yml](../.github/workflows/heavy.yml)、[heavy-runner.md](heavy-runner.md) |
