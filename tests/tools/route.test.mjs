@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import '../support/ts-hook.mjs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -596,5 +596,116 @@ test('the read point will not auto-resolve a topic that still has in-flight work
     const document = await store.readIndexDocument()
     assert.equal(document.topics[0].status, 'idle', 'a reviewing work item keeps the topic from resolving')
     assert.equal(document.topics[0].resolvedAt, null)
+  })
+})
+
+test('a throwing host default-model lookup is treated as no default', async () => {
+  await withRepo(async (repoPath) => {
+    const port = llmPort(() => '{"topicId":null,"confidence":0.1}')
+    await seedProject(repoPath, [
+      topic({ topicId: 'session-a', title: 'alpha beta' }),
+      topic({ topicId: 'session-b', title: 'alpha beta' }),
+    ])
+    const deps = fakeDeps({
+      llmRoutingPort: port,
+      routing: { ...ROUTING, provider: '', model: '' },
+      currentModelRoute: () => {
+        throw new Error('host route service unavailable')
+      },
+    })
+
+    const result = await routeTool(deps).execute({ intent: 'alpha beta' }, fakeExec('session-master', repoPath))
+
+    assert.equal(port.calls.length, 0)
+    assert.equal(result.action, 'reuse')
+    assert.equal(result.topicId, 'session-a')
+    assert.equal(result.modelUsed, false)
+    assert.match(result.modelError, /unconfigured/)
+  })
+})
+
+test('a failed route activity write never rolls the reuse back', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic({ topicId: 'session-a', title: 'alpha beta' })], {
+      overrides: { masterFocusTopicId: 'session-a' },
+    })
+    // The activity sink is unusable; the index write that precedes it stands.
+    await mkdir(join(repoPath, '.dsh-cowork', 'activity.jsonl'), { recursive: true })
+
+    const result = await routeTool(fakeDeps()).execute({ intent: 'alpha beta' }, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, true)
+    assert.equal(result.action, 'reuse')
+    assert.equal(result.topicId, 'session-a')
+    assert.equal(result.prompted, true)
+  })
+})
+
+test('a failed index write after creating the session archives it and reports the cleanup', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [])
+    const storeDir = join(repoPath, '.dsh-cowork')
+    const deps = fakeDeps()
+    deps.workspaceRegistry.archiveSession = async () => {
+      throw new Error('archive refused by host')
+    }
+    // The lifecycle read point has already run; the post-create index write is
+    // the next one, so the project directory goes read-only at session creation.
+    deps.sessionController.create = async () => {
+      await chmod(storeDir, 0o555)
+      return { sessionId: 'session-created-1', workspaceId: 'workspace-1', agentPreset: 'cowork-topic' }
+    }
+    try {
+      const result = await routeTool(deps).execute(
+        { intent: 'a brand new subject', forceCreate: true },
+        fakeExec('session-master', repoPath),
+      )
+
+      assert.equal(result.ok, false)
+      assert.equal(result.error.code, 'tool/internal')
+      assert.equal(result.error.details.topicId, 'session-created-1')
+      assert.deepEqual(result.error.details.cleanup, {
+        archived: false,
+        error: 'archive refused by host',
+      })
+    } finally {
+      await chmod(storeDir, 0o755)
+    }
+  })
+})
+
+test('a failed index write archives the fresh session when the host accepts it', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [])
+    const storeDir = join(repoPath, '.dsh-cowork')
+    const deps = fakeDeps()
+    deps.sessionController.create = async () => {
+      await chmod(storeDir, 0o555)
+      return { sessionId: 'session-created-1', workspaceId: 'workspace-1', agentPreset: 'cowork-topic' }
+    }
+    try {
+      const result = await routeTool(deps).execute(
+        { intent: 'a brand new subject', forceCreate: true },
+        fakeExec('session-master', repoPath),
+      )
+
+      assert.equal(result.ok, false)
+      assert.equal(result.error.details.topicId, 'session-created-1')
+      assert.deepEqual(result.error.details.cleanup, { archived: true, error: null })
+    } finally {
+      await chmod(storeDir, 0o755)
+    }
+  })
+})
+
+test('a corrupt index fails the route as a mapped store error', async () => {
+  await withRepo(async (repoPath) => {
+    await mkdir(join(repoPath, '.dsh-cowork'), { recursive: true })
+    await writeFile(join(repoPath, '.dsh-cowork', 'index.json'), '{not json\n')
+
+    const result = await routeTool(fakeDeps()).execute({ intent: 'alpha beta' }, fakeExec('session-master', repoPath))
+
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, ERROR_CODES.storeCorrupt)
   })
 })
