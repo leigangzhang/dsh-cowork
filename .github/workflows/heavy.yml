@@ -73,6 +73,12 @@ jobs:
           npm run test:coverage:layered --
           --base "origin/${{ inputs.base }}"
 
+      - name: Versioned keyless E2E
+        run: npm run test:e2e
+
+      - name: Versioned host-bash E2E
+        run: npm run test:e2e:bash
+
       - name: Show coverage evidence
         if: ${{ always() }}
         run: |

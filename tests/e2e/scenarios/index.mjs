@@ -12,6 +12,7 @@ import { liveMasterChainId, runLiveMasterChain } from './live-master-chain.mjs'
 import { masterChainId, runMasterChain } from './master-chain.mjs'
 import { reviewMergeId, runReviewMerge } from './review-merge.mjs'
 import { reviewRevisionId, runReviewRevision } from './review-revision.mjs'
+import { topicBashId, runTopicBash } from './topic-bash.mjs'
 import { topicPanelId, runTopicPanel } from './topic-panel.mjs'
 
 /** Every scenario module, keyed by the id the manifest declares. */
@@ -20,5 +21,6 @@ export const SCENARIOS = new Map([
   [masterChainId, { id: masterChainId, run: runMasterChain }],
   [reviewMergeId, { id: reviewMergeId, run: runReviewMerge }],
   [reviewRevisionId, { id: reviewRevisionId, run: runReviewRevision }],
+  [topicBashId, { id: topicBashId, run: runTopicBash }],
   [topicPanelId, { id: topicPanelId, run: runTopicPanel }],
 ])
