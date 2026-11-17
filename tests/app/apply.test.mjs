@@ -436,18 +436,12 @@ test('enableDevRoutes adds the loopback health route only on request', async () 
   apply(host.ctx, config({ enableDevRoutes: true }))
   await settle()
 
-  assert.deepEqual(host.routes.map((route) => route.path), [
-    '/dsh-cowork/probe/health',
-    '/dsh-cowork/e2e/m12/run',
-    '/dsh-cowork/e2e/m12/status',
-  ])
+  assert.deepEqual(host.routes.map((route) => route.path), ['/dsh-cowork/probe/health'])
   assert.equal(host.routes.every((route) => route.kind === 'exact'), true)
   const labels = host.effects.map((entry) => entry.label)
   for (const path of host.routes.map((route) => route.path)) {
     assert.equal(labels.includes(`dsh-cowork: route ${path}`), true, `missing effect for ${path}`)
   }
-  assert.equal(labels.includes('dsh-cowork: M12 E2E runner'), true)
-  assert.equal(labels.includes('dsh-cowork: M12 E2E session event feed'), true)
   // The business surface is unchanged by the dev gate.
   assert.equal(host.tools.length, 22)
   assert.equal(host.listeners.filter((entry) => entry.name === 'session/event').length, 2)
