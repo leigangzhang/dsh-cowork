@@ -175,7 +175,7 @@ export async function runReviewRevision(ctx) {
     const rows = await ctx.inbox()
     return Array.isArray(rows) ? rows.find((entry) => entry.topicId === topicId && entry.kind === 'review-reject') : undefined
   })
-  ctx.check('the rejection wrote the review-reject inbox record', inbox.kind === 'review-reject', String(inbox.kind))
+  ctx.check('the rejection inbox record names the rejected topic', inbox.summary.includes('rejected topic'), inbox.summary)
   const file = await readText(`${workItem.path}/${FILE_NAME}`)
   ctx.check('the rejected clone keeps the revised file', file?.trim() === FIXED_CONTENT, file === undefined ? 'missing' : 'present')
   ctx.check('the clone head is the second reviewed commit', readGitHead(workItem.path) === reviewedHead, reviewedHead)

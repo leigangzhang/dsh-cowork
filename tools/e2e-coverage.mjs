@@ -15,7 +15,6 @@
  * contract tests.
  */
 
-import { existsSync } from 'node:fs'
 import { BUSINESS_TOOLS, PANEL_ROUTES } from '../tests/support/public-surface.mjs'
 
 const SCENARIO_MODES = new Set(['keyless', 'live-model'])
