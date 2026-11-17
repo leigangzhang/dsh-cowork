@@ -52,7 +52,7 @@
     },
     {
       "pattern": "docs/github-workflow.md",
-      "reason": "maintainer and agent guide to the current branch-to-main GitHub flow, including hosted checks, review evidence, remote ruleset settings, and local heavy-lane limits; not user-facing product guidance"
+      "reason": "maintainer and agent guide to the current branch-to-main GitHub flow, including hosted tests, independent review, evidence validation, remote ruleset settings, and local heavy-lane limits; not user-facing product guidance"
     },
     {
       "pattern": "docs/heavy-runner.md",
