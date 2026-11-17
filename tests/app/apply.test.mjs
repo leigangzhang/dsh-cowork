@@ -442,9 +442,10 @@ test('enableDevRoutes adds the loopback health route only on request', async () 
   for (const path of host.routes.map((route) => route.path)) {
     assert.equal(labels.includes(`dsh-cowork: route ${path}`), true, `missing effect for ${path}`)
   }
-  // The business surface is unchanged by the dev gate.
+  // The business surface is unchanged by the dev gate; only the topic
+  // lifecycle listener remains after the M12 event feed retired.
   assert.equal(host.tools.length, 22)
-  assert.equal(host.listeners.filter((entry) => entry.name === 'session/event').length, 2)
+  assert.equal(host.listeners.filter((entry) => entry.name === 'session/event').length, 1)
 })
 
 /* ------------------------------------------------------------------ */
