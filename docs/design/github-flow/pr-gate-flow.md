@@ -138,7 +138,7 @@ npm run change-scope -- --base <verified-base>
 ```
 
 - 校验：
-  1. 存在当前 head 的 v2 pass review，且没有更晚的 `CHANGES_REQUESTED`；
+  1. 当前 head 最新的有效 review marker 是 `pass`；更晚的 `needs_revision`、`reject` 或 `CHANGES_REQUESTED` 都会阻止；
   2. marker base 是 head 和当前 main 的祖先；
   3. `base..head` 的二进制 diff SHA-256 匹配；
   4. `pr-gate` 在当前 head 上成功；

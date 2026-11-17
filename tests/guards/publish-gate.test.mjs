@@ -11,6 +11,7 @@ import {
   decideGate,
   decideLegacyGate,
   findPassingReview,
+  findReviewDecision,
   isAncestor,
   overlapPaths,
   publishGateCheck,
@@ -41,19 +42,42 @@ test('findPassingReview requires a current v2 verdict and respects later change 
     body: `<!-- review-verdict:v1 head=${head} verdict=pass reviewer=agentteam model=deepseek-v4-pro -->`,
   })
   assert.equal(findPassingReview([v1], head, { requireV2: false }).verdict.markerVersion, 'v1')
-  assert.throws(() => findPassingReview([v1], head), /no passing review-verdict:v2/)
-  assert.throws(() => findPassingReview([review({ commit_id: 'd'.repeat(40) })], head), /no passing/)
+  assert.throws(() => findPassingReview([v1], head), /latest review decision is missing/)
+  assert.throws(() => findPassingReview([review({ commit_id: 'd'.repeat(40) })], head), /latest review decision is missing/)
   assert.throws(
     () => findPassingReview([
       review(),
       review({ state: 'CHANGES_REQUESTED', submitted_at: '2026-11-17T00:01:00Z', body: '' }),
     ], head),
-    /CHANGES_REQUESTED/,
+    /changes_requested/,
   )
   assert.doesNotThrow(() => findPassingReview([
     review(),
     review({ state: 'COMMENTED', submitted_at: '2026-11-17T00:01:00Z', body: 'looks good' }),
   ], head))
+})
+
+test('the latest non-pass marker blocks an older pass', () => {
+  for (const verdict of ['needs_revision', 'reject']) {
+    const blocked = findReviewDecision([
+      review(),
+      review({
+        submitted_at: '2026-11-17T00:01:00Z',
+        body: `<!-- review-verdict:v2 head=${head} base=${base} diffSha=${diff} verdict=${verdict} reviewer=agentteam model=deepseek-v4-pro -->`,
+      }),
+    ], head)
+    assert.equal(blocked.status, verdict)
+    assert.throws(
+      () => findPassingReview([
+        review(),
+        review({
+          submitted_at: '2026-11-17T00:01:00Z',
+          body: `<!-- review-verdict:v2 head=${head} base=${base} diffSha=${diff} verdict=${verdict} reviewer=agentteam model=deepseek-v4-pro -->`,
+        }),
+      ], head),
+      new RegExp(`latest review decision is ${verdict}`),
+    )
+  }
 })
 
 test('the required and report contexts have distinct fixed names', () => {
@@ -215,6 +239,43 @@ test('validateReviewedIdentity rejects wrong diffs, non-ancestor bases, and repo
   }
 })
 
+test('main-side renames still overlap the reviewed path', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'cowork-gate-rename-'))
+  try {
+    git(repo, ['init', '-q'])
+    git(repo, ['config', 'user.name', 'test'])
+    git(repo, ['config', 'user.email', 'test@example.com'])
+    await writeFile(join(repo, 'old.txt'), 'base\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'base'])
+    const baseCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+
+    git(repo, ['mv', 'old.txt', 'new.txt'])
+    git(repo, ['commit', '-qm', 'rename'])
+    const mainCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+
+    git(repo, ['checkout', '-qb', 'head', baseCommit])
+    await writeFile(join(repo, 'old.txt'), 'head\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'head'])
+    const headCommit = git(repo, ['rev-parse', 'HEAD']).trim()
+    const diffSha = binaryDiffSha(repo, baseCommit, headCommit)
+
+    const identity = validateReviewedIdentity({
+      cwd: repo,
+      head: headCommit,
+      currentMain: mainCommit,
+      review: { baseSha: baseCommit, diffSha },
+      ensure: () => {},
+    })
+    assert.equal(identity.diffError, null)
+    assert.ok(identity.overlap.includes('old.txt'), JSON.stringify(identity.overlap))
+    assert.deepEqual(changedPaths(repo, baseCommit, mainCommit).sort(), ['new.txt', 'old.txt'])
+  } finally {
+    await rm(repo, { recursive: true, force: true })
+  }
+})
+
 test('readPreMerge rejects malformed or stale summaries', () => {
   const head = 'a'.repeat(40)
   assert.deepEqual(readPreMerge([], head), { value: null, error: null })
@@ -224,6 +285,12 @@ test('readPreMerge rejects malformed or stale summaries', () => {
     conclusion: 'success',
     output: { summary: JSON.stringify({ head, base: 'old', result: 'success', staleBase: true }) },
   }], head).error, /older base/)
+  assert.match(readPreMerge([{
+    name: 'pre-merge',
+    conclusion: 'failure',
+    completed_at: '2026-11-17T00:02:00Z',
+    output: { summary: JSON.stringify({ head, base: 'main', result: 'success' }) },
+  }], head).error, /conclusion is failure/)
 })
 
 test('publishGateCheck sends one completed check run', async () => {

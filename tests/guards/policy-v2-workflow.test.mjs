@@ -18,6 +18,8 @@ test('derived gate recalculates from PR, review, and completed CI/pre-merge even
   assert.match(workflow, /ref: main/)
   assert.match(workflow, /node scripts\/ci\/publish-gate\.mjs/)
   assert.match(workflow, /POLICY_MODE:/)
+  assert.match(workflow, /commits\/\$WORKFLOW_RUN_HEAD_SHA\/pulls/)
+  assert.match(workflow, /if length == 1/)
   assert.doesNotMatch(workflow, /GATE_CHECK_NAME/)
   assert.doesNotMatch(workflow, /run: npm /)
   assert.doesNotMatch(workflow, /pull-requests: write/)

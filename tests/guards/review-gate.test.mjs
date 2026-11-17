@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parseReviewVerdict } from '../../scripts/ci/review-verdict.mjs'
+import { parseReviewMarker, parseReviewVerdict } from '../../scripts/ci/review-verdict.mjs'
 import { validatePrMetadata } from '../../scripts/ci/pr-metadata.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -23,7 +23,7 @@ test('review verdict must name the reviewed head and pass', () => {
   )
   assert.throws(
     () => parseReviewVerdict({ state: 'changes_requested', commitId: head, body, headSha: head }),
-    /cannot carry a passing verdict/,
+    /cannot carry a review verdict/,
   )
   assert.throws(
     () => parseReviewVerdict({ state: 'commented', commitId: head, body: 'no marker', headSha: head }),
@@ -49,6 +49,19 @@ test('v2 review verdict binds the reviewed base and binary diff', () => {
     }),
     /no review-verdict:v2/,
   )
+})
+
+test('non-pass markers are readable and never satisfy the pass parser', () => {
+  const base = '1'.repeat(40)
+  const diffSha = '2'.repeat(64)
+  for (const verdict of ['needs_revision', 'reject']) {
+    const body = `<!-- review-verdict:v2 head=${head} base=${base} diffSha=${diffSha} verdict=${verdict} reviewer=agentteam model=deepseek-v4-pro -->`
+    assert.equal(parseReviewMarker({ state: 'commented', commitId: head, body, headSha: head, requireV2: true }).verdict, verdict)
+    assert.throws(
+      () => parseReviewVerdict({ state: 'commented', commitId: head, body, headSha: head, requireV2: true }),
+      new RegExp(`review-verdict is ${verdict}, not pass`),
+    )
+  }
 })
 
 test('PR metadata requires a conventional title and four sections', () => {

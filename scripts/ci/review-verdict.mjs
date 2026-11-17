@@ -15,17 +15,20 @@ const V1 = /<!--\s*review-verdict:v1\s+head=([0-9a-f]{40})\s+verdict=(pass|needs
 const V2 = /<!--\s*review-verdict:v2\s+head=([0-9a-f]{40})\s+base=([0-9a-f]{40})\s+diffSha=([0-9a-f]{64})\s+verdict=(pass|needs_revision|reject)\s+reviewer=([a-z0-9._-]+)\s+model=([^\s>]+)\s*-->/iu
 
 /**
+ * Parse one review-verdict marker without requiring a passing verdict.
+ *
  * @param {{ state: string, commitId: string, body: string, headSha: string, requireV2?: boolean }} input
  *   The GitHub review state, reviewed commit, review body, current PR head, and
  *   whether the caller requires the v2 marker.
  * @returns {{ markerVersion: 'v1' | 'v2', headSha: string, baseSha?: string, diffSha?: string,
- *   verdict: 'pass', reviewer: string, model: string }} The validated verdict identity.
- * @throws {Error} When the review is not a passing verdict for this head.
+ *   verdict: 'pass' | 'needs_revision' | 'reject', reviewer: string, model: string }}
+ *   The validated review marker.
+ * @throws {Error} When the review does not carry a marker for this head.
  */
-export function parseReviewVerdict({ state, commitId, body, headSha, requireV2 = false }) {
+export function parseReviewMarker({ state, commitId, body, headSha, requireV2 = false }) {
   const normalizedState = String(state ?? '').toLowerCase()
   if (normalizedState !== 'approved' && normalizedState !== 'commented') {
-    throw new Error(`review state ${normalizedState || '<empty>'} cannot carry a passing verdict`)
+    throw new Error(`review state ${normalizedState || '<empty>'} cannot carry a review verdict`)
   }
   if (commitId !== headSha) {
     throw new Error(`review commit ${commitId || '<empty>'} does not match PR head ${headSha || '<empty>'}`)
@@ -37,7 +40,6 @@ export function parseReviewVerdict({ state, commitId, body, headSha, requireV2 =
     if (markerHead.toLowerCase() !== headSha.toLowerCase()) {
       throw new Error(`review-verdict head ${markerHead} does not match PR head ${headSha}`)
     }
-    if (verdict !== 'pass') throw new Error(`review-verdict is ${verdict}, not pass`)
     validateReviewerAndModel(reviewer, model)
     return { markerVersion: 'v2', headSha, baseSha, diffSha, verdict, reviewer, model }
   }
@@ -49,9 +51,25 @@ export function parseReviewVerdict({ state, commitId, body, headSha, requireV2 =
   if (markerHead.toLowerCase() !== headSha.toLowerCase()) {
     throw new Error(`review-verdict head ${markerHead} does not match PR head ${headSha}`)
   }
-  if (verdict !== 'pass') throw new Error(`review-verdict is ${verdict}, not pass`)
   validateReviewerAndModel(reviewer, model)
   return { markerVersion: 'v1', headSha, verdict, reviewer, model }
+}
+
+/**
+ * Parse one passing review-verdict marker.
+ *
+ * @param {{ state: string, commitId: string, body: string, headSha: string, requireV2?: boolean }} input
+ *   The review identity and marker inputs.
+ * @returns {{ markerVersion: 'v1' | 'v2', headSha: string, baseSha?: string, diffSha?: string,
+ *   verdict: 'pass', reviewer: string, model: string }} The validated passing verdict.
+ * @throws {Error} When the review marker is missing, malformed, or not `pass`.
+ */
+export function parseReviewVerdict(input) {
+  const marker = parseReviewMarker(input)
+  if (marker.verdict !== 'pass') {
+    throw new Error(`review-verdict is ${marker.verdict}, not pass`)
+  }
+  return marker
 }
 
 function validateReviewerAndModel(reviewer, model) {

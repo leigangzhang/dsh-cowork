@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseReviewVerdict } from './review-verdict.mjs'
+import { parseReviewMarker } from './review-verdict.mjs'
 import { validatePrMetadata } from './pr-metadata.mjs'
 
 /** Required check context. Never changes with policy mode. */
@@ -22,49 +22,62 @@ export const REQUIRED_GATE_CHECK = 'gate-artifact'
 export const REPORT_GATE_CHECK = 'gate-artifact-v2'
 
 /**
- * Find the newest passing review for the exact head, unless a later
- * changes-requested review blocks it.
+ * Return the newest review-verdict marker for one head.
+ *
+ * A later pass does not override a newer `needs_revision` or `reject` marker.
+ * A `CHANGES_REQUESTED` review with no marker also blocks an older pass.
  *
  * @param {Array<{ state: string, commit_id: string, body: string, submitted_at?: string }>} reviews
  *   GitHub review objects.
  * @param {string} headSha Current PR head.
  * @param {{ requireV2?: boolean }} [options] Whether the caller requires the v2 marker.
- * @returns {{ review: object, verdict: object }} The latest passing review and marker.
- * @throws {Error} When no current passing review exists or a later change request blocks it.
+ * @returns {{ status: 'pass'|'needs_revision'|'reject'|'changes_requested'|'missing',
+ *   review: object|null, verdict: object|null, at: number }} Newest decision.
  */
-export function findPassingReview(reviews, headSha, options = {}) {
+export function findReviewDecision(reviews, headSha, options = {}) {
   const requireV2 = options.requireV2 ?? true
-  const passes = []
-  let latestChangeRequest = { at: 0 }
+  const markers = []
+  let latestChangeRequestAt = 0
   for (const review of reviews) {
     const at = Date.parse(review.submitted_at ?? '') || 0
-    if (String(review.state).toUpperCase() === 'CHANGES_REQUESTED' && at > latestChangeRequest.at) {
-      latestChangeRequest = { at }
+    if (String(review.state).toUpperCase() === 'CHANGES_REQUESTED' && at > latestChangeRequestAt) {
+      latestChangeRequestAt = at
     }
     try {
-      const verdict = parseReviewVerdict({
+      const verdict = parseReviewMarker({
         state: review.state,
         commitId: String(review.commit_id ?? ''),
         body: String(review.body ?? ''),
         headSha,
         requireV2,
       })
-      passes.push({ review, verdict, at })
+      markers.push({ review, verdict, at })
     } catch {
-      // A comment or an older-head verdict is not a passing review for this head.
+      // A comment or an older-head marker is not a decision for this head.
     }
   }
-  passes.sort((left, right) => right.at - left.at)
-  const latest = passes[0]
-  if (latest === undefined) {
-    throw new Error(requireV2
-      ? 'no passing review-verdict:v2 review exists for the current PR head'
-      : 'no passing review-verdict review exists for the current PR head')
+  markers.sort((left, right) => right.at - left.at)
+  const latest = markers[0]
+  if (latest === undefined) return { status: 'missing', review: null, verdict: null, at: 0 }
+  if (latestChangeRequestAt > latest.at) {
+    return { status: 'changes_requested', review: latest.review, verdict: null, at: latestChangeRequestAt }
   }
-  if (latestChangeRequest.at > latest.at) {
-    throw new Error('the latest review is CHANGES_REQUESTED; a newer passing review is required')
-  }
-  return { review: latest.review, verdict: latest.verdict }
+  return { status: latest.verdict.verdict, review: latest.review, verdict: latest.verdict, at: latest.at }
+}
+
+/**
+ * Return the newest passing review, or throw the blocking decision.
+ *
+ * @param {Array<object>} reviews GitHub review objects.
+ * @param {string} headSha Current PR head.
+ * @param {{ requireV2?: boolean }} [options] Whether the caller requires the v2 marker.
+ * @returns {{ review: object, verdict: object }} The latest passing review and marker.
+ * @throws {Error} When the latest decision is missing or not `pass`.
+ */
+export function findPassingReview(reviews, headSha, options = {}) {
+  const decision = findReviewDecision(reviews, headSha, options)
+  if (decision.status !== 'pass') throw new Error(`latest review decision is ${decision.status}`)
+  return { review: decision.review, verdict: decision.verdict }
 }
 
 /**
@@ -242,17 +255,20 @@ export function binaryDiffSha(cwd, base, head) {
  * @returns {string[]} Changed paths.
  */
 export function changedPaths(cwd, base, head) {
-  return git(['diff', '--name-only', `${base}..${head}`], cwd)
+  return git(['diff', '--name-only', '--no-renames', '-z', `${base}..${head}`], cwd)
     .toString('utf8')
-    .split('\n')
+    .split('\0')
     .filter((path) => path !== '')
 }
 
 export function readPreMerge(checks, head) {
   const check = [...checks]
-    .filter((entry) => entry.name === 'pre-merge' && entry.conclusion === 'success')
+    .filter((entry) => entry.name === 'pre-merge')
     .sort((left, right) => String(right.completed_at ?? '').localeCompare(String(left.completed_at ?? '')))[0]
   if (check === undefined) return { value: null, error: null }
+  if (check.conclusion !== 'success') {
+    return { value: null, error: `pre-merge conclusion is ${String(check.conclusion)}` }
+  }
   try {
     const value = JSON.parse(check.output?.summary ?? '')
     if (value.head !== head) return { value: null, error: 'pre-merge summary belongs to a different head' }

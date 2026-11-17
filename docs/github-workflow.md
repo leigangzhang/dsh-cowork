@@ -311,11 +311,11 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow。`pr-ga
 
 ### 4.7 `gate-artifact`：派生检查
 
-新的派生检查在 `.github/workflows/gate-artifact-v2.yml` 中运行，从受信任的 `main` 检出脚本，不执行 PR 代码。它监听 PR 更新、review 事件，以及 `CI`/`Pre-Merge` 完成事件，因此 review 早于 CI 不会永久卡住。
+新的派生检查在 `.github/workflows/gate-artifact-v2.yml` 中运行，从受信任的 `main` 检出脚本，不执行 PR 代码。它监听 PR 更新、review 事件，以及 `CI`/`Pre-Merge` 完成事件，因此 review 早于 CI 不会永久卡住。对同一个仓库的分支，`workflow_run.pull_requests` 直接给出 PR；fork PR 该字段可能为空，workflow 会用 `head_sha` 查唯一 open PR，无法唯一解析时 fail closed。当前流程默认使用同仓库的 `agent/<topic>` 分支；fork PR 需要先转成同仓库分支。
 
 它检查：
 
-1. 存在绑定当前 PR HEAD 的 `review-verdict:v2`，且没有更晚的 `CHANGES_REQUESTED`；
+1. 最新的有效 `review-verdict` marker 是 `pass`；更晚的 `needs_revision`、`reject` 或 `CHANGES_REQUESTED` 都会阻止；
 2. marker 的 `base` 是当前 PR HEAD 和当前 main 的祖先；
 3. `base..head` 的二进制 diff SHA-256 与 marker 一致；
 4. `pr-gate` 在当前 PR HEAD 上成功；
