@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -86,28 +86,32 @@ test('PR metadata requires a conventional title and four sections', () => {
   )
 })
 
-test('the legacy publisher stays until the replacement publisher is on main', () => {
-  // A pull_request_review run executes the workflow file from the PR head. The
-  // replacement workflow checks out main and runs scripts/ci/publish-gate.mjs,
-  // so deleting the legacy workflow before that script reaches main leaves the
-  // PR with no publisher for the required gate-artifact context. The follow-up
-  // PR that deletes this workflow must replace this guard with an assertion
-  // that the replacement publisher is the only one.
-  const legacyPath = '.github/workflows/gate-artifact.yml'
-  assert.ok(
-    existsSync(resolve(root, legacyPath)),
-    `${legacyPath} must stay on the PR head until scripts/ci/publish-gate.mjs is on main`,
+test('the replacement publisher is the only one after the legacy workflow retires', () => {
+  // PR #57 landed scripts/ci/publish-gate.mjs together with the keep-alive
+  // guard for the legacy workflow. This follow-up retires the legacy publisher
+  // only after that script is on main: a pull_request_review run executes the
+  // head workflow, which now must publish the required gate-artifact context
+  // itself. Reintroducing a second publisher needs a deliberate test change.
+  assert.equal(
+    existsSync(resolve(root, '.github/workflows/gate-artifact.yml')),
+    false,
+    'the legacy gate-artifact workflow is retired; keep it only if the replacement publisher is not on main',
   )
-  const legacy = read(legacyPath)
-  assert.match(legacy, /^name: Policy$/m)
-  assert.match(legacy, /^  pull_request_review:\n    types: \[submitted, dismissed\]$/m)
-  assert.match(legacy, /^  gate-artifact:\n    name: gate-artifact$/m)
-  assert.match(legacy, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/)
-  assert.match(legacy, /node scripts\/ci\/review-verdict\.mjs/)
-  assert.match(legacy, /scripts\/review\/gate-artifact\.mjs/)
+  const workflows = readdirSync(resolve(root, '.github/workflows'))
+    .filter((name) => name.endsWith('.yml'))
+    .sort()
+  const publishers = workflows.filter((name) => read(`.github/workflows/${name}`).includes('scripts/ci/publish-gate.mjs'))
+  assert.deepEqual(publishers, ['gate-artifact-v2.yml'], 'the required gate-artifact publisher must stay unique')
 
   const replacement = read('.github/workflows/gate-artifact-v2.yml')
   assert.match(replacement, /^name: Policy V2$/m)
+  assert.match(replacement, /^  pull_request_review:/m)
+  assert.match(replacement, /^  workflow_run:/m)
+  assert.match(replacement, /^  checks: write$/m)
   assert.match(replacement, /ref: main/)
-  assert.match(replacement, /node scripts\/ci\/publish-gate\.mjs/)
+  assert.doesNotMatch(replacement, /GATE_CHECK_NAME/)
+  const uses = [...replacement.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])
+  for (const use of uses) {
+    assert.match(use, /^[^@]+@[0-9a-f]{40}$/, `action is not pinned to a commit SHA: ${use}`)
+  }
 })

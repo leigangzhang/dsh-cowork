@@ -1,8 +1,8 @@
 # GitHub PR 门禁与 Review 流程设计
 
-Status: proposed implementation in progress（2026-11-18；PR #57 lands the publisher in report mode and keeps the legacy workflow until the follow-up deletion）
+Status: proposed implementation in progress（2026-11-19；the replacement publisher is the only publisher of required `gate-artifact` in report mode; block mode pending）
 
-本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-17-pre-merge-derived-gate.md)。目标是唯一 publisher 以 report mode 运行：required `gate-artifact` 使用 legacy 校验，`gate-artifact-v2` 只做 advisory。PR #57 保留旧 workflow 并落地 publisher；两者在 `main` 短暂并存，旧 workflow 由后续 PR 删除。block mode 后同一 publisher 改用 v2 + pre-merge 校验。
+本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-17-pre-merge-derived-gate.md)。目标是唯一 publisher 以 report mode 运行：required `gate-artifact` 使用 legacy 校验，`gate-artifact-v2` 只做 advisory。PR #57 落地 publisher 后，后续 PR 已删除旧 workflow；现在 `gate-artifact-v2.yml` 是唯一发布 required `gate-artifact` 的 workflow。block mode 后同一 publisher 改用 v2 + pre-merge 校验。
 
 ## 目标与边界
 
@@ -147,7 +147,7 @@ npm run change-scope -- --base <verified-base>
   7. main 自 review base 以来未修改 reviewed paths；否则要求 delta review；
 - report mode 发布 required `gate-artifact` 的 legacy 结论，并另发 `gate-artifact-v2` success 作为 advisory；block mode 用同一个 publisher 发布 required `gate-artifact` 的 v2 + pre-merge 结论。
 
-旧 `.github/workflows/gate-artifact.yml` 必须在 bootstrap 完成前保留；publisher 进入 `main` 后，再由后续 PR 删除它。PR #57 曾在 head 提前删除旧 workflow，而 publisher 尚未进入 `main`，因此没有 required `gate-artifact`；该 PR 现在恢复旧 workflow 并在同一 PR 落地 publisher，删除动作留给后续 PR。唯一的 success/decision publisher 在 report/block 两种 mode 下发布 required `gate-artifact`；`Policy Base` 只发布 `action_required`，防止旧 base 成功被误合并。
+旧 `.github/workflows/gate-artifact.yml` 必须在 bootstrap 完成前保留；publisher 进入 `main` 后，再由后续 PR 删除它。PR #57 曾在 head 提前删除旧 workflow，而 publisher 尚未进入 `main`，因此没有 required `gate-artifact`；该 PR 最终恢复旧 workflow 并落地 publisher，后续 PR 在 publisher 合入 `main` 后删除旧 workflow，并由一次 review 事件验证新 publisher 仍产生 required `gate-artifact`。唯一的 success/decision publisher 在 report/block 两种 mode 下发布 required `gate-artifact`；`Policy Base` 只发布 `action_required`，防止旧 base 成功被误合并。
 
 ## 5. Ruleset 与合并
 
@@ -226,5 +226,5 @@ npm run change-scope -- --base <verified-base>
 - 直接 push main、force push、删除 main：全部拒绝。
 - `pre-merge` summary 的 base 等于当前 main，head 等于 PR head。
 - required context 始终是 `gate-artifact`，由唯一 success/decision publisher 在 report/block 两种 mode 下发布；`base-recheck` 只做 stale invalidation；`gate-artifact-v2` 只做 report。
-- bootstrap：publisher 合入 `main` 前，旧 `.github/workflows/gate-artifact.yml` 必须留在 PR head 上并继续产生 required `gate-artifact`；删除它的后续 PR 同时替换 `tests/guards/review-gate.test.mjs` 里要求保留旧 workflow 的断言。
+- bootstrap：publisher 合入 `main` 前，旧 `.github/workflows/gate-artifact.yml` 必须留在 PR head 上并继续产生 required `gate-artifact`；删除它的后续 PR 同时把 `tests/guards/review-gate.test.mjs` 改成「旧 workflow 不存在、替代 publisher 唯一」的断言，并用该 PR 的 review 事件确认 required `gate-artifact` 仍能产生。
 - 合并后分支自动删除，main 上是 merge commit。
