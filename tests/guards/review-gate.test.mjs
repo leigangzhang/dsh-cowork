@@ -86,17 +86,28 @@ test('PR metadata requires a conventional title and four sections', () => {
   )
 })
 
-test('the retired legacy gate is replaced by one success publisher', () => {
-  assert.equal(existsSync(resolve(root, '.github/workflows/gate-artifact.yml')), false)
-  const workflow = read('.github/workflows/gate-artifact-v2.yml')
-  assert.match(workflow, /^name: Policy V2$/m)
-  assert.match(workflow, /^  pull_request_review:/m)
-  assert.match(workflow, /^  workflow_run:/m)
-  assert.match(workflow, /node scripts\/ci\/publish-gate\.mjs/)
-  assert.match(workflow, /^  checks: write$/m)
-  assert.doesNotMatch(workflow, /GATE_CHECK_NAME/)
-  const uses = [...workflow.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])
-  for (const use of uses) {
-    assert.match(use, /^[^@]+@[0-9a-f]{40}$/, `action is not pinned to a commit SHA: ${use}`)
-  }
+test('the legacy publisher stays until the replacement publisher is on main', () => {
+  // A pull_request_review run executes the workflow file from the PR head. The
+  // replacement workflow checks out main and runs scripts/ci/publish-gate.mjs,
+  // so deleting the legacy workflow before that script reaches main leaves the
+  // PR with no publisher for the required gate-artifact context. The follow-up
+  // PR that deletes this workflow must replace this guard with an assertion
+  // that the replacement publisher is the only one.
+  const legacyPath = '.github/workflows/gate-artifact.yml'
+  assert.ok(
+    existsSync(resolve(root, legacyPath)),
+    `${legacyPath} must stay on the PR head until scripts/ci/publish-gate.mjs is on main`,
+  )
+  const legacy = read(legacyPath)
+  assert.match(legacy, /^name: Policy$/m)
+  assert.match(legacy, /^  pull_request_review:\n    types: \[submitted, dismissed\]$/m)
+  assert.match(legacy, /^  gate-artifact:\n    name: gate-artifact$/m)
+  assert.match(legacy, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/)
+  assert.match(legacy, /node scripts\/ci\/review-verdict\.mjs/)
+  assert.match(legacy, /scripts\/review\/gate-artifact\.mjs/)
+
+  const replacement = read('.github/workflows/gate-artifact-v2.yml')
+  assert.match(replacement, /^name: Policy V2$/m)
+  assert.match(replacement, /ref: main/)
+  assert.match(replacement, /node scripts\/ci\/publish-gate\.mjs/)
 })

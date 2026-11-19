@@ -1,0 +1,120 @@
+name: Policy
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: policy-gate-artifact-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate-artifact:
+    name: gate-artifact
+    if: >-
+      github.event.action == 'dismissed' ||
+      github.event.review.state == 'changes_requested' ||
+      contains(github.event.review.body || '', 'review-verdict')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout trusted base commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch PR head
+        run: git fetch --no-tags origin "${{ github.event.pull_request.head.sha }}"
+
+      - name: Verify review verdict
+        env:
+          REVIEW_STATE: ${{ github.event.review.state }}
+          REVIEW_COMMIT_ID: ${{ github.event.review.commit_id }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          node scripts/ci/review-verdict.mjs
+          > "$RUNNER_TEMP/review-verdict.json"
+
+      - name: Verify PR metadata
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/ci/pr-metadata.mjs
+
+      - name: Verify pr-gate succeeded on this head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          count="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100" \
+            --jq '[.check_runs[] | select(.name == "pr-gate" and .conclusion == "success")] | length')"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::pr-gate has not succeeded on $HEAD_SHA"
+            exit 1
+          fi
+
+      - name: Verify the branch contains current main
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor origin/main "$HEAD_SHA"; then
+            echo "::error::the PR head does not contain current main; update the branch and re-review"
+            exit 1
+          fi
+
+      - name: Create a detached PR head worktree
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git worktree add --detach "$RUNNER_TEMP/pr-head" "$HEAD_SHA"
+
+      - name: Generate gate artifact
+        working-directory: ${{ runner.temp }}/pr-head
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          node "$GITHUB_WORKSPACE/scripts/review/gate-artifact.mjs"
+          --base origin/main
+          --head "$HEAD_SHA"
+          > "$RUNNER_TEMP/gate-artifact.json"
+
+      - name: Upload gate artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-artifact
+          path: |
+            ${{ runner.temp }}/gate-artifact.json
+            ${{ runner.temp }}/review-verdict.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Update sticky gate-artifact comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          marker="<!-- gate-artifact:v1 head=$HEAD_SHA base=$BASE_SHA -->"
+          body="$(printf '%s\n\n```json\n%s\n```\n\n```json\n%s\n```\n' \
+            "$marker" \
+            "$(cat "$RUNNER_TEMP/gate-artifact.json")" \
+            "$(cat "$RUNNER_TEMP/review-verdict.json")")"
+          existing="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+            | jq -r --arg marker "$marker" '.[] | select(.body | contains($marker)) | .id' \
+            | head -n1)"
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" \
+              -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              -f body="$body" >/dev/null
+          fi
