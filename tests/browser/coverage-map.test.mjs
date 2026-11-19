@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import {
   CLIENT_BROWSER_BLOCKED,
   CLIENT_BROWSER_TSX,
+  clientCoverageFromEntries,
   clientCoverageFromEntry,
   clientCoverageLcov,
   clientSourceFile,
@@ -422,4 +423,55 @@ test('a function mapped twice stays executed when either range entry executed', 
   assert.ok(file)
   assert.equal(file.totalFunctions, 1)
   assert.equal(file.executedFunctions, 1)
+})
+
+test('coverage phases union so a reload cannot erase earlier execution', () => {
+  const text = ['const first = 1', 'function Demo() {', '  return first', '}', ''].join('\n')
+  const bodyStart = text.indexOf('  return first')
+  const map = syntheticMap('../src/client/phase.tsx', [0, 1, 2, 3, 4])
+  // The first document ran only the declarations; the reloaded document ran
+  // only the body. A single phase would report one half; the union reports both.
+  const beforeReload = {
+    url: 'http://127.0.0.1/client.js',
+    source: text,
+    functions: [{
+      functionName: '(top-level)',
+      ranges: [
+        { startOffset: 0, endOffset: text.length, count: 1 },
+        { startOffset: bodyStart, endOffset: text.length, count: 0 },
+      ],
+    }],
+  }
+  const afterReload = {
+    url: 'http://127.0.0.1/client.js',
+    source: text,
+    functions: [{
+      functionName: '(top-level)',
+      ranges: [
+        { startOffset: 0, endOffset: text.length, count: 1 },
+        { startOffset: 0, endOffset: bodyStart, count: 0 },
+      ],
+    }],
+  }
+  const options = {
+    sourceMapPayload: map,
+    repoRoot: '/repo',
+    mapDirectory: '/repo/lib',
+    sourceExists: () => true,
+  }
+  const secondOnly = clientCoverageFromEntry({ ...options, entry: afterReload })
+  const secondFile = secondOnly.files.find(file => file.file === 'src/client/phase.tsx')
+  assert.ok(secondFile)
+  assert.equal(secondFile.executedLines, 2, 'one phase alone cannot see the earlier document')
+
+  const union = clientCoverageFromEntries({ ...options, entries: [beforeReload, afterReload] })
+  const file = union.files.find(entry => entry.file === 'src/client/phase.tsx')
+  assert.ok(file)
+  assert.equal(file.executableLines, 4)
+  assert.equal(file.executedLines, 4)
+  assert.deepEqual(file.uncoveredLines, [])
+  assert.equal(file.executedFunctions, 1)
+  assert.deepEqual(coverageGateFailures(union, {
+    'src/client/phase.tsx': { lineCoverage: 100, functionCoverage: 100 },
+  }), [])
 })

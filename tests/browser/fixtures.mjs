@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { makeSeedProject, makeSeedRequest, makeTopicFixture } from '../support/inbox-fixtures.mjs'
 
-const { buildActivityEvent } = await import('../../src/store/activity.ts')
+const { buildActivityEvent, decisionProposedActivity } = await import('../../src/store/activity.ts')
 
 /** Topics the browser scenarios address by stable id. */
 export const BROWSER_TOPICS = Object.freeze({
@@ -24,6 +24,7 @@ export const BROWSER_REQUESTS = Object.freeze({
   authAllow: 'req-browser-auth-allow',
   questionSkip: 'req-browser-question-skip',
   questionSubmit: 'req-browser-question-submit',
+  questionMulti: 'req-browser-question-multi',
   planRevise: 'req-browser-plan-revise',
   planApprove: 'req-browser-plan-approve',
   error: 'req-browser-error',
@@ -56,6 +57,21 @@ const QUESTION_PAYLOAD = {
       prompt: '第二题：补充说明',
       mode: 'single',
       allowText: true,
+    },
+  ],
+}
+
+const QUESTION_MULTI_PAYLOAD = {
+  questions: [
+    {
+      id: 'qm1',
+      prompt: '多选题：选择要纳入的范围',
+      mode: 'multi',
+      options: [
+        { id: 'm1', label: '面板' },
+        { id: 'm2', label: '收件箱' },
+        { id: 'm3', label: '路由' },
+      ],
     },
   ],
 }
@@ -169,6 +185,7 @@ export async function seedBrowserProject(repoPath, masterSessionId) {
     { id: BROWSER_REQUESTS.authAllow, kind: 'authorization', payload: AUTH_PAYLOAD, topicId: BROWSER_TOPICS.authAllow },
     { id: BROWSER_REQUESTS.questionSkip, kind: 'question', payload: QUESTION_PAYLOAD, topicId: BROWSER_TOPICS.inbox },
     { id: BROWSER_REQUESTS.questionSubmit, kind: 'question', payload: QUESTION_PAYLOAD, topicId: BROWSER_TOPICS.inbox },
+    { id: BROWSER_REQUESTS.questionMulti, kind: 'question', payload: QUESTION_MULTI_PAYLOAD, topicId: BROWSER_TOPICS.inbox },
     { id: BROWSER_REQUESTS.planRevise, kind: 'plan', payload: PLAN_PAYLOAD, topicId: BROWSER_TOPICS.inbox },
     { id: BROWSER_REQUESTS.planApprove, kind: 'plan', payload: PLAN_PAYLOAD, topicId: BROWSER_TOPICS.inbox },
     { id: BROWSER_REQUESTS.error, kind: 'authorization', payload: AUTH_PAYLOAD, topicId: BROWSER_TOPICS.inbox },
@@ -190,6 +207,12 @@ export async function seedBrowserProject(repoPath, masterSessionId) {
     summary: '自动评审通过',
     details: { requestId: 'req-browser-auto', verdict: 'pass' },
   }, now))
+  await store.appendActivity(decisionProposedActivity(inboxTopic, {
+    proposalId: 'prob-browser-1',
+    proposalPath: 'docs/browser-plan.md',
+    title: '浏览器提案',
+    summary: '提案：把浏览器 lane 的场景补齐到 floors 可评审',
+  }, now))
   return {
     repoPath,
     masterSessionId,
@@ -200,11 +223,15 @@ export async function seedBrowserProject(repoPath, masterSessionId) {
   }
 }
 
-/** Seed a second workspace whose topic title proves the selected session changed. */
-export async function seedSecondaryProject(repoPath, masterSessionId) {
+/**
+ * Seed a second workspace whose topic is the selected session itself, so the
+ * panel renders the "back to master" breadcrumb (a topic session whose master
+ * is a different, real session).
+ */
+export async function seedSecondaryProject(repoPath, { masterSessionId, topicId }) {
   const now = new Date().toISOString()
   const topic = makeTopicFixture()({
-    topicId: 'session-browser-secondary',
+    topicId,
     title: '第二个浏览器会话',
     status: 'active',
     digest: '来自第二个 workspace',

@@ -360,29 +360,15 @@ function coverageFiles(sourceByFile) {
 }
 
 /**
- * Map one Playwright JSCoverage entry through a v3 source map.
+ * Fold one JSCoverage entry into the shared per-source sets.
  *
  * Playwright returns `source` and a per-function range tree. A position is
  * covered only when its innermost range has a positive count; treating the
  * top-level count as universal would mark uncalled functions as covered.
- *
- * @param {object} input
- * @param {{url: string, source?: string, text?: string, ranges?: Array<{start?: number, end?: number, startOffset?: number, endOffset?: number, count: number}>, functions?: Array<{functionName: string, ranges: Array<{start?: number, end?: number, startOffset?: number, endOffset?: number, count: number}>}>}} input.entry
- * @param {object} input.sourceMapPayload Parsed `lib/client.js.map`.
- * @param {string} input.repoRoot Repository root used for source paths.
- * @param {string} [input.mapDirectory] Directory the source map lives in.
- * @param {(path: string) => boolean} [input.sourceExists] File-existence check for mapped sources.
- * @param {number|null} [input.sectionIndex] Combo source-map section owned by this entry.
- * @returns {{generatedLength: number, files: Array<object>}}
+ * Every entry contributes to the same sets, so separate collection phases
+ * union instead of replacing each other.
  */
-export function clientCoverageFromEntry({
-  entry,
-  sourceMapPayload,
-  repoRoot,
-  mapDirectory = resolve(repoRoot, 'lib'),
-  sourceExists = existsSync,
-  sectionIndex = null,
-}) {
+function accumulateEntry({ entry, sourceMap, generatedRange, sourceByFile }) {
   const sourceText = entry?.source ?? entry?.text
   if (typeof sourceText !== 'string' || (!Array.isArray(entry.functions) && !Array.isArray(entry.ranges))) {
     throw new Error('client coverage entry needs source and function ranges')
@@ -391,25 +377,87 @@ export function clientCoverageFromEntry({
   const ranges = functions.length === 0
     ? entry.ranges ?? []
     : functions.flatMap(fn => fn.ranges ?? [])
-  const sourceMap = new SourceMap(sourceMapPayload)
-  const generatedRange = comboGeneratedRange(sourceMapPayload, sectionIndex)
-  const sourceByFile = indexClientSources({ sourceMapPayload, repoRoot, mapDirectory, sourceExists, sectionIndex })
   const { lineAt, columnAt } = positionsOf(sourceText)
   const { starts, ends } = buildRangeIndex(ranges, sourceText)
   const covered = buildCoverageMask(sourceText, starts, ends)
   mapLineCoverage({ sourceText, lineAt, columnAt, sourceMap, sourceByFile, covered, generatedRange })
   mapFunctionCoverage({ functions, sourceText, lineAt, columnAt, sourceMap, sourceByFile, generatedRange })
-
-  return { generatedLength: sourceText.length, files: coverageFiles(sourceByFile) }
+  return sourceText.length
 }
 
-/** Pick the combo entry that contains this plugin's client bundle. */
-export function pluginBundleEntry(entries) {
-  return entries.find(entry => {
+/**
+ * Map several JSCoverage entries for one bundle into one report.
+ *
+ * Coverage phases exist because Chromium's `Profiler.takePreciseCoverage` only
+ * reports scripts that are still alive: a page reload before `stopJSCoverage`
+ * drops everything the previous document executed. The lane collects one entry
+ * set per phase and this function unions their line/function verdicts, so the
+ * report describes what the whole run executed instead of only the last phase.
+ *
+ * @param {object} input
+ * @param {Array<object>} input.entries Playwright JSCoverage entries from every phase.
+ * @param {object} input.sourceMapPayload Parsed combo source map served to the page.
+ * @param {string} input.repoRoot Repository root used for source paths.
+ * @param {string} [input.mapDirectory] Directory the authored source map lives in.
+ * @param {(path: string) => boolean} [input.sourceExists] File-existence check for mapped sources.
+ * @param {number|null} [input.sectionIndex] Combo source-map section owned by these entries.
+ * @returns {{generatedLength: number, files: Array<object>}}
+ */
+export function clientCoverageFromEntries({
+  entries,
+  sourceMapPayload,
+  repoRoot,
+  mapDirectory = resolve(repoRoot, 'lib'),
+  sourceExists = existsSync,
+  sectionIndex = null,
+}) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new Error('client coverage needs at least one entry')
+  }
+  const sourceMap = new SourceMap(sourceMapPayload)
+  const generatedRange = comboGeneratedRange(sourceMapPayload, sectionIndex)
+  const sourceByFile = indexClientSources({ sourceMapPayload, repoRoot, mapDirectory, sourceExists, sectionIndex })
+  let generatedLength = 0
+  for (const entry of entries) {
+    generatedLength = Math.max(generatedLength, accumulateEntry({ entry, sourceMap, generatedRange, sourceByFile }))
+  }
+  return { generatedLength, files: coverageFiles(sourceByFile) }
+}
+
+/**
+ * Map one Playwright JSCoverage entry through a v3 source map.
+ *
+ * @param {object} input
+ * @param {object} input.entry One Playwright JSCoverage entry.
+ * @param {object} input.sourceMapPayload Parsed `lib/client.js.map`.
+ * @param {string} input.repoRoot Repository root used for source paths.
+ * @param {string} [input.mapDirectory] Directory the source map lives in.
+ * @param {(path: string) => boolean} [input.sourceExists] File-existence check for mapped sources.
+ * @param {number|null} [input.sectionIndex] Combo source-map section owned by this entry.
+ * @returns {{generatedLength: number, files: Array<object>}}
+ */
+export function clientCoverageFromEntry(options) {
+  return clientCoverageFromEntries({ ...options, entries: [options.entry] })
+}
+
+/**
+ * Every JSCoverage entry that contains this plugin's client bundle.
+ *
+ * The bundle is served once per document, so one coverage phase may hold one
+ * entry and a second phase another. Mapping must see only these entries: other
+ * page scripts would be resolved against a combo map they do not belong to.
+ */
+export function pluginBundleEntries(entries) {
+  return entries.filter(entry => {
     const source = entry.source ?? entry.text ?? ''
     return source.includes('window.__ModuleLoader__.load')
       && source.includes('@dsh-external/dsh-cowork')
-  }) ?? null
+  })
+}
+
+/** Pick the first entry that contains this plugin's client bundle. */
+export function pluginBundleEntry(entries) {
+  return pluginBundleEntries(entries)[0] ?? null
 }
 
 /** The host-generated indexed source map URL for one combo entry. */
