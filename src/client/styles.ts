@@ -3,11 +3,16 @@
  *
  * Only the public theme tokens are consumed directly
  * (`--dsw-alias-bg-base|bg-layer-1|bg-layer-2|border-l1|border-l2|
- * brand-primary|label-primary|label-secondary|state-error-primary|
- * state-idle-primary|state-success-primary|state-warn-primary` and
- * `--dsw-specific-sidebar-fill`). The design demo's hex values are fallbacks, so
- * a host without the newer tokens still gets the red / green / black / gray
- * group borders instead of an unstyled list.
+ * brand-primary|interactive-bg-hover|label-primary|label-primary-bluish|
+ * label-secondary|state-business-tertiary|state-error-primary|
+ * state-idle-primary|state-success-primary|state-warn-primary|
+ * state-warn-tertiary` and `--dsw-specific-sidebar-fill`). The design demo's
+ * hex values are fallbacks, so a host without the newer tokens still gets the
+ * red / green / black / gray group borders instead of an unstyled list.
+ *
+ * `--cw-surface-muted` is the one raised neutral fill: light-theme layer
+ * tokens are all white, so chips and bubbles there need the theme's overlay
+ * fill to be visible at all.
  *
  * Two-line cards, one fixed-position ⋯ menu (the sidebar scroll container must
  * not clip it), and single-line ellipsis for both lines at 378px. The list has
@@ -21,6 +26,13 @@ import { INBOX_COLUMN_GAP_PX, INBOX_COLUMN_MIN_PX, TOPIC_COLUMN_WIDTH_PX } from 
 
 export const PANEL_CSS = `
 .cw-root {
+  /*
+   * Raised neutral fill for chips, bubbles and code blocks. bg-layer-2 is
+   * white in the light theme (all layers are), so it cannot express a raised
+   * surface; the theme's overlay fill is the subtle neutral the host itself
+   * uses for static notice bars and stays visible in both themes.
+   */
+  --cw-surface-muted: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-2, #f2f4f7));
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -321,7 +333,7 @@ export const PANEL_CSS = `
 
 .cw-card-marker[data-marker="authorization"] {
   border-color: var(--dsw-alias-state-warn-primary, #fedf89);
-  background: var(--dsw-alias-bg-layer-2, #fffaeb);
+  background: var(--dsw-alias-state-warn-tertiary, #fffaeb);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -364,7 +376,7 @@ export const PANEL_CSS = `
   cursor: pointer;
 }
 
-.cw-card-more:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.cw-card-more:hover { background: var(--cw-surface-muted); color: var(--dsw-alias-label-primary); }
 
 .cw-card-more:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -447,7 +459,7 @@ export const PANEL_CSS = `
   padding: 2px 8px;
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--cw-surface-muted);
   font-family: ${MONO_FONT};
   font-size: 11.5px;
 }
@@ -462,7 +474,7 @@ export const PANEL_CSS = `
 .cw-code {
   padding: 0 4px;
   border-radius: 4px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--cw-surface-muted);
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -538,7 +550,7 @@ export const PANEL_CSS = `
 .cw-skeleton-bar {
   height: 12px;
   border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--cw-surface-muted);
   animation: cw-pulse 1200ms ease-in-out infinite;
 }
 
@@ -722,7 +734,7 @@ export const PANEL_CSS = `
 .cw-inbox-count {
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--cw-surface-muted);
   color: var(--dsw-alias-label-secondary);
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
@@ -733,7 +745,7 @@ export const PANEL_CSS = `
   padding: 1px 7px;
   border: 0.5px solid var(--dsw-alias-border-l2, #e4e7ec);
   border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-2, #f2f4f7);
+  background: var(--cw-surface-muted);
   color: var(--dsw-alias-label-secondary);
   font: inherit;
   font-size: 10px;
@@ -816,8 +828,8 @@ export const PANEL_CSS = `
   width: 22px;
   height: 22px;
   border-radius: 7px;
-  background: var(--dsw-alias-bg-layer-2, #e9f1ff);
-  color: var(--dsw-alias-brand-primary, #175cd3);
+  background: var(--dsw-alias-state-business-tertiary, #e9f1ff);
+  color: var(--dsw-alias-label-primary-bluish, #175cd3);
   font-size: 10px;
   font-weight: 700;
 }
@@ -832,7 +844,7 @@ export const PANEL_CSS = `
   margin: 0;
   padding: 7px 10px;
   border-radius: 11px;
-  background: var(--dsw-alias-bg-layer-2, #f2f4f7);
+  background: var(--cw-surface-muted);
   color: var(--dsw-alias-label-primary);
   font-size: 12px;
   line-height: 1.55;
@@ -844,7 +856,7 @@ export const PANEL_CSS = `
 .cw-thread-msg-out .cw-thread-bubble {
   border-bottom-right-radius: 3px;
   border: 0.5px solid var(--dsw-alias-border-l2, #d1e9ff);
-  background: var(--dsw-alias-bg-layer-1, #eff8ff);
+  background: var(--dsw-alias-state-business-tertiary, #eff8ff);
 }
 
 /*
@@ -868,7 +880,7 @@ export const PANEL_CSS = `
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--dsw-alias-border-l2, #e4e7ec);
-  background: var(--dsw-alias-bg-layer-2, #f9fafb);
+  background: var(--cw-surface-muted);
   color: var(--dsw-alias-label-primary);
   font-size: 11.5px;
   font-weight: 600;
@@ -995,7 +1007,7 @@ export const PANEL_CSS = `
   margin: 0;
   padding: 6px 8px;
   border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2, #f2f4f7);
+  background: var(--cw-surface-muted);
   color: var(--dsw-alias-label-secondary);
   font-family: ${MONO_FONT};
   font-size: 10.5px;
@@ -1126,7 +1138,7 @@ textarea.cw-req-input { resize: vertical; min-height: 42px; }
   flex: none;
   padding: 0 5px;
   border-radius: 4px;
-  background: var(--dsw-alias-bg-layer-2, #eff8ff);
+  background: var(--dsw-alias-state-business-tertiary, #eff8ff);
   color: var(--dsw-alias-label-secondary);
   font-size: 9px;
   font-weight: 600;
@@ -1176,7 +1188,7 @@ textarea.cw-req-input { resize: vertical; min-height: 42px; }
   margin: 0 12px 10px;
   padding: 5px 8px;
   border-radius: 7px;
-  background: var(--dsw-alias-bg-layer-2, #f2f4f7);
+  background: var(--cw-surface-muted);
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
   line-height: 1.5;

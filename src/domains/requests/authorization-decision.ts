@@ -132,6 +132,96 @@ async function authorizationNoticeId(
   return null
 }
 
+/**
+ * Rebuild the summary of a pending authorization the topic record lost.
+ *
+ * Only a decision or an archive may clear `topic.authorization`. A topic
+ * blocked report used to clear it, leaving the inbox card pending while its
+ * decision failed with `authorization/not-found`. The pending request file and
+ * the `authorization-requested` activity are durable evidence of that ask, so a
+ * decision on the exact request may release the topic as it should have. Any
+ * mismatch keeps the explicit error instead of inventing an authorization.
+ */
+async function recoverPendingAuthorization(
+  store: RequestServiceStorePort,
+  cardStore: RequestCardStorePort,
+  topic: TopicRecordV2,
+  requestId: string,
+): Promise<string | null> {
+  const record = await cardStore.read(requestId)
+  if (
+    record === null
+    || record.kind !== 'authorization'
+    || record.topicId !== topic.topicId
+    || record.status !== 'pending'
+  ) {
+    return null
+  }
+  if (await authorizationNoticeId(store, topic.topicId, requestId) === null) return null
+  return record.summary
+}
+
+/** Whether the exact card is still pending when the decision lock is held. */
+async function cardStillPending(
+  cardStore: RequestCardStorePort,
+  requestId: string,
+  topicId: string,
+): Promise<boolean> {
+  const record = await cardStore.read(requestId)
+  return record !== null
+    && record.kind === 'authorization'
+    && record.topicId === topicId
+    && record.status === 'pending'
+}
+
+/** The pre-lock result: a recorded replay, or the summary and recovery mode. */
+type AuthorizationPrecheck =
+  | { readonly replay: AuthorizationDecisionRecord }
+  | { readonly summary: string; readonly recovering: boolean }
+
+/**
+ * Resolve the topic/card state before taking the writer lock.
+ *
+ * A topic that still holds the pending record uses its summary. A topic whose
+ * record vanished may replay an already-recorded decision or recover the
+ * summary from the pending card and its `authorization-requested` activity.
+ */
+async function precheckAuthorization(
+  input: AuthorizationDecisionInput,
+  topic: TopicRecordV2,
+  cardStore: RequestCardStorePort,
+): Promise<AuthorizationPrecheck> {
+  const { store, topicId, requestId, decision } = input
+  const pending = topic.authorization ?? null
+  if (pending !== null) {
+    if (pending.requestId !== requestId) {
+      throw new PanelServiceError(
+        'authorization/mismatch',
+        `pending authorization is ${pending.requestId}, not ${requestId}`,
+      )
+    }
+    return { summary: pending.summary, recovering: false }
+  }
+  const recorded = await recordedDecision(store, topicId, requestId)
+  if (recorded !== null) {
+    if (recorded.decision !== decision) {
+      throw new PanelServiceError(
+        'authorization/mismatch',
+        `authorization ${requestId} was already ${recorded.decision}; refusing ${decision}`,
+      )
+    }
+    return { replay: recorded }
+  }
+  const recoveredSummary = await recoverPendingAuthorization(store, cardStore, topic, requestId)
+  if (recoveredSummary === null) {
+    throw new PanelServiceError(
+      'authorization/not-found',
+      `no pending authorization ${requestId} on ${topicId}`,
+    )
+  }
+  return { summary: recoveredSummary, recovering: true }
+}
+
 /** The short prompt a decided topic session receives to continue its work. */
 function authorizationPrompt(summary: string, decision: 'allow' | 'deny'): string {
   const verb = decision === 'allow' ? '允许' : '拒绝'
@@ -210,21 +300,9 @@ export async function resolveAuthorizationDecision(
       `session ${sessionId} may not decide an authorization of topic ${topicId}`,
     )
   }
-  const pending = topic.authorization ?? null
-  if (pending === null) {
-    const recorded = await recordedDecision(store, topicId, requestId)
-    if (recorded === null) {
-      throw new PanelServiceError(
-        'authorization/not-found',
-        `no pending authorization ${requestId} on ${topicId}`,
-      )
-    }
-    if (recorded.decision !== decision) {
-      throw new PanelServiceError(
-        'authorization/mismatch',
-        `authorization ${requestId} was already ${recorded.decision}; refusing ${decision}`,
-      )
-    }
+  const cardStore = input.requestCard ?? new RequestStore({ repoPath: input.repoPath, log: input.log })
+  const precheck = await precheckAuthorization(input, topic, cardStore)
+  if ('replay' in precheck) {
     return {
       changed: false,
       prompted: false,
@@ -232,22 +310,15 @@ export async function resolveAuthorizationDecision(
       promptText: null,
       cardSettled: 'absent',
       cardRecord: null,
-      noticeId: recorded.noticeId,
+      noticeId: precheck.replay.noticeId,
       document: before,
       topic,
       decision,
     }
   }
-  if (pending.requestId !== requestId) {
-    throw new PanelServiceError(
-      'authorization/mismatch',
-      `pending authorization is ${pending.requestId}, not ${requestId}`,
-    )
-  }
+  const { summary, recovering } = precheck
   const noticeId = await authorizationNoticeId(store, topicId, requestId)
-  const summary = pending.summary
   const status = decision === 'allow' ? 'allowed' : 'denied'
-  const cardStore = input.requestCard ?? new RequestStore({ repoPath: input.repoPath, log: input.log })
   const decideCard = input.settleCard ?? ((current: RequestRecordV1, cardStatus: 'allowed' | 'denied') => ({
     ...applyResolution(current, { status: cardStatus, resolvedBy: 'user', now }),
     delivery: { promptedAt: null, lastError: null },
@@ -289,6 +360,12 @@ export async function resolveAuthorizationDecision(
   }
 
   const document = await store.withWriteLock(async () => {
+    // A recovery reads the card before taking the lock. Re-check it inside the
+    // lock so a decision that finished in between cannot write a second unlock
+    // and a second resolution.
+    if (recovering && !await cardStillPending(cardStore, requestId, topicId)) {
+      return store.readIndexDocument()
+    }
     let nextDocument: ProjectIndexV2
     try {
       nextDocument = await store.mutateIndexDocumentUnlocked((base) => {
@@ -297,9 +374,16 @@ export async function resolveAuthorizationDecision(
           throw new PanelServiceError('authorization/not-allowed', `session ${sessionId} may not decide ${topicId}`)
         }
         const current = base.topics.find((entry) => entry.topicId === topicId)
-        if (current === undefined || current.authorization === null) return null
-        if (current.authorization.requestId !== requestId) {
-          throw new PanelServiceError('authorization/mismatch', `pending authorization is ${current.authorization.requestId}`)
+        if (current === undefined || current.status === 'resolved') return null
+        const currentAuthorization = current.authorization ?? null
+        if (currentAuthorization === null) {
+          // Only the recovery path may release a topic whose authorization
+          // record vanished; every other caller lost a race and is answered
+          // from the recorded decision below instead of writing a second
+          // resolution.
+          if (!recovering) return null
+        } else if (currentAuthorization.requestId !== requestId) {
+          throw new PanelServiceError('authorization/mismatch', `pending authorization is ${currentAuthorization.requestId}`)
         }
         changed = true
         const released = unblockTopic(current, now.getTime())
