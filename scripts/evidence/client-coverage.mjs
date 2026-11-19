@@ -363,11 +363,11 @@ function entryFunctions(entry) {
   return Array.isArray(entry.functions) ? entry.functions : []
 }
 
-/** The entry text, or a failure when the entry carries no mappable script. */
+/** The entry text; an entry needs either function ranges or a plain range list. */
 function entrySourceText(entry) {
   const sourceText = entry?.source ?? entry?.text
-  if (typeof sourceText !== 'string') throw new Error('client coverage entry needs a source string')
-  if (entryFunctions(entry).length === 0 && !Array.isArray(entry.ranges)) {
+  if (typeof sourceText !== 'string') throw new Error('client coverage entry needs source and function ranges')
+  if (!Array.isArray(entry.functions) && !Array.isArray(entry.ranges)) {
     throw new Error('client coverage entry needs source and function ranges')
   }
   return sourceText
@@ -472,6 +472,38 @@ export function pluginBundleEntries(entries) {
 /** Pick the first entry that contains this plugin's client bundle. */
 export function pluginBundleEntry(entries) {
   return pluginBundleEntries(entries)[0] ?? null
+}
+
+/**
+ * Count main-frame navigations per coverage phase.
+ *
+ * A reload before `stopJSCoverage` drops everything the previous document
+ * executed, so each phase may contain exactly the navigations it declares.
+ * A scenario that navigates outside its declared phase would silently shrink
+ * the measured surface; failing here forces it into a declared phase instead.
+ *
+ * @param {{on: (event: string, handler: (frame: object) => void) => void, mainFrame: () => object}} page Playwright page, or an equivalent observer.
+ * @returns {{enterSecond: () => void, assertFirstEmpty: () => void, assertSecondReloadOnly: () => void}}
+ */
+export function coverageNavigationGuard(page) {
+  const counts = { first: 0, second: 0 }
+  let phase = 'first'
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) counts[phase] += 1
+  })
+  return {
+    enterSecond() { phase = 'second' },
+    assertFirstEmpty() {
+      if (counts.first > 0) {
+        throw new Error(`browser coverage phase one recorded ${counts.first} navigation(s); a reload there discards earlier coverage, so move that scenario to the second phase`)
+      }
+    },
+    assertSecondReloadOnly() {
+      if (counts.second !== 1) {
+        throw new Error(`browser coverage phase two recorded ${counts.second} navigation(s); exactly the single reload is allowed, and a second one needs its own coverage phase`)
+      }
+    },
+  }
 }
 
 /** The host-generated indexed source map URL for one combo entry. */

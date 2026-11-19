@@ -14,7 +14,7 @@ Class: testing
 
 ## Decision
 
-**1. 跨导航合并覆盖。** [client-coverage.mjs](../../../../scripts/evidence/client-coverage.mjs) 的 `clientCoverageFromEntries` 把多段 Playwright entries 映射进同一份 per-source 集合，行与函数取并集；[browser-panel.mjs](../../../../scripts/evidence/browser-panel.mjs) 在含 reload 的场景前后分两段 `startJSCoverage`/`stopJSCoverage` 并合并结果，只用插件 bundle 的 entries 做映射。lane 记录 `framenavigated` 次数：第一段必须为 0，第二段必须恰好 1 次 reload，未登记的导航直接让运行失败，避免以后新增页面跳转时覆盖再次悄悄缩水。
+**1. 跨导航合并覆盖。** [client-coverage.mjs](../../../../scripts/evidence/client-coverage.mjs) 的 `clientCoverageFromEntries` 把多段 Playwright entries 映射进同一份 per-source 集合，行与函数取并集；[browser-panel.mjs](../../../../scripts/evidence/browser-panel.mjs) 在 reload 前后分两段 `startJSCoverage`/`stopJSCoverage` 并合并结果，只用插件 bundle 的 entries 做映射。第一段覆盖重载前的全部交互（含筛选写入），第二段从 `page.reload()` 开始，因此重载前不会有未被任一段测量的窗口。lane 记录 `framenavigated` 次数：第一段必须为 0，第二段必须恰好 1 次 reload，未登记的导航直接让运行失败，避免以后新增页面跳转时覆盖再次悄悄缩水。
 
 **2. 按真实缺口补场景。** [scenarios.mjs](../../../../tests/browser/scenarios.mjs) 新增 list 空态（空 workspace 新建会话）、菜单外点关闭与 Arrow/Home/End 焦点、恢复失败回滚、筛选二次点击与 inbox 清除按钮、持久化筛选重载恢复、收件箱读取失败与重试、多选提问、proposal note 打开成功/失败、返回 master 面包屑、卡片打开。每条断言 DOM/ARIA 与对应 API 请求/响应，不以截图或 sleep 当就绪；需要的新 fixture 加在 [fixtures.mjs](../../../../tests/browser/fixtures.mjs) 的确定性 seed 里。proposal note 的 reveal 在 lane 内被 stub，避免每次运行弹出用户的文件浏览器；host route 自身由 `tests/panel` 覆盖。
 
@@ -51,7 +51,7 @@ Class: testing
 
 ## Testing
 
-- [A0] 两段 entries 的行/函数取并集；重载前-only 的交互在最终报告里仍算覆盖；未登记导航让 lane 失败 — `tests`（`coverage-map.test.mjs` 的 phase union 用例含单段负向控制；`browser-panel.mjs` 的 `navigationPhaseGuard`）
+- [A0] 两段 entries 的行/函数取并集；重载前-only 的交互在最终报告里仍算覆盖；未登记导航让 lane 失败 — `tests`（`coverage-map.test.mjs` 的 phase union 用例含单段负向控制；`client-coverage.mjs` 的 `coverageNavigationGuard`；`scenarios.mjs` 把筛选写入留在第一段，第二段从 reload 开始）
 - [A1] 连续 3 次 clean headless `test:coverage:layered -- --base origin/main` 全绿且 per-file 数值一致 — `workflow`（2026-11-19，HEAD `d684167`，diff `d5a6c930`）
 - [A2] floors 文件覆盖每个 non-blocked browser-owned 文件；`notice.tsx` 保持 blocked；畸形或部分文件使 layered 失败 — `workflow`（`coverage-policy.test.mjs` 的真实 floors 校验与合成负向用例）
 - [A3] 首版 floors 取三次最低值；后续只升不降 — `workflow`（`tools/coverage-browser-floors.json`）

@@ -12,6 +12,7 @@ import {
   comboSectionIndex,
   coverageCompletenessFailures,
   coverageGateFailures,
+  coverageNavigationGuard,
   flattenSourceMapSources,
   pluginBundleEntry,
 } from '../../scripts/evidence/client-coverage.mjs'
@@ -474,4 +475,69 @@ test('coverage phases union so a reload cannot erase earlier execution', () => {
   assert.deepEqual(coverageGateFailures(union, {
     'src/client/phase.tsx': { lineCoverage: 100, functionCoverage: 100 },
   }), [])
+})
+
+/** A page-shaped observer whose main-frame navigations the test controls. */
+function fakeNavigator() {
+  const main = {}
+  const child = {}
+  const listeners = []
+  const page = {
+    mainFrame: () => main,
+    on(event, handler) { listeners.push({ event, handler }) },
+  }
+  const navigate = (frame) => {
+    for (const listener of listeners) {
+      if (listener.event === 'framenavigated') listener.handler(frame)
+    }
+  }
+  return { page, main, child, navigate }
+}
+
+test('the coverage navigation guard rejects every undeclared navigation count', () => {
+  const first = fakeNavigator()
+  const firstGuard = coverageNavigationGuard(first.page)
+  firstGuard.assertFirstEmpty()
+  first.navigate(first.main)
+  assert.throws(() => firstGuard.assertFirstEmpty(), /phase one recorded 1 navigation/)
+
+  const zero = fakeNavigator()
+  const zeroGuard = coverageNavigationGuard(zero.page)
+  zeroGuard.enterSecond()
+  assert.throws(() => zeroGuard.assertSecondReloadOnly(), /phase two recorded 0 navigation/)
+
+  const two = fakeNavigator()
+  const twoGuard = coverageNavigationGuard(two.page)
+  twoGuard.enterSecond()
+  two.navigate(two.main)
+  two.navigate(two.main)
+  assert.throws(() => twoGuard.assertSecondReloadOnly(), /phase two recorded 2 navigation/)
+
+  // Exactly one main-frame navigation passes, and a subframe does not count.
+  const one = fakeNavigator()
+  const oneGuard = coverageNavigationGuard(one.page)
+  oneGuard.enterSecond()
+  one.navigate(one.child)
+  one.navigate(one.main)
+  oneGuard.assertSecondReloadOnly()
+})
+
+test('an entry with an empty function list needs no range list', () => {
+  const text = 'const value = 1\n'
+  const report = clientCoverageFromEntry({
+    entry: {
+      url: 'http://127.0.0.1/client.js',
+      source: text,
+      functions: [],
+    },
+    sourceMapPayload: syntheticMap('../src/client/empty-ranges.ts', [0, 1]),
+    repoRoot: '/repo',
+    mapDirectory: '/repo/lib',
+    sourceExists: () => true,
+  })
+  const file = report.files.find(item => item.file === 'src/client/empty-ranges.ts')
+  assert.ok(file)
+  assert.equal(file.totalFunctions, 0)
+  assert.equal(file.executedLines, 0)
+  assert.ok(file.executableLines > 0)
 })

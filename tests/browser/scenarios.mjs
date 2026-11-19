@@ -230,14 +230,8 @@ async function scenarioLayoutAndFilter(page) {
   assert.equal(await page.getByTestId('cw-needs-you-banner').isVisible(), true)
 }
 
-/**
- * Per-session filter persistence across a real reload.
- *
- * The reload discards every script the previous document executed, so this
- * scenario runs in the second coverage phase: the lane maps both phases and
- * unions their verdicts.
- */
-async function scenarioFilterPersistence(page) {
+/** Set the per-session topic filter and assert it is stored, before the reload. */
+async function scenarioFilterSetup(page) {
   assert.equal(await page.getByTestId('cw-panel').getAttribute('data-width-mode'), 'narrow')
   const runningId = BROWSER_TOPICS.running
   const filter = page.locator(`.cw-card[data-topic-id="${runningId}"] [data-testid="cw-topic-filter"]`)
@@ -257,20 +251,32 @@ async function scenarioFilterPersistence(page) {
   await ensureInboxVisible(page)
   await page.getByTestId('cw-inbox-filter-clear').waitFor({ timeout: 10_000 })
   assert.match(await page.getByTestId('cw-inbox-filter-clear').innerText(), /浏览器运行主题/)
+}
 
-  const beforeReloadStorage = await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.includes('cw.inbox.filter.')).length)
-
+/**
+ * Assert the stored filter survives a real reload.
+ *
+ * This opens the second coverage phase: the lane snapshots coverage before the
+ * reload and union both phases, because Chromium only reports scripts that are
+ * alive when collection stops. Keeping every pre-reload interaction in phase
+ * one is what makes the union complete.
+ */
+async function scenarioFilterRestore(page) {
+  const runningId = BROWSER_TOPICS.running
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 30_000 })
   await ensurePanel(page)
   await ensureInboxVisible(page)
   await page.getByTestId('cw-inbox-filter-clear').waitFor({ timeout: 10_000 })
   assert.match(await page.getByTestId('cw-inbox-filter-clear').innerText(), /浏览器运行主题/)
-  assert.equal(
-    await page.evaluate(() => Object.keys(sessionStorage).filter(key => key.includes('cw.inbox.filter.')).length),
-    beforeReloadStorage,
-    'the reload restores the same stored filter entry',
-  )
+  const restoredStorage = await page.evaluate((topicId) => Object.values(sessionStorage).some((value) => {
+    try {
+      return JSON.parse(value) === topicId
+    } catch {
+      return false
+    }
+  }), runningId)
+  assert.equal(restoredStorage, true, 'the reload restores the stored filter entry')
 
   // Toggling the active topic filter off drops the stored selection, and the
   // inbox clear button drops it from the inbox header.
@@ -607,11 +613,12 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioInboxError(page)
   await scenarioNoteOpen(page)
   await scenarioOverviewRetry(page)
+  await scenarioFilterSetup(page)
 }
 
 /** The filtered-list persistence reload, then the other workspace sessions. */
 export async function runReloadScenarios(page, fixtures) {
-  await scenarioFilterPersistence(page)
+  await scenarioFilterRestore(page)
   await scenarioSessionSwitch(page, fixtures)
   await scenarioEmptyProject(page, fixtures)
 }

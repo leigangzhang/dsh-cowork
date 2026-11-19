@@ -21,6 +21,7 @@ import {
   clientCoverageLcov,
   comboSectionIndex,
   comboSourceMapUrl,
+  coverageNavigationGuard,
   coverageCompletenessFailures,
   pluginBundleEntries,
 } from './client-coverage.mjs'
@@ -365,35 +366,6 @@ async function reportLaneFailure({ page, error, pageErrors, consoleMessages, net
   process.exitCode = 1
 }
 
-/**
- * Count main-frame navigations per coverage phase.
- *
- * A reload before `stopJSCoverage` drops everything the previous document
- * executed, so each phase may contain exactly the navigations it declares. A
- * new scenario that navigates would silently shrink the measured surface;
- * failing here forces it into a declared phase instead.
- */
-function navigationPhaseGuard(page) {
-  const counts = { first: 0, second: 0 }
-  let phase = 'first'
-  page.on('framenavigated', (frame) => {
-    if (frame === page.mainFrame()) counts[phase] += 1
-  })
-  return {
-    enterSecond() { phase = 'second' },
-    assertFirstEmpty() {
-      if (counts.first > 0) {
-        throw new Error(`browser coverage phase one recorded ${counts.first} navigation(s); a reload there discards earlier coverage, so move that scenario to the second phase`)
-      }
-    },
-    assertSecondReloadOnly() {
-      if (counts.second !== 1) {
-        throw new Error(`browser coverage phase two recorded ${counts.second} navigation(s); exactly the single reload is allowed, and a second one needs its own coverage phase`)
-      }
-    },
-  }
-}
-
 async function runBrowserLane({ chromium, probe }) {
   const laneRoot = mkdtempSync(join(tmpdir(), 'cowork-browser-lane-'))
   const primaryRepo = join(laneRoot, 'primary-repo')
@@ -417,7 +389,7 @@ async function runBrowserLane({ chromium, probe }) {
     const fixtures = await prepareFixtures(host, primaryRepo, secondaryRepo, emptyRepo)
     browser = await chromium.launch({ headless: !HEADFUL })
     page = await openBrowserPage(browser, host, state)
-    const guard = navigationPhaseGuard(page)
+    const guard = coverageNavigationGuard(page)
     await runBrowserScenarios(page, fixtures)
     coverageEntries = await page.coverage.stopJSCoverage()
     guard.assertFirstEmpty()

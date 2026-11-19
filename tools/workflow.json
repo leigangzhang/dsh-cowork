@@ -85,6 +85,7 @@
       "evidence": [
         "npm run test:coverage",
         "npm run coverage:check",
+        "npm run test:coverage:layered -- --base <verified-base>",
         "npm run check"
       ],
       "why": "The owner map, the reviewed uncovered-line baseline, and the browser floors are the coverage gate's data. Changing them changes which files can be green, so the unit lane and the layered check must both run."
