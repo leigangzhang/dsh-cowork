@@ -1,8 +1,8 @@
 # GitHub PR 门禁与 Review 流程设计
 
-Status: proposed implementation in progress（2026-11-19；the replacement publisher is the only publisher of required `gate-artifact` in report mode; block mode pending）
+Status: implemented（2026-11-19；block mode active；required `gate-artifact` 由唯一 publisher 发布）
 
-本文件定义从 `agent/<topic>` 到 `main` 的目标交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/proposed/process/2026-11-17-pre-merge-derived-gate.md)。目标是唯一 publisher 以 report mode 运行：required `gate-artifact` 使用 legacy 校验，`gate-artifact-v2` 只做 advisory。PR #57 落地 publisher 后，后续 PR 已删除旧 workflow；现在 `gate-artifact-v2.yml` 是唯一发布 required `gate-artifact` 的 workflow。block mode 后同一 publisher 改用 v2 + pre-merge 校验。
+本文件定义从 `agent/<topic>` 到 `main` 的交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/implemented/process/2026-11-17-pre-merge-derived-gate.md)。唯一 publisher 在 report/block 两种 mode 下发布 required `gate-artifact`：report mode 用 legacy 校验，`gate-artifact-v2` 只做 advisory；block mode 用 v2 + pre-merge 校验。`MERGE_POLICY_MODE=block` 已激活。PR #57 落地 publisher 后，后续 PR 已删除旧 workflow；`gate-artifact-v2.yml` 是唯一发布 required `gate-artifact` 的 workflow。
 
 ## 目标与边界
 
@@ -13,7 +13,7 @@ Status: proposed implementation in progress（2026-11-19；the replacement publi
 - 不引入第二个 GitHub 账号，不配置 required approvals；review 是程序性约束，不是 GitHub 强制审批。
 - 不引入 auto-merge、merge queue 或 merge train；合并保持人工。
 - 不改变单工作流分支、Conventional Commits 和现有 PR 描述技能的所有权。
-- 不把 Codex 或 DSH Desktop 作为第二意见兜底；第二意见只使用当前 DSH web 会话可路由的非 DeepSeek 模型。模型确定前以 `deepseek-flash` high 档占位接线，正式启用前必须替换。
+- 不把 Codex 或 DSH Desktop 作为第二意见兜底；第二意见只使用当前 DSH web 会话可路由的非 DeepSeek 模型。模型选定为 `kimi-k2.7-code` high；本机需要在 subagent model allow-list 中加入 `kimi` provider 并设置 `KIMI_API_KEY`，不可路由时记录 `not run`。
 - Issue 策略 v1 不强制引用 Issue；只校验 PR 标题和正文结构。
 
 ## 流程
@@ -114,7 +114,7 @@ npm run change-scope -- --base <verified-base>
 只在高风险变更上启用，例如认证/授权、持久化或迁移、公共 API/tool schema、review/merge 流程、发布/打包、安全边界。
 
 - 载体：当前 DSH web 会话的 AgentTeams member 或 `subagent`；fresh context；只读 tool policy；
-- 模型：目标是非 DeepSeek 模型，例如 Kimi 2.7、Qwen 3.8、GLM 5.3；用户确定前用 `deepseek-flash` high 档占位，只用于接线，不满足最终的非 DeepSeek 独立性目标；实际 model id 先用 `list_subagent_models` 核实；
+- 模型：`kimi-k2.7-code`，`reasoning_effort: high`（provider `kimi`，经 `dsh-llm-pi-ai`）；model id 以部署注入的 provider 配置为准。它满足非 DeepSeek 独立性目标；provider 不可路由或未设置 `KIMI_API_KEY` 时记录 `not run`，不能默认通过；
 - 输出与主审相同的 head/base/diff 绑定字段，并标记 `advisory: true`；
 - 它不进入 required checks，只作为高风险变更的附加证据；
 - 无法路由非 DeepSeek 模型时记录 `not run`，不能默认通过；
@@ -145,23 +145,23 @@ npm run change-scope -- --base <verified-base>
   5. `pre-merge` 成功，且 base 等于当前 main；
   6. PR 标题和四个正文段落合格；
   7. main 自 review base 以来未修改 reviewed paths；否则要求 delta review；
-- report mode 发布 required `gate-artifact` 的 legacy 结论，并另发 `gate-artifact-v2` success 作为 advisory；block mode 用同一个 publisher 发布 required `gate-artifact` 的 v2 + pre-merge 结论。
+- report mode 发布 required `gate-artifact` 的 legacy 结论，并另发 `gate-artifact-v2` success 作为 advisory；block mode 用同一个 publisher 发布 required `gate-artifact` 的 v2 + pre-merge 结论。当前 `MERGE_POLICY_MODE=block`。
 
 publisher 的 `policy-gate` job 在 gate 决策为 blocked 时仍以 success 结束，blocked 由 required `gate-artifact` check 表达。job 失败会把该 app 在 head 上的 check suite 标记为 failure，GitHub ruleset 会把 required check 当作 `expected`，之后即使 gate 已 success 也无法合并；只有脚本自身的意外错误才让 job 失败。
 
-旧 `.github/workflows/gate-artifact.yml` 必须在 bootstrap 完成前保留；publisher 进入 `main` 后，再由后续 PR 删除它。PR #57 曾在 head 提前删除旧 workflow，而 publisher 尚未进入 `main`，因此没有 required `gate-artifact`；该 PR 最终恢复旧 workflow 并落地 publisher，后续 PR 在 publisher 合入 `main` 后删除旧 workflow，并由一次 review 事件验证新 publisher 仍产生 required `gate-artifact`。唯一的 success/decision publisher 在 report/block 两种 mode 下发布 required `gate-artifact`；`Policy Base` 只发布 `action_required`，防止旧 base 成功被误合并。
+旧 `.github/workflows/gate-artifact.yml` 必须在 bootstrap 完成前保留；publisher 进入 `main` 后，再由后续 PR 删除它。PR #57 曾在 head 提前删除旧 workflow，而 publisher 尚未进入 `main`，因此没有 required `gate-artifact`；该 PR 最终恢复旧 workflow 并落地 publisher，后续 PR 在 publisher 合入 `main` 后删除旧 workflow，并由该 PR 的 review 事件验证新 publisher 仍产生 required `gate-artifact`。现在旧 workflow 已删除，`Policy V2` 是唯一 publisher；`Policy Base` 只发布 `action_required`，防止旧 base 成功被误合并。
 
 ## 5. Ruleset 与合并
 
-`main` 当前使用 repository ruleset；迁移期仍保留旧 gate 和 strict up-to-date：
+`main` 使用 `main-pr-gate` repository ruleset；required context 始终是 `pr-gate` + `gate-artifact`：
 
 | 设置 | 当前值 |
 |---|---|
 | Require pull request | on |
-| Required checks | `pr-gate`、`gate-artifact`（required context 不变；`gate-artifact-v2` 只做 report） |
+| Required checks | `pr-gate`、`gate-artifact`（`gate-artifact-v2` 只在 report mode 发布，永不 required） |
 | Required approvals | 0（单人项目，review 为程序性约束） |
 | Require conversation resolution | on |
-| Require branches up to date | on（激活 pre-merge 后移除） |
+| Require branches up to date | off（pre-merge 已接管当前 main 的合并结果测试） |
 | Block force push / deletion | on |
 | Bypass actors | 空 |
 
