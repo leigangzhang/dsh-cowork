@@ -147,6 +147,8 @@ npm run change-scope -- --base <verified-base>
   7. main 自 review base 以来未修改 reviewed paths；否则要求 delta review；
 - report mode 发布 required `gate-artifact` 的 legacy 结论，并另发 `gate-artifact-v2` success 作为 advisory；block mode 用同一个 publisher 发布 required `gate-artifact` 的 v2 + pre-merge 结论。
 
+publisher 的 `policy-gate` job 在 gate 决策为 blocked 时仍以 success 结束，blocked 由 required `gate-artifact` check 表达。job 失败会把该 app 在 head 上的 check suite 标记为 failure，GitHub ruleset 会把 required check 当作 `expected`，之后即使 gate 已 success 也无法合并；只有脚本自身的意外错误才让 job 失败。
+
 旧 `.github/workflows/gate-artifact.yml` 必须在 bootstrap 完成前保留；publisher 进入 `main` 后，再由后续 PR 删除它。PR #57 曾在 head 提前删除旧 workflow，而 publisher 尚未进入 `main`，因此没有 required `gate-artifact`；该 PR 最终恢复旧 workflow 并落地 publisher，后续 PR 在 publisher 合入 `main` 后删除旧 workflow，并由一次 review 事件验证新 publisher 仍产生 required `gate-artifact`。唯一的 success/decision publisher 在 report/block 两种 mode 下发布 required `gate-artifact`；`Policy Base` 只发布 `action_required`，防止旧 base 成功被误合并。
 
 ## 5. Ruleset 与合并

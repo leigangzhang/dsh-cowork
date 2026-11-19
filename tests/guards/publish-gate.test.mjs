@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -291,6 +292,16 @@ test('readPreMerge rejects malformed or stale summaries', () => {
     completed_at: '2026-11-17T00:02:00Z',
     output: { summary: JSON.stringify({ head, base: 'main', result: 'success' }) },
   }], head).error, /conclusion is failure/)
+})
+
+test('the publisher job stays green when it publishes a blocked decision', () => {
+  // A failed job marks the app's check suite failed; a GitHub ruleset then
+  // treats the required check as expected even after a later success. The
+  // required check run carries the blocked verdict, so the CLI must not fail
+  // the job for a published decision.
+  const source = readFileSync(new URL('../../scripts/ci/publish-gate.mjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /if \(!required\.pass\) process\.exitCode = 1/)
+  assert.match(source, /check suite/)
 })
 
 test('publishGateCheck sends one completed check run', async () => {

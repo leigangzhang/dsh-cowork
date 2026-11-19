@@ -338,6 +338,8 @@ publisher job 的 display name 是 `pre-merge-publish`，不能与它发布的 `
 - block mode 由同一个 publisher 发布 required `gate-artifact`，使用最新 review marker + v2 `base`/`diffSha` + 当前 base 的 `pre-merge` + metadata + reviewed-path overlap；latest marker 不是 `pass` 时必须失败。
 - report mode 同时发布 report-only `gate-artifact-v2`，永远 success，只记录 would-fail 原因；block mode 不发布它。`gate-artifact-v2` 永远不能加入 required checks。
 
+gate 决策为 blocked 时，publisher 的 `policy-gate` job 仍以 **success** 结束；blocked 由 required `gate-artifact` check 本身表达。job 失败会把该 app 在 head 上的 check suite 标成 failure，GitHub ruleset 随后会把 required check 当作 `expected`，即使之后 gate 已 success 也无法合并。只有脚本自身的意外错误（缺 env、API 失败）才让 job 失败。
+
 `Policy Base` 在 main push 时把旧的绿色 `gate-artifact` 和 `gate-artifact-v2` 都标成 `action_required`，防止旧 base 上的成功被误合并。它只更新检查状态，不评论、不打标签、不修改 PR 分支。
 
 ### Bootstrap：旧 workflow 的保留与退役
