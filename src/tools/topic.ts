@@ -33,7 +33,7 @@ import {
 import { buildHandoffRecord, validateHandoff } from '../domains/topic/handoff.js'
 import { noticeSummaries } from '../domains/notices/notices.js'
 import { AUTHORIZATION_COMMAND_MAX_CHARS, REQUEST_SUMMARY_MAX_CHARS } from '../panel/inbox-contract.js'
-import { createRequest } from '../domains/requests/request-service.js'
+import { createRequest, findPendingAuthorizationRequest } from '../domains/requests/request-service.js'
 import { REQUEST_TOOL_ERROR_CODES } from './request.js'
 import { TOPIC_PRESET_ID } from '../platform/presets.js'
 import { ACTIVITY_MAX_EVENTS } from '../store/schema.js'
@@ -110,13 +110,30 @@ function blockForTopicReport(topic: TopicRecordV2, nowMs: number): TopicRecordV2
 /** The stable failure for a topic that already has a pending authorization. */
 function authorizationPendingFailure(
   sessionId: string,
-  authorization: TopicRecordV2['authorization'],
+  requestId: string | null | undefined,
 ): JsonValue | null {
-  if (authorization === null || authorization === undefined) return null
+  if (requestId === null || requestId === undefined) return null
   return toJson(failure(
     TOPIC_PAGE_ERROR_CODES.authorizationPending,
-    `topic ${sessionId} already has a pending authorization ${authorization.requestId}`,
+    `topic ${sessionId} already has a pending authorization ${requestId}`,
   ))
+}
+
+/** The pending authorization failure from the topic record or an orphaned card. */
+async function pendingAuthorizationFailureForTopic(input: {
+  sessionId: string
+  topic: TopicRecordV2
+  repoPath: string
+  log: CoworkToolDeps['log']
+}): Promise<JsonValue | null> {
+  const topicRequestId = input.topic.authorization?.requestId
+  if (topicRequestId !== undefined) return authorizationPendingFailure(input.sessionId, topicRequestId)
+  const card = await findPendingAuthorizationRequest({
+    repoPath: input.repoPath,
+    topicId: input.sessionId,
+    log: input.log,
+  })
+  return card === null ? null : authorizationPendingFailure(input.sessionId, card.requestId)
 }
 
 /** Commit one authorization block, refusing to replace an existing request. */
@@ -654,9 +671,15 @@ async function requestAuthorization(args: Record<string, unknown>, exec: unknown
       return toJson(failure(TOPIC_ERROR_CODES.topicNotFound, `topic ${caller.sessionId} is archived`))
     }
     // One pending authorization per topic: replacing it would orphan the card
-    // the user is already looking at. The first request keeps the decision; the
-    // caller waits or asks the user.
-    const pendingFailure = authorizationPendingFailure(caller.sessionId, opened.topic.authorization)
+    // the user is already looking at. The topic record normally owns the
+    // pointer, but the request-card scan covers the historical state where that
+    // record was cleared while the card stayed pending.
+    const pendingFailure = await pendingAuthorizationFailureForTopic({
+      sessionId: caller.sessionId,
+      topic: opened.topic,
+      repoPath: opened.opened.repoPath,
+      log: deps.log,
+    })
     if (pendingFailure !== null) return pendingFailure
     const now = nowOf(deps)
     const nowMs = now.getTime()
@@ -671,7 +694,7 @@ async function requestAuthorization(args: Record<string, unknown>, exec: unknown
     if (updated === null) {
       const current = (await opened.opened.store.readIndexDocument())
         .topics.find((entry) => entry.topicId === caller.sessionId)
-      const raceFailure = authorizationPendingFailure(caller.sessionId, current?.authorization ?? null)
+      const raceFailure = authorizationPendingFailure(caller.sessionId, current?.authorization?.requestId)
       if (raceFailure !== null) return raceFailure
       return toJson(failure(TOPIC_ERROR_CODES.topicNotFound, `topic ${caller.sessionId} changed while requesting authorization`))
     }
@@ -923,7 +946,7 @@ export function registerTopicTools(ctx: unknown, deps: CoworkToolDeps): Array<()
   disposers.push(host.tools.register(defineTool({
     name: 'cowork_authorization_request',
     description:
-      'Ask the user to authorize something: blocks this topic with an authorization marker, writes the same requestId into the Cowork request inbox, and returns that id. Topic only.',
+      'Ask the user to authorize something: block this topic, write requestId to the inbox, and return it. One pending authorization per topic; wait before asking again. Topic only.',
     parameters: {
       summary: { type: 'string', required: true, description: `What needs authorization, in one paragraph (max ${TOPIC_SUMMARY_MAX_CHARS} characters).` },
       command: {

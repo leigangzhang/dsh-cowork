@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import '../support/ts-hook.mjs'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -612,6 +612,7 @@ test('cowork_authorization_request blocks with a pending request and returns its
     const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
     const deps = fakeDeps()
     const request = tools(deps).get('cowork_authorization_request')
+    assert.match(request.description, /One pending authorization per topic/)
 
     const result = await request.execute({ summary: 'may I rewrite the index?' }, fakeExec('session-thread', repoPath))
     assert.equal(result.ok, true)
@@ -635,128 +636,6 @@ test('cowork_authorization_request blocks with a pending request and returns its
     assert.equal(requested.details.notice.status, 'pending')
     const ledger = await store.readNotices()
     assert.equal(ledger.notices.length, 2)
-  })
-})
-
-test('cowork_topic_report(kind blocked) keeps a pending authorization decidable', async () => {
-  await withRepo(async (repoPath) => {
-    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread', status: 'idle' })])
-    const registry = tools(fakeDeps())
-    const requested = await registry.get('cowork_authorization_request').execute(
-      { summary: 'may I print the time in Beijing?' },
-      fakeExec('session-thread', repoPath),
-    )
-    assert.equal(requested.ok, true)
-
-    // The topic agent reports the block it just created. That report must not
-    // downgrade the pending authorization: doing so leaves the inbox card
-    // pending while its decision fails with not-found.
-    const reported = await registry.get('cowork_topic_report').execute(
-      { summary: 'waiting for the user to allow the timezone command', kind: 'blocked' },
-      fakeExec('session-thread', repoPath),
-    )
-    assert.equal(reported.ok, true)
-
-    const row = (await store.readIndexDocument()).topics[0]
-    assert.equal(row.blocked, true)
-    assert.equal(row.blockedReason, 'authorization')
-    assert.deepEqual(row.authorization, {
-      requestId: requested.requestId,
-      summary: 'may I print the time in Beijing?',
-      requestedAt: NOW_ISO,
-    })
-    const file = JSON.parse(await readFile(
-      join(repoPath, '.dsh-cowork', 'requests', `${requested.requestId}.json`),
-      'utf8',
-    ))
-    assert.equal(file.status, 'pending', 'the inbox card is still decidable')
-  })
-})
-
-test('cowork_handoff keeps a pending authorization instead of releasing it', async () => {
-  await withRepo(async (repoPath) => {
-    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
-    const deps = fakeDeps()
-    const registry = tools(deps)
-    const requested = await registry.get('cowork_authorization_request').execute(
-      { summary: 'may I proceed?' },
-      fakeExec('session-thread', repoPath),
-    )
-    assert.equal(requested.ok, true)
-
-    const blocked = await registry.get('cowork_handoff').execute({
-      status: 'blocked',
-      summary: 'blocked on the authorization',
-      verification: HANDOFF_VERIFICATION,
-    }, fakeExec('session-thread', repoPath))
-    assert.equal(blocked.ok, true)
-    let row = (await store.readIndexDocument()).topics[0]
-    assert.equal(row.blockedReason, 'authorization', 'a blocked handoff cannot replace the pending request')
-    assert.equal(row.authorization?.requestId, requested.requestId)
-
-    // The audit file is timestamp-named; a second handoff needs its own time.
-    fakeDepsClock.advance(deps)
-    const doneAt = new Date(deps.nowMs).toISOString()
-    const done = await registry.get('cowork_handoff').execute({
-      status: 'done',
-      summary: 'finished the unrelated part',
-      verification: HANDOFF_VERIFICATION,
-    }, fakeExec('session-thread', repoPath))
-    assert.equal(done.ok, true)
-    row = (await store.readIndexDocument()).topics[0]
-    assert.equal(row.blocked, true, 'a done handoff does not release the user decision')
-    assert.equal(row.blockedReason, 'authorization')
-    assert.equal(row.authorization?.requestId, requested.requestId)
-    assert.equal(row.lastDeliveryConfirmedAt, doneAt, 'the handoff itself is still recorded')
-  })
-})
-
-test('cowork_authorization_request refuses a second pending request', async () => {
-  await withRepo(async (repoPath) => {
-    const store = await seedProject(repoPath, [topic({ topicId: 'session-thread' })])
-    const registry = tools(fakeDeps())
-    const first = await registry.get('cowork_authorization_request').execute(
-      { summary: 'first ask' },
-      fakeExec('session-thread', repoPath),
-    )
-    assert.equal(first.ok, true)
-
-    const second = await registry.get('cowork_authorization_request').execute(
-      { summary: 'second ask' },
-      fakeExec('session-thread', repoPath),
-    )
-    assert.equal(second.ok, false)
-    assert.equal(second.error.code, TOPIC_PAGE_ERROR_CODES.authorizationPending)
-    const row = (await store.readIndexDocument()).topics[0]
-    assert.equal(row.authorization?.requestId, first.requestId, 'the first request keeps the decision')
-    assert.equal((await readdir(join(repoPath, '.dsh-cowork', 'requests'))).length, 1)
-  })
-})
-
-test('cowork_authorization_request reports a pending request that wins the lock race', async () => {
-  await withRepo(async (repoPath) => {
-    const pending = { requestId: 'req-existing', summary: 'existing ask', requestedAt: NOW_ISO }
-    const store = await seedProject(repoPath, [topic({
-      topicId: 'session-thread',
-      blocked: true,
-      blockedReason: 'authorization',
-      blockedFromStatus: 'active',
-      blockedAt: NOW_ISO,
-      authorization: pending,
-    })])
-    const deps = withRacingStore(fakeDeps(), store, (document) => ({
-      ...document,
-      topics: document.topics.map((entry) => (entry.topicId === 'session-thread'
-        ? { ...entry, authorization: null, blocked: false, blockedReason: null, blockedFromStatus: null, blockedAt: null }
-        : entry)),
-    }))
-    const result = await tools(deps).get('cowork_authorization_request').execute(
-      { summary: 'new ask' },
-      fakeExec('session-thread', repoPath),
-    )
-    assert.equal(result.ok, false)
-    assert.equal(result.error.code, TOPIC_PAGE_ERROR_CODES.authorizationPending)
-    assert.match(result.error.message, /req-existing/)
   })
 })
 

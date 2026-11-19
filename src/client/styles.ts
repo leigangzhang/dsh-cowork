@@ -1,14 +1,18 @@
 /**
  * Topic-page stylesheet, injected once as a `<style data-plugin-css>` tag.
  *
- * Only the public theme tokens are consumed directly
- * (`--dsw-alias-bg-base|bg-layer-1|bg-layer-2|border-l1|border-l2|
- * brand-primary|interactive-bg-hover|label-primary|label-primary-bluish|
- * label-secondary|state-business-tertiary|state-error-primary|
- * state-idle-primary|state-success-primary|state-warn-primary|
- * state-warn-tertiary` and `--dsw-specific-sidebar-fill`). The design demo's
- * hex values are fallbacks, so a host without the newer tokens still gets the
- * red / green / black / gray group borders instead of an unstyled list.
+ * Public theme tokens consumed directly:
+ * `--dsw-alias-bg-base|bg-layer-1|bg-layer-2|border-l1|border-l2|border-l3|
+ * brand-primary|label-primary|label-secondary|state-error-primary|
+ * state-success-primary|state-warn-primary`, `--dsw-radius-sm`, and
+ * `--dsw-specific-sidebar-fill`.
+ *
+ * Internal aliases (`--dsw-alias-interactive-bg-hover`,
+ * `--dsw-alias-label-primary-bluish`, `--dsw-alias-state-business-tertiary`,
+ * `--dsw-alias-state-warn-tertiary`) always pass a public-token or demo-hex
+ * fallback. The design demo's hex values are fallbacks, so a host without the
+ * newer tokens still gets the red / green / black / gray group borders instead
+ * of an unstyled list.
  *
  * `--cw-surface-muted` is the one raised neutral fill: light-theme layer
  * tokens are all white, so chips and bubbles there need the theme's overlay
