@@ -59,7 +59,7 @@ flowchart LR
 | 第二意见 | 仅高风险；当前 DSH web 的 AgentTeams member 或 subagent；非 DeepSeek 模型；advisory |
 | 派生 gate | 唯一 publisher 发布 required `gate-artifact`；report 用 legacy 校验，block 用 review v2、pr-gate、pre-merge、metadata 和 reviewed paths。`gate-artifact-v2` 只做 report advisory |
 | Base stale | `Policy Base` 在 main push 后把旧 gate 标成 `action_required`；加 `recheck` 标签重跑 pre-merge |
-| 强制层 | repository ruleset 要求 `pr-gate` + gate；对话解决；迁移完成后移除 strict up-to-date |
+| 强制层 | repository ruleset 要求 `pr-gate` + gate；对话解决；strict up-to-date 已移除（由 `pre-merge` 测试当前 main） |
 | 合并 | 人工 merge commit；关闭 auto-merge、merge queue 和 merge train；合并后自动删分支 |
 
 ## 1. 本地阶段
