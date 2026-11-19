@@ -20,6 +20,13 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      # Temporary repositories created by the tests make commits; hosted
+      # runners have no global git identity.
+      GIT_AUTHOR_NAME: github-actions[bot]
+      GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      GIT_COMMITTER_NAME: github-actions[bot]
+      GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
     outputs:
       base_sha: ${{ steps.base.outputs.sha }}
       docs_only: ${{ steps.classify.outputs.docs_only }}
@@ -41,6 +48,9 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
+
+      - name: Configure git defaults for temporary test repositories
+        run: git config --global init.defaultBranch main
 
       - name: Classify PR paths
         id: classify
@@ -70,7 +80,7 @@ jobs:
         run: npm run test:coverage
 
   publish:
-    name: pre-merge
+    name: pre-merge-publish
     needs: pre-merge-test
     if: ${{ always() && needs.pre-merge-test.result != 'skipped' }}
     runs-on: ubuntu-latest
