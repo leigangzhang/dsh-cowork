@@ -15,9 +15,15 @@
 export { PanelServiceError } from './request-support.js'
 export type { RequestServiceStorePort } from './request-support.js'
 
-export { createRequest, promptRequestTopic, resolveRequest } from './request-lifecycle.js'
+export {
+  createRequest,
+  findPendingAuthorizationRequest,
+  promptRequestTopic,
+  resolveRequest,
+} from './request-lifecycle.js'
 export type {
   CreateRequestInput,
+  FindPendingAuthorizationInput,
   PromptRequestTopicInput,
   PromptRequestTopicOutcome,
   ResolveRequestInput,

@@ -37,6 +37,32 @@ import type { AuthorizationDecisionOutcome } from './authorization-decision.js'
 import { PanelServiceError, assertMember, clipText, messageOf } from './request-support.js'
 import type { RequestServiceStorePort } from './request-support.js'
 
+/** How to find the pending authorization of one topic. */
+export interface FindPendingAuthorizationInput {
+  readonly repoPath: string
+  readonly topicId: string
+  readonly log?: (message: string) => void
+}
+
+/**
+ * Find the pending authorization card of one topic, if any.
+ *
+ * The topic record normally owns this pointer. A historical report bug could
+ * clear it while the card remained pending; the card scan keeps the
+ * one-pending-authorization invariant intact in that state too.
+ */
+export async function findPendingAuthorizationRequest(
+  input: FindPendingAuthorizationInput,
+): Promise<RequestRecordV1 | null> {
+  const store = new RequestStore({ repoPath: input.repoPath, log: input.log })
+  const { records } = await store.readAll()
+  return records.find((record) => (
+    record.kind === 'authorization'
+      && record.topicId === input.topicId
+      && record.status === 'pending'
+  )) ?? null
+}
+
 /** One request to create for an already-validated topic. */
 export interface CreateRequestInput {
   readonly store: Pick<RequestServiceStorePort, 'appendActivity'>

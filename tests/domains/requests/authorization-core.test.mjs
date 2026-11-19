@@ -298,6 +298,20 @@ test('a recovery that loses the card before the lock does not write a second dec
   assert.equal(reads, 2, 'the recovery re-checks the card under the lock')
 })
 
+test('recovery without the authorization-requested activity stays not-found', async () => {
+  const { store, calls } = fakeStore(projectDocument(pendingTopic({
+    authorization: null,
+    blockedReason: 'handoff',
+    blockedFromStatus: 'active',
+  })), { activity: [] })
+
+  await assert.rejects(
+    resolveAuthorizationDecision(coreInput(store, { requestCard: fakeCard() })),
+    (error) => error.code === 'authorization/not-found',
+  )
+  assert.equal(calls.mutations, 0, 'a pending card without durable ask evidence is not decidable')
+})
+
 test('a deferred prompt is returned instead of fired, and a non-deferred one reports its failure', async () => {
   const deferred = await resolveAuthorizationDecision(coreInput(fakeStore().store, {
     requestCard: fakeCard(),
