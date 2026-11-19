@@ -91,7 +91,7 @@
     },
     {
       "name": "browser",
-      "mode": "observational",
+      "mode": "blocking",
       "patterns": [
         "src/client/**/*.tsx",
         "tests/browser/**",
@@ -107,7 +107,7 @@
         "npm run test:coverage:layered -- --base <verified-base>",
         "npm run check"
       ],
-      "why": "The installed client bundle and the real host sidebar are the only honest place to execute React TSX and panel interactions. The lane is observational until reviewed per-file floors exist; a page error, missing host, or missing Chromium is never a silent pass. The layered command binds both lanes to one artifact before delivery."
+      "why": "The installed client bundle and the real host sidebar are the only honest place to execute React TSX and panel interactions. The standalone lane is diagnostic; the layered command binds both lanes to one artifact and applies the reviewed per-file floors in tools/coverage-browser-floors.json, so a missing lane, a page error, a missing host or Chromium, or a file below its floor is red before delivery."
     },
     {
       "name": "packaging",

@@ -65,7 +65,7 @@ Before pushing, load [pre-push-checks](.agents/skills/pre-push-checks/SKILL.md),
 - PR CI `pr-gate` always runs `npm run check`; non-docs changes additionally run `npm run test:coverage`. `npm test` is not repeated in `pr-gate`. `pre-merge` tests a temporary merge of the current `main` and PR head. `npm run typecheck`, `npm run build`, `test:host-smoke`, `test:browser`, and `test:coverage:layered` run in the local heavy lane because they need a DSH source checkout or host runtime. Local runs only the affected subset; a green local check is not proof that `pr-gate` or `pre-merge` passed.
 - Do not default to the full suite or repeat a passing check for commit/push. Rehearse everything only by explicit request, when diagnosing CI, or when an irreducibly repository-wide change crosses several surfaces.
 - `tests/e2e/**`, `scripts/evidence/e2e.mjs`, `tools/e2e-coverage.mjs`: `npm run test:e2e` + `npm run check` + `npm test`; the manifest must match the live public surface and the committed evidence must match the current version. `test:e2e:live` is observational and needs `DEEPSEEK_API_KEY`; a red keyless run is reported, never skipped silently.
-- `npm run test:coverage` is the source coverage gate: one process per test file, merged by union, then a per-file line gate at 100% over the exclusive owner map `tools/coverage-map.json`. `tools/coverage-debt.json` is the reviewed exception list for an intentional gap and is empty. It does not count React TSX; `npm run test:browser` owns those as an observational lane. `npm run test:coverage:layered` binds both lanes to one artifact and is the delivery gate.
+- `npm run test:coverage` is the source coverage gate: one process per test file, merged by union, then a per-file line gate at 100% over the exclusive owner map `tools/coverage-map.json`. `tools/coverage-debt.json` is the reviewed exception list for an intentional gap and is empty. It does not count React TSX; the browser lane owns those, and `npm run test:coverage:layered` binds both lanes to one artifact and blocks on the reviewed per-file floors in `tools/coverage-browser-floors.json`. Standalone `npm run test:browser` is diagnostic.
 - `lib/` is local build output and gitignored. After anything under `src/` changes, run `npm run build` before `test:host-smoke`; the smoke consumes the current local `lib/`, uses a temporary `DSH_HOME`, and skips when `dsh` is absent unless `DSH_HOST_SMOKE_STRICT=1`.
 - PR descriptions use [pr-description](.agents/skills/pr-description/SKILL.md); merge is a separate manual step. A green local check is not proof that `pr-gate` passed or that an unrun real-host E2E exists.
 
@@ -88,7 +88,7 @@ npm run check              # executable conventions (workflow, skills, templates
 npm run check:self-test    # prove the guards can fail
 npm test                   # contract and behavior tests
 npm run test:coverage      # deterministic per-file unit coverage gate
-npm run test:browser       # real host + Chromium panel lane (observational)
+npm run test:browser       # real host + Chromium panel lane; floors block in the layered gate
 npm run test:coverage:layered -- --base <ref>  # unit + browser lanes, one artifact identity
 npm run coverage:check     # re-check existing coverage reports
 npm run test:e2e           # pack current lib/, run the keyless E2E scenarios in a temporary host

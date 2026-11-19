@@ -16,6 +16,7 @@ import {
   uncoveredLines,
 } from '../../scripts/evidence/coverage-lcov.mjs'
 import { runCoverageCheck } from '../../scripts/evidence/coverage-check.mjs'
+import { CLIENT_BROWSER_BLOCKED } from '../../scripts/evidence/client-coverage.mjs'
 import { isTypeOnly, sourceFilesIn, validateOwnershipMap } from '../../scripts/evidence/coverage-owners.mjs'
 import {
   childTestEnvironment,
@@ -535,6 +536,21 @@ test('a browser-owned file cannot invent a blocked status', () => {
       .some((failure) => failure.includes('not a known blocked surface')))
   } finally {
     project.cleanup()
+  }
+})
+
+test('the reviewed browser floors cover every non-blocked browser-owned file', () => {
+  const floors = JSON.parse(read('tools/coverage-browser-floors.json'))
+  const map = JSON.parse(read('tools/coverage-map.json'))
+  assert.equal(floors.version, 1)
+  const browserOwned = map.files.filter((entry) => entry.lane === 'browser').map((entry) => entry.path)
+  const expected = browserOwned.filter((file) => CLIENT_BROWSER_BLOCKED[file] === undefined).sort()
+  assert.deepEqual(Object.keys(floors.files).sort(), expected, 'every non-blocked browser-owned file needs a floor')
+  for (const [file, floor] of Object.entries(floors.files)) {
+    assert.deepEqual(Object.keys(floor).sort(), ['functionCoverage', 'lineCoverage'], `${file} floor may only carry line and function values`)
+    for (const [key, value] of Object.entries(floor)) {
+      assert.ok(Number.isFinite(value) && value >= 0 && value <= 100, `${file}.${key} must be a number in 0..100`)
+    }
   }
 })
 
