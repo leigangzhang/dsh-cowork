@@ -138,13 +138,20 @@ test('documentation changes do not invalidate a committed E2E evidence recording
   assert.equal(isEvidenceNeutralPath('docs/github-workflow.md'), true)
   assert.equal(isEvidenceNeutralPath('README.md'), true)
   assert.equal(isEvidenceNeutralPath('tests/e2e/evidence/0.2.0.json'), true)
+  assert.equal(isEvidenceNeutralPath('.agents/notes/proposed/process/2026-11-19-version-management.md'), true)
+  assert.equal(isEvidenceNeutralPath('.agents/skills/code-review/SKILL.md'), false)
   assert.equal(isEvidenceNeutralPath('src/app/apply.ts'), false)
   assert.equal(isEvidenceNeutralPath('tools/workflow.json'), false)
   assert.deepEqual(
     e2eEvidenceProblems({
       ...EVIDENCE_INPUT,
       headSha: 'd'.repeat(40),
-      changedPathsSinceEvidenceHead: ['docs/github-workflow.md', 'README.md', 'tests/e2e/evidence/0.2.0.json'],
+      changedPathsSinceEvidenceHead: [
+        'docs/github-workflow.md',
+        'README.md',
+        'tests/e2e/evidence/0.2.0.json',
+        '.agents/notes/proposed/process/2026-11-19-version-management.md',
+      ],
     }),
     [],
   )
