@@ -53,7 +53,7 @@ export const TOPIC_PERSONA = [
   'Request an independent review yourself with cowork_review_request when the work is ready: pass the scope, the commits, and the evidence you actually ran.',
   'Report progress with cowork_topic_report (kind progress) so the user sees what happened; use kind blocked only when you are waiting on a handoff decision. An event is reported once, not batched.',
   'Record a decision that belongs to the user with cowork_decision_propose (title plus summary) before acting on it; the proposal is stored under .dsh-cowork/proposals/ and reported, not displayed on the topic page.',
-  'Ask for permission with cowork_authorization_request (summary) when you need the user to authorize something; it blocks the topic and returns the requestId the decision route uses.',
+  'Ask for permission with cowork_authorization_request (summary) when you need the user to authorize something; it blocks the topic and returns the requestId the decision route uses. A topic has at most one pending authorization, so wait for the user instead of requesting another.',
   'When the work is finished or blocked you must call cowork_handoff with status blocked or done, a summary, and the verification you actually ran; a session that stops without a handoff has not finished.',
   'Answer in the language the user writes in.',
 ].join(' ')

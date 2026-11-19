@@ -54,16 +54,28 @@ test('raised neutral surfaces use the visible overlay token in both themes', () 
     PANEL_CSS,
     /--cw-surface-muted: var\(--dsw-alias-interactive-bg-hover, var\(--dsw-alias-bg-layer-2, #f2f4f7\)\)/,
   )
-  for (const selector of ['cw-notice-hint', 'cw-code', 'cw-skeleton-bar', 'cw-thread-bubble', 'cw-req-head', 'cw-req-command']) {
+  for (const selector of [
+    'cw-notice-hint',
+    'cw-code',
+    'cw-skeleton-bar',
+    'cw-inbox-count',
+    'cw-inbox-filter-clear',
+    'cw-thread-bubble',
+    'cw-req-head',
+    'cw-req-command',
+    'cw-inbox-receipt',
+  ]) {
     assert.match(
       PANEL_CSS,
-      new RegExp(`\\.${selector} \\{[\\s\\S]*?background: var\\(--cw-surface-muted\\)`),
+      new RegExp(`\\.${selector} \\{[^}]*background: var\\(--cw-surface-muted\\);`),
       `${selector} uses the theme overlay fill`,
     )
   }
-  assert.match(PANEL_CSS, /\.cw-thread-avatar \{[\s\S]*?state-business-tertiary/)
-  assert.match(PANEL_CSS, /\.cw-thread-avatar \{[\s\S]*?label-primary-bluish/)
-  assert.match(PANEL_CSS, /\.cw-card-marker\[data-marker="authorization"\] \{[\s\S]*?state-warn-tertiary/)
+  assert.match(PANEL_CSS, /\.cw-card-more:hover \{[^}]*background: var\(--cw-surface-muted\);/)
+  assert.match(PANEL_CSS, /\.cw-thread-msg-out \.cw-thread-bubble \{[^}]*state-business-tertiary/)
+  assert.match(PANEL_CSS, /\.cw-thread-avatar \{[^}]*state-business-tertiary/)
+  assert.match(PANEL_CSS, /\.cw-thread-avatar \{[^}]*label-primary-bluish/)
+  assert.match(PANEL_CSS, /\.cw-card-marker\[data-marker="authorization"\] \{[^}]*state-warn-tertiary/)
 })
 
 test('ensurePanelStyles is idempotent and a no-op without a document', () => {
