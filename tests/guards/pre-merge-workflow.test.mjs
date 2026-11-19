@@ -32,9 +32,11 @@ test('pre-merge tests the temporary merge result, not the PR head alone', () => 
 })
 
 test('pre-merge publishes only a trusted check and does not notify or label conflicts', () => {
-  assert.match(workflow, /^  publish:\n    name: pre-merge$/m)
+  assert.match(workflow, /^  publish:\n    name: pre-merge-publish$/m)
   assert.match(workflow, /^      checks: write$/m)
   assert.match(workflow, /node scripts\/ci\/publish-pre-merge\.mjs/)
+  assert.match(workflow, /CHECK_NAME: pre-merge$/m)
+  assert.doesNotMatch(workflow, /^    name: pre-merge$/m, 'a job name must not collide with the published pre-merge check')
   assert.doesNotMatch(workflow, /pull-requests: write/)
   assert.doesNotMatch(workflow, /merge-conflict/)
   assert.doesNotMatch(workflow, /gh pr comment/)
@@ -47,6 +49,12 @@ test('pre-merge test and publish jobs keep separate trust boundaries', () => {
   assert.match(testJob, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/)
   assert.match(testJob, /permissions:\n      contents: read/)
   assert.doesNotMatch(testJob, /checks: write/)
+  // The coverage tests create temporary repositories and commit in them; the
+  // hosted runner has no global identity or default branch.
+  for (const key of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']) {
+    assert.match(testJob, new RegExp(`^      ${key}: `, 'm'), `pre-merge-test must set ${key}`)
+  }
+  assert.match(testJob, /git config --global init\.defaultBranch main/)
 
   const publishJob = jobSection('publish')
   assert.match(publishJob, /ref: main/)
