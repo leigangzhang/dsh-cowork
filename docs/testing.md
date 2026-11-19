@@ -8,8 +8,8 @@ One home for how dsh-cowork decides that something is verified.
 |---|---|---|---|
 | Unit | `npm test` | Edges, error paths, event order, real git/store behavior under temporary paths | Every pure module and contract change |
 | Coverage | `npm run test:coverage` | Every owner-mapped unit module is at line 100; the merged report is reproducible | Every `src/**/*.ts` change |
-| Layered coverage | `npm run test:coverage:layered -- --base <verified-base>` | Both coverage lanes ran against one artifact identity and the owner map is satisfied; browser floors apply when a reviewed floors file exists | Before delivery or merge |
-| Browser | `npm run test:browser` | The packed plugin boots in a temporary DSH web profile; one Chromium context drives the real sidebar and panel; DOM/ARIA/HTTP requests are asserted; client TSX line/function coverage is reported and the expected TSX set must be present | Every `src/client/**/*.tsx`, `tests/browser/**`, or browser-lane script change; after `npm run build` |
+| Layered coverage | `npm run test:coverage:layered -- --base <verified-base>` | Both lanes ran against one artifact identity; the owner map is satisfied and every non-blocked browser-owned file meets its reviewed floor | Before delivery or merge |
+| Browser | `npm run test:browser` | The packed plugin boots in a temporary DSH web profile; one Chromium context drives the real sidebar and panel; DOM/ARIA/HTTP requests are asserted; client TSX line/function coverage and the expected TSX set must be present | Every `src/client/**/*.tsx`, `tests/browser/**`, or browser-lane script change; after `npm run build` |
 | Built artifact | `npm run test:host-smoke` | The packed `lib/` installs into a temporary DSH profile, boots the host, serves its loopback health route, and proves the panel API rejects an unauthenticated request | Package, bundle-patch, build, or registration changes; after `npm run build` |
 | Versioned E2E | `npm run test:e2e` | Keyless real-host sessions, tools, stores, and panel routes from the manifest; a local scripted endpoint replaces the provider. `npm run test:e2e:live` is the observational real-model lane | `tests/e2e/**`, `scripts/evidence/e2e.mjs`, `tools/e2e-coverage.mjs`, and every version change (the committed evidence is checked) |
 | PR gate | GitHub Actions `pr-gate` | Documentation conventions on every PR; the source coverage lane additionally runs for non-docs changes | Every PR to `main` |
@@ -48,7 +48,7 @@ Line coverage is per file: every owner-mapped unit module must be at 100%. `tool
 
 The unit loader strips TypeScript in line-preserving mode; every `src` TypeScript file must be strip-compatible, because Node's transform-mode source-map remapping is not precise enough for a per-line gate. A transform fallback exists for future syntax but turns the coverage guard red. The mapping fixture in [tests/guards/coverage-policy.test.mjs](../tests/guards/coverage-policy.test.mjs) pins an executed line and an unexecuted line through the real loader and proves the transform fallback misattributes the latter.
 
-`test:coverage:layered` rebuilds `lib/`, runs the unit lane and `test:browser` under one `gate-artifact` identity, and refuses a missing lane, a mismatched identity, an incomplete browser surface, or a browser LCOV without an owned file. Browser percentages stay observational until a reviewed `tools/coverage-browser-floors.json` covers every non-blocked browser-owned file. A dirty-tree run is diagnostic; release evidence runs from a clean commit.
+`test:coverage:layered` rebuilds `lib/`, runs both lanes under one `gate-artifact` identity, and refuses a missing lane, mismatched identity, incomplete browser surface, or browser LCOV without an owned file. `tools/coverage-browser-floors.json` must cover every non-blocked browser-owned file and fails a file below its floor; missing, partial, or malformed is red. Coverage is collected in two phases around the reload, and an undeclared navigation is red. Standalone `npm run test:browser` is diagnostic; release evidence runs from a clean commit.
 
 `lib/` is local build output and is gitignored. After changing `src/`, run `npm run build` before packaging, `test:browser`, or `test:host-smoke`; both consumers read the current local `lib/`. A stale local `lib/` is not detected by a source hash, so the build step is part of the evidence.
 
@@ -69,8 +69,8 @@ The unit loader strips TypeScript in line-preserving mode; every `src` TypeScrip
 
 ## Blocking and observational lanes
 
-- Blocking: `npm test`, `npm run test:coverage`, `npm run typecheck`, `npm run build`, and `npm run test:host-smoke` for package/bundle changes when DSH is available. `npm run test:coverage:layered` is blocking for delivery and merge once the browser lane can run locally; a missing lane is red.
-- Blocking for release: the keyless lane's committed evidence for the current version. Observational: `test:e2e:live`, `test:e2e:bash`, browser floors, and host-specific checks; live/host-bash results are never release evidence, and browser floors become blocking after three green runs and a reviewed floors file.
+- Blocking: `npm test`, `npm run test:coverage`, `npm run typecheck`, `npm run build`, and `npm run test:host-smoke` for package/bundle changes when DSH is available. `npm run test:coverage:layered` blocks delivery and merge: a missing lane, incomplete surface, or file below its floor is red.
+- Blocking for release: the keyless lane's committed evidence for the current version. Observational: `test:e2e:live`, `test:e2e:bash`, the standalone browser run, and host-specific checks; standalone runs never decide delivery, and live/host-bash results are never release evidence.
 
 ## Flake policy
 
@@ -81,7 +81,7 @@ A flaky test is not fixed by a longer timeout, a retry, or a weaker assertion. F
 First run `npm run change-scope -- --base <verified-base>` and record the identity with `npm run gate-artifact -- --base <verified-base>`; account for committed, staged, unstaged, and untracked paths. [docs/agent-teams.md](agent-teams.md) owns how that artifact is reused and reconciled with task scope. Then decide the owning surface from `tools/workflow.json`:
 
 - `src/**`, `scripts/**` → `npm run test:coverage` + typecheck + build + host smoke; add `npm run test:coverage:layered -- --base <verified-base>` for delivery.
-- `tools/coverage-map.json`, `tools/coverage-debt.json`, `tools/coverage-browser-floors.json` → `npm run test:coverage` + `npm run coverage:check` + `npm run check`.
+- `tools/coverage-map.json`, `tools/coverage-debt.json`, `tools/coverage-browser-floors.json` → `npm run test:coverage` + `npm run coverage:check` + `npm run test:coverage:layered -- --base <verified-base>` + `npm run check`.
 - `src/client/**/*.tsx`, `tests/browser/**`, browser-lane scripts → `npm run build` + `npm run test:browser`; keep the browser page-error and mapping negative controls green; add the layered command for delivery.
 - `tests/*` → `npm test` + `npm run test:coverage`, and watch the new test fail for the regression it pins.
 - `tests/e2e/**`, `scripts/evidence/e2e.mjs`, `tools/e2e-coverage.mjs` → `npm run test:e2e` + `npm run check` + `npm test`; re-record the evidence whenever the keyless manifest changes.

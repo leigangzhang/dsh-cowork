@@ -118,9 +118,11 @@ function assertSourceSurface(workflow) {
 
 function assertBrowserSurface(workflow) {
   const browser = declaredSurface(workflow, 'browser')
-  assert.equal(browser.mode, 'observational', 'the browser lane starts observational')
+  assert.equal(browser.mode, 'blocking', 'the browser lane blocks through the layered gate')
   assert.ok(browser.patterns.includes('src/client/**/*.tsx'), 'the browser surface must own TSX')
   assert.ok(browser.evidence.includes('npm run test:browser'), 'browser evidence is missing the lane command')
+  assert.ok(browser.evidence.includes('npm run test:coverage:layered -- --base <verified-base>'), 'browser evidence is missing the layered command')
+  assert.ok(existsSync(resolve(root, 'tools/coverage-browser-floors.json')), 'a blocking browser surface needs reviewed per-file floors')
 }
 
 function assertLockfile(pkg) {

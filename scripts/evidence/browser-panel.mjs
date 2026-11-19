@@ -17,23 +17,25 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startDshHost } from './dsh-host-session.mjs'
 import {
-  clientCoverageFromEntry,
+  clientCoverageFromEntries,
   clientCoverageLcov,
   comboSectionIndex,
   comboSourceMapUrl,
+  coverageNavigationGuard,
   coverageCompletenessFailures,
-  pluginBundleEntry,
+  pluginBundleEntries,
 } from './client-coverage.mjs'
 import { gateArtifactFromEnv } from './test-coverage.mjs'
 import { sanitizeEvidenceText } from './evidence-sanitize.mjs'
 import { failurePayload, redactUrl } from './browser-evidence.mjs'
 import { seedBrowserProject, seedSecondaryProject } from '../../tests/browser/fixtures.mjs'
-import { runBrowserScenarios } from '../../tests/browser/scenarios.mjs'
+import { runBrowserScenarios, runReloadScenarios } from '../../tests/browser/scenarios.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 const CLIENT_BUNDLE_PATH = resolve(root, 'lib/client.js')
 const CLIENT_MAP_PATH = resolve(root, 'lib/client.js.map')
+const COVERAGE_OPTIONS = Object.freeze({ resetOnNavigation: false, reportAnonymousScripts: false })
 const STRICT = process.env.DSH_BROWSER_STRICT === '1'
 const KEEP = process.env.DSH_BROWSER_KEEP === '1'
 const HEADFUL = process.env.DSH_BROWSER_HEADFUL === '1'
@@ -141,11 +143,13 @@ function coverageSummary(report) {
     : `${file.file} line ${file.lineCoverage}% function ${file.functionCoverage}%`)
 }
 
-async function prepareFixtures(host, primaryRepo, secondaryRepo) {
-  // The secondary workspace starts empty; its Session is created through the
-  // real sidebar action during the switch scenario. The primary Session is
-  // created last so it is the one selected when the page opens.
+async function prepareFixtures(host, primaryRepo, secondaryRepo, emptyRepo) {
+  // The secondary and empty workspaces start without sessions; their Sessions
+  // are created through the real sidebar action during the switch and
+  // empty-project scenarios. The primary Session is created last so it is the
+  // one selected when the page opens.
   const secondaryWorkspace = await hostRpc(host, 'workspace/create', { path: secondaryRepo })
+  const emptyWorkspace = await hostRpc(host, 'workspace/create', { path: emptyRepo })
   const primaryIdentity = await createWorkspaceSession(host, primaryRepo)
   const primary = await seedBrowserProject(primaryRepo, primaryIdentity.sessionId)
   const fixtures = {
@@ -153,8 +157,15 @@ async function prepareFixtures(host, primaryRepo, secondaryRepo) {
     primaryWorkspaceId: primaryIdentity.workspaceId,
     primarySessionId: primaryIdentity.sessionId,
     secondaryWorkspaceId: secondaryWorkspace.workspace.workspaceId,
+    emptyWorkspaceId: emptyWorkspace.workspace.workspaceId,
+    // The secondary project's master is the primary Session, so the session
+    // created in the secondary workspace is a topic session with a real
+    // master to navigate back to.
     prepareSecondarySession: async (sessionId) => {
-      const secondary = await seedSecondaryProject(secondaryRepo, sessionId)
+      const secondary = await seedSecondaryProject(secondaryRepo, {
+        masterSessionId: fixtures.primarySessionId,
+        topicId: sessionId,
+      })
       fixtures.secondary = secondary
       return secondary
     },
@@ -188,7 +199,7 @@ async function openBrowserPage(chromium, host, state) {
       status: response.status(),
     }, MAX_NETWORK_ROWS)
   })
-  await page.coverage.startJSCoverage({ resetOnNavigation: false, reportAnonymousScripts: false })
+  await page.coverage.startJSCoverage(COVERAGE_OPTIONS)
   await page.goto(host.authenticatedUrl, { waitUntil: 'domcontentloaded' })
   await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 30_000 })
   await dismissFirstRun(page)
@@ -196,13 +207,14 @@ async function openBrowserPage(chromium, host, state) {
   return page
 }
 
-/** The combo entry, section index, and served map URL for this plugin's bundle. */
+/** The plugin's bundle entries, section index, and served map URL. */
 function coverageSource(coverageEntries) {
-  const entry = pluginBundleEntry(coverageEntries)
-  if (entry === null) throw new Error('the plugin client bundle was not present in JSCoverage')
-  const sectionIndex = comboSectionIndex(entry.url)
+  const entries = pluginBundleEntries(coverageEntries)
+  const first = entries[0]
+  if (first === undefined) throw new Error('the plugin client bundle was not present in JSCoverage')
+  const sectionIndex = comboSectionIndex(first.url)
   if (sectionIndex === null) throw new Error('the plugin package is missing from the combo URL')
-  return { entry, sectionIndex, servedMapUrl: comboSourceMapUrl(entry.url) }
+  return { entries, sectionIndex, servedMapUrl: comboSourceMapUrl(first.url) }
 }
 
 async function servedSourceMap(host, servedMapUrl) {
@@ -211,9 +223,9 @@ async function servedSourceMap(host, servedMapUrl) {
   return response.json()
 }
 
-function mappedCoverageReport({ entry, sectionIndex, sourceMapPayload }) {
-  const report = clientCoverageFromEntry({
-    entry,
+function mappedCoverageReport({ entries, sectionIndex, sourceMapPayload }) {
+  const report = clientCoverageFromEntries({
+    entries,
     sourceMapPayload,
     repoRoot: root,
     mapDirectory: dirname(CLIENT_MAP_PATH),
@@ -293,10 +305,10 @@ function reportCoverageResult(output, report, artifact) {
   console.log(`  kept summary: ${target}`)
 }
 
-async function publishCoverage({ host, probe, coverageEntries }) {
-  const { entry, sectionIndex, servedMapUrl } = coverageSource(coverageEntries)
+async function publishCoverage({ host, probe, entries }) {
+  const { entries: bundleEntries, sectionIndex, servedMapUrl } = coverageSource(entries)
   const sourceMapPayload = await servedSourceMap(host, servedMapUrl)
-  const report = mappedCoverageReport({ entry, sectionIndex, sourceMapPayload })
+  const report = mappedCoverageReport({ entries: bundleEntries, sectionIndex, sourceMapPayload })
   const artifact = coverageArtifact({ host, probe, servedMapUrl })
   assertStrictEvidence(artifact)
   const output = coverageOutput(artifact, report)
@@ -358,13 +370,15 @@ async function runBrowserLane({ chromium, probe }) {
   const laneRoot = mkdtempSync(join(tmpdir(), 'cowork-browser-lane-'))
   const primaryRepo = join(laneRoot, 'primary-repo')
   const secondaryRepo = join(laneRoot, 'secondary-repo')
+  const emptyRepo = join(laneRoot, 'empty-repo')
   mkdirSync(primaryRepo, { recursive: true })
   mkdirSync(secondaryRepo, { recursive: true })
+  mkdirSync(emptyRepo, { recursive: true })
   const state = { pageErrors: [], consoleMessages: [], network: [] }
   let host
   let browser
   let page
-  let coverageEntries
+  let coverageEntries = []
   try {
     host = await startDshHost({
       patchRepoPath: primaryRepo,
@@ -372,13 +386,20 @@ async function runBrowserLane({ chromium, probe }) {
       profileName: 'cowork-browser',
       prefix: 'cowork-browser-host-',
     })
-    const fixtures = await prepareFixtures(host, primaryRepo, secondaryRepo)
+    const fixtures = await prepareFixtures(host, primaryRepo, secondaryRepo, emptyRepo)
     browser = await chromium.launch({ headless: !HEADFUL })
     page = await openBrowserPage(browser, host, state)
+    const guard = coverageNavigationGuard(page)
     await runBrowserScenarios(page, fixtures)
     coverageEntries = await page.coverage.stopJSCoverage()
+    guard.assertFirstEmpty()
+    await page.coverage.startJSCoverage(COVERAGE_OPTIONS)
+    guard.enterSecond()
+    await runReloadScenarios(page, fixtures)
+    coverageEntries = coverageEntries.concat(await page.coverage.stopJSCoverage())
+    guard.assertSecondReloadOnly()
     if (state.pageErrors.length > 0) throw new Error(`page errors: ${state.pageErrors.join(' | ')}`)
-    await publishCoverage({ host, probe, coverageEntries })
+    await publishCoverage({ host, probe, entries: coverageEntries })
   } catch (error) {
     await reportLaneFailure({ page, error, ...state, coverage: coverageEntries, host })
   } finally {
