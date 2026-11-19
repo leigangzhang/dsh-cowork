@@ -62,6 +62,20 @@ export async function collectSurfaceKeys() {
 }
 
 /**
+ * Return whether a changed path cannot invalidate a keyless E2E recording.
+ *
+ * Documentation and the repository README do not change the shipped runtime
+ * tree. Evidence files themselves are also allowed to move after recording;
+ * the checker already binds them to the catalog and version.
+ *
+ * @param {string} path Repository-relative path.
+ * @returns {boolean} True when the path is evidence-neutral.
+ */
+export function isEvidenceNeutralPath(path) {
+  return path.startsWith('tests/e2e/evidence/') || path === 'README.md' || path.startsWith('docs/')
+}
+
+/**
  * Check one release evidence summary.
  *
  * The file proves a green keyless run happened for this package version from a
@@ -114,8 +128,8 @@ export function e2eEvidenceProblems({
     if (headSha !== '' && artifact.head !== headSha) {
       if (!evidenceHeadAncestor) {
         problems.push(`${label}: artifact.head is not an ancestor of HEAD`)
-      } else if (changedPathsSinceEvidenceHead.some((path) => !path.startsWith('tests/e2e/evidence/'))) {
-        problems.push(`${label}: files outside tests/e2e/evidence/ changed after artifact.head; re-record the lane`)
+      } else if (changedPathsSinceEvidenceHead.some((path) => !isEvidenceNeutralPath(path))) {
+        problems.push(`${label}: runtime files outside tests/e2e/evidence/, docs/, and README.md changed after artifact.head; re-record the lane`)
       }
     }
     if (artifact.dirty !== false) problems.push(`${label}: artifact.dirty must be false (record from a clean worktree)`)

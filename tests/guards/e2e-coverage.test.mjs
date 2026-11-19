@@ -7,6 +7,7 @@ import {
   collectSurfaceKeys,
   e2eEvidenceProblems,
   e2eManifestProblems,
+  isEvidenceNeutralPath,
   WORK_ITEM_STORE_ONLY_STATUSES,
 } from '../../tools/e2e-coverage.mjs'
 import { SCENARIOS } from '../../tests/e2e/scenarios/index.mjs'
@@ -130,7 +131,28 @@ test('the evidence checker binds the catalog, host, and recorded head', () => {
   assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, headSha: 'd'.repeat(40), evidenceHeadAncestor: false })
     .some((problem) => problem.includes('is not an ancestor of HEAD')))
   assert.ok(e2eEvidenceProblems({ ...EVIDENCE_INPUT, headSha: 'd'.repeat(40), changedPathsSinceEvidenceHead: ['tests/e2e/manifest.json'] })
-    .some((problem) => problem.includes('files outside tests/e2e/evidence/ changed')))
+    .some((problem) => problem.includes('runtime files outside tests/e2e/evidence/')))
+})
+
+test('documentation changes do not invalidate a committed E2E evidence recording', () => {
+  assert.equal(isEvidenceNeutralPath('docs/github-workflow.md'), true)
+  assert.equal(isEvidenceNeutralPath('README.md'), true)
+  assert.equal(isEvidenceNeutralPath('tests/e2e/evidence/0.2.0.json'), true)
+  assert.equal(isEvidenceNeutralPath('src/app/apply.ts'), false)
+  assert.equal(isEvidenceNeutralPath('tools/workflow.json'), false)
+  assert.deepEqual(
+    e2eEvidenceProblems({
+      ...EVIDENCE_INPUT,
+      headSha: 'd'.repeat(40),
+      changedPathsSinceEvidenceHead: ['docs/github-workflow.md', 'README.md', 'tests/e2e/evidence/0.2.0.json'],
+    }),
+    [],
+  )
+  assert.ok(e2eEvidenceProblems({
+    ...EVIDENCE_INPUT,
+    headSha: 'd'.repeat(40),
+    changedPathsSinceEvidenceHead: ['docs/github-workflow.md', 'src/app/apply.ts'],
+  }).some((problem) => problem.includes('runtime files outside tests/e2e/evidence/')))
 })
 
 test('the manifest covers the complete public tool and route surface', async () => {
