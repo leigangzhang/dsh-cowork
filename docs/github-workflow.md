@@ -565,3 +565,5 @@ workflow、脚本或 ruleset 改动后，同步更新本文，并按 [tools/work
 | 审查流程和独立审查 | [agent-teams.md](agent-teams.md)、[code-review](../.agents/skills/code-review/SKILL.md) |
 | 分支到合并的设计背景 | [pr-gate-flow.md](design/github-flow/pr-gate-flow.md) |
 | 合并和发布设置 | GitHub 仓库的 Rules、General 和 Actions 页面；[README.md](../README.md) 的安装与构建说明 |
+
+[broken block-mode drill](./block-mode-drill-missing.md)
