@@ -443,7 +443,10 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
       })
     }
     process.stdout.write(`${JSON.stringify({ mode, required: requiredPublished, report: reportPublished, decision: required })}\n`)
-    if (!required.pass) process.exitCode = 1
+    // A blocked decision is carried by the required check run. Failing this job
+    // would mark the app's check suite failed, and a GitHub ruleset then treats
+    // the required check as expected even after a later success. Keep the job
+    // green for a published decision; only unexpected errors use exit code 1.
   } catch (error) {
     process.stderr.write(`publish-gate: ${error instanceof Error ? error.message : String(error)}\n`)
     process.exitCode = 1

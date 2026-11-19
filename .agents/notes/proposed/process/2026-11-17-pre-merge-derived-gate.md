@@ -63,6 +63,7 @@ The repository is a personal public repository. Native GitHub merge queue is not
 ## Risks
 
 - **Bootstrap ordering.** Deleting the legacy workflow before the publisher is on `main` leaves the PR without its required gate; PR #57 hit this once. The keep-alive guard made the retirement a deliberate test change, and the follow-up assertion now requires the replacement publisher to be the only one.
+- **Check-suite pollution.** A failed publisher job marks the app check suite failed; a GitHub ruleset then treats the required check as `expected` even after a later success. The publisher keeps its job green for a published blocked decision; the required check run carries the verdict. This surfaced on PR #60 and needed one temporary ruleset relaxation to merge.
 - **Base-recheck timing.** `main` can advance before the stale `action_required` is published; there is a short window that a merge queue would close.
 - **Fork PRs.** `workflow_run.pull_requests` can be empty for forks; the fallback requires exactly one open PR and otherwise fails closed. The current flow targets same-repository `agent/<topic>` branches.
 - **Pagination and check selection.** Reviews and check runs use `per_page=100`; very long PRs may need pagination. The latest `pre-merge` check is selected by completion time, not "latest success".
