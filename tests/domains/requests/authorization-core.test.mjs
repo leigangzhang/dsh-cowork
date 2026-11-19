@@ -264,6 +264,40 @@ test('a card written with another terminal status is classified as a conflict', 
   assert.equal(outcome.cardRecord.status, 'denied')
 })
 
+test('a recovery that loses the card before the lock does not write a second decision', async () => {
+  const requested = {
+    eventId: 'event-auth-requested',
+    time: NOW_ISO,
+    type: 'authorization-requested',
+    topicId: TOPIC,
+    summary: 'requested authorization',
+    details: { topicId: TOPIC, requestId: REQUEST_ID, notice: {} },
+  }
+  const baseCard = pendingCard()
+  let reads = 0
+  const racingCard = {
+    async read() {
+      reads += 1
+      return reads === 1 ? baseCard : { ...baseCard, status: 'allowed' }
+    },
+    async updateUnlocked() {
+      throw new Error('the recovery must not settle a card that already lost the race')
+    },
+  }
+  const { store, calls } = fakeStore(projectDocument(pendingTopic({
+    authorization: null,
+    blockedReason: 'handoff',
+    blockedFromStatus: 'active',
+  })), { activity: [requested] })
+
+  await assert.rejects(
+    resolveAuthorizationDecision(coreInput(store, { requestCard: racingCard })),
+    (error) => error.code === 'authorization/not-found',
+  )
+  assert.equal(calls.mutations, 0, 'the index is not written after the card is gone')
+  assert.equal(reads, 2, 'the recovery re-checks the card under the lock')
+})
+
 test('a deferred prompt is returned instead of fired, and a non-deferred one reports its failure', async () => {
   const deferred = await resolveAuthorizationDecision(coreInput(fakeStore().store, {
     requestCard: fakeCard(),
