@@ -8,7 +8,7 @@ Class: process
 
 The current flow binds `pr-gate`, `review-verdict`, and `gate-artifact` to one PR HEAD. A `main` advance forces a branch update, which creates a new HEAD and invalidates the reviewed test and review results even when the authored diff did not change. `gate-artifact` also runs only on review events, so a review submitted before CI can leave the required check waiting indefinitely.
 
-The first implementation attempt (PR #57) exposed this rollout blocker: it deleted `.github/workflows/gate-artifact.yml` before `scripts/ci/publish-gate.mjs` existed on `main`. A `pull_request_review` run executes the workflow from the PR head, so the replacement workflow checked out `main`, could not find the publisher script, and produced no required `gate-artifact` check. PR #57 now restores the legacy workflow and lands the publisher with it; the deletion moves to the follow-up PR that runs after the publisher is on `main`.
+The first implementation attempt (PR #57) exposed this rollout blocker: it deleted `.github/workflows/gate-artifact.yml` before `scripts/ci/publish-gate.mjs` existed on `main`. A `pull_request_review` run executes the workflow from the PR head, so the replacement workflow checked out `main`, could not find the publisher script, and produced no required `gate-artifact` check. PR #57 restored the legacy workflow and landed the publisher with it; the follow-up PR retired the legacy workflow after the publisher reached `main`.
 
 The repository is a personal public repository. Native GitHub merge queue is not available for user-owned repositories, so this proposal keeps manual merge and uses a trusted pre-merge check instead. It does not introduce a merge train, file-domain governance, conflict notification, or LLM conflict resolution.
 
@@ -25,7 +25,7 @@ The repository is a personal public repository. Native GitHub merge queue is not
 
 `changedPaths` uses `--no-renames` so a main-side rename cannot hide an overlap. `Policy Base` publishes only `action_required` after a main push, invalidating both `gate-artifact` and `gate-artifact-v2`; it never publishes success.
 
-**4. Bootstrap the publisher before deleting the legacy workflow.** The legacy `.github/workflows/gate-artifact.yml` must remain until `scripts/ci/publish-gate.mjs` is on `main`. The safe order is: land the publisher scripts on `main`, then delete the legacy workflow in a follow-up PR, then activate block mode. The legacy workflow must not be removed in the same PR that first introduces the publisher, and `tests/guards/review-gate.test.mjs` fails until the follow-up PR deliberately replaces the keep-alive assertion.
+**4. Bootstrap the publisher before deleting the legacy workflow.** The legacy `.github/workflows/gate-artifact.yml` must remain until `scripts/ci/publish-gate.mjs` is on `main`. The safe order is: land the publisher scripts on `main`, then delete the legacy workflow in a follow-up PR, then activate block mode. The legacy workflow must not be removed in the same PR that first introduces the publisher; PR #57 landed the publisher with a keep-alive guard, and the follow-up PR replaced that guard with the uniqueness assertion.
 
 **5. Keep docs and evidence proportional.** A docs-only PR runs only `npm run check`, but review is still required. `docs/**` and `README.md` changes after an E2E evidence recording are evidence-neutral; runtime, test, script, catalog, and packaging changes still require a new recording. No `Docs-Impact` gate is added.
 
@@ -62,7 +62,7 @@ The repository is a personal public repository. Native GitHub merge queue is not
 
 ## Risks
 
-- **Bootstrap ordering.** Deleting the legacy workflow before the publisher is on `main` leaves the PR without its required gate; PR #57 hit this once. The guard in `tests/guards/review-gate.test.mjs` fails if the legacy workflow disappears, so the follow-up deletion is a deliberate, reviewed test change.
+- **Bootstrap ordering.** Deleting the legacy workflow before the publisher is on `main` leaves the PR without its required gate; PR #57 hit this once. The keep-alive guard made the retirement a deliberate test change, and the follow-up assertion now requires the replacement publisher to be the only one.
 - **Base-recheck timing.** `main` can advance before the stale `action_required` is published; there is a short window that a merge queue would close.
 - **Fork PRs.** `workflow_run.pull_requests` can be empty for forks; the fallback requires exactly one open PR and otherwise fails closed. The current flow targets same-repository `agent/<topic>` branches.
 - **Pagination and check selection.** Reviews and check runs use `per_page=100`; very long PRs may need pagination. The latest `pre-merge` check is selected by completion time, not "latest success".
@@ -72,7 +72,7 @@ The repository is a personal public repository. Native GitHub merge queue is not
 
 ## Delivery stages
 
-1. **Unblock the bootstrap.** Keep the legacy workflow on PR #57 until the publisher reaches `main`; this delivery restores it and lands the publisher. Splitting the publisher into a preparatory PR is the alternative if the branch is retargeted.
+1. **Unblock the bootstrap.** Keep the legacy workflow on the PR branch until the publisher reaches `main`; PR #57 restored it and landed the publisher. Splitting the publisher into a preparatory PR is the alternative if a branch is retargeted.
 2. **Land publisher scripts on `main`.** Merge the publisher, pre-merge, gate, base-recheck, and tests without deleting the legacy workflow.
 3. **Retire the legacy publisher.** In a follow-up, delete `.github/workflows/gate-artifact.yml` and verify the review event still produces required `gate-artifact`.
 4. **Activate block mode.** Set `MERGE_POLICY_MODE=block`, verify a known failing PR is red and a known passing PR is green, then remove strict up-to-date.

@@ -25,7 +25,7 @@
 | 默认分支 | `main` |
 | 分支约定 | 一个工作流使用一个 `agent/<topic>` 分支；GitHub 不强制分支名 |
 | 合并方式 | 人工合并提交（merge commit）；不使用 merge queue |
-| 合并前必需检查 | 当前 `main` ruleset 要求 `pr-gate`、`gate-artifact`。PR #57 保留旧 workflow 并落地唯一 publisher；旧 workflow 删除前，required `gate-artifact` 仍由它产生，`gate-artifact-v2` 只做 report advisory |
+| 合并前必需检查 | 当前 `main` ruleset 要求 `pr-gate`、`gate-artifact`。`gate-artifact` 只由 `Policy V2` 的 publisher 发布；`gate-artifact-v2` 只做 report advisory |
 | GitHub 自动测试 | `pr-gate` 的 docs lane 运行 `check`；非 docs 改动再运行 `test:coverage`。`npm test` 不再在 `pr-gate` 中重复执行 |
 | 合并结果测试 | `Pre-Merge` 在 `pull_request_target` 中把当前 `main` 合到 PR HEAD，运行路径相关检查，并发布 `pre-merge` 检查 |
 | Base 前进 | 不更新 PR 分支；`Policy Base` 使旧 `gate-artifact` 和 `gate-artifact-v2` 变为 stale，维护者给 PR 加 `recheck` 标签后重新运行 pre-merge |
@@ -34,7 +34,7 @@
 | 代码审查 | 独立 review 给出 `review-verdict:v2`；required `gate-artifact` 在 report mode 校验 legacy 身份，在 block mode 校验 v2 + pre-merge |
 | 自动发布 | 无；详见第 7 节 |
 
-**当前分支状态（2026-11-18）：** PR #57 恢复了旧 `gate-artifact.yml`，并在同一 PR 落地唯一 publisher `publish-gate.mjs`。旧 workflow 与 publisher 会在 `main` 短暂并存，required `gate-artifact` 仍由旧 workflow 产生；删除旧 workflow 的后续 PR 必须在 publisher 已进入 `main` 之后进行；详见 §4.7。
+**当前状态（2026-11-19）：** PR #57 已把 publisher `publish-gate.mjs` 合入 `main`；后续 PR 在 publisher 就位后删除了旧 `gate-artifact.yml`。现在 required `gate-artifact` 只由 `Policy V2` 发布，report mode 仍用 legacy 校验；block mode 激活后改为 v2 + `pre-merge` 校验。详见 §4.7。
 
 ## 3. 总流程概览
 
@@ -334,7 +334,7 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow。`pr-ga
 
 `Policy Base` 在 main push 时把旧的绿色 `gate-artifact` 和 `gate-artifact-v2` 都标成 `action_required`，防止旧 base 上的成功被误合并。它只更新检查状态，不评论、不打标签、不修改 PR 分支。
 
-### Bootstrap：旧 workflow 必须先保留
+### Bootstrap：旧 workflow 的保留与退役
 
 `pull_request_review` 运行的是 PR head 上的 workflow。新的 publisher 脚本必须先进入 `main`，否则替代 workflow 检出 `main` 后找不到 `scripts/ci/publish-gate.mjs`，required `gate-artifact` 不会产生。
 
@@ -345,7 +345,7 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow。`pr-ga
 3. 用后续 PR 删除旧 workflow，并验证 review 事件仍能产生 required `gate-artifact`。
 4. 最后才进入 block mode。
 
-PR #57 曾在 head 提前删除旧 workflow，而 publisher 尚未进入 `main`，所以它无法满足自己的 required check，PR 保持 `BLOCKED`。现在该 PR 恢复旧 workflow，并在同一 PR 落地 publisher；删除旧 workflow 只发生在 publisher 已进入 `main` 的后续 PR。
+PR #57 曾在 head 提前删除旧 workflow，而 publisher 尚未进入 `main`，所以它无法满足自己的 required check，PR 保持 `BLOCKED`。PR #57 最终恢复旧 workflow 并落地 publisher；后续 PR 在 publisher 已进入 `main` 后删除旧 workflow，并用该 PR 的 review 事件确认 required `gate-artifact` 仍能产生。
 
 **激活顺序：**
 
