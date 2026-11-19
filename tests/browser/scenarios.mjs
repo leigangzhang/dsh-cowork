@@ -20,16 +20,27 @@ function waitForPost(page, path) {
   })
 }
 
-/** The visible panel root, after ensuring the right-sidebar tab is open. */
+/**
+ * The visible panel root, after ensuring the right-sidebar tab is open.
+ *
+ * A session switch can land between the visibility check and the tab open, and
+ * the host may close the right sidebar for the new session. Re-check the end
+ * state and open the tab again instead of trusting one click.
+ */
 async function ensurePanel(page) {
   const panel = page.getByTestId('cw-panel')
-  if (!(await panel.isVisible().catch(() => false))) {
-    const footer = page.getByRole('button', { name: '打开 Cowork 面板' })
-    await footer.waitFor({ timeout: 15_000 })
-    await footer.click()
+  const footer = page.getByRole('button', { name: '打开 Cowork 面板' })
+  const deadline = Date.now() + 20_000
+  for (;;) {
+    if (await panel.isVisible().catch(() => false)) return panel
+    if (await footer.isVisible().catch(() => false)) {
+      await footer.click({ timeout: 5_000 }).catch(() => {})
+    }
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) break
+    if (await panel.waitFor({ timeout: Math.min(2_000, remaining) }).then(() => true).catch(() => false)) return panel
   }
-  await panel.waitFor({ timeout: 15_000 })
-  return panel
+  throw new Error('the Cowork panel did not become visible within 20s')
 }
 
 /** Wait until the first overview read painted either groups or an error/empty surface. */
@@ -434,6 +445,13 @@ async function scenarioSessionSwitch(page, fixtures) {
   await clear.waitFor({ timeout: 10_000 })
   assert.match(await clear.innerText(), /第二个浏览器会话/)
 
+  // The card's topic is the session already selected, so opening it exercises
+  // the real navigation path without leaving the app on a session that the
+  // host does not know.
+  await ensureTopicList(page)
+  await page.locator(`.cw-card[data-topic-id="${secondary.topic.topicId}"] .cw-card-open`).click()
+  await page.locator('.cw-receipt[data-kind="ok"]').filter({ hasText: '已切换到主题' }).waitFor({ timeout: 10_000 })
+
   // The selected session is a topic whose master is a different real session,
   // so the header renders the breadcrumb and it navigates back to the master.
   const breadcrumb = page.getByRole('button', { name: /返回 master/ })
@@ -518,37 +536,6 @@ async function scenarioNoteOpen(page) {
   await page.unroute(`**${PATH_INBOX_OPEN}`)
 }
 
-/**
- * Clicking a card asks the host to open that topic session.
- *
- * The fixture topics are store rows without real DSH sessions, so the host
- * either switches to an empty Conversation (a new overview read for the topic
- * id) or refuses; both outcomes carry a receipt. The assertion accepts either
- * proof, because the host decides which one is true.
- */
-async function scenarioOpenTopic(page) {
-  await ensurePanel(page)
-  await waitForOverview(page)
-  await ensureTopicList(page)
-  const topicId = BROWSER_TOPICS.running
-  const card = page.locator(`.cw-card[data-topic-id="${topicId}"]`)
-  await card.waitFor({ timeout: 10_000 })
-  const navigated = page.waitForResponse((response) => {
-    try {
-      const url = new URL(response.url())
-      return url.pathname === PATH_OVERVIEW && url.searchParams.get('sessionId') === topicId
-    } catch {
-      return false
-    }
-  }, { timeout: 10_000 })
-  await card.locator('.cw-card-open').click()
-  const outcome = await Promise.race([
-    navigated.then(() => 'navigated').catch(() => 'no-navigation'),
-    page.locator('.cw-receipt[data-kind]').waitFor({ timeout: 10_000 }).then(() => 'receipt').catch(() => 'no-receipt'),
-  ])
-  assert.notEqual(outcome, 'no-navigation')
-}
-
 /** A session with no Cowork project renders the empty surface, not an error. */
 async function scenarioEmptyProject(page, fixtures) {
   const row = page.locator(`[data-row-key="workspace:${fixtures.emptyWorkspaceId}"]`)
@@ -618,6 +605,5 @@ export async function runBrowserScenarios(page, fixtures) {
 export async function runReloadScenarios(page, fixtures) {
   await scenarioFilterPersistence(page)
   await scenarioSessionSwitch(page, fixtures)
-  await scenarioOpenTopic(page)
   await scenarioEmptyProject(page, fixtures)
 }
