@@ -52,7 +52,7 @@ The repository is a personal public repository. Native GitHub merge queue is not
 - Bootstrap ordering cost one blocked PR: the legacy workflow had to stay until the publisher was on `main`. The keep-alive guard then made the retirement a deliberate, reviewed test change.
 - Check-suite pollution cost one temporary ruleset relaxation: a failed publisher job marks the app check suite failed, and a GitHub ruleset then treats the required check as `expected` even after a later success. The publisher now keeps its job green for a published blocked decision; only unexpected errors fail it.
 - Docs and `README.md` changes are evidence-neutral after an E2E recording; runtime, test, script, catalog, and packaging changes still require a new recording. Docs-only review is not waived.
-- The second opinion targets an independent non-DeepSeek model, `kimi-k2.7-code` at high effort. The configured `kimi` provider is not in the subagent model allow-list and `KIMI_API_KEY` is unset, so a second opinion is recorded `not run`, never a default pass. Revisit when the provider is routable.
+- The second opinion targets an independent non-DeepSeek model, `kimi-k2.7-code` at high effort. The provider is configured through the DSH subagent model allow-list and the credential store, and the model is available in new sessions. A second opinion is recorded `not run` when the route is unavailable, never a default pass.
 - Revisit this decision if GitHub adds merge queues for user-owned repositories, if the second-opinion route changes, or if the ruleset or check-suite behaviour changes.
 
 ## Testing
