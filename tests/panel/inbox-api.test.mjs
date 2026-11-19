@@ -602,6 +602,48 @@ test('the inbox resolve route shares the one authorization decision core', async
   })
 })
 
+test('resolve recovers an authorization whose topic record lost it', async () => {
+  await withRepo(async (repoPath) => {
+    // The shape a topic's blocked report used to leave behind: the block reason
+    // moved to handoff and the authorization disappeared while the request card
+    // stayed pending. The decision may rebuild the state it should have had.
+    const store = await seedProject(repoPath, [topic(TOPIC, 'Inbox backend', {
+      blocked: true,
+      blockedReason: 'handoff',
+      blockedFromStatus: 'active',
+      blockedAt: NOW_ISO,
+    })])
+    await seedRequest(repoPath, store, {
+      requestId: 'req-orphan',
+      kind: 'authorization',
+      payload: { summary: 'may I push?', command: 'git push' },
+    })
+    await store.appendActivity(activity.authorizationRequestedActivity(
+      topic(TOPIC, 'Inbox backend'),
+      { requestId: 'req-orphan', summary: 'may I push?' },
+      NOW,
+    ))
+    const { ports, state } = fakePorts(repoPath)
+    const routes = registerRoutes(ports)
+    const { status, body } = await readResponse(
+      await routes.get(inboxContract.INBOX_RESOLVE_PATH).fetch(postRequest(inboxContract.INBOX_RESOLVE_PATH, {
+        sessionId: MASTER,
+        requestId: 'req-orphan',
+        action: 'allow',
+      })),
+    )
+    assert.equal(status, 200)
+    assert.equal(body.item.status, 'allowed')
+    assert.equal(body.prompted, true)
+    const document = await store.readIndexDocument()
+    assert.equal(document.topics[0].blocked, false)
+    assert.equal(document.topics[0].blockedReason, null)
+    assert.equal(document.topics[0].authorization, null)
+    assert.deepEqual(state.prompts.map((entry) => entry.sessionId), [TOPIC])
+    assert.equal(state.noticeUpdates[0].patch.status, 'allowed')
+  })
+})
+
 test('open reveals the stored plan file and rejects a path-shaped body', async () => {
   await withRepo(async (repoPath) => {
     const store = await seedProject(repoPath, [topic(TOPIC, 'Inbox backend')])

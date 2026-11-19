@@ -77,6 +77,7 @@ export const TOPIC_PAGE_ERROR_CODES = {
   summaryTooLong: 'topic/summary-too-long',
   proposalTitleRequired: 'topic/proposal-title-required',
   proposalWriteFailed: 'topic/proposal-write-failed',
+  authorizationPending: 'topic/authorization-pending',
 } as const
 
 /** The bounded topic view used by every topic tool. */
@@ -88,6 +89,22 @@ function requiredText(value: unknown, limit: number): string | null {
   const text = value.trim()
   if (text === '' || Array.from(text).length > limit) return null
   return text
+}
+
+/**
+ * Block for a report or handoff without downgrading a pending authorization.
+ *
+ * `blockedReason: 'authorization'` and the `authorization` record are the pair
+ * the inbox decision resolves. Replacing that reason with `handoff` clears the
+ * record and leaves the card pending but undecidable. A user decision or an
+ * archive is the only way to clear it, so topic reports preserve the stronger
+ * state.
+ */
+function blockForTopicReport(topic: TopicRecordV2, nowMs: number): TopicRecordV2 {
+  const reason = topic.authorization === null || topic.authorization === undefined
+    ? 'handoff'
+    : 'authorization'
+  return blockTopic(topic, reason, nowMs)
 }
 
 /** One canonical topic created by `cowork_topic_create` or `cowork_route`. */
@@ -355,11 +372,15 @@ async function handoff(args: Record<string, unknown>, exec: unknown, deps: Cowor
       if (existing === undefined || existing.status === 'resolved') return null
       const next: TopicRecordV2 = record.status === 'done'
         // Releasing a block restores the status it interrupted, then new
-        // activity (the handoff itself) brings the topic back to active.
-        ? { ...noteTopicActivity(unblockTopic(existing, nowMs), nowMs), digest, awaitingReview: false, lastDeliveryConfirmedAt: record.createdAt }
-        // A blocked handoff blocks for handoff reasons; a pending authorization
-        // cannot survive a different reason (the pair is validated on write).
-        : { ...blockTopic(existing, 'handoff', nowMs), digest, awaitingReview: false, authorization: null }
+        // activity (the handoff itself) brings the topic back to active. A
+        // pending authorization is not the topic's to clear: the handoff is
+        // recorded, but the block waits for the user's decision.
+        ? existing.authorization === null || existing.authorization === undefined
+          ? { ...noteTopicActivity(unblockTopic(existing, nowMs), nowMs), digest, awaitingReview: false, lastDeliveryConfirmedAt: record.createdAt }
+          : { ...noteTopicActivity(existing, nowMs), digest, awaitingReview: false, lastDeliveryConfirmedAt: record.createdAt }
+        // A blocked handoff reports a block without replacing a pending
+        // authorization's reason; only a decision or archive clears that pair.
+        : { ...blockForTopicReport(existing, nowMs), digest, awaitingReview: false }
       updated = next
       return {
         ...current,
@@ -422,7 +443,7 @@ async function reportTopic(args: Record<string, unknown>, exec: unknown, deps: C
       const existing = document.topics.find((entry) => entry.topicId === caller.sessionId)
       if (existing === undefined || existing.status === 'resolved') return null
       const next: TopicRecordV2 = kind === 'blocked'
-        ? { ...blockTopic(existing, 'handoff', nowMs), digest: truncateText(summary, 200), authorization: null }
+        ? { ...blockForTopicReport(existing, nowMs), digest: truncateText(summary, 200) }
         : { ...noteTopicActivity(existing, nowMs), digest: truncateText(summary, 200) }
       updated = next
       return {
@@ -560,6 +581,15 @@ async function requestAuthorization(args: Record<string, unknown>, exec: unknown
     if (opened.topic.status === 'resolved') {
       return toJson(failure(TOPIC_ERROR_CODES.topicNotFound, `topic ${caller.sessionId} is archived`))
     }
+    // One pending authorization per topic: replacing it would orphan the card
+    // the user is already looking at. The first request keeps the decision; the
+    // caller waits or asks the user.
+    if (opened.topic.authorization !== null && opened.topic.authorization !== undefined) {
+      return toJson(failure(
+        TOPIC_PAGE_ERROR_CODES.authorizationPending,
+        `topic ${caller.sessionId} already has a pending authorization ${opened.topic.authorization.requestId}`,
+      ))
+    }
     const now = nowOf(deps)
     const nowMs = now.getTime()
     const requestId = randomUUID()
@@ -568,6 +598,7 @@ async function requestAuthorization(args: Record<string, unknown>, exec: unknown
     await opened.opened.store.mutateIndexDocument((document) => {
       const existing = document.topics.find((entry) => entry.topicId === caller.sessionId)
       if (existing === undefined || existing.status === 'resolved') return null
+      if (existing.authorization !== null && existing.authorization !== undefined) return null
       const next: TopicRecordV2 = {
         ...blockTopic(existing, 'authorization', nowMs),
         authorization: { requestId, summary: trimmed, requestedAt: now.toISOString() },
@@ -579,6 +610,15 @@ async function requestAuthorization(args: Record<string, unknown>, exec: unknown
       }
     })
     if (updated === null) {
+      const current = (await opened.opened.store.readIndexDocument())
+        .topics.find((entry) => entry.topicId === caller.sessionId)
+      const racePending = current?.authorization ?? null
+      if (racePending !== null) {
+        return toJson(failure(
+          TOPIC_PAGE_ERROR_CODES.authorizationPending,
+          `topic ${caller.sessionId} already has a pending authorization ${racePending.requestId}`,
+        ))
+      }
       return toJson(failure(TOPIC_ERROR_CODES.topicNotFound, `topic ${caller.sessionId} changed while requesting authorization`))
     }
     let requestRecorded = false
