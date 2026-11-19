@@ -281,6 +281,12 @@ PR 创建或更新后，`.github/workflows/ci.yml` 触发 `CI` workflow。`pr-ga
 
 它不会把合并结果 push 回 PR 分支。测试结果由受信任的 publisher job 发布为 `pre-merge` check，summary 记录 `head`、`base`、`currentBase`、`docsOnly` 和 `result`。
 
+测试 job 会创建临时 git 仓库并提交，而 GitHub 提供的 runner 没有全局 git identity。因此 `pre-merge-test` 显式设置 `GIT_AUTHOR_*`、`GIT_COMMITTER_*` 和 `init.defaultBranch main`，与 `CI` 的 `unit` job 保持一致；`tests/guards/pre-merge-workflow.test.mjs` 钉住这些配置，缺任一项都会让非 docs 改动的 coverage lane 在 hosted runner 上失败。
+
+publisher job 的 display name 是 `pre-merge-publish`，不能与它发布的 `pre-merge` check 同名：`readPreMerge` 按完成时间取最新的 `pre-merge` check 并解析 summary，同名 job check 的空 summary 会让解析失败。
+
+`pull_request_target` 的 workflow 定义来自 `main`，所以修改 `pre-merge.yml` 的 PR 无法用自己的 `pre-merge` 运行验证修复；修复合入后由下一个非 docs PR 的 coverage lane 实证。
+
 `main` 前进后，旧 `pre-merge` 的 base 已经不是当前 main。`Policy Base` 会把旧的绿色 `gate-artifact` 和 `gate-artifact-v2` 都标成 `action_required`。维护者给 PR 加 `recheck` 标签后重新运行 `pre-merge`；通常不需要更新 PR 分支或重审。唯一例外是 gate 报 reviewed-path overlap：此时必须把当前 main 合入 PR 分支，产生新 HEAD，再对新 merge-base 做 delta review，`recheck` 本身不能解除该状态。
 
 ### 4.6 独立审查
