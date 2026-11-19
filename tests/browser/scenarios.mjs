@@ -27,18 +27,26 @@ function waitForPost(page, path) {
  * the host may close the right sidebar for the new session. Re-check the end
  * state and open the tab again instead of trusting one click.
  */
+function isPanelVisible(panel) {
+  return panel.isVisible().catch(() => false)
+}
+
+/** Click the footer entry when it is on screen; it is the only tab opener. */
+async function openPanelTab(page) {
+  const footer = page.getByRole('button', { name: '打开 Cowork 面板' })
+  if (!(await footer.isVisible().catch(() => false))) return
+  await footer.click({ timeout: 5_000 }).catch(() => {})
+}
+
 async function ensurePanel(page) {
   const panel = page.getByTestId('cw-panel')
-  const footer = page.getByRole('button', { name: '打开 Cowork 面板' })
   const deadline = Date.now() + 20_000
-  for (;;) {
-    if (await panel.isVisible().catch(() => false)) return panel
-    if (await footer.isVisible().catch(() => false)) {
-      await footer.click({ timeout: 5_000 }).catch(() => {})
-    }
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) break
-    if (await panel.waitFor({ timeout: Math.min(2_000, remaining) }).then(() => true).catch(() => false)) return panel
+  while (Date.now() < deadline) {
+    if (await isPanelVisible(panel)) return panel
+    await openPanelTab(page)
+    const remaining = Math.max(1, deadline - Date.now())
+    const settled = await panel.waitFor({ timeout: Math.min(2_000, remaining) }).then(() => true).catch(() => false)
+    if (settled) return panel
   }
   throw new Error('the Cowork panel did not become visible within 20s')
 }

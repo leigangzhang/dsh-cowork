@@ -359,6 +359,26 @@ function coverageFiles(sourceByFile) {
     .sort((left, right) => left.file.localeCompare(right.file))
 }
 
+function entryFunctions(entry) {
+  return Array.isArray(entry.functions) ? entry.functions : []
+}
+
+/** The entry text, or a failure when the entry carries no mappable script. */
+function entrySourceText(entry) {
+  const sourceText = entry?.source ?? entry?.text
+  if (typeof sourceText !== 'string') throw new Error('client coverage entry needs a source string')
+  if (entryFunctions(entry).length === 0 && !Array.isArray(entry.ranges)) {
+    throw new Error('client coverage entry needs source and function ranges')
+  }
+  return sourceText
+}
+
+/** The ranges a phase reports: function ranges, or a plain range list as fallback. */
+function entryRanges(entry, functions) {
+  if (functions.length === 0) return entry.ranges ?? []
+  return functions.flatMap(fn => fn.ranges ?? [])
+}
+
 /**
  * Fold one JSCoverage entry into the shared per-source sets.
  *
@@ -369,16 +389,10 @@ function coverageFiles(sourceByFile) {
  * union instead of replacing each other.
  */
 function accumulateEntry({ entry, sourceMap, generatedRange, sourceByFile }) {
-  const sourceText = entry?.source ?? entry?.text
-  if (typeof sourceText !== 'string' || (!Array.isArray(entry.functions) && !Array.isArray(entry.ranges))) {
-    throw new Error('client coverage entry needs source and function ranges')
-  }
-  const functions = Array.isArray(entry.functions) ? entry.functions : []
-  const ranges = functions.length === 0
-    ? entry.ranges ?? []
-    : functions.flatMap(fn => fn.ranges ?? [])
+  const sourceText = entrySourceText(entry)
+  const functions = entryFunctions(entry)
   const { lineAt, columnAt } = positionsOf(sourceText)
-  const { starts, ends } = buildRangeIndex(ranges, sourceText)
+  const { starts, ends } = buildRangeIndex(entryRanges(entry, functions), sourceText)
   const covered = buildCoverageMask(sourceText, starts, ends)
   mapLineCoverage({ sourceText, lineAt, columnAt, sourceMap, sourceByFile, covered, generatedRange })
   mapFunctionCoverage({ functions, sourceText, lineAt, columnAt, sourceMap, sourceByFile, generatedRange })
