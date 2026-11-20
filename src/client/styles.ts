@@ -50,6 +50,15 @@ export const PANEL_CSS = `
 
 .cw-root * { box-sizing: border-box; }
 
+.cw-tabs { flex: none; display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--dsw-alias-border-l1, #e3e6ea); }
+.cw-tab { border: none; background: transparent; color: var(--dsw-alias-label-secondary, #5b6470); font: inherit; font-size: 12px; padding: 6px 9px; cursor: pointer; border-bottom: 2px solid transparent; }
+.cw-tab[data-active="true"] { color: var(--dsw-alias-label-primary, #1f2329); border-bottom-color: var(--dsw-alias-brand-primary, #3457d5); }
+.cw-tab:hover { color: var(--dsw-alias-label-primary, #1f2329); }
+.cw-tab:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #3457d5); outline-offset: -2px; }
+.cw-tab-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cw-tab-placeholder { padding: 24px 14px; text-align: center; font-size: 12px; color: var(--dsw-alias-label-secondary, #5b6470); }
+
+
 .cw-header {
   flex: none;
   display: flex;

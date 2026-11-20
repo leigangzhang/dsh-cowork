@@ -1,10 +1,33 @@
 {
   "version": 1,
   "files": {
-    "src/client/contracts.ts": { "lineCoverage": 100, "functionCoverage": 100 },
-    "src/client/inbox.tsx": { "lineCoverage": 100, "functionCoverage": 91.67 },
-    "src/client/index.tsx": { "lineCoverage": 100, "functionCoverage": 80 },
-    "src/client/list.tsx": { "lineCoverage": 100, "functionCoverage": 90.91 },
-    "src/client/panel.tsx": { "lineCoverage": 95.89, "functionCoverage": 97.37 }
+    "src/client/contracts.ts": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
+    },
+    "src/client/inbox.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 91.67
+    },
+    "src/client/index.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 80
+    },
+    "src/client/list.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 90.91
+    },
+    "src/client/panel.tsx": {
+      "lineCoverage": 95.89,
+      "functionCoverage": 97.37
+    },
+    "src/client/work-item/list.tsx": {
+      "lineCoverage": 96,
+      "functionCoverage": 95
+    },
+    "src/client/work-item/panel.tsx": {
+      "lineCoverage": 95,
+      "functionCoverage": 85
+    }
   }
 }

@@ -72,8 +72,20 @@ import {
   type InboxRequestView,
 } from './inbox-model.ts'
 import { ensurePanelStyles } from './styles.ts'
+import { WorkItemList } from './work-item/list.tsx'
 
 type LoadPhase = 'loading' | 'ready' | 'error'
+
+/** The four planned internal tabs; the last two are placeholders for now. */
+type CoworkPanelTab = 'topics' | 'work-items' | 'activity' | 'memory'
+
+/** Tab order of the Cowork panel body. */
+const COWORK_PANEL_TABS: ReadonlyArray<{ readonly id: CoworkPanelTab; readonly label: string }> = [
+  { id: 'topics', label: '主题' },
+  { id: 'work-items', label: '工作项' },
+  { id: 'activity', label: '活动记录' },
+  { id: 'memory', label: '项目记忆' },
+]
 
 /** The optimistic shape of an archived topic (the group rule does the rest). */
 function archived(topic: WireTopic): WireTopic {
@@ -171,6 +183,7 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
   const [pendingRequestIds, setPendingRequestIds] = useState<ReadonlySet<string>>(() => new Set())
   const [inboxReceipts, setInboxReceipts] = useState<ReadonlyMap<string, InboxReceipt>>(() => new Map())
   const [widthMode, setWidthMode] = useState<PanelWidthMode>('wide')
+  const [activeTab, setActiveTab] = useState<CoworkPanelTab>('topics')
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   const feedbackTimer = useRef<number | null>(null)
@@ -577,11 +590,37 @@ export function CoworkPanel({ sessionId }: TabBodyProps): ReactElement {
         </button>
       </header>
 
+      <div className="cw-tabs" role="tablist" aria-label="Cowork 面板标签" data-testid="cw-tabs">
+        {COWORK_PANEL_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            className="cw-tab"
+            data-testid="cw-tab"
+            data-tab={tab.id}
+            data-active={activeTab === tab.id ? 'true' : 'false'}
+            aria-selected={activeTab === tab.id}
+            onClick={() => { setActiveTab(tab.id) }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {feedback === null ? null : (
         <p className="cw-receipt" role="status" data-kind={feedback.kind}>{feedback.text}</p>
       )}
 
-      {widthMode === 'narrow' && inboxFocus ? (
+      {activeTab === 'work-items' ? (
+        <div className="cw-tab-body" data-testid="cw-work-items">
+          <WorkItemList sessionId={sessionId} />
+        </div>
+      ) : activeTab !== 'topics' ? (
+        <div className="cw-tab-body cw-tab-placeholder" data-testid="cw-tab-placeholder">
+          {activeTab === 'activity' ? '活动记录' : '项目记忆'}标签与工作项类型扩展一起实现。
+        </div>
+      ) : widthMode === 'narrow' && inboxFocus ? (
         <div className="cw-inbox-focus" data-testid="cw-inbox-focus">
           <div className="cw-inbox-focus-bar">
             <button

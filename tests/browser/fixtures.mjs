@@ -1,4 +1,5 @@
 /** Deterministic browser-lane project fixtures. */
+import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { makeSeedProject, makeSeedRequest, makeTopicFixture } from '../support/inbox-fixtures.mjs'
@@ -15,6 +16,21 @@ export const BROWSER_TOPICS = Object.freeze({
   authDeny: 'session-browser-auth-deny',
   authAllow: 'session-browser-auth-allow',
 })
+
+/** The seeded work item the browser scenarios open by stable id. */
+export const BROWSER_ARTIFACT = 'artifact-browser-fixture'
+/** The seeded project id `makeSeedProject` writes by default. */
+const BROWSER_PROJECT_ID = 'p'
+/** The seeded spec the work-item viewer opens. */
+export const BROWSER_SPEC_PATH = 'docs/browser-spec.md'
+/** The seeded spec content; line numbers in the scenario refer to this text. */
+export const BROWSER_SPEC = [
+  '# 浏览器交付物',
+  '',
+  '第一段：逐行批注。',
+  '第二段：模型与用户共享的版本。',
+  '第三段：刷新后批注仍在。',
+].join('\n')
 
 /** Request ids the browser scenarios address by stable id. */
 export const BROWSER_REQUESTS = Object.freeze({
@@ -201,6 +217,7 @@ export async function seedBrowserProject(repoPath, masterSessionId) {
   }
   await mkdir(join(repoPath, 'docs'), { recursive: true })
   await writeFile(join(repoPath, 'docs', 'browser-plan.md'), '# Browser lane plan\n\nFixture only.\n', 'utf8')
+  await seedArtifact(repoPath)
   await store.appendActivity(buildActivityEvent({
     type: 'review-verdict',
     topicId: BROWSER_TOPICS.inbox,
@@ -221,6 +238,69 @@ export async function seedBrowserProject(repoPath, masterSessionId) {
     requestSpecs,
     now,
   }
+}
+
+/**
+ * Seed one work item with one anchored thread.
+ *
+ * The record deliberately carries `fsVersion: null`: the first detail read
+ * reconciles it against the host fs token, which is exactly the path a real
+ * registration takes when the fs version is unavailable at create time.
+ */
+async function seedArtifact(repoPath) {
+  await writeFile(join(repoPath, 'docs', 'browser-spec.md'), BROWSER_SPEC, 'utf8')
+  const createdAt = new Date().toISOString()
+  const artifactDir = join(repoPath, '.dsh-cowork', 'artifacts', BROWSER_ARTIFACT)
+  await mkdir(artifactDir, { recursive: true })
+  const record = {
+    version: 1,
+    artifactId: BROWSER_ARTIFACT,
+    projectId: BROWSER_PROJECT_ID,
+    ownerSessionId: BROWSER_TOPICS.running,
+    title: '浏览器交付物',
+    type: 'text',
+    status: 'needs-feedback',
+    files: [{
+      path: BROWSER_SPEC_PATH,
+      mediaType: 'text/markdown',
+      editable: true,
+      size: Buffer.byteLength(BROWSER_SPEC, 'utf8'),
+      sha256: createHash('sha256').update(BROWSER_SPEC, 'utf8').digest('hex'),
+      revision: 1,
+      fsVersion: null,
+      missing: false,
+    }],
+    primaryPath: BROWSER_SPEC_PATH,
+    revision: 1,
+    commentCount: 1,
+    attachmentCount: 0,
+    activeDispatch: null,
+    createdAt,
+    updatedAt: createdAt,
+  }
+  await writeFile(join(artifactDir, 'artifact.json'), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+  const comment = {
+    version: 1,
+    eventId: 'comment-event-browser-1',
+    artifactId: BROWSER_ARTIFACT,
+    commentId: 'comment-browser-1',
+    threadId: 'comment-browser-1',
+    type: 'create',
+    author: 'user',
+    body: '已有的浏览器批注',
+    anchor: {
+      kind: 'line-range',
+      path: BROWSER_SPEC_PATH,
+      startLine: 3,
+      endLine: 3,
+      quote: '第一段：逐行批注。',
+      contextBefore: '',
+      contextAfter: '第二段：模型与用户共享的版本。',
+    },
+    fileRevision: 1,
+    createdAt,
+  }
+  await writeFile(join(artifactDir, 'comments.jsonl'), `${JSON.stringify(comment)}\n`, 'utf8')
 }
 
 /**
