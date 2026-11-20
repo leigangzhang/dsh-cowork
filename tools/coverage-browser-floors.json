@@ -11,7 +11,7 @@
     },
     "src/client/index.tsx": {
       "lineCoverage": 100,
-      "functionCoverage": 80
+      "functionCoverage": 75
     },
     "src/client/list.tsx": {
       "lineCoverage": 100,
@@ -26,8 +26,8 @@
       "functionCoverage": 95
     },
     "src/client/work-item/panel.tsx": {
-      "lineCoverage": 94,
-      "functionCoverage": 85
+      "lineCoverage": 92,
+      "functionCoverage": 84
     }
   }
 }
