@@ -14,6 +14,7 @@ permissions:
   contents: read
   pull-requests: read
   checks: write
+  statuses: write
 
 concurrency:
   group: policy-gate-v2-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha }}
@@ -56,9 +57,25 @@ jobs:
           fi
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
 
+      # The required gate is the commit status written with the job token. This
+      # App token is only for the non-required display check, whose job-token
+      # check run can be omitted from the pull-request merge box.
+      - name: Create gate display check token
+        id: gate-token
+        if: ${{ vars.GATE_APP_CLIENT_ID != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          client-id: ${{ vars.GATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GATE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-checks: write
+
       - name: Publish derived gate
         env:
           GH_TOKEN: ${{ github.token }}
+          GATE_CHECK_TOKEN: ${{ steps.gate-token.outputs.token || github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ steps.event.outputs.pr_number }}
           POLICY_MODE: ${{ vars.MERGE_POLICY_MODE || 'report' }}

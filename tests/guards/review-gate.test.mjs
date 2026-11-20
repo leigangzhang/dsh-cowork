@@ -108,6 +108,7 @@ test('the replacement publisher is the only one after the legacy workflow retire
   assert.match(replacement, /^  pull_request_review:/m)
   assert.match(replacement, /^  workflow_run:/m)
   assert.match(replacement, /^  checks: write$/m)
+  assert.match(replacement, /^  statuses: write$/m)
   assert.match(replacement, /ref: main/)
   assert.doesNotMatch(replacement, /GATE_CHECK_NAME/)
   const uses = [...replacement.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])

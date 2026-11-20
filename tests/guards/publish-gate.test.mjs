@@ -13,12 +13,14 @@ import {
   decideLegacyGate,
   findPassingReview,
   findReviewDecision,
+  GATE_DISPLAY_CHECK,
+  gateStatusDescription,
   isAncestor,
   overlapPaths,
   publishGateCheck,
+  publishGateStatus,
   readPreMerge,
-  REPORT_GATE_CHECK,
-  REQUIRED_GATE_CHECK,
+  REQUIRED_GATE_CONTEXT,
   requiredGateDecision,
   validateReviewedIdentity,
 } from '../../scripts/ci/publish-gate.mjs'
@@ -81,10 +83,17 @@ test('the latest non-pass marker blocks an older pass', () => {
   }
 })
 
-test('the required and report contexts have distinct fixed names', () => {
-  assert.equal(REQUIRED_GATE_CHECK, 'gate-artifact')
-  assert.equal(REPORT_GATE_CHECK, 'gate-artifact-v2')
-  assert.notEqual(REQUIRED_GATE_CHECK, REPORT_GATE_CHECK)
+test('the required status and display check have distinct fixed names', () => {
+  assert.equal(REQUIRED_GATE_CONTEXT, 'gate-artifact')
+  assert.equal(GATE_DISPLAY_CHECK, 'gate-artifact-v2')
+  assert.notEqual(REQUIRED_GATE_CONTEXT, GATE_DISPLAY_CHECK)
+})
+
+test('gateStatusDescription stays short and names the blocking reason', () => {
+  assert.equal(gateStatusDescription({ pass: true, reasons: [] }, 'block'), 'block: gate passed')
+  const blocked = gateStatusDescription({ pass: false, reasons: ['x'.repeat(200)] }, 'block')
+  assert.match(blocked, /^blocked: /)
+  assert.equal(blocked.length, 140)
 })
 
 test('requiredGateDecision switches the required context by mode', () => {
@@ -294,17 +303,43 @@ test('readPreMerge rejects malformed or stale summaries', () => {
   }], head).error, /conclusion is failure/)
 })
 
-test('the publisher job stays green when it publishes a blocked decision', () => {
-  // A failed job marks the app's check suite failed; a GitHub ruleset then
-  // treats the required check as expected even after a later success. The
-  // required check run carries the blocked verdict, so the CLI must not fail
-  // the job for a published decision.
+test('the publisher job stays green when the required status carries a blocked decision', () => {
+  // The commit status carries the blocked verdict, so the publisher job does
+  // not need to fail a second time; only unexpected errors use exit code 1.
   const source = readFileSync(new URL('../../scripts/ci/publish-gate.mjs', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /if \(!required\.pass\) process\.exitCode = 1/)
-  assert.match(source, /check suite/)
+  assert.match(source, /publishGateStatus/)
+  assert.match(source, /state: required\.pass \? 'success' : 'failure'/)
 })
 
-test('publishGateCheck sends one completed check run', async () => {
+test('publishGateStatus writes the required commit status on the head', async () => {
+  const requests = []
+  const detailsUrl = 'https://github.com/owner/repo/actions/runs/1'
+  const result = await publishGateStatus({
+    token: 'token',
+    repository: 'owner/repo',
+    apiUrl: 'https://api.example',
+    head,
+    state: 'failure',
+    description: 'blocked: pre-merge missing',
+    detailsUrl,
+    fetchImpl: async (url, init) => {
+      requests.push({ url, body: JSON.parse(init.body) })
+      return { ok: true }
+    },
+  })
+  assert.deepEqual(result, { context: 'gate-artifact', state: 'failure' })
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].url, `https://api.example/repos/owner/repo/statuses/${head}`)
+  assert.deepEqual(requests[0].body, {
+    state: 'failure',
+    context: 'gate-artifact',
+    description: 'blocked: pre-merge missing',
+    target_url: detailsUrl,
+  })
+})
+
+test('publishGateCheck sends one completed display check run', async () => {
   const requests = []
   const result = await publishGateCheck({
     token: 'token',
@@ -313,7 +348,7 @@ test('publishGateCheck sends one completed check run', async () => {
     head,
     name: 'gate-artifact-v2',
     conclusion: 'success',
-    title: 'REPORT: gate would pass',
+    title: 'gate-artifact: pass',
     summary: '{}',
     detailsUrl: 'https://github.com/owner/repo/actions/runs/1',
     fetchImpl: async (url, init) => {
@@ -323,8 +358,9 @@ test('publishGateCheck sends one completed check run', async () => {
   })
   assert.deepEqual(result, { id: 7, conclusion: 'success' })
   assert.equal(requests.length, 1)
+  assert.equal(requests[0].body.name, 'gate-artifact-v2')
   assert.equal(requests[0].body.head_sha, head)
-  assert.equal(requests[0].body.output.title, 'REPORT: gate would pass')
+  assert.equal(requests[0].body.output.title, 'gate-artifact: pass')
 })
 
 function git(cwd, args) {
