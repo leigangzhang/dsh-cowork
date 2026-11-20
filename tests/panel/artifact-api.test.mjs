@@ -1156,3 +1156,17 @@ test('a successful save refreshes the guard text cache', async () => {
     assert.equal(runtime.presence.cachedText(absolute), editBody().content)
   })
 })
+
+test('the comment limit also guards resolve events', async () => {
+  await withSeededHarness(async (harness) => {
+    const runtime = harness.runtime()
+    await runtime.store.appendComment(makeComment({ artifactId: ARTIFACT, commentId: 'comment-1', threadId: 'comment-1', eventId: 'e-limit' }))
+    await runtime.store.mutateRecord(ARTIFACT, (record) => ({ ...record, commentCount: 5000 }))
+    const response = await harness.request('/api/cowork.artifact.comment.resolve', {
+      method: 'POST',
+      body: { sessionId: SESSION, artifactId: ARTIFACT, commentId: 'comment-1', resolved: true },
+    })
+    assert.equal(response.status, 409)
+    assert.equal((await jsonOf(response)).error.code, 'artifact/comment-limit')
+  })
+})

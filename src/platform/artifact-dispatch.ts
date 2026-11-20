@@ -187,8 +187,8 @@ export class ArtifactDispatcher {
   private readonly flushing = new Set<string>()
   /** Sessions that queued work while a flush was running. */
   private readonly flushAgain = new Set<string>()
-  /** Sent batches waiting for their turn/start, keyed by dispatch id. */
-  private readonly awaitingTurn = new Set<string>()
+  /** Sent batches waiting for their turn/start: dispatch id → session id. */
+  private readonly awaitingTurn = new Map<string, string>()
   /** The turn each in-flight batch belongs to, keyed by dispatch id. */
   private readonly turnOfDispatch = new Map<string, number>()
   /** Sessions waiting for a backoff retry; new comments must not shorten it. */
@@ -340,12 +340,6 @@ export class ArtifactDispatcher {
         await this.transition(dispatch, 'blocked', errorCode)
       }
     }
-    for (const dispatchId of [...this.awaitingTurn]) {
-      if (this.active.get(dispatchId)?.sessionId === sessionId) this.awaitingTurn.delete(dispatchId)
-    }
-    for (const dispatchId of [...this.turnOfDispatch.keys()]) {
-      if (this.active.get(dispatchId)?.sessionId === sessionId) this.turnOfDispatch.delete(dispatchId)
-    }
   }
 
   /** The reply tool confirmed one batch. */
@@ -469,10 +463,6 @@ export class ArtifactDispatcher {
           break
         }
         const entry = queue[0]
-        if (!this.active.has(entry.dispatch.dispatchId)) {
-          if (queue[0] === entry) queue.shift()
-          continue
-        }
         const result = await this.deliver(entry)
         if (result === 'retry') {
           // `deliver` scheduled the backoff timer for this same session; a
@@ -586,7 +576,7 @@ export class ArtifactDispatcher {
     // event that was captured before the reply landed.
     const settled = this.settled.get(dispatch.dispatchId)
     if (settled !== undefined) return settled
-    if (state === 'sent') this.awaitingTurn.add(dispatch.dispatchId)
+    if (state === 'sent') this.awaitingTurn.set(dispatch.dispatchId, dispatch.sessionId)
     if (isTerminalDispatchState(state)) {
       this.awaitingTurn.delete(dispatch.dispatchId)
       this.turnOfDispatch.delete(dispatch.dispatchId)

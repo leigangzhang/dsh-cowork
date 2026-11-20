@@ -579,3 +579,35 @@ test('a bound turn that ends without a reply fails only that batch', async () =>
     assert.equal(latest.errorCode, 'artifact/reply-missing')
   })
 })
+
+test('a flush without a queue is a no-op, and a comment during a flush only marks it pending', async () => {
+  await withRuntime(async ({ runtime, record }) => {
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    let prompts = 0
+    const dispatcher = new ArtifactDispatcher({
+      runtime,
+      prompt: {
+        async prompt() {
+          prompts += 1
+          await gate
+          return { accepted: true }
+        },
+      },
+      windowMs: 1,
+      retryDelaysMs: [],
+    })
+    // Private seam: a timer can fire after the queue was drained.
+    await dispatcher['flush']('session-without-queue')
+    const first = await dispatcher.enqueue({ record, commentIds: ['c1'], comments: [comment(1)] })
+    await waitUntil(() => prompts === 1, 'first prompt in flight')
+    // The flush is awaiting the prompt; this enqueue must only mark it pending.
+    await dispatcher.enqueue({ record, commentIds: ['c2'], comments: [comment(2)] })
+    release()
+    await waitUntil(async () => (await runtime.store.readRecord(ARTIFACT)).activeDispatch?.state === 'sent', 'first sent')
+    assert.equal(prompts, 1, 'one in-flight prompt')
+    await dispatcher.markReplied(first.dispatchId)
+    await waitUntil(() => prompts === 2, 'second prompt after reply')
+    dispatcher.dispose()
+  })
+})
