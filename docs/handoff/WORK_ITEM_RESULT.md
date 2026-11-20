@@ -39,7 +39,7 @@
 
 - A：跨会话 turn 绑定清理按 session 过滤；恢复读取每个 artifact 的全部 dispatch 行（不只最后一行）；SSE 先按 artifact 过滤再截断，落后/截断发 reset，客户端 open/reset 重取文件；reconcile 只在记录仍是观察版本时应用，避免并发保存被回退；回复工具校验 commentIds 属于当前批次；非法 `after` 返回 400。
 - B：未保存草稿写入 localStorage（带 baseRevision/baseVersion），关闭、切会话、切工作项、刷新后重新打开均恢复；保存成功/加载最新后清理；失败草稿保留。
-- C：文件保存/对账后按 quote+context 重定位批注（±20 行优先、歧义标 stale），写 `anchor-moved` + `comment.updated`；用户可在线程内回复；线程卡显示投递状态/错误与重试入口（新增 `POST /api/cowork.artifact.dispatch.retry`）；dispatcher 进入 in-progress、终态回 needs-feedback，查看器有“确认完成”；查看器补文档/版本/附件 tabs、阅读/源码切换、行内 pin、批注卡定位、已解决折叠、附件元数据/下载；列表卡补状态与来源、已确认组默认折叠、错误保留旧列表、骨架与空态动作；评论请求取满 200；dispatch prompt 带 quote/context 且有图片总字节上限。
+- C：文件保存/对账后按 quote+context 重定位批注（±20 行优先、歧义标 stale），写 `anchor-moved` + `comment.updated`；用户可在线程内回复；线程卡显示投递状态/错误与重试入口（新增 `POST /api/cowork.artifact.dispatch.retry`）；dispatcher 进入 in-progress、终态回 needs-feedback，查看器有“确认完成”；查看器补文档/版本/附件 tabs、阅读/源码切换、行内 pin、批注卡定位、已解决折叠、附件元数据/下载；列表卡补状态与来源、已确认组默认折叠、错误保留旧列表、骨架与空态动作；评论请求取满 200；dispatch prompt 带 quote/context 且有图片总字节上限；retry 服务端幂等（同批单飞、superseded 检查、合并去重），重试后刷新 dispatch 摘要。
 
 仍未做（已记 KI）：模型回复不能携带新附件（KI-54，宿主无二进制读取）、附件无删除/重命名（KI-55）；进程级重启/失败注入、真实模型 guard 拒绝重试见 KI-53。
 
@@ -49,13 +49,13 @@
 
 - `npm run check`：`check-invariants: ok`。
 - `npm run typecheck`：exit 0。
-- `npm test`：1508/1508 通过，0 skipped。
-- `npm run test:coverage`：80 个 owner 模块，行覆盖 100%（30591/30591）。
+- `npm test`：1537/1537 通过，0 skipped。
+- `npm run test:coverage`：80 个 owner 模块，行覆盖 100%（31114/31114）。
 - `npm run build`：exit 0（client bundle 约 196 KB）。
 - `npm run test:host-smoke`：5/5 通过。
-- `npm run test:browser`：通过；工作项链路，直接保存 + 非重叠自动合并 + 409 后“加载最新”与“保留我的”，脏草稿返回拦截，会话切换自动关闭查看器，图片/文本附件，SSE 实时更新与重试均在真实 Chromium 中执行；两个新 TSX 的 reviewed floors 已登记。
-- `npm run test:coverage:layered -- --base 3b140e3`：88 个 counted 文件，行覆盖 99.84%（32808/32859），reviewed floors 全部通过。
-- `npm run test:e2e`：6 个 keyless 场景、134 checks 通过。`artifact-chain`（23 checks）覆盖登记 → 列表/详情/文件 → 批注 → 投递 → 模型回复 → 直接保存 → 非重叠三方自动合并 → SSE 回放 → 上传/附件 → `tools.guard` 拒绝重叠模型写入；`artifact-recovery`（7 checks）在真实宿主里从预置的 dispatch 日志执行恢复：in-flight → `stale` 且不再提示，queued 重新投递并由脚本化模型回复。
+- `npm run test:browser`：通过；工作项链路，直接保存 + 非重叠自动合并 + 409 后“加载最新”与“保留我的”，失败草稿关闭/重开后恢复并保存，会话切换自动关闭查看器，文档/版本/附件 tabs、阅读/源码切换、pin/线程定位、失败批次重试、确认动作、图片/文本附件与 SSE 实时更新均在真实 Chromium 中执行；两个新 TSX 的 reviewed floors 已登记。
+- `npm run test:coverage:layered -- --base 3b140e3`：88 个 counted 文件，行覆盖 99.81%（33629/33694），reviewed floors 全部通过。
+- `npm run test:e2e`：6 个 keyless 场景、137 checks 通过。`artifact-chain`（23 checks）覆盖登记 → 列表/详情/文件 → 批注 → 投递 → 模型回复 → 直接保存 → 非重叠三方自动合并 → SSE 回放 → 上传/附件 → `tools.guard` 拒绝重叠模型写入；`artifact-recovery`（10 checks）在真实宿主里从预置的 dispatch 日志执行恢复：in-flight → `stale` 且不再提示，queued 重新投递并由脚本化模型回复，failed 批次经 `POST /api/cowork.artifact.dispatch.retry` 重新投递并得到回复。
 - `npm run test:e2e:live -- --scenario live-master-chain --scenario live-artifact-chain`：2 个真实模型场景、21 checks 通过。`live-artifact-chain` 观测到：master 与 routed topic 各自登记工作项；两条批注同时处于投递中（`overlap=true`）并都到达 `replied`；红色图片批注的模型回复包含「红」，证明图片 prompt 已到达模型；两个线程的回复均为 `author:"model"`。
 
 ## 偏离与未核实

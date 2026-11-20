@@ -2,16 +2,16 @@
   "formatVersion": 1,
   "pluginVersion": "0.2.0",
   "dshVersion": "0.2.1-rc.2",
-  "catalogSha256": "6b34eb568e1ba66df13fae23d6ba8e543c21c4de64ab82405f85245ffb6b87c1",
+  "catalogSha256": "89a649240514f83a52a2f18d9441aeb0ebe8ed7c4a55e44697c69e890b61af6c",
   "nodeVersion": "v22.22.1",
   "command": "npm run test:e2e -- --record",
-  "recordedAt": "2026-11-20T12:38:08.662Z",
+  "recordedAt": "2026-11-20T14:15:56.019Z",
   "result": "pass",
   "artifact": {
-    "head": "bcdbd650d641c855df57eb6c9548fb151e911f1d",
+    "head": "2d20f44b4f140a18c91987af448c514cb3ff53c0",
     "dirty": false,
     "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "tarballSha256": "ad02a0fe7012789e59980ce86c6bc795851e7c4bb42720bcc78415e3f26f7304"
+    "tarballSha256": "25ea17f7eea970ff383481d793c906523548ccedf681e3900aae6ebafd50c208"
   },
   "scenarios": [
     {
@@ -68,59 +68,59 @@
           "passed": true
         },
         {
-          "name": "session session-5337266a-3… runs in the fixture",
+          "name": "session session-22c11c27-b… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-5337266a-3… is not running",
+          "name": "session session-22c11c27-b… is not running",
           "passed": true
         },
         {
-          "name": "session session-47af28bb-f… runs in the fixture",
+          "name": "session session-5e32e108-2… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-47af28bb-f… is not running",
+          "name": "session session-5e32e108-2… is not running",
           "passed": true
         },
         {
-          "name": "session session-b6b25e2a-b… runs in the fixture",
+          "name": "session session-1176d5b4-6… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-b6b25e2a-b… is not running",
+          "name": "session session-1176d5b4-6… is not running",
           "passed": true
         },
         {
-          "name": "session session-9e21766a-8… runs in the fixture",
+          "name": "session session-f3558c81-7… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-9e21766a-8… is not running",
+          "name": "session session-f3558c81-7… is not running",
           "passed": true
         },
         {
-          "name": "topic session-47af28bb-f… is a real session",
+          "name": "topic session-5e32e108-2… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-47af28bb-f… mounted cowork-topic",
+          "name": "topic session-5e32e108-2… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-b6b25e2a-b… is a real session",
+          "name": "topic session-1176d5b4-6… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-b6b25e2a-b… mounted cowork-topic",
+          "name": "topic session-1176d5b4-6… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-9e21766a-8… is a real session",
+          "name": "topic session-f3558c81-7… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-9e21766a-8… mounted cowork-topic",
+          "name": "topic session-f3558c81-7… mounted cowork-topic",
           "passed": true
         },
         {
@@ -580,6 +580,18 @@
         },
         {
           "name": "the rescheduled batch has a model reply",
+          "passed": true
+        },
+        {
+          "name": "the failed batch still has its comment",
+          "passed": true
+        },
+        {
+          "name": "the failed batch is accepted for retry",
+          "passed": true
+        },
+        {
+          "name": "the retried batch reached replied",
           "passed": true
         },
         {
