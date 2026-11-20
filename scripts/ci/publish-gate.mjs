@@ -464,14 +464,26 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
       overlap: identity.overlap,
     })
     const required = requiredGateDecision(mode, legacy, modern)
+    // Re-read main at the write boundary. A gate that started before a main
+    // advance must not publish success for the pre-advance base; base-recheck
+    // may have skipped the in-flight status because it was already pending.
+    const mainAfterEvaluation = (await github({
+      token,
+      apiUrl,
+      path: `/repos/${repository}/git/ref/heads/main`,
+    })).object.sha
+    const finalRequired = mainAfterEvaluation === currentMain
+      ? required
+      : { pass: false, reasons: ['main advanced during gate evaluation; re-run the gate'] }
     const requiredSummary = JSON.stringify({
       mode,
-      pass: required.pass,
-      reasons: required.reasons,
+      pass: finalRequired.pass,
+      reasons: finalRequired.reasons,
       legacy: mode === 'report' ? legacy : null,
       modern,
       head,
       currentMain,
+      currentMainAfterEvaluation: mainAfterEvaluation,
       review: modernReview === null ? null : {
         markerVersion: modernReview.markerVersion,
         base: modernReview.baseSha,
@@ -482,8 +494,8 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
     })
     const requiredPublished = await publishGateStatus({
       ...statusContext,
-      state: required.pass ? 'success' : 'failure',
-      description: gateStatusDescription(required, mode),
+      state: finalRequired.pass ? 'success' : 'failure',
+      description: gateStatusDescription(finalRequired, mode),
     })
     let displayPublished = null
     try {
@@ -493,15 +505,15 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
         apiUrl,
         head,
         name: GATE_DISPLAY_CHECK,
-        conclusion: required.pass ? 'success' : 'action_required',
-        title: required.pass ? 'gate-artifact: pass' : 'gate-artifact: blocked',
+        conclusion: finalRequired.pass ? 'success' : 'action_required',
+        title: finalRequired.pass ? 'gate-artifact: pass' : 'gate-artifact: blocked',
         summary: requiredSummary,
         detailsUrl,
       })
     } catch (error) {
       process.stderr.write(`publish-gate: display check not published: ${error instanceof Error ? error.message : String(error)}\n`)
     }
-    process.stdout.write(`${JSON.stringify({ mode, required: requiredPublished, display: displayPublished, decision: required })}\n`)
+    process.stdout.write(`${JSON.stringify({ mode, required: requiredPublished, display: displayPublished, decision: finalRequired })}\n`)
     // A blocked decision is carried by the required commit status. Keep the
     // publisher job green for a published decision; only unexpected errors use
     // exit code 1.

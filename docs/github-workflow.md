@@ -34,7 +34,9 @@
 | 代码审查 | 独立 review 给出 `review-verdict:v2`；required `gate-artifact` 在 report mode 校验 legacy 身份，在 block mode 校验 v2 + pre-merge |
 | 自动发布 | 无；详见第 7 节 |
 
-**当前状态（2026-11-19）：** block mode 已激活（`MERGE_POLICY_MODE=block`）。publisher `publish-gate.mjs` 已在 `main`，旧 `gate-artifact.yml` 已删除。required `gate-artifact` 是 `Policy V2` 发布的 commit status；`gate-artifact-v2` 是非 required 的展示 check。ruleset 已移除 strict up-to-date。publisher 在 blocked 决策下保持 job success，由 required status 表达状态。详见 §4.7 和 §4.8。
+**当前状态（2026-11-19）：** block mode 已激活（`MERGE_POLICY_MODE=block`）。publisher `publish-gate.mjs` 已在 `main`，旧 `gate-artifact.yml` 已删除。required `gate-artifact` 由 `Policy V2` 写成 commit status；`gate-artifact-v2` 是非 required 的展示 check。ruleset 已移除 strict up-to-date。publisher 在 blocked 决策下保持 job success，由 required status 表达状态。详见 §4.7 和 §4.8。
+
+**待验证（2026-11-19）：** status-only ruleset acceptance 尚未在合并后的 Policy V2 run 上验证。首个合并后运行应确认 `gate-artifact` status 的 creator 是 `github-actions[bot]`，且 merge box 接受它；在此之前不要把这条当作已验证事实。
 
 ## 3. 总流程概览
 
@@ -319,7 +321,7 @@ publisher job 的 display name 是 `pre-merge-publish`，不能与它发布的 `
 
 ### 4.7 `gate-artifact`：commit status + 展示 check
 
-派生 gate 在 `.github/workflows/gate-artifact-v2.yml` 中运行，从受信任的 `main` 检出脚本，不执行 PR 代码。required context 是 `gate-artifact` commit status；同一个 publisher 另发非 required 的 `gate-artifact-v2` 展示 check。它监听 PR 更新、review 事件，以及 `CI`/`Pre-Merge` 完成事件，因此 review 早于 CI 不会永久卡住。对同一个仓库的分支，`workflow_run.pull_requests` 直接给出 PR；fork PR 该字段可能为空，workflow 会用 `head_sha` 查唯一 open PR，无法唯一解析时 fail closed。当前流程默认使用同仓库的 `agent/<topic>` 分支；fork PR 需要先转成同仓库分支。
+派生 gate 在 `.github/workflows/gate-artifact-v2.yml` 中运行，从受信任的 `main` 检出脚本，不执行 PR 代码。required context 是 `gate-artifact` commit status；同一个 publisher 另发非 required 的 `gate-artifact-v2` 展示 check。transport 从 check run 改为 commit status 的原因和取舍见[决策记录](../.agents/notes/implemented/process/2026-11-19-gate-artifact-commit-status.md)。它监听 PR 更新、review 事件，以及 `CI`/`Pre-Merge` 完成事件，因此 review 早于 CI 不会永久卡住。对同一个仓库的分支，`workflow_run.pull_requests` 直接给出 PR；fork PR 该字段可能为空，workflow 会用 `head_sha` 查唯一 open PR，无法唯一解析时 fail closed。当前流程默认使用同仓库的 `agent/<topic>` 分支；fork PR 需要先转成同仓库分支。
 
 它检查：
 
@@ -338,13 +340,13 @@ publisher job 的 display name 是 `pre-merge-publish`，不能与它发布的 `
 - block mode 由同一个 publisher 写同一个 required status，使用最新 review marker + v2 `base`/`diffSha` + 当前 base 的 `pre-merge` + metadata + reviewed-path overlap；latest marker 不是 `pass` 时写 `failure`。
 - 两种 mode 都写非 required 的 `gate-artifact-v2` 展示 check，镜像 required 决策；report mode 同时记录 v2 would-fail 原因。`gate-artifact-v2` 永远不能加入 required checks。
 
-publisher 在评估前先把 `gate-artifact` 写成 `pending`，再用 `success` 或 `failure` 覆盖；意外错误写 `error` 并让 job 失败。gate 决策为 blocked 时 `policy-gate` job 仍以 **success** 结束，因为 blocked 已由 required commit status 表达。status 按 context 原地覆盖，不依赖 check suite，因此不会出现“同名 check run 落在旧 suite、merge box 报 expected”的状态。
+publisher 在评估前先把 `gate-artifact` 写成 `pending`，再用 `success` 或 `failure` 覆盖；最终写入前会重新读取 main，若 main 已前进则写 `failure` 而不是旧 base 的 success。意外错误写 `error` 并让 job 失败。gate 决策为 blocked 时 `policy-gate` job 仍以 **success** 结束，因为 blocked 已由 required commit status 表达。status 按 context 原地覆盖，不依赖 check suite，因此不会出现“同名 check run 落在旧 suite、merge box 报 expected”的状态。
 
-`Policy Base` 在 main push 时把旧的绿色 `gate-artifact` 写成 `pending`，并把 `gate-artifact-v2` 标成 `action_required`，防止旧 base 上的成功被误合并。它只更新状态，不评论、不打标签、不修改 PR 分支。
+`Policy Base` 在 main push 时把旧的绿色 `gate-artifact` 写成 `pending`，把仍为绿色的 legacy `gate-artifact` check run patch 成 `action_required`，并把 `gate-artifact-v2` 标成 `action_required`，防止旧 base 上的成功被误合并。它只更新状态，不评论、不打标签、不修改 PR 分支。`gate-artifact-v2` 是非 required 展示项，可能同时存在 App token 和 job token 创建的同名 run；这不影响合并判断。
 
 ### Bootstrap（历史）
 
-旧 `.github/workflows/gate-artifact.yml` 的保留/退役顺序和 PR #57 的失败模式已记录在[决策记录](../.agents/notes/implemented/process/2026-11-17-pre-merge-derived-gate.md)；当前配置以上面的 §4.7 为准。不要把这个小节当作当前 workflow 列表。
+旧 `.github/workflows/gate-artifact.yml` 的保留/退役顺序和 PR #57 的失败模式记录在[旧决策记录](../.agents/notes/implemented/process/2026-11-17-pre-merge-derived-gate.md)；transport 改为 commit status 的原因记录在[新决策记录](../.agents/notes/implemented/process/2026-11-19-gate-artifact-commit-status.md)。当前配置以上面的 §4.7 为准，不要把这个小节当作当前 workflow 列表。
 
 实现细节见 [gate-artifact-v2.yml](../.github/workflows/gate-artifact-v2.yml)、[publish-gate.mjs](../scripts/ci/publish-gate.mjs)、[base-recheck.yml](../.github/workflows/base-recheck.yml)。required context 只能有一个 success/decision writer；`base-recheck` 只写 `pending` 和 `action_required`，不写 success。
 
@@ -418,7 +420,7 @@ E2E 在 heavy 中运行 `npm run test:e2e` 和观测性的 `npm run test:e2e:bas
 - [ ] 审查者检查了测试设计、断言和证据，而不只是看 `pr-gate` 是否通过。
 - [ ] 独立审查在同一个提交上给出 `review-verdict:v2 verdict=pass`。
 - [ ] `pre-merge` 在当前 main 上成功；main 前进后已经重新运行 `recheck`。
-- [ ] required `gate-artifact` 成功；report mode 的 `gate-artifact-v2` 只作为 advisory 参考。
+- [ ] required `gate-artifact` 成功；`gate-artifact-v2` 是非 required 展示 check，不作为合并条件。
 - [ ] 所有 review 对话（conversation）已解决。
 - [ ] `pre-merge` 的 base 等于当前 main；ruleset 不再要求分支包含 `origin/main`。
 - [ ] heavy 检查已在该提交上运行，或在 `Not run` 中写明原因。

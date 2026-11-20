@@ -60,10 +60,13 @@ function headers(token) {
 }
 
 /**
- * Publish a pending required status and an action-required display check.
+ * Publish a pending required status, invalidate a legacy required check run,
+ * and mark the display check stale.
  *
  * The status is the gate; the check run is best-effort UI. A failed display
- * write is reported but does not undo the stale status.
+ * write is reported but does not undo the stale status. A green legacy
+ * `gate-artifact` check run is patched to `action_required` so a head created
+ * before the status migration cannot keep a frozen success.
  *
  * @param {{ token: string, repository: string, apiUrl: string,
  *   head: string, mainSha: string, runUrl: string, fetchImpl?: typeof fetch }} input
@@ -91,6 +94,36 @@ export async function publishStaleGate(input) {
   if (!statusResponse.ok) {
     const detail = await statusResponse.text()
     throw new Error(`publishing stale ${REQUIRED_GATE_CONTEXT} status failed (${String(statusResponse.status)}): ${detail}`)
+  }
+  const legacyResponse = await fetchImpl(
+    `${input.apiUrl}/repos/${input.repository}/commits/${input.head}/check-runs?check_name=${encodeURIComponent(REQUIRED_GATE_CONTEXT)}&filter=all&per_page=100`,
+    { headers: headers(input.token) },
+  )
+  if (!legacyResponse.ok) {
+    const detail = await legacyResponse.text()
+    throw new Error(`listing legacy ${REQUIRED_GATE_CONTEXT} checks failed (${String(legacyResponse.status)}): ${detail}`)
+  }
+  const legacy = await legacyResponse.json()
+  const legacyRuns = Array.isArray(legacy.check_runs) ? legacy.check_runs : []
+  for (const run of legacyRuns) {
+    if (run.conclusion !== 'success') continue
+    const patchResponse = await fetchImpl(`${input.apiUrl}/repos/${input.repository}/check-runs/${String(run.id)}`, {
+      method: 'PATCH',
+      headers: headers(input.token),
+      body: JSON.stringify({
+        status: 'completed',
+        conclusion: 'action_required',
+        details_url: input.runUrl,
+        output: {
+          title: 'base advanced; pre-merge recheck required',
+          summary,
+        },
+      }),
+    })
+    if (!patchResponse.ok) {
+      const detail = await patchResponse.text()
+      throw new Error(`invalidating legacy ${REQUIRED_GATE_CONTEXT} check ${String(run.id)} failed (${String(patchResponse.status)}): ${detail}`)
+    }
   }
   try {
     const checkResponse = await fetchImpl(`${input.apiUrl}/repos/${input.repository}/check-runs`, {

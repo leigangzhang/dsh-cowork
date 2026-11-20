@@ -2,7 +2,7 @@
 
 Status: implemented（2026-11-19；block mode active；required `gate-artifact` 是唯一 publisher 写的 commit status）
 
-本文件定义从 `agent/<topic>` 到 `main` 的交付流程。为什么这样选、放弃了什么，见[决策记录](../../../.agents/notes/implemented/process/2026-11-17-pre-merge-derived-gate.md)。唯一 publisher 在 report/block 两种 mode 下写 required `gate-artifact` commit status：report mode 用 legacy 校验，block mode 用 v2 + pre-merge 校验；`gate-artifact-v2` 是非 required 的展示 check。`MERGE_POLICY_MODE=block` 已激活。旧 `.github/workflows/gate-artifact.yml` 已删除；`gate-artifact-v2.yml` 是唯一发布 required `gate-artifact` 的 workflow。
+本文件定义从 `agent/<topic>` 到 `main` 的交付流程。为什么这样选、放弃了什么，见[gate 决策记录](../../../.agents/notes/implemented/process/2026-11-17-pre-merge-derived-gate.md)和[commit status 决策记录](../../../.agents/notes/implemented/process/2026-11-19-gate-artifact-commit-status.md)。唯一 publisher 在 report/block 两种 mode 下写 required `gate-artifact` commit status：report mode 用 legacy 校验，block mode 用 v2 + pre-merge 校验；`gate-artifact-v2` 是非 required 的展示 check。`MERGE_POLICY_MODE=block` 已激活。旧 `.github/workflows/gate-artifact.yml` 已删除；`gate-artifact-v2.yml` 是唯一写 required `gate-artifact` 的 workflow。
 
 ## 目标与边界
 
@@ -149,7 +149,7 @@ npm run change-scope -- --base <verified-base>
 
 publisher 在评估前先把 `gate-artifact` 写成 `pending`，随后写 `success` 或 `failure`；意外错误写 `error` 并让 job 失败。gate 决策为 blocked 时 `policy-gate` job 仍以 success 结束，blocked 由 required commit status 表达。commit status 按 context 原地覆盖，不依赖 check suite，所以不会出现同名 check run 落在旧 suite、merge box 报 `expected` 的状态。
 
-旧 workflow 的保留与退役顺序见[决策记录](../../../.agents/notes/implemented/process/2026-11-17-pre-merge-derived-gate.md)。当前旧 workflow 已删除，`Policy V2` 是唯一 publisher；`Policy Base` 只写 `pending` 和展示 check 的 `action_required`，防止旧 base 成功被误合并。
+旧 workflow 的保留与退役顺序见[gate 决策记录](../../../.agents/notes/implemented/process/2026-11-17-pre-merge-derived-gate.md)，transport 变更见[commit status 决策记录](../../../.agents/notes/implemented/process/2026-11-19-gate-artifact-commit-status.md)。当前旧 workflow 已删除，`Policy V2` 是唯一 publisher；`Policy Base` 写 `pending`、patch 仍为绿色的 legacy `gate-artifact` check run，并把展示 check 标成 `action_required`，防止旧 base 成功被误合并。
 
 ## 5. Ruleset 与合并
 
@@ -158,11 +158,13 @@ publisher 在评估前先把 `gate-artifact` 写成 `pending`，随后写 `succe
 | 设置 | 当前值 |
 |---|---|
 | Require pull request | on |
-| Required checks | `pr-gate`（check run）、`gate-artifact`（commit status，GitHub Actions 来源）；`gate-artifact-v2` 是非 required 展示 check |
+| Required checks | `pr-gate`（check run）、`gate-artifact`（commit status，预期 GitHub Actions 来源）；`gate-artifact-v2` 是非 required 展示 check |
 | Required approvals | 0（单人项目，review 为程序性约束） |
 | Require conversation resolution | on |
 | Require branches up to date | off（pre-merge 已接管当前 main 的合并结果测试） |
 | Block force push / deletion | on |
+
+**验证状态（2026-11-19）：** status-only ruleset acceptance 尚未在合并后的 Policy V2 run 上验证。首个合并后运行需确认 `gate-artifact` status 的 creator 是 `github-actions[bot]`，且 merge box 接受它；在此之前不要写成已验证事实。
 | Bypass actors | 空 |
 
 仓库设置：
@@ -211,7 +213,7 @@ publisher 在评估前先把 `gate-artifact` 写成 `pending`，随后写 `succe
 
 1. 文档与决策记录（本次变更）。
 2. `pr-gate` docs/unit 拆分和 `pre-merge` 先以 report 方式运行。
-3. 接入单一 publisher 和 `gate-artifact-v2` advisory，验证 review 早于 CI、main 前进和 recheck 的行为。
+3. 接入单一 publisher 和非 required 的 `gate-artifact-v2` 展示 check，验证 review 早于 CI、main 前进和 recheck 的行为。
 4. 验证 base-recheck 能让旧绿色 gate 变 stale。
 5. 设置 `MERGE_POLICY_MODE=block`，验证同一 publisher 的 required `gate-artifact` 变红/变绿后，再移除 strict up-to-date。
 6. heavy lane 仍按现有稳定门槛评估；不因本次改动升级为 required。

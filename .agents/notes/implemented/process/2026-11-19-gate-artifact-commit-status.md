@@ -38,13 +38,15 @@ This record supersedes the check-run transport in [2026-11-17-pre-merge-derived-
 
 - Repeated evaluations overwrite one `gate-artifact` status on the head; there is no same-name required check-run accumulation and no dependency on check-suite ordering.
 - The required status is briefly `pending` during each evaluation, so the merge box may show a wait instead of the previous success. That is intentional: an interrupted evaluation must not leave a stale success.
-- The display check is best-effort. A missing App token, failed App step, or failed display write does not change the gate; only a failed status write is fatal.
-- The ruleset must continue to accept the `gate-artifact` context from GitHub Actions. If GitHub changes how rulesets match statuses or the Actions integration id changes, revisit this record.
+- The final status write re-reads `main`. If `main` advanced during evaluation, the publisher writes `failure` instead of a success for the old base. This closes the race where `base-recheck` sees the in-flight `pending` status and skips invalidation.
+- The display check is best-effort. A missing App token, failed App step, or failed display write does not change the gate; only a failed status write is fatal. The display check can have runs from both the App token and the job token; it is non-required.
+- During the transition, `base-recheck` patches a green legacy `gate-artifact` check run to `action_required` so a head created before this record cannot keep a frozen success. New heads have no required `gate-artifact` check run.
+- Status-only acceptance by the ruleset is **not yet verified**. The post-merge check is the first Policy V2 run: confirm the `gate-artifact` status creator is `github-actions[bot]`, the merge box accepts it, and the transition from a legacy check run does not keep a stale context. If GitHub changes how rulesets match statuses or the Actions integration id changes, revisit this record.
 - The publisher still does not execute pull-request code and still requires a same-repository `agent/<topic>` branch when `workflow_run.pull_requests` is empty.
 
 ## Testing
 
-- [A1] `publish-gate.mjs` writes the required `gate-artifact` status and the non-required `gate-artifact-v2` display check — `source`: `tests/guards/publish-gate.test.mjs`
-- [A2] `base-recheck.mjs` writes `pending` for the required status and `action_required` for the display check — `source`: `tests/guards/base-recheck.test.mjs`
+- [A1] The publisher main path writes pending then the final status, maps a non-passing decision to the display check, and writes `error` plus exit 1 when the final status write fails; a main advance during evaluation blocks the final status — `source`: `tests/guards/publish-gate.test.mjs`
+- [A2] `base-recheck.mjs` writes `pending` for the required status, patches a green legacy check run, and marks the display check `action_required` — `source`: `tests/guards/base-recheck.test.mjs`
 - [A3] The Policy V2 and Policy Base workflows grant `statuses: write`, keep the display-check App step pinned, and retain the trusted `main` checkout — `ci-workflow`: `tests/guards/policy-v2-workflow.test.mjs`, `tests/guards/review-gate.test.mjs`
 - [A4] Repository conventions and the full suite stay green — `tests`: `npm run check`, `npm test`, `npm run test:coverage`
