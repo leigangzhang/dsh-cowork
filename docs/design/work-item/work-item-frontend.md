@@ -290,3 +290,4 @@ queued → sent → thinking → working → replied
 - 设计：[work-item-artifact-viewer.md](work-item-artifact-viewer.md)
 - 研究与核实：[work-item-artifact-embedding-research.md](work-item-artifact-embedding-research.md)、[work-item-artifact-verification.md](work-item-artifact-verification.md)
 - 提案：[2026-11-10-work-item-page-frontend.md](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-frontend.md)
+- 实现交接：[WORK_ITEM_HANDOFF.md](../../handoff/WORK_ITEM_HANDOFF.md)

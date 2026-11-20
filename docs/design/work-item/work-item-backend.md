@@ -424,3 +424,4 @@ working ──cowork_artifact_reply 成功──▶ replied
 - [工作项多模态交付物查看器设计](work-item-artifact-viewer.md)
 - [V1–V16 核实报告](work-item-artifact-verification.md)
 - [后端提案](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-backend.md)
+- [前后端实现交接](../../handoff/WORK_ITEM_HANDOFF.md)

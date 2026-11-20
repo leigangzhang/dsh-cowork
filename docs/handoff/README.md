@@ -8,6 +8,7 @@
 |---|---|
 | 主题页 v2 前后端实现 | [TOPIC_PAGE_HANDOFF.md](TOPIC_PAGE_HANDOFF.md) |
 | 右侧栏收件箱实现 | [TOPIC_INBOX_HANDOFF.md](TOPIC_INBOX_HANDOFF.md) |
+| 工作项页前后端实现（待开始） | [WORK_ITEM_HANDOFF.md](WORK_ITEM_HANDOFF.md) |
 
 ## 代码健康度与模块结构（2026-11-13）
 
