@@ -1,10 +1,12 @@
 /**
- * HTTP surface of the CoWork panel (M11, wire v2).
+ * HTTP surface of the CoWork panel (M11, wire v2) plus the work-item routes.
  *
  * Ten Exact Fetch routes live on the host `connection` service: four reads
  * (`overview`, `activity`, `topic`, `inbox`) and six writes (`resolve`,
  * `reopen`, `authorization.resolve`, `route.move`, `inbox.resolve`,
- * `inbox.open`). `resolve`/`reopen`/`route.move` are
+ * `inbox.open`). When the composition root provides the artifact runtime, the
+ * work-item routes in `src/panel/artifact-api.ts` join them through the same
+ * same-origin fence and error envelope. `resolve`/`reopen`/`route.move` are
  * master-only; `authorization.resolve` accepts the master or the topic's own
  * session. The browser never names a filesystem path: the
  * project root comes from `sessionId` → session cwd → `findProjectRoot`, and
@@ -85,6 +87,9 @@ import type {
 import { buildActivityEvent, topicReopenedActivity } from '../store/activity.js'
 import { inboxPanelRoutes } from './inbox-api.js'
 import type { InboxApiKit } from './inbox-api.js'
+import { artifactPanelRoutes } from './artifact-api.js'
+import type { ArtifactRouteKit } from './artifact-api.js'
+import { ArtifactDomainError } from '../domains/artifact/errors.js'
 import { NoopTopicNoticePort, type TopicNoticePort } from '../domains/notices/notices.js'
 import { isLoopbackHost } from './probe-model.js'
 import { parseReviewRequestRecord, reviewRequestFileName } from '../domains/review/review-request.js'
@@ -181,6 +186,9 @@ function errorBody(code: PanelErrorCode, message: string, path?: string): PanelE
  * client cannot interpret.
  */
 export function toErrorResponse(error: unknown): PanelErrorResult {
+  if (error instanceof ArtifactDomainError) {
+    return { status: panelErrorStatus(error.code), body: errorBody(error.code, error.message, error.path) }
+  }
   if (error instanceof PanelApiError || error instanceof PanelServiceError) {
     return { status: panelErrorStatus(error.code), body: errorBody(error.code, error.message, error.path) }
   }
@@ -978,6 +986,22 @@ export function registerCoworkApi(host: CoworkApiHost, ports: CoworkApiPorts): v
     jsonResponse,
     serve: (handler) => serve(handler),
   }
+  // The work-item routes share this module's session→project resolution and
+  // error envelope through a value kit, so neither module imports the other's
+  // implementation.
+  const artifactKit: ArtifactRouteKit | null = ports.artifact === undefined
+    ? null
+    : {
+        openProject: async (sessionId) => {
+          const opened = await openProject(ports, sessionId)
+          const document = await opened.store.readIndexDocument()
+          return { repoPath: opened.repoPath, projectId: document.projectId }
+        },
+        readJsonBody,
+        jsonResponse,
+        serve,
+        fail: (code, message, path) => new PanelApiError(code, message, path),
+      }
   const routes: readonly PanelFetchRoute[] = [
     {
       path: OVERVIEW_PATH,
@@ -1022,6 +1046,9 @@ export function registerCoworkApi(host: CoworkApiHost, ports: CoworkApiPorts): v
       fetch: serve((request) => handleAuthorizationResolve(request, ports)),
     },
     ...inboxPanelRoutes(ports, inboxKit),
+    ...(artifactKit === null || ports.artifact === undefined
+      ? []
+      : artifactPanelRoutes({ runtimeFor: (repoPath) => ports.artifact!.runtimeFor(repoPath), now: ports.now, log: ports.log }, artifactKit)),
   ]
   for (const route of routes) {
     host.effect(() => connection.fetch.register(route), `dsh-cowork: panel route ${route.path}`)

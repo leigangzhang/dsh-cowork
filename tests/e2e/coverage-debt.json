@@ -6,6 +6,51 @@
       "key": "route:/api/cowork.inbox.open POST",
       "reason": "The route reveals a plan or proposal through the host native file browser. The shipped host session controller has no injectable opener, and a headless keyless lane must not drive a user-visible desktop action.",
       "exitCondition": "A host-level injectable opener (or a consenting desktop lane) must exist before this route can be asserted headlessly; then delete this entry."
+    },
+    {
+      "key": "tool:cowork_artifact_create",
+      "reason": "Stage 1 of the work-item feature lands its wire and host behavior tests first; the keyless real-host artifact chain (create tool → list/detail/file → comment → SSE) runs in the stage-3 acceptance before the feature is delivered.",
+      "exitCondition": "Add the keyless `artifact-chain` scenario to tests/e2e/manifest.json and delete this entry when its evidence is recorded."
+    },
+    {
+      "key": "route:/api/cowork.artifact.list GET",
+      "reason": "Stage 1 of the work-item feature lands its wire and host behavior tests first; the keyless real-host artifact chain (create tool → list/detail/file → comment → SSE) runs in the stage-3 acceptance before the feature is delivered.",
+      "exitCondition": "Add the keyless `artifact-chain` scenario to tests/e2e/manifest.json and delete this entry when its evidence is recorded."
+    },
+    {
+      "key": "route:/api/cowork.artifact.detail GET",
+      "reason": "Stage 1 of the work-item feature lands its wire and host behavior tests first; the keyless real-host artifact chain (create tool → list/detail/file → comment → SSE) runs in the stage-3 acceptance before the feature is delivered.",
+      "exitCondition": "Add the keyless `artifact-chain` scenario to tests/e2e/manifest.json and delete this entry when its evidence is recorded."
+    },
+    {
+      "key": "route:/api/cowork.artifact.file GET",
+      "reason": "Stage 1 of the work-item feature lands its wire and host behavior tests first; the keyless real-host artifact chain (create tool → list/detail/file → comment → SSE) runs in the stage-3 acceptance before the feature is delivered.",
+      "exitCondition": "Add the keyless `artifact-chain` scenario to tests/e2e/manifest.json and delete this entry when its evidence is recorded."
+    },
+    {
+      "key": "route:/api/cowork.artifact.comments GET",
+      "reason": "Stage 1 of the work-item feature lands its wire and host behavior tests first; the keyless real-host artifact chain (create tool → list/detail/file → comment → SSE) runs in the stage-3 acceptance before the feature is delivered.",
+      "exitCondition": "Add the keyless `artifact-chain` scenario to tests/e2e/manifest.json and delete this entry when its evidence is recorded."
+    },
+    {
+      "key": "route:/api/cowork.artifact.comment POST",
+      "reason": "Stage 1 of the work-item feature lands its wire and host behavior tests first; the keyless real-host artifact chain (create tool → list/detail/file → comment → SSE) runs in the stage-3 acceptance before the feature is delivered.",
+      "exitCondition": "Add the keyless `artifact-chain` scenario to tests/e2e/manifest.json and delete this entry when its evidence is recorded."
+    },
+    {
+      "key": "route:/api/cowork.artifact.comment.resolve POST",
+      "reason": "Stage 1 of the work-item feature lands its wire and host behavior tests first; the keyless real-host artifact chain (create tool → list/detail/file → comment → SSE) runs in the stage-3 acceptance before the feature is delivered.",
+      "exitCondition": "Add the keyless `artifact-chain` scenario to tests/e2e/manifest.json and delete this entry when its evidence is recorded."
+    },
+    {
+      "key": "route:/api/cowork.artifact.status POST",
+      "reason": "Stage 1 of the work-item feature lands its wire and host behavior tests first; the keyless real-host artifact chain (create tool → list/detail/file → comment → SSE) runs in the stage-3 acceptance before the feature is delivered.",
+      "exitCondition": "Add the keyless `artifact-chain` scenario to tests/e2e/manifest.json and delete this entry when its evidence is recorded."
+    },
+    {
+      "key": "route:/api/cowork.artifact.events GET",
+      "reason": "Stage 1 of the work-item feature lands its wire and host behavior tests first; the keyless real-host artifact chain (create tool → list/detail/file → comment → SSE) runs in the stage-3 acceptance before the feature is delivered.",
+      "exitCondition": "Add the keyless `artifact-chain` scenario to tests/e2e/manifest.json and delete this entry when its evidence is recorded."
     }
   ]
 }

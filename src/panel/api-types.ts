@@ -9,6 +9,7 @@
  * implementation.
  */
 import type { TopicNoticePort, NoticeLedgerV1 } from '../domains/notices/notices.js'
+import type { ArtifactRuntime } from '../platform/artifact-runtime.js'
 import type {
   ActivityEvent,
   InboxRecordV1,
@@ -99,6 +100,16 @@ export interface CoworkApiPorts {
   openWorkspacePath?(path: string): Promise<void>
   /** Schedule the notice dispatcher for one project after a committed write. */
   kickNotices?(repoPath: string): void
+  /**
+   * The work-item runtime of one project. Absent on hosts/embeds without the
+   * artifact feature: the artifact routes are then not registered at all.
+   */
+  artifact?: ArtifactRuntimeHost
+}
+
+/** The per-project work-item runtime registry the artifact routes read. */
+export interface ArtifactRuntimeHost {
+  runtimeFor(repoPath: string): ArtifactRuntime
 }
 
 /** Methods the connection channel supports for a registered route. */

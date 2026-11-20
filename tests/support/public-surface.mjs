@@ -11,6 +11,7 @@ import './ts-hook.mjs'
 
 const contract = await import('../../src/panel/api-contract.ts')
 const inbox = await import('../../src/panel/inbox-contract.ts')
+const artifact = await import('../../src/panel/artifact-contract.ts')
 
 /** Every panel route in registration order, with its HTTP method. */
 export const PANEL_ROUTES = [
@@ -24,6 +25,14 @@ export const PANEL_ROUTES = [
   [inbox.INBOX_PATH, 'GET'],
   [inbox.INBOX_RESOLVE_PATH, 'POST'],
   [inbox.INBOX_OPEN_PATH, 'POST'],
+  [artifact.ARTIFACT_LIST_PATH, 'GET'],
+  [artifact.ARTIFACT_DETAIL_PATH, 'GET'],
+  [artifact.ARTIFACT_FILE_PATH, 'GET'],
+  [artifact.ARTIFACT_COMMENTS_PATH, 'GET'],
+  [artifact.ARTIFACT_COMMENT_PATH, 'POST'],
+  [artifact.ARTIFACT_COMMENT_RESOLVE_PATH, 'POST'],
+  [artifact.ARTIFACT_STATUS_PATH, 'POST'],
+  [artifact.ARTIFACT_EVENTS_PATH, 'GET'],
 ]
 
 /** The panel route paths, in registration order. */
@@ -53,6 +62,7 @@ export const BUSINESS_TOOL_ORDER = [
   'cowork_memory_write',
   'cowork_memory_search',
   'cowork_checkout_merge',
+  'cowork_artifact_create',
 ]
 
 /** The business tools as a sorted set (order-insensitive assertions). */
@@ -82,4 +92,5 @@ export const TOOL_DOMAINS = [
   ['src/tools/memory.ts', ['cowork_memory_write', 'cowork_memory_search']],
   ['src/tools/isolation.ts', ['cowork_work_item_create', 'cowork_checkout_merge']],
   ['src/tools/review.ts', ['cowork_review_request', 'cowork_review_verdict']],
+  ['src/tools/artifact.ts', ['cowork_artifact_create']],
 ]

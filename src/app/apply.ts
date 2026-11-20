@@ -1,7 +1,7 @@
 /**
  * @dsh-external/dsh-cowork host plugin entry point.
  *
- * This module assembles the business surface — the panel API, the twenty-two
+ * This module assembles the business surface — the panel API, the twenty-three
  * cowork tools, the three presets, and the project-memory prompt section — and
  * starts the opt-in dev surface when `Config.enableDevRoutes` is true. The
  * configuration schema and its one defaults table live in `src/app/config.ts`; the
@@ -36,6 +36,8 @@ import type { HostLlmLike } from '../platform/llm-port.js'
 import { NoopTopicNoticePort, TopicNoticeDispatcher } from '../domains/notices/notices.js'
 import type { CoworkToolDeps, CurrentModelRoute } from '../platform/tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
+import { ArtifactRuntimeManager } from '../platform/artifact-runtime.js'
+import type { HostFileSystem } from '../platform/artifact-files.js'
 import { TopicEvents } from '../platform/topic-events.js'
 import type { TopicEventLike, TopicEventSession } from '../platform/topic-events.js'
 import { repairCoworkWorkspaces } from '../platform/workspace-repair.js'
@@ -248,6 +250,7 @@ function createPanelPorts(
   assembly: CoworkAssemblyHost,
   settings: Config,
   notices: { port: NoopTopicNoticePort; kick(repoPath: string): void },
+  artifacts: ArtifactRuntimeManager,
 ): CoworkApiPorts {
   return {
     // Metadata only: `inspect` also reads the session event log and hung the
@@ -284,6 +287,9 @@ function createPanelPorts(
     ),
     noticePort: notices.port,
     kickNotices: (repoPath) => notices.kick(repoPath),
+    // The work-item routes resolve one runtime per repository; the manager owns
+    // the cache and disposes the event hubs with the plugin fiber.
+    artifact: { runtimeFor: (repoPath) => artifacts.runtimeFor(repoPath) },
     log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
   }
 }
@@ -300,7 +306,7 @@ export function apply(ctx: Context, config: Config): void {
       `${PLUGIN_NAME}: reviewer.reclaim must be '${CONFIG_DEFAULTS.reviewer.reclaim}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
     )
   }
-  // M1 assembly services: one dependency bag for the presets and the twenty-two tools.
+  // M1 assembly services: one dependency bag for the presets and the twenty-three tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: the dev surface canonicalizes its own copy, because
   // only it compares paths against a host session cwd.
@@ -322,6 +328,15 @@ export function apply(ctx: Context, config: Config): void {
     kick: (repoPath: string) => noticeDispatcher.kick(repoPath),
   }
 
+  // Work-item runtimes: one per project, created on first use. A host without
+  // `ctx.fs` still gets the records/comments/SSE half and answers file reads
+  // with `artifact/fs-unavailable`.
+  const artifactRuntimes = new ArtifactRuntimeManager({
+    hostFs: hostService<HostFileSystem>(ctx, 'fs'),
+    log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
+  })
+  ctx.effect(() => () => artifactRuntimes.dispose(), 'dsh-cowork: artifact runtimes')
+
   const coworkDeps: CoworkToolDeps = {
     sessionController: assembly.sessionController,
     workspaceRegistry: workspacePorts,
@@ -342,12 +357,13 @@ export function apply(ctx: Context, config: Config): void {
     llmRoutingPort: createLlmRoutingPort(hostService<HostLlmLike>(ctx, 'llm')),
     currentModelRoute: hostCurrentModelRoute(ctx),
     notices: noticeRuntime,
+    artifactRuntime: { runtimeFor: (repoPath) => artifactRuntimes.runtimeFor(repoPath) },
   }
 
   // M11 panel: four read routes and six write routes over the host connection
   // service (the request inbox adds its read, resolve, and open routes). The project root is derived from the session's own cwd, never from
   // the request.
-  const panelPorts = createPanelPorts(ctx, assembly, settings, noticeRuntime)
+  const panelPorts = createPanelPorts(ctx, assembly, settings, noticeRuntime, artifactRuntimes)
   registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
 
   // M8.2: the session event stream keeps topic activity fresh and reopens a
@@ -421,7 +437,7 @@ export function apply(ctx: Context, config: Config): void {
     })
   }
 
-  // M1: the three runtime presets and the twenty-two cowork tools, owned by this fiber.
+  // M1: the three runtime presets and the twenty-three cowork tools, owned by this fiber.
   ctx.effect(() => registerPresets(coworkDeps.agentPresets).then((disposers) => async () => {
     for (const dispose of disposers) await dispose()
   }), 'dsh-cowork: cowork presets')
