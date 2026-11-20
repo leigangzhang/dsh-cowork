@@ -2,16 +2,16 @@
   "formatVersion": 1,
   "pluginVersion": "0.2.0",
   "dshVersion": "0.2.1-rc.2",
-  "catalogSha256": "c13793ce1bbc8d7489539006ba78104cf2af97f9ef940314c58d645a54940365",
+  "catalogSha256": "6b34eb568e1ba66df13fae23d6ba8e543c21c4de64ab82405f85245ffb6b87c1",
   "nodeVersion": "v22.22.1",
   "command": "npm run test:e2e -- --record",
-  "recordedAt": "2026-11-20T10:56:55.181Z",
+  "recordedAt": "2026-11-20T12:22:22.230Z",
   "result": "pass",
   "artifact": {
-    "head": "a2196cf4f553758fa7aa078ad203c2c9b8b051f5",
+    "head": "0478f2ef581d5c62c3c1f6af058dff4a0ab58817",
     "dirty": false,
     "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "tarballSha256": "5ab29152504b0e34934097caa32e945e9d5b732fb8f794022866de6fb78bdf8c"
+    "tarballSha256": "eed6f5d714e8c8874f36958f26bf4732387044ac645c347082daf77124449faa"
   },
   "scenarios": [
     {
@@ -68,59 +68,59 @@
           "passed": true
         },
         {
-          "name": "session session-0c250350-3… runs in the fixture",
+          "name": "session session-9937aba2-4… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-0c250350-3… is not running",
+          "name": "session session-9937aba2-4… is not running",
           "passed": true
         },
         {
-          "name": "session session-878e4da7-5… runs in the fixture",
+          "name": "session session-5021c019-d… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-878e4da7-5… is not running",
+          "name": "session session-5021c019-d… is not running",
           "passed": true
         },
         {
-          "name": "session session-f2dfa34f-9… runs in the fixture",
+          "name": "session session-a1a0ce9c-f… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-f2dfa34f-9… is not running",
+          "name": "session session-a1a0ce9c-f… is not running",
           "passed": true
         },
         {
-          "name": "session session-df921d30-b… runs in the fixture",
+          "name": "session session-fa9eb7c3-c… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-df921d30-b… is not running",
+          "name": "session session-fa9eb7c3-c… is not running",
           "passed": true
         },
         {
-          "name": "topic session-878e4da7-5… is a real session",
+          "name": "topic session-5021c019-d… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-878e4da7-5… mounted cowork-topic",
+          "name": "topic session-5021c019-d… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-f2dfa34f-9… is a real session",
+          "name": "topic session-a1a0ce9c-f… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-f2dfa34f-9… mounted cowork-topic",
+          "name": "topic session-a1a0ce9c-f… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-df921d30-b… is a real session",
+          "name": "topic session-fa9eb7c3-c… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-df921d30-b… mounted cowork-topic",
+          "name": "topic session-fa9eb7c3-c… mounted cowork-topic",
           "passed": true
         },
         {
@@ -520,6 +520,18 @@
           "passed": true
         },
         {
+          "name": "a non-overlapping stale save merges",
+          "passed": true
+        },
+        {
+          "name": "the merged file keeps both edits",
+          "passed": true
+        },
+        {
+          "name": "the replay serves persisted events",
+          "passed": true
+        },
+        {
           "name": "upload returns an attachment ref",
           "passed": true
         },
@@ -529,6 +541,53 @@
         },
         {
           "name": "the attachment route serves the bytes",
+          "passed": true
+        },
+        {
+          "name": "presence is again active for the guard",
+          "passed": true
+        },
+        {
+          "name": "the guard denied the overlapping model edit",
+          "passed": true
+        },
+        {
+          "name": "the denied edit left the file unchanged",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "artifact-recovery",
+      "mode": "keyless",
+      "passed": true,
+      "checks": [
+        {
+          "name": "the recovery project has an index",
+          "passed": true
+        },
+        {
+          "name": "the seeded work items list",
+          "passed": true
+        },
+        {
+          "name": "recovery turned the in-flight batch stale",
+          "passed": true
+        },
+        {
+          "name": "recovery rescheduled the queued batch to replied",
+          "passed": true
+        },
+        {
+          "name": "the rescheduled batch has a model reply",
+          "passed": true
+        },
+        {
+          "name": "the stale batch prompted no new turn",
+          "passed": true
+        },
+        {
+          "name": "the queued batch prompted exactly once",
           "passed": true
         }
       ]
