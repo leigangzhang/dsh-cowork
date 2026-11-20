@@ -244,14 +244,14 @@ test('changed line ranges group consecutive differences and trailing inserts', (
     { startLine: 3, endLine: 3 },
   ])
   assert.deepEqual(model.changedLineRanges('a\n', 'a\nb\n'), [{ startLine: 2, endLine: 2 }])
-  assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'a\nb\n'), [])
-  // A shifted line is reported at the position it now occupies; presence is a
-  // hint, not a diff.
+  assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'a\nb\n'), [{ startLine: 3, endLine: 3 }])
+  // An insertion at the top only reports the new line, not the whole file.
+  assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'x\na\nb\nc\n'), [{ startLine: 1, endLine: 1 }])
+  // A middle insertion reports only its own line; deletions report the point.
+  assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'a\nx\nb\nc\n'), [{ startLine: 2, endLine: 2 }])
   assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'a\nc\n'), [{ startLine: 2, endLine: 2 }])
-  assert.deepEqual(model.changedLineRanges('', 'x\ny\n'), [
-    { startLine: 1, endLine: 1 },
-    { startLine: 2, endLine: 2 },
-  ])
+  assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'a\nB\nC\n'), [{ startLine: 2, endLine: 3 }])
+  assert.deepEqual(model.changedLineRanges('', 'x\ny\n'), [{ startLine: 1, endLine: 2 }])
 })
 
 test('save state labels name every phase', () => {

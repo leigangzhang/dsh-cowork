@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import {
   NOW,
   PROJECT_ID,
@@ -871,6 +872,8 @@ test('an image upload is sniffed, stored, and counted', async () => {
     assert.match(body.attachment.attachmentId, /^attachment-/)
     const stored = await harness.runtime().store.readUpload(ARTIFACT, body.attachment.attachmentId)
     assert.deepEqual([...stored], [...PNG_BYTES])
+    const { createHash } = await import('node:crypto')
+    assert.equal(body.attachment.sha256, createHash('sha256').update(PNG_BYTES).digest('hex'))
     const record = await harness.runtime().store.readRecord(ARTIFACT)
     assert.equal(record.attachmentCount, 1)
 
@@ -919,6 +922,35 @@ test('a stored attachment is served with its media type and nosniff', async () =
       query: { sessionId: SESSION, artifactId: ARTIFACT, attachmentId: uploaded.attachment.attachmentId },
     })
     assert.equal(vanished.status, 404)
+  })
+})
+
+test('a forged attachment ref is canonicalized and text is a forced download', async () => {
+  await withSeededHarness(async (harness) => {
+    const bytes = Buffer.from('<script>alert(1)</script>\n')
+    const uploaded = await jsonOf(await uploadAttachment(harness, 'notes.txt', bytes))
+    const forged = {
+      ...uploaded.attachment,
+      mediaType: 'text/html',
+      size: 1,
+      sha256: '0'.repeat(64),
+    }
+    const comment = await jsonOf(await harness.request('/api/cowork.artifact.comment', {
+      method: 'POST',
+      body: { sessionId: SESSION, artifactId: ARTIFACT, body: 'forged ref', attachments: [forged] },
+    }))
+    assert.equal(comment.ok, true)
+    assert.equal(comment.comment.attachments[0].mediaType, 'text/plain')
+    assert.equal(comment.comment.attachments[0].size, bytes.byteLength)
+    assert.equal(comment.comment.attachments[0].sha256, createHashForTest(bytes))
+    const response = await harness.request('/api/cowork.artifact.attachment', {
+      query: { sessionId: SESSION, artifactId: ARTIFACT, attachmentId: uploaded.attachment.attachmentId },
+    })
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8')
+    assert.match(response.headers.get('content-disposition') ?? '', /^attachment;/)
+    assert.match(response.headers.get('content-security-policy') ?? '', /sandbox/)
+    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [...bytes])
   })
 })
 
@@ -1061,4 +1093,66 @@ test('a comment queues a dispatch when the runtime has a prompt port', async () 
   } finally {
     await harness.cleanup()
   }
+})
+
+/** SHA-256 helper for assertion values. */
+function createHashForTest(bytes) {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+test('a delivery enqueue failure is reported next to the saved comment', async () => {
+  await withSeededHarness(async (harness) => {
+    const runtime = harness.runtime()
+    const original = runtime.dispatch.enqueue.bind(runtime.dispatch)
+    runtime.dispatch.enqueue = async () => {
+      const { ArtifactDomainError } = await import('../../src/domains/artifact/errors.ts')
+      throw new ArtifactDomainError('artifact/dispatch-queue-full', 'session queue holds 10 batches')
+    }
+    try {
+      const response = await harness.request('/api/cowork.artifact.comment', {
+        method: 'POST',
+        body: { sessionId: SESSION, artifactId: ARTIFACT, body: 'still saved' },
+      })
+      assert.equal(response.status, 200)
+      const body = await jsonOf(response)
+      assert.equal(body.ok, true)
+      assert.equal(body.dispatch, null)
+      assert.equal(body.dispatchError.code, 'artifact/dispatch-queue-full')
+      assert.match(body.dispatchError.message, /queue holds 10/)
+      assert.equal(body.comment.body, 'still saved')
+      assert.equal(body.record.commentCount, 1)
+    } finally {
+      runtime.dispatch.enqueue = original
+    }
+  }, { prompt: { async prompt() { return { accepted: true } } } })
+})
+
+test('the comment limit is enforced before a row is appended', async () => {
+  await withSeededHarness(async (harness) => {
+    const runtime = harness.runtime()
+    await runtime.store.mutateRecord(ARTIFACT, (record) => ({ ...record, commentCount: 5000 }))
+    const response = await harness.request('/api/cowork.artifact.comment', {
+      method: 'POST',
+      body: { sessionId: SESSION, artifactId: ARTIFACT, body: 'one too many' },
+    })
+    assert.equal(response.status, 409)
+    const body = await jsonOf(response)
+    assert.equal(body.error.code, 'artifact/comment-limit')
+    assert.equal((await runtime.store.readComments(ARTIFACT)).length, 0)
+  })
+})
+
+test('a successful save refreshes the guard text cache', async () => {
+  await withSeededHarness(async (harness) => {
+    await seedBaseRevision(harness)
+    await harness.request('/api/cowork.artifact.file', {
+      query: { sessionId: SESSION, artifactId: ARTIFACT, path: 'docs/spec.md' },
+    })
+    const runtime = harness.runtime()
+    const absolute = join(harness.repoPath, 'docs/spec.md')
+    runtime.presence.report(absolute, [{ startLine: 2, endLine: 2 }])
+    const body = await jsonOf(await harness.request('/api/cowork.artifact.edit', { method: 'POST', body: editBody() }))
+    assert.equal(body.ok, true)
+    assert.equal(runtime.presence.cachedText(absolute), editBody().content)
+  })
 })

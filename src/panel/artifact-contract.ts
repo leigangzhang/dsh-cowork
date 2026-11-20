@@ -582,7 +582,15 @@ export interface ArtifactCommentResponse {
   readonly ok: true
   readonly comment: CommentEventV1
   readonly dispatch: DispatchRecordV1 | null
+  /** Why delivery could not be queued; the comment itself is saved. */
+  readonly dispatchError: ArtifactDispatchError | null
   readonly record: ArtifactRecordV1
+}
+
+/** One delivery enqueue failure surfaced next to the saved comment. */
+export interface ArtifactDispatchError {
+  readonly code: string
+  readonly message: string
 }
 
 /** Body of a successful `POST artifact.comment.resolve`. */

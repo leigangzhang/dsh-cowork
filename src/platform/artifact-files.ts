@@ -78,6 +78,11 @@ export function sha256Hex(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex')
 }
 
+/** SHA-256 of raw bytes; uploads must hash the bytes, never a lossy decode. */
+export function sha256HexBytes(content: Uint8Array): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
 /** The local filesystem error code, when the error has one. */
 function fsCode(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null) return undefined

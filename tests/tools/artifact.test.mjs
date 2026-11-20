@@ -543,3 +543,35 @@ test('the reply tool refuses an unknown work item and maps a store throw', async
     assert.equal(thrown.error.code, 'tool/internal')
   })
 })
+
+test('the reply tool canonicalizes attachments and enforces the comment limit', async () => {
+  await withRepo(async (repoPath) => {
+    await writeFile(join(repoPath, 'notes.txt'), 'hello\n')
+    const { tool, deps, manager } = await setup(repoPath)
+    const artifactId = await createWorkItem(repoPath, tool)
+    const runtime = manager.runtimeFor(repoPath)
+    const store = runtime.store
+    await store.appendComment(makeComment({ artifactId, commentId: 'comment-1', threadId: 'comment-1', eventId: 'e1' }))
+    const attachmentId = 'attachment-22222222-2222-4222-8222-222222222222'
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    await store.saveUpload(artifactId, attachmentId, png)
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const reply = host.registry.get('cowork_artifact_reply')
+    const forged = await reply.execute({
+      artifactId,
+      commentIds: ['comment-1'],
+      body: 'with forged ref',
+      attachments: [{ attachmentId, name: 'shot.png', mediaType: 'text/html', size: 1, sha256: 'x' }],
+    }, fakeExec(MASTER, repoPath))
+    assert.equal(forged.ok, true)
+    const replies = (await store.readComments(artifactId)).filter((event) => event.type === 'reply')
+    assert.equal(replies[0].attachments[0].mediaType, 'image/png')
+    assert.equal(replies[0].attachments[0].size, png.byteLength)
+
+    await store.mutateRecord(artifactId, (record) => ({ ...record, commentCount: 5000 }))
+    const overLimit = await reply.execute({ artifactId, commentIds: ['comment-1'], body: 'too many' }, fakeExec(MASTER, repoPath))
+    assert.equal(overLimit.ok, false)
+    assert.equal(overLimit.error.code, 'artifact/comment-limit')
+  })
+})

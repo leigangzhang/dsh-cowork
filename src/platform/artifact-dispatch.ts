@@ -34,6 +34,7 @@ import {
   type AttachmentRefV1,
 } from '../panel/artifact-contract.js'
 import { ArtifactDomainError } from '../domains/artifact/errors.js'
+import { isInlineImageMediaType } from '../domains/artifact/attachments.js'
 import { createEventRow } from './artifact-events.js'
 import type { ArtifactStore } from '../store/artifact-store.js'
 
@@ -135,7 +136,6 @@ export function buildDispatchPrompt(input: {
 }
 
 /** Image media types a prompt may carry. */
-const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
 /** A tiny counting semaphore for cross-session prompt concurrency. */
 class Semaphore {
@@ -183,6 +183,16 @@ export class ArtifactDispatcher {
   private disposed = false
   /** Serializes state writes: a slow earlier event must not land after a later one. */
   private transitionChain: Promise<unknown> = Promise.resolve()
+  /** Sessions whose flush loop is running; a second flush must not re-enter. */
+  private readonly flushing = new Set<string>()
+  /** Sessions that queued work while a flush was running. */
+  private readonly flushAgain = new Set<string>()
+  /** Sent batches waiting for their turn/start, keyed by dispatch id. */
+  private readonly awaitingTurn = new Set<string>()
+  /** The turn each in-flight batch belongs to, keyed by dispatch id. */
+  private readonly turnOfDispatch = new Map<string, number>()
+  /** Sessions waiting for a backoff retry; new comments must not shorten it. */
+  private readonly retrying = new Set<string>()
 
   constructor(options: ArtifactDispatcherOptions) {
     this.runtime = options.runtime
@@ -266,34 +276,58 @@ export class ArtifactDispatcher {
     return dispatch
   }
 
-  /** Mark every accepted batch of a session as thinking on `turn/start`. */
-  async onTurnStart(sessionId: string): Promise<void> {
-    for (const dispatch of [...this.active.values()]) {
-      if (dispatch.sessionId === sessionId && dispatch.state === 'sent') {
-        await this.transition(dispatch, 'thinking')
-      }
+  /**
+   * Bind the one in-flight batch to the turn it is about to run.
+   *
+   * The host prompt is queued; the first `turn/start` after the batch became
+   * `sent` is that prompt's turn. Passing no turn keeps the legacy
+   * "every sent batch of the session" behavior for direct callers/tests.
+   */
+  async onTurnStart(sessionId: string, turn?: number): Promise<void> {
+    const pending = [...this.active.values()].filter((dispatch) =>
+      dispatch.sessionId === sessionId && dispatch.state === 'sent')
+    if (turn === undefined) {
+      for (const dispatch of pending) await this.transition(dispatch, 'thinking')
+      return
     }
+    const target = pending.find((dispatch) => this.awaitingTurn.has(dispatch.dispatchId))
+    if (target === undefined) return
+    this.awaitingTurn.delete(target.dispatchId)
+    this.turnOfDispatch.set(target.dispatchId, turn)
+    await this.transition(target, 'thinking')
   }
 
-  /** Mark every in-flight batch of a session as working on a tool call. */
-  async onToolCall(sessionId: string): Promise<void> {
+  /** Move the batch that belongs to `turn` to working when it calls a tool. */
+  async onToolCall(sessionId: string, turn?: number): Promise<void> {
     for (const dispatch of [...this.active.values()]) {
-      if (dispatch.sessionId === sessionId && (dispatch.state === 'sent' || dispatch.state === 'thinking')) {
+      if (dispatch.sessionId !== sessionId) continue
+      if (turn !== undefined && this.turnOfDispatch.get(dispatch.dispatchId) !== turn) continue
+      if (dispatch.state === 'sent' || dispatch.state === 'thinking') {
         await this.transition(dispatch, 'working')
       }
     }
   }
 
-  /** A turn ended without a reply: the batch failed honestly. */
-  async onTurnEnd(sessionId: string): Promise<void> {
-    for (const dispatch of [...this.active.values()]) {
-      if (
+  /**
+   * Close the batch that belongs to an ended turn. A turn that never started a
+   * batch (the user's own message) must not fail a queued or future batch.
+   */
+  async onTurnEnd(sessionId: string, turn?: number): Promise<void> {
+    let target: DispatchRecordV1 | undefined
+    if (turn === undefined) {
+      target = [...this.active.values()].find((dispatch) =>
         dispatch.sessionId === sessionId
-        && (dispatch.state === 'sent' || dispatch.state === 'thinking' || dispatch.state === 'working')
-      ) {
-        await this.transition(dispatch, 'failed', 'artifact/reply-missing')
+        && (dispatch.state === 'sent' || dispatch.state === 'thinking' || dispatch.state === 'working'))
+    } else {
+      target = [...this.active.values()].find((dispatch) =>
+        dispatch.sessionId === sessionId
+        && this.turnOfDispatch.get(dispatch.dispatchId) === turn
+        && (dispatch.state === 'sent' || dispatch.state === 'thinking' || dispatch.state === 'working'))
+      for (const [dispatchId, boundTurn] of this.turnOfDispatch) {
+        if (boundTurn === turn) this.turnOfDispatch.delete(dispatchId)
       }
     }
+    if (target !== undefined) await this.transition(target, 'failed', 'artifact/reply-missing')
   }
 
   /** The session disappeared or is archived. */
@@ -305,6 +339,12 @@ export class ArtifactDispatcher {
       ) {
         await this.transition(dispatch, 'blocked', errorCode)
       }
+    }
+    for (const dispatchId of [...this.awaitingTurn]) {
+      if (this.active.get(dispatchId)?.sessionId === sessionId) this.awaitingTurn.delete(dispatchId)
+    }
+    for (const dispatchId of [...this.turnOfDispatch.keys()]) {
+      if (this.active.get(dispatchId)?.sessionId === sessionId) this.turnOfDispatch.delete(dispatchId)
     }
   }
 
@@ -321,7 +361,7 @@ export class ArtifactDispatcher {
     let found: DispatchRecordV1 | null = null
     for (const dispatch of this.active.values()) {
       if (dispatch.artifactId !== artifactId) continue
-      if (dispatch.state === 'replied' || dispatch.state === 'failed' || dispatch.state === 'blocked' || dispatch.state === 'stale') continue
+      if (dispatch.state !== 'sent' && dispatch.state !== 'thinking' && dispatch.state !== 'working') continue
       if (found === null || dispatch.createdAt > found.createdAt) found = dispatch
     }
     return found
@@ -364,6 +404,11 @@ export class ArtifactDispatcher {
     this.queues.clear()
     this.active.clear()
     this.settled.clear()
+    this.flushing.clear()
+    this.flushAgain.clear()
+    this.awaitingTurn.clear()
+    this.turnOfDispatch.clear()
+    this.retrying.clear()
     this.transitionChain = Promise.resolve()
   }
 
@@ -388,22 +433,60 @@ export class ArtifactDispatcher {
 
   private scheduleFlush(sessionId: string): void {
     if (this.disposed) return
+    if (this.retrying.has(sessionId)) return
+    if (this.flushing.has(sessionId)) {
+      this.flushAgain.add(sessionId)
+      return
+    }
     this.setTimer(`flush:${sessionId}`, this.windowMs, () => { void this.flush(sessionId) })
   }
 
-  /** Send the queued batches of one session serially. */
-  private async flush(sessionId: string): Promise<void> {
-    if (this.disposed) return
-    const queue = this.queues.get(sessionId)
-    if (queue === undefined) return
-    while (queue.length > 0) {
-      const entry = queue[0]
-      const result = await this.deliver(entry)
-      if (result === 'retry') return
-      queue.shift()
-      if (!this.active.has(entry.dispatch.dispatchId)) continue
+  /** Whether one batch of this session is accepted and not yet terminal. */
+  private hasInFlight(sessionId: string): boolean {
+    for (const dispatch of this.active.values()) {
+      if (dispatch.sessionId !== sessionId) continue
+      if (dispatch.state === 'sent' || dispatch.state === 'thinking' || dispatch.state === 'working') return true
     }
-    this.queues.delete(sessionId)
+    return false
+  }
+
+  /**
+   * Send queued batches of one session, one at a time.
+   *
+   * Re-entrancy is guarded: a second flush observes `flushing` and only marks
+   * `flushAgain`, so two loops cannot shift the same queue head. A session
+   * keeps at most one in-flight batch; the next batch is scheduled when the
+   * current one reaches a terminal state.
+   */
+  private async flush(sessionId: string): Promise<void> {
+    if (this.disposed || this.flushing.has(sessionId)) return
+    this.flushing.add(sessionId)
+    try {
+      while (!this.disposed && !this.hasInFlight(sessionId)) {
+        const queue = this.queues.get(sessionId)
+        if (queue === undefined || queue.length === 0) {
+          this.queues.delete(sessionId)
+          break
+        }
+        const entry = queue[0]
+        if (!this.active.has(entry.dispatch.dispatchId)) {
+          if (queue[0] === entry) queue.shift()
+          continue
+        }
+        const result = await this.deliver(entry)
+        if (result === 'retry') {
+          // `deliver` scheduled the backoff timer for this same session; a
+          // pending-comment marker would replace it with the short window.
+          this.flushAgain.delete(sessionId)
+          return
+        }
+        if (queue[0] === entry) queue.shift()
+        if (result === 'sent') return
+      }
+    } finally {
+      this.flushing.delete(sessionId)
+      if (this.flushAgain.delete(sessionId)) this.scheduleFlush(sessionId)
+    }
   }
 
   /** Attempt one prompt; a retry reschedules and returns 'retry'. */
@@ -441,7 +524,11 @@ export class ArtifactDispatcher {
       this.active.set(retrying.dispatchId, retrying)
       await this.persist(retrying)
       this.log(`dispatch ${retrying.dispatchId} retries in ${String(retryDelay)} ms`)
-      this.setTimer(`flush:${retrying.sessionId}`, retryDelay, () => { void this.flush(retrying.sessionId) })
+      this.retrying.add(retrying.sessionId)
+      this.setTimer(`flush:${retrying.sessionId}`, retryDelay, () => {
+        this.retrying.delete(retrying.sessionId)
+        void this.flush(retrying.sessionId)
+      })
       return 'retry'
     }
   }
@@ -462,7 +549,7 @@ export class ArtifactDispatcher {
     for (const comment of entry.comments) {
       if (comment.type !== 'create' && comment.type !== 'reply') continue
       for (const attachment of comment.attachments ?? []) {
-        if (IMAGE_MEDIA_TYPES.has(attachment.mediaType)) images.push(attachment)
+        if (isInlineImageMediaType(attachment.mediaType)) images.push(attachment)
       }
     }
     for (const image of images.slice(0, 4)) {
@@ -499,7 +586,10 @@ export class ArtifactDispatcher {
     // event that was captured before the reply landed.
     const settled = this.settled.get(dispatch.dispatchId)
     if (settled !== undefined) return settled
+    if (state === 'sent') this.awaitingTurn.add(dispatch.dispatchId)
     if (isTerminalDispatchState(state)) {
+      this.awaitingTurn.delete(dispatch.dispatchId)
+      this.turnOfDispatch.delete(dispatch.dispatchId)
       this.settled.set(dispatch.dispatchId, { ...dispatch, state, errorCode, updatedAt: this.now().toISOString() })
       // Bound the retained terminal records; the newest 200 are enough for the
       // rare late event and never grow with the project.
@@ -518,11 +608,14 @@ export class ArtifactDispatcher {
     this.active.set(updated.dispatchId, updated)
     if (state === 'replied' || state === 'failed' || state === 'blocked' || state === 'stale') {
       this.cancelTimer(`timeout:${updated.dispatchId}`)
-      this.cancelTimer(`flush:${updated.sessionId}`)
       this.active.delete(updated.dispatchId)
     }
     const event = await this.persist(updated)
     this.runtime.events.publish(event)
+    if (isTerminalDispatchState(state)) {
+      const queued = this.queues.get(updated.sessionId)
+      if (queued !== undefined && queued.length > 0) this.scheduleFlush(updated.sessionId)
+    }
     return updated
   }
 
@@ -637,20 +730,22 @@ export interface DispatchSessionListenerOptions {
  */
 export function createDispatchSessionListener(
   options: DispatchSessionListenerOptions,
-): (session: DispatchSessionEventSource, event: { readonly type?: unknown }) => void {
+): (session: DispatchSessionEventSource, event: { readonly type?: unknown; readonly data?: unknown }) => void {
   return (session, event) => {
     const sessionId = session.header?.id
     const cwd = session.header?.cwd
     const kind = event.type
     if (typeof sessionId !== 'string' || sessionId === '' || typeof cwd !== 'string' || cwd === '') return
     if (kind !== 'turn/start' && kind !== 'tool/call' && kind !== 'turn/end') return
+    const data = typeof event.data === 'object' && event.data !== null ? event.data as { turn?: unknown } : null
+    const turn = typeof data?.turn === 'number' && Number.isSafeInteger(data.turn) ? data.turn : undefined
     void options.resolveRepoPath(cwd).then((repoPath) => {
       if (repoPath === null) return undefined
       const dispatcher = options.runtimeFor(repoPath).dispatch
       if (dispatcher === null) return undefined
-      if (kind === 'turn/start') return dispatcher.onTurnStart(sessionId)
-      if (kind === 'tool/call') return dispatcher.onToolCall(sessionId)
-      return dispatcher.onTurnEnd(sessionId)
+      if (kind === 'turn/start') return dispatcher.onTurnStart(sessionId, turn)
+      if (kind === 'tool/call') return dispatcher.onToolCall(sessionId, turn)
+      return dispatcher.onTurnEnd(sessionId, turn)
     }).catch((error: unknown) => {
       options.log?.(`artifact dispatch session event failed: ${error instanceof Error ? error.message : String(error)}`)
     })

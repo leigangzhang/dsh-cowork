@@ -115,9 +115,9 @@ test('an edit is denied only when old_string overlaps the active range', () => {
     guard(exec('edit', { file_path: 'docs/spec.md', old_string: 'alpha', new_string: 'A' })),
     undefined,
   )
-  assert.equal(
+  assert.match(
     guard(exec('edit', { file_path: 'docs/spec.md', old_string: 'missing', new_string: 'M' })),
-    undefined,
+    /无法在缓存内容里定位/,
   )
   assert.equal(guard(exec('edit', { file_path: 'docs/spec.md' })), undefined)
 })

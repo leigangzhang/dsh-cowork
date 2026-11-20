@@ -194,7 +194,10 @@ export function openArtifactEventStream(options: ArtifactStreamOptions): Respons
       if (after > 0 && events.length === 0 && newest < after) {
         send(formatResetFrame(newest))
       }
-      for (const event of events) sendEvent(event)
+      const filtered = options.filter?.artifactId === undefined
+        ? events
+        : events.filter((event) => event.artifactId === options.filter?.artifactId)
+      for (const event of filtered) sendEvent(event)
       ready = true
       queued.sort((left, right) => left.seq - right.seq)
       for (const event of queued) sendEvent(event)

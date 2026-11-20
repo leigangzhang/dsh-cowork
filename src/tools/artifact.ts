@@ -13,6 +13,7 @@ import {
   ARTIFACT_COMMENT_VERSION,
   ARTIFACT_RECORD_VERSION,
   MAX_ARTIFACT_COMMENT_CHARS,
+  MAX_ARTIFACT_COMMENTS,
   MAX_ARTIFACT_PATH_CHARS,
   MAX_ARTIFACT_TITLE_CHARS,
   artifactSummaryOf,
@@ -22,6 +23,8 @@ import {
   type CommentEventV1,
 } from '../panel/artifact-contract.js'
 import { parseAttachmentRef } from '../store/artifact-schema.js'
+import { attachmentMediaType } from '../domains/artifact/attachments.js'
+import { sha256HexBytes } from '../platform/artifact-files.js'
 import { createEventRow } from '../platform/artifact-events.js'
 import {
   inferArtifactType,
@@ -31,6 +34,7 @@ import {
   normalizeArtifactPath,
 } from '../domains/artifact/paths.js'
 import { sha256Hex } from '../platform/artifact-files.js'
+import { ArtifactDomainError } from '../domains/artifact/errors.js'
 import type { ArtifactRuntime } from '../platform/artifact-runtime.js'
 import type { CoworkToolDeps } from '../platform/tool-runtime.js'
 import { callerOf, isFailure, mapError, nowOf, openProject, renderJson, toJson } from '../platform/tool-runtime.js'
@@ -308,10 +312,17 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
         const attachments: AttachmentRefV1[] = []
         for (const entry of rawAttachments.slice(0, 5)) {
           const ref = parseAttachmentRef(entry)
-          if (ref === null || !(await runtime.store.hasUpload(artifactId, ref.attachmentId))) {
+          const bytes = ref === null ? null : await runtime.store.readUpload(artifactId, ref.attachmentId)
+          if (ref === null || bytes === null) {
             return toJson(failure('artifact/upload-invalid', 'attachment refs must name an upload stored on this work item'))
           }
-          attachments.push(ref)
+          if (ref.name.length > 200) return toJson(failure('artifact/upload-invalid', 'attachment names must be at most 200 characters'))
+          attachments.push({
+            ...ref,
+            mediaType: attachmentMediaType(ref.name, bytes),
+            size: bytes.byteLength,
+            sha256: sha256HexBytes(bytes),
+          })
         }
         const now = nowOf(deps)
         const events: CommentEventV1[] = commentIds.map((commentId, index) => ({
@@ -328,6 +339,10 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
           ...(index === 0 && attachments.length > 0 ? { attachments } : {}),
         }))
         const committed = await runtime.store.withLock(async () => {
+          const current = await runtime.store.readRecord(artifactId)
+          if (current !== null && current.commentCount >= MAX_ARTIFACT_COMMENTS) {
+            throw new ArtifactDomainError('artifact/comment-limit', `work item already holds ${String(MAX_ARTIFACT_COMMENTS)} comments`)
+          }
           let saved = record
           for (const event of events) {
             await runtime.store.appendCommentUnlocked(event)

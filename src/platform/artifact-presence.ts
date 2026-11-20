@@ -201,7 +201,11 @@ export function createArtifactWriteGuard(
       return deny(`用户正在编辑 ${target}（${describeRanges(ranges)}），宿主还没有该文件的最新内容；先读取文件再重试`)
     }
     const found = lineOfNeedle(text, needle)
-    if (found === null) return undefined
+    if (found === null) {
+      // The cached text is stale (or the model is editing text the user just
+      // changed); refusing is the conservative side of the row lock.
+      return deny(`用户正在编辑 ${target}（${describeRanges(ranges)}），无法在缓存内容里定位修改；先读取文件再重试`)
+    }
     return ranges.some((range) => overlaps(found, range))
       ? deny(`用户正在编辑 ${target}（${describeRanges(ranges)}），本次修改与他们的编辑范围重叠；稍后重试或先与用户确认`)
       : undefined

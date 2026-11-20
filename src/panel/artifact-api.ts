@@ -37,6 +37,7 @@ import {
   MAX_ARTIFACT_ATTACHMENTS,
   MAX_ARTIFACT_ATTACHMENTS_PER_COMMENT,
   MAX_ARTIFACT_COMMENT_CHARS,
+  MAX_ARTIFACT_COMMENTS,
   MAX_ARTIFACT_TEXT_BYTES,
   MAX_ARTIFACT_TEXT_LINES,
   MAX_PRESENCE_RANGES,
@@ -57,6 +58,7 @@ import {
   type ArtifactListResponse,
   type ArtifactPresenceResponse,
   type ArtifactRecordV1,
+  type ArtifactDispatchError,
   type ArtifactStatusResponse,
   type ArtifactUploadResponse,
   type AttachmentRefV1,
@@ -68,8 +70,9 @@ import { createEventRow, parseLastEventId, openArtifactEventStream } from '../pl
 import { ArtifactDomainError } from '../domains/artifact/errors.js'
 import { parseArtifactAnchor, deriveLineAnchor } from '../domains/artifact/anchor.js'
 import { isTextMediaType } from '../domains/artifact/paths.js'
-import { reconcileArtifactFile, sha256Hex } from '../platform/artifact-files.js'
+import { reconcileArtifactFile, sha256Hex, sha256HexBytes } from '../platform/artifact-files.js'
 import { mergeText } from '../domains/artifact/merge.js'
+import { attachmentMediaType, isUtf8, sniffImageMediaType } from '../domains/artifact/attachments.js'
 import { parseAttachmentRef } from '../store/artifact-schema.js'
 import { applyCommentEvent, applyStatusAction } from '../domains/artifact/state.js'
 import type { ArtifactStatusAction } from '../domains/artifact/state.js'
@@ -392,28 +395,6 @@ async function handleComments(
 }
 
 /** The image magic bytes this surface accepts. */
-function sniffImageMediaType(bytes: Uint8Array): string | null {
-  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
-  if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return 'image/gif'
-  if (
-    bytes.length >= 12
-    && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
-    && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
-  ) return 'image/webp'
-  return null
-}
-
-/** Whether the bytes decode as UTF-8 (text/markdown uploads). */
-function isUtf8(bytes: Uint8Array): boolean {
-  try {
-    new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-    return true
-  } catch {
-    return false
-  }
-}
-
 /** Validate the attachment refs one comment or reply carries. */
 async function commentAttachments(
   runtime: ArtifactRuntime,
@@ -429,10 +410,18 @@ async function commentAttachments(
   for (const entry of value) {
     const ref = parseAttachmentRef(entry)
     if (ref === null) throw kit.fail('request/invalid-body', 'each attachment needs attachmentId, name, and mediaType')
-    if (!(await runtime.store.hasUpload(record.artifactId, ref.attachmentId))) {
+    const bytes = await runtime.store.readUpload(record.artifactId, ref.attachmentId)
+    if (bytes === null) {
       throw new ArtifactDomainError('artifact/upload-invalid', `attachment is not stored on this work item: ${ref.attachmentId}`)
     }
-    refs.push(ref)
+    // The stored bytes decide the type, size, and hash; the request values are
+    // never trusted for serving or prompt image parts.
+    refs.push({
+      ...ref,
+      mediaType: attachmentMediaType(ref.name, bytes),
+      size: bytes.byteLength,
+      sha256: sha256HexBytes(bytes),
+    })
   }
   return refs
 }
@@ -494,6 +483,10 @@ async function handleComment(
     ...(attachments.length === 0 ? {} : { attachments }),
   }
   const result = await runtime.store.withLock(async () => {
+    const current = await runtime.store.readRecord(artifactId)
+    if (current !== null && current.commentCount >= MAX_ARTIFACT_COMMENTS) {
+      throw new ArtifactDomainError('artifact/comment-limit', `work item already holds ${String(MAX_ARTIFACT_COMMENTS)} comments`)
+    }
     await runtime.store.appendCommentUnlocked(event)
     const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => {
       const folded = applyCommentEvent(current, event, now).record
@@ -511,6 +504,7 @@ async function handleComment(
   })
   publishAll(runtime, result.events)
   let dispatch: DispatchRecordV1 | null = null
+  let dispatchError: ArtifactDispatchError | null = null
   if (wantsDispatch && runtime.dispatch !== null) {
     try {
       dispatch = await runtime.dispatch.enqueue({
@@ -521,13 +515,16 @@ async function handleComment(
     } catch (error) {
       // The comment is committed; a full queue is a visible delivery failure,
       // not a reason to lose the user's annotation.
-      ports.log?.(`artifact comment: dispatch not queued: ${error instanceof Error ? error.message : String(error)}`)
+      const code = error instanceof ArtifactDomainError ? error.code : 'artifact/dispatch-unavailable'
+      dispatchError = { code, message: error instanceof Error ? error.message : String(error) }
+      ports.log?.(`artifact comment: dispatch not queued: ${dispatchError.message}`)
     }
   }
   const response: ArtifactCommentResponse = {
     ok: true,
     comment: event,
     dispatch,
+    dispatchError,
     record: dispatch === null
       ? result.record
       : { ...result.record, activeDispatch: { dispatchId: dispatch.dispatchId, state: dispatch.state, updatedAt: dispatch.updatedAt } },
@@ -579,6 +576,10 @@ async function handleCommentResolve(
     createdAt: now.toISOString(),
   }
   const result = await runtime.store.withLock(async () => {
+    const current = await runtime.store.readRecord(artifactId)
+    if (current !== null && current.commentCount >= MAX_ARTIFACT_COMMENTS) {
+      throw new ArtifactDomainError('artifact/comment-limit', `work item already holds ${String(MAX_ARTIFACT_COMMENTS)} comments`)
+    }
     await runtime.store.appendCommentUnlocked(event)
     const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) =>
       applyCommentEvent(current, event, now).record)
@@ -776,6 +777,9 @@ async function handleEdit(
     // The save is committed; a missing snapshot only turns a later stale save
     // into a 409 instead of a merge.
   }
+  // The guard's old_string lookup must see what the file now contains; without
+  // this refresh a later model edit using new text would find no match.
+  runtime.presence.cacheText(resolvePath(runtime.repoPath, path), nextContent)
   const response: ArtifactEditResponse = {
     ok: true,
     path,
@@ -836,20 +840,6 @@ async function readBodyWithCap(request: Request, maxBytes: number, kit: Artifact
 }
 
 /** The media type one uploaded name and its bytes resolve to. */
-function uploadMediaType(name: string, bytes: Uint8Array): string {
-  const lower = name.toLowerCase()
-  if (/\.(png|jpe?g|webp|gif)$/.test(lower)) {
-    const sniffed = sniffImageMediaType(bytes)
-    if (sniffed === null) throw new ArtifactDomainError('artifact/upload-invalid', 'image bytes do not match a supported type')
-    return sniffed
-  }
-  if (/\.(txt|md|markdown|csv|tsv|json)$/.test(lower) || !lower.includes('.')) {
-    if (!isUtf8(bytes)) throw new ArtifactDomainError('artifact/upload-invalid', 'text attachment is not valid UTF-8')
-    return lower.endsWith('.md') || lower.endsWith('.markdown') ? 'text/markdown' : 'text/plain'
-  }
-  throw new ArtifactDomainError('artifact/upload-invalid', 'only image and text attachments are accepted', name)
-}
-
 /**
  * `POST /api/cowork.artifact.upload` — one comment attachment.
  *
@@ -872,13 +862,13 @@ async function handleUpload(
   }
   const bytes = await readBodyWithCap(request, MAX_ARTIFACT_ATTACHMENT_BYTES, kit)
   if (bytes.byteLength === 0) throw new ArtifactDomainError('artifact/upload-invalid', 'attachment is empty')
-  const mediaType = uploadMediaType(name, bytes)
+  const mediaType = attachmentMediaType(name, bytes)
   const attachment: AttachmentRefV1 = {
     attachmentId: `attachment-${randomUUID()}`,
     name,
     mediaType,
     size: bytes.byteLength,
-    sha256: sha256Hex(new TextDecoder().decode(bytes)),
+    sha256: sha256HexBytes(bytes),
   }
   await runtime.store.saveUpload(artifactId, attachment.attachmentId, bytes)
   const now = nowOf(ports)
@@ -921,10 +911,18 @@ async function handleAttachment(
   if (bytes === null) {
     throw new ArtifactDomainError('artifact/not-found', `attachment content is missing: ${attachmentId}`, attachmentId)
   }
+  // Serve from the bytes, never the client/model supplied ref: a text upload
+  // renamed to text/html must not become an executable same-origin document.
+  const imageType = sniffImageMediaType(bytes)
+  const text = imageType === null && isUtf8(bytes)
+  const mediaType = imageType ?? (text ? 'text/plain; charset=utf-8' : 'application/octet-stream')
+  const filename = ref.name.replace(/[^\w.-]/g, '_').slice(0, 120) || attachmentId
   return new Response(bytes, {
     status: 200,
     headers: {
-      'content-type': ref.mediaType,
+      'content-type': mediaType,
+      'content-disposition': `${imageType === null ? 'attachment' : 'inline'}; filename="${filename}"`,
+      'content-security-policy': "sandbox; default-src 'none'",
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
     },

@@ -767,13 +767,22 @@ async function scenarioWorkItemEdit(page, fixtures) {
   const kept = await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8')
   assert.match(kept, /我的保留行。/)
 
-  // 5) A dirty draft needs a second back click; the first one only warns.
+  // 5) A failed save keeps the draft when editing is reopened, and leaving
+  // with that unsaved draft needs a second back click.
   await page.route('**/api/cowork.artifact.edit*', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 2_000))
-    // Closing the viewer (and unrouting) can abort the pending request first.
-    await route.continue().catch(() => {})
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'fixture edit boom' } }),
+    })
   })
-  await editor.fill(`${kept}离开前的草稿\n`)
+  const failedDraft = `${kept}失败后仍需保留的草稿`
+  await editor.fill(failedDraft)
+  await page.getByText(/保存失败/).first().waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-edit').click()
+  await page.getByTestId('cwi-edit').click()
+  await editor.waitFor({ timeout: 10_000 })
+  assert.match(await editor.inputValue(), /失败后仍需保留的草稿/)
   await page.getByTestId('cwi-back').click()
   await page.getByText('还有未保存内容').waitFor({ timeout: 5_000 })
   await page.getByTestId('cwi-back').click()
@@ -793,6 +802,27 @@ async function scenarioWorkItemLive(page, fixtures) {
   await card.waitFor({ timeout: 15_000 })
   await card.click()
   await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+
+  // A model edit arrives through the file.changed SSE event; the read-only
+  // viewer must reload the content instead of keeping stale lines.
+  const refreshed = await page.evaluate(async ({ sessionId, artifactId, path }) => {
+    const query = `sessionId=${encodeURIComponent(sessionId)}&artifactId=${encodeURIComponent(artifactId)}&path=${encodeURIComponent(path)}`
+    const file = await (await fetch(`/api/cowork.artifact.file?${query}`)).json()
+    return (await fetch('/api/cowork.artifact.edit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        artifactId,
+        path,
+        baseRevision: file.revision,
+        baseVersion: file.fsVersion,
+        content: `${file.content}模型刷新行\n`,
+      }),
+    })).json()
+  }, { sessionId: fixtures.primarySessionId, artifactId: BROWSER_ARTIFACT, path: BROWSER_SPEC_PATH })
+  assert.equal(refreshed.ok, true)
+  await page.getByTestId('cwi-lines').filter({ hasText: '模型刷新行' }).waitFor({ timeout: 15_000 })
 
   // Create the comment in the page's own origin, so EventSource and fetch share
   // the browser cookie and the stream is the only reason the rail updates.

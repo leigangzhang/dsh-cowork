@@ -353,27 +353,66 @@ export function errorPresentation(error: { readonly code?: string; readonly mess
  * numbers. This is what the browser reports as editing presence: the server
  * only needs the ranges a model write must avoid.
  *
- * The rule is intentionally simple — consecutive differing lines group into one
- * range, and an insertion contributes its own point range — because presence is
- * a transient hint, not a merge base.
+ * A line diff (common prefix/suffix, then bounded LCS on the middle) keeps an
+ * insertion at the top from widening the range to the whole file. Presence is
+ * still a hint, not a merge base: a pure deletion reports the point where the
+ * deleted line used to stand.
  */
 export function changedLineRanges(before: string, after: string): LineSelection[] {
   const beforeLines = contentLines(before)
   const afterLines = contentLines(after)
-  const ranges: LineSelection[] = []
-  const shared = Math.min(beforeLines.length, afterLines.length)
-  let start = -1
-  for (let index = 0; index < shared; index += 1) {
-    if (beforeLines[index] !== afterLines[index]) {
-      if (start === -1) start = index + 1
-    } else if (start !== -1) {
-      ranges.push({ startLine: start, endLine: index })
-      start = -1
+  let prefix = 0
+  while (prefix < beforeLines.length && prefix < afterLines.length && beforeLines[prefix] === afterLines[prefix]) prefix += 1
+  let suffix = 0
+  while (
+    suffix < beforeLines.length - prefix
+    && suffix < afterLines.length - prefix
+    && beforeLines[beforeLines.length - 1 - suffix] === afterLines[afterLines.length - 1 - suffix]
+  ) suffix += 1
+  const left = beforeLines.slice(prefix, beforeLines.length - suffix)
+  const right = afterLines.slice(prefix, afterLines.length - suffix)
+  if (left.length === 0 && right.length === 0) return []
+  if (right.length === 0) {
+    const point = Math.max(1, prefix + 1)
+    return [{ startLine: point, endLine: point }]
+  }
+  const matched = new Set<number>()
+  const rows = left.length
+  const columns = right.length
+  if (rows * columns <= 250_000) {
+    const table = new Uint16Array((rows + 1) * (columns + 1))
+    const at = (row: number, column: number): number => row * (columns + 1) + column
+    for (let row = 1; row <= rows; row += 1) {
+      for (let column = 1; column <= columns; column += 1) {
+        table[at(row, column)] = left[row - 1] === right[column - 1]
+          ? table[at(row - 1, column - 1)] + 1
+          : Math.max(table[at(row - 1, column)], table[at(row, column - 1)])
+      }
+    }
+    let row = rows
+    let column = columns
+    while (row > 0 && column > 0) {
+      if (left[row - 1] === right[column - 1]) {
+        matched.add(column - 1)
+        row -= 1
+        column -= 1
+      } else if (table[at(row - 1, column)] >= table[at(row, column - 1)]) {
+        row -= 1
+      } else {
+        column -= 1
+      }
     }
   }
-  if (start !== -1) ranges.push({ startLine: start, endLine: shared })
-  if (afterLines.length > shared) {
-    ranges.push({ startLine: shared + 1, endLine: afterLines.length })
+  const ranges: LineSelection[] = []
+  for (let index = 0; index < right.length; index += 1) {
+    if (matched.has(index)) continue
+    const line = prefix + index + 1
+    const last = ranges[ranges.length - 1]
+    if (last !== undefined && last.endLine === line - 1) {
+      ranges[ranges.length - 1] = { startLine: last.startLine, endLine: line }
+    } else {
+      ranges.push({ startLine: line, endLine: line })
+    }
   }
   return ranges
 }

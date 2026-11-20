@@ -175,6 +175,8 @@ export function WorkItemViewer(): ReactElement {
   const [uploading, setUploading] = useState(false)
   const [sseNotice, setSseNotice] = useState<string | null>(null)
   const [sseToken, setSseToken] = useState(0)
+  const editingRef = useRef(false)
+  const dirtyRef = useRef(false)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const editorRef = useRef<HTMLTextAreaElement | null>(null)
   const gutterRef = useRef<HTMLPreElement | null>(null)
@@ -358,17 +360,22 @@ export function WorkItemViewer(): ReactElement {
   const toggleEditing = useCallback(() => {
     if (data?.file == null) return
     if (!editing) {
-      setEditDraft(data.file.content)
-      setSavedContent(data.file.content)
+      // A draft that differs from the last save must not be replaced by the
+      // server content (a failed save is the common case): it is the user's
+      // only copy until a retry or an explicit discard.
+      if (editDraft === savedContent) {
+        setEditDraft(data.file.content)
+        setSavedContent(data.file.content)
+        setSavePhase('saved')
+      }
       setEditing(true)
-      setSavePhase('saved')
       setConflict(null)
       setReceipt(null)
       return
     }
     if (dirty) void saveDraft()
     setEditing(false)
-  }, [data?.file, dirty, editing, saveDraft])
+  }, [data?.file, dirty, editDraft, editing, saveDraft, savedContent])
 
   /** Back: a dirty draft needs a second click so it is never lost silently. */
   const requestClose = useCallback(() => {
@@ -406,21 +413,45 @@ export function WorkItemViewer(): ReactElement {
     })
   }, [conflict, saveDraft])
 
+  useEffect(() => {
+    editingRef.current = editing
+    dirtyRef.current = editing && editDraft !== savedContent
+  }, [editDraft, editing, savedContent])
+
   /**
-   * Re-read the record and threads without touching the editor draft.
+   * Re-read the record and threads; optionally the file when it changed.
    *
    * Depends only on the open context: the SSE effect subscribes with this
    * callback, so a new `data` identity must not tear the stream down and
-   * reconnect (which would refresh, change data, and reconnect forever).
+   * reconnect. A dirty draft keeps its old file base (so the save merges or
+   * conflicts) and only gets a receipt; a clean viewer reloads the content.
    */
-  const refreshFromServer = useCallback(async () => {
+  const refreshFromServer = useCallback(async (withFile = false) => {
     if (context === null) return
     try {
       const detail = await workItemApi.detail(context.sessionId, context.artifactId)
       const comments = await workItemApi.comments(context.sessionId, context.artifactId)
-      setData(current => current === null
-        ? current
-        : { ...current, record: detail.record, events: comments.events })
+      let file: ArtifactFileResponse | null = null
+      if (withFile) {
+        try {
+          file = await workItemApi.file(context.sessionId, context.artifactId, detail.record.primaryPath)
+        } catch {
+          // A missing file keeps the last content; the next event retries.
+        }
+      }
+      const keepDraft = editingRef.current && dirtyRef.current
+      setData(current => {
+        if (current === null) return current
+        const next = { ...current, record: detail.record, events: comments.events }
+        return file === null || keepDraft ? next : { ...next, file }
+      })
+      if (file !== null && !keepDraft) {
+        setEditDraft(file.content)
+        setSavedContent(file.content)
+        if (!editingRef.current) setSavePhase('saved')
+      } else if (file !== null && keepDraft) {
+        setReceipt('模型已修改文件；保存时会自动合并，重叠则提示冲突')
+      }
     } catch {
       // A failed refresh keeps the last good view; the stream retries.
     }
@@ -451,11 +482,11 @@ export function WorkItemViewer(): ReactElement {
         try {
           const event = JSON.parse(message.data) as { type?: unknown }
           if (event.type === 'reset') void refreshFromServer()
+          if (event.type === 'file.changed') void refreshFromServer(true)
           if (
             event.type === 'comment.created'
             || event.type === 'comment.updated'
             || event.type === 'reply.created'
-            || event.type === 'file.changed'
             || event.type === 'artifact.updated'
             || event.type === 'dispatch.updated'
           ) {
@@ -564,7 +595,9 @@ export function WorkItemViewer(): ReactElement {
       setPendingAnchor(null)
       setSelection(null)
       setPendingAttachments([])
-      setReceipt('评论已提交')
+      setReceipt(response.dispatchError === null
+        ? '评论已提交'
+        : `评论已保存，但投递失败：${response.dispatchError.message}`)
     } catch (reason) {
       setReceipt(`提交失败：${messageOf(reason)}`)
     } finally {

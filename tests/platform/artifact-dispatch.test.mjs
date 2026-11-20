@@ -323,7 +323,7 @@ test('the project queue cap is enforced across sessions', async () => {
   })
 })
 
-test('inFlightFor skips terminal batches and picks the newest live one', async () => {
+test('inFlightFor reports only an accepted, non-terminal batch', async () => {
   await withRuntime(async ({ runtime, record }) => {
     const dispatcher = new ArtifactDispatcher({
       runtime,
@@ -334,12 +334,11 @@ test('inFlightFor skips terminal batches and picks the newest live one', async (
     })
     const first = await dispatcher.enqueue({ record, commentIds: ['c1'], comments: [comment(1)] })
     const second = await dispatcher.enqueue({ record, commentIds: ['c2'], comments: [comment(2)] })
-    assert.equal(dispatcher.inFlightFor(ARTIFACT).dispatchId, second.dispatchId)
-    await dispatcher.markReplied(second.dispatchId)
-    assert.equal(dispatcher.inFlightFor(ARTIFACT).dispatchId, first.dispatchId)
-    await dispatcher.markReplied(first.dispatchId)
+    // Queued batches are not in flight; only the accepted batch is.
     assert.equal(dispatcher.inFlightFor(ARTIFACT), null)
     dispatcher.dispose()
+    void first
+    void second
   })
 })
 
@@ -392,9 +391,9 @@ test('the session listener advances only turn events for a resolvable project', 
   const { createDispatchSessionListener } = await import('../../src/platform/artifact-dispatch.ts')
   const calls = []
   const dispatcher = {
-    async onTurnStart(id) { calls.push(['turn/start', id]) },
-    async onToolCall(id) { calls.push(['tool/call', id]) },
-    async onTurnEnd(id) { calls.push(['turn/end', id]) },
+    async onTurnStart(id, turn) { calls.push(['turn/start', id, turn]) },
+    async onToolCall(id, turn) { calls.push(['tool/call', id, turn]) },
+    async onTurnEnd(id, turn) { calls.push(['turn/end', id, turn]) },
   }
   const logs = []
   const listener = createDispatchSessionListener({
@@ -408,11 +407,17 @@ test('the session listener advances only turn events for a resolvable project', 
   listener({ header: { id: 'session-1', cwd: '' } }, { type: 'turn/start' })
   listener({ header: { id: 'session-1', cwd: '/repo' } }, { type: 'assistant/message' })
   listener({ header: { id: 'session-1', cwd: '/none' } }, { type: 'turn/end' })
-  listener({ header: { id: 'session-1', cwd: '/repo' } }, { type: 'turn/start' })
-  listener({ header: { id: 'session-1', cwd: '/repo' } }, { type: 'tool/call' })
-  listener({ header: { id: 'session-1', cwd: '/repo' } }, { type: 'turn/end' })
-  await waitUntil(() => calls.length === 3, 'three dispatch events')
-  assert.deepEqual(calls, [['turn/start', 'session-1'], ['tool/call', 'session-1'], ['turn/end', 'session-1']])
+  listener({ header: { id: 'session-1', cwd: '/repo' } }, { type: 'turn/start', data: { turn: 7 } })
+  listener({ header: { id: 'session-1', cwd: '/repo' } }, { type: 'tool/call', data: { turn: 7 } })
+  listener({ header: { id: 'session-1', cwd: '/repo' } }, { type: 'turn/end', data: { turn: 'seven' } })
+  listener({ header: { id: 'session-1', cwd: '/repo' } }, { type: 'turn/end', data: null })
+  await waitUntil(() => calls.length === 4, 'four dispatch events')
+  assert.deepEqual(calls, [
+    ['turn/start', 'session-1', 7],
+    ['tool/call', 'session-1', 7],
+    ['turn/end', 'session-1', undefined],
+    ['turn/end', 'session-1', undefined],
+  ])
 
   // A host without a dispatcher is a no-op.
   const noDispatcher = createDispatchSessionListener({
@@ -514,4 +519,63 @@ test('the dispose listener blocks in-flight batches and logs lookup failures', a
   })
   failing({ id: 'session-4', header: { cwd: '/repo' } })
   await waitUntil(() => logs.some((message) => message.includes('dispose lookup exploded')), 'logged dispose failure')
+})
+
+test('a session keeps one in-flight batch and a re-entrant flush never duplicates a prompt', async () => {
+  await withRuntime(async ({ runtime, record, calls }) => {
+    const dispatcher = runtime.dispatch
+    const first = await dispatcher.enqueue({ record, commentIds: ['c1'], comments: [comment(1)] })
+    await waitUntil(() => calls.length === 1, 'first prompt')
+    await waitUntil(async () => (await runtime.store.readLatestDispatch(ARTIFACT))?.state === 'sent', 'first sent')
+    // A comment arriving while the first batch is in flight must wait.
+    const second = await dispatcher.enqueue({ record, commentIds: ['c2'], comments: [comment(2)] })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    assert.equal(calls.length, 1, 'the second batch must not be sent while the first is in flight')
+    assert.equal(dispatcher.inFlightFor(ARTIFACT)?.state, 'sent')
+    assert.equal(dispatcher.inFlightFor(ARTIFACT)?.dispatchId, first.dispatchId)
+
+    await dispatcher.markReplied(first.dispatchId)
+    await waitUntil(() => calls.length === 2, 'second prompt after reply')
+    await dispatcher.markReplied(second.dispatchId)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    assert.equal(calls.length, 2, 'no duplicate prompt')
+    assert.equal((await runtime.store.readRecord(ARTIFACT)).activeDispatch?.state, 'replied')
+  })
+})
+
+test('turn events only affect the batch of that turn', async () => {
+  await withRuntime(async ({ runtime, record, calls }) => {
+    const dispatcher = runtime.dispatch
+    const dispatch = await dispatcher.enqueue({ record, commentIds: ['c1'], comments: [comment(1)] })
+    await waitUntil(() => calls.length === 1, 'prompt')
+    await waitUntil(async () => (await runtime.store.readLatestDispatch(ARTIFACT))?.state === 'sent', 'sent')
+    // A user turn ending before the batch's turn starts must not fail it.
+    await dispatcher.onTurnEnd('session-1', 4)
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'sent')
+    await dispatcher.onTurnStart('session-1', 7)
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'thinking')
+    await dispatcher.onTurnEnd('session-1', 4)
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'thinking')
+    await dispatcher.onToolCall('session-1', 4)
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'thinking')
+    await dispatcher.onToolCall('session-1', 7)
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'working')
+    await dispatcher.markReplied(dispatch.dispatchId)
+    await dispatcher.onTurnEnd('session-1', 7)
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'replied')
+  })
+})
+
+test('a bound turn that ends without a reply fails only that batch', async () => {
+  await withRuntime(async ({ runtime, record, calls }) => {
+    const dispatcher = runtime.dispatch
+    await dispatcher.enqueue({ record, commentIds: ['c1'], comments: [comment(1)] })
+    await waitUntil(() => calls.length === 1, 'prompt')
+    await waitUntil(async () => (await runtime.store.readLatestDispatch(ARTIFACT))?.state === 'sent', 'sent')
+    await dispatcher.onTurnStart('session-1', 9)
+    await dispatcher.onTurnEnd('session-1', 9)
+    const latest = await runtime.store.readLatestDispatch(ARTIFACT)
+    assert.equal(latest.state, 'failed')
+    assert.equal(latest.errorCode, 'artifact/reply-missing')
+  })
 })

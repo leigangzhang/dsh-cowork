@@ -23,13 +23,15 @@
 
 - 修订快照（每文件最近 20 个）、`POST /edit`（直接写 + 409 冲突体）、行级三方合并 `src/domains/artifact/merge.ts`、写后事件与快照。
 - `POST /presence`、`src/platform/artifact-presence.ts`、`tools.guard` 对 `write`/`edit`/`str_replace_editor` 的行范围拒绝（bash 缺口保持）。
-- 前端：文本编辑器（受控 textarea，见 KI-51）、800ms 防抖自动保存、保存状态、脏行 300ms 上报、409 冲突条（查看差异/加载最新/保留我的）。
+- 前端：文本编辑器（受控 textarea，见 KI-51）、800ms 防抖自动保存、保存状态、脏行 300ms 上报、409 冲突条（查看差异/加载最新/保留我的）；保存失败后重新进入编辑保留草稿，模型修改文件后只读视图重取内容、脏草稿保留旧保存基准。
 
 阶段 3（投递、回复与多模态）
 
-- `src/platform/artifact-dispatch.ts`：1.5s 合并窗口、每批最多 10 条、同会话串行/跨会话并发、队列上限、重试 1s/4s/15s、超时、重启恢复（in-flight → stale，queued 重排）、单调状态写。
+- `src/platform/artifact-dispatch.ts`：1.5s 合并窗口、每批最多 10 条、同会话同时只有一个 in-flight 批次（终态后恢复下一批）、跨会话并发、队列上限、重试 1s/4s/15s、超时、重启恢复（in-flight → stale，queued 重排）、按 turn 绑定回复/结束事件、非重入 flush、单调状态写；owner 会话 disposed 时 in-flight → blocked。
 - `cowork_artifact_comments`、`cowork_artifact_reply`；评论默认投递；`POST /upload`（原始字节 + 魔数/UTF-8 校验）与 `GET /attachment`；评论附件引用。
-- 前端：投递状态 chip、附件上传与缩略图、按命名事件订阅 SSE、断线三次后提示重试、重连拉取详情对账。
+- 前端：投递状态 chip、附件上传与缩略图、按命名事件订阅 SSE、断线三次后提示重试、重连拉取详情对账；投递入队失败在评论保存后以 `dispatchError` 显示。
+- 附件安全：服务端按存储字节重新推导类型/大小/SHA-256（不信任评论或模型给的 ref），文本附件强制 `Content-Disposition: attachment` 与 CSP sandbox；图片只允许 PNG/JPEG/WebP/GIF。
+- 上限与回放：评论 5000 条上限在写锁内执行；SSE 回放也按 `artifactId` 过滤。
 
 ## 验证证据
 
