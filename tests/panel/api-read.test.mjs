@@ -248,19 +248,20 @@ test('registerCoworkApi registers every route and disposes them', async () => {
   const fake = fakeConnection()
   const { host, effects } = fakeHost(fake.connection)
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(effects.length, 18, 'one fiber effect per route')
+  assert.equal(effects.length, 22, 'one fiber effect per route')
   assert.deepEqual(effects.map((effect) => effect.label), PANEL_ROUTES.map(
     ([path]) => `dsh-cowork: panel route ${path}`,
   ))
   assert.deepEqual(fake.registered.map((route) => [route.path, route.methods.join(',')]), PANEL_ROUTES)
   for (const route of fake.registered) {
-    assert.equal(route.requestBody, 'buffered')
+    const expectedBody = route.path === '/api/cowork.artifact.upload' ? 'streaming' : 'buffered'
+    assert.equal(route.requestBody, expectedBody, route.path)
     assert.equal(typeof route.fetch, 'function')
   }
   for (const effect of effects) await effect.disposer()
   assert.equal(fake.routes.size, 0, 'disposal unregisters every route')
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(fake.routes.size, 18, 'a reload re-registers without a duplicate error')
+  assert.equal(fake.routes.size, 22, 'a reload re-registers without a duplicate error')
 })
 
 test('registerCoworkApi is a no-op when the host has no connection service', () => {

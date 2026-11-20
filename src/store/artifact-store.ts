@@ -11,18 +11,20 @@
  * A damaged record fails its own read as `artifact/corrupt`; a damaged row in a
  * JSONL file is skipped, and the rest of the file stays readable.
  */
-import { appendFile, mkdir, readdir } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import {
   ARTIFACT_EVENT_LOG_MAX_LINES,
   ARTIFACT_EVENT_VERSION,
   MAX_ARTIFACTS_PER_PROJECT,
+  MAX_ARTIFACT_REVISIONS_PER_FILE,
   type ArtifactEventV1,
   type ArtifactRecordV1,
   type CommentEventV1,
   type DispatchRecordV1,
 } from '../panel/artifact-contract.js'
-import { DIR_MODE, FILE_MODE, readTextIfPresent, withProjectLock, writeJsonAtomic } from './atomic-json.js'
+import { DIR_MODE, FILE_MODE, readTextIfPresent, withProjectLock, writeJsonAtomic, writeTextAtomic } from './atomic-json.js'
 import {
   parseArtifactEvent,
   parseArtifactRecord,
@@ -37,6 +39,12 @@ const PROJECT_DIR_NAME = '.dsh-cowork'
 const ARTIFACTS_DIR_NAME = 'artifacts'
 /** Per-work-item record file. */
 const RECORD_FILE_NAME = 'artifact.json'
+/** Per-work-item revision directory. */
+const REVISIONS_DIR_NAME = 'revisions'
+/** Per-work-item upload directory. */
+const UPLOADS_DIR_NAME = 'uploads'
+/** Revision file suffix; the revision number and a hash prefix form the name. */
+const REVISION_FILE_SUFFIX = '.txt'
 /** Per-work-item comment log. */
 const COMMENTS_FILE_NAME = 'comments.jsonl'
 /** Per-work-item dispatch log. */
@@ -45,6 +53,8 @@ const DISPATCH_FILE_NAME = 'dispatch.jsonl'
 const EVENTS_FILE_NAME = 'events.jsonl'
 /** Artifact ids are directory names, so only a safe character set is accepted. */
 const SAFE_ARTIFACT_ID = /^artifact-[A-Za-z0-9-]+$/
+/** Upload ids are file names, so only a safe character set is accepted. */
+const SAFE_UPLOAD_ID = /^attachment-[A-Za-z0-9-]+$/
 
 /** One work-item store failure the routes map onto the shared error envelope. */
 export class ArtifactStoreError extends ArtifactDomainError {}
@@ -79,6 +89,47 @@ export class ArtifactStore {
   /** The record path of one work item. */
   recordPath(artifactId: string): string {
     return join(this.artifactDir(artifactId), RECORD_FILE_NAME)
+  }
+
+  /** The revision directory of one work item. */
+  revisionsDir(artifactId: string): string {
+    return join(this.artifactDir(artifactId), REVISIONS_DIR_NAME)
+  }
+
+  /** The upload directory of one work item. */
+  uploadsDir(artifactId: string): string {
+    return join(this.artifactDir(artifactId), UPLOADS_DIR_NAME)
+  }
+
+  /** Store one uploaded attachment; the id is the file name (no extension). */
+  async saveUpload(artifactId: string, attachmentId: string, bytes: Uint8Array): Promise<string> {
+    return this.withLock(async () => {
+      if (!SAFE_UPLOAD_ID.test(attachmentId)) {
+        throw new ArtifactStoreError('artifact/not-found', `invalid attachment id: ${attachmentId}`)
+      }
+      const directory = this.uploadsDir(artifactId)
+      await mkdir(directory, { recursive: true, mode: DIR_MODE })
+      const filePath = join(directory, attachmentId)
+      await writeFile(filePath, bytes, { mode: FILE_MODE, flag: 'wx' })
+      return filePath
+    })
+  }
+
+  /** One stored upload, or null when it is gone. */
+  async readUpload(artifactId: string, attachmentId: string): Promise<Uint8Array | null> {
+    if (!SAFE_UPLOAD_ID.test(attachmentId)) return null
+    try {
+      return await readFile(join(this.uploadsDir(artifactId), attachmentId))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return null
+      throw error
+    }
+  }
+
+  /** Whether one upload id is stored for the work item. */
+  async hasUpload(artifactId: string, attachmentId: string): Promise<boolean> {
+    return (await this.readUpload(artifactId, attachmentId)) !== null
   }
 
   /** Run `operation` while holding the artifact writer lock. */
@@ -252,6 +303,44 @@ export class ArtifactStore {
   async lastEventSeq(): Promise<number> {
     const rows = await this.readJsonLines(EVENTS_FILE_NAME, undefined, parseArtifactEvent)
     return rows.length === 0 ? 0 : rows[rows.length - 1].seq
+  }
+
+  /**
+   * Save one revision snapshot and prune the directory to the newest
+   * {@link MAX_ARTIFACT_REVISIONS_PER_FILE} files.
+   *
+   * The snapshot is the merge base a later save needs; a failed write is
+   * returned to the caller, which decides whether the save may proceed.
+   */
+  async saveRevision(artifactId: string, revision: number, content: string): Promise<void> {
+    await this.withLock(async () => {
+      const directory = this.revisionsDir(artifactId)
+      await mkdir(directory, { recursive: true, mode: DIR_MODE })
+      const hash = createHash('sha256').update(content, 'utf8').digest('hex').slice(0, 12)
+      await writeTextAtomic(join(directory, `${String(revision)}-${hash}${REVISION_FILE_SUFFIX}`), content)
+      const names = (await readdir(directory)).filter((name) => name.endsWith(REVISION_FILE_SUFFIX))
+      const ordered = names
+        .map((name) => ({ name, revision: Number.parseInt(name.split('-', 1)[0], 10) }))
+        .filter((entry) => Number.isSafeInteger(entry.revision))
+        .sort((left, right) => left.revision - right.revision)
+      const excess = ordered.slice(0, Math.max(0, ordered.length - MAX_ARTIFACT_REVISIONS_PER_FILE))
+      for (const entry of excess) await unlink(join(directory, entry.name))
+    })
+  }
+
+  /** One revision's text, or null when no snapshot was kept. */
+  async readRevision(artifactId: string, revision: number): Promise<string | null> {
+    let names
+    try {
+      names = await readdir(this.revisionsDir(artifactId))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return null
+      throw error
+    }
+    const match = names.find((name) => name.startsWith(`${String(revision)}-`) && name.endsWith(REVISION_FILE_SUFFIX))
+    if (match === undefined) return null
+    return (await readTextIfPresent(join(this.revisionsDir(artifactId), match))) ?? null
   }
 
   /** Append one JSON line to a work-item (or project) log. */

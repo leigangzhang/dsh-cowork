@@ -19,11 +19,11 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 const { presetDefinitions } = await import('../../src/platform/presets.ts')
 
-test('the public surface stays at 23 tools, 18 routes, 3 presets, and 3 exports', () => {
-  assert.equal(BUSINESS_TOOL_ORDER.length, 23)
-  assert.equal(new Set(BUSINESS_TOOL_ORDER).size, 23, 'tool names must be unique')
-  assert.equal(PANEL_ROUTES.length, 18)
-  assert.equal(new Set(PANEL_ROUTES.map(([path]) => path)).size, 18, 'route paths must be unique')
+test('the public surface stays at 25 tools, 22 routes, 3 presets, and 3 exports', () => {
+  assert.equal(BUSINESS_TOOL_ORDER.length, 25)
+  assert.equal(new Set(BUSINESS_TOOL_ORDER).size, 25, 'tool names must be unique')
+  assert.equal(PANEL_ROUTES.length, 22)
+  assert.equal(new Set(PANEL_ROUTES.map(([path]) => path)).size, 22, 'route paths must be unique')
   assert.equal(presetDefinitions().length, 3)
 
   const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
@@ -32,7 +32,7 @@ test('the public surface stays at 23 tools, 18 routes, 3 presets, and 3 exports'
 
 test('every public tool has exactly one owning domain module', () => {
   const mapped = TOOL_DOMAINS.flatMap(([, names]) => names)
-  assert.equal(mapped.length, 23)
-  assert.equal(new Set(mapped).size, 23, 'a tool may map to only one domain module')
+  assert.equal(mapped.length, 25)
+  assert.equal(new Set(mapped).size, 25, 'a tool may map to only one domain module')
   assert.deepEqual([...mapped].sort(), [...BUSINESS_TOOL_ORDER].sort())
 })

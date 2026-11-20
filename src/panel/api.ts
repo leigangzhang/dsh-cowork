@@ -627,20 +627,23 @@ function assertJsonContentType(request: Request): void {
  * Read one bounded JSON object body. The order is the wire contract's: the
  * media type, the size, then the JSON shape, each with its own stable code.
  */
-async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
+async function readJsonBody(
+  request: Request,
+  maxBytes: number = MAX_REQUEST_BODY_BYTES,
+): Promise<Record<string, unknown>> {
   assertJsonContentType(request)
   const declared = Number(request.headers.get('content-length') ?? '')
-  if (Number.isFinite(declared) && declared > MAX_REQUEST_BODY_BYTES) {
+  if (Number.isFinite(declared) && declared > maxBytes) {
     throw new PanelApiError(
       'request/body-too-large',
-      `request body must not exceed ${MAX_REQUEST_BODY_BYTES} bytes`,
+      `request body must not exceed ${maxBytes} bytes`,
     )
   }
   const buffer = await request.arrayBuffer()
-  if (buffer.byteLength > MAX_REQUEST_BODY_BYTES) {
+  if (buffer.byteLength > maxBytes) {
     throw new PanelApiError(
       'request/body-too-large',
-      `request body is ${buffer.byteLength} bytes; the limit is ${MAX_REQUEST_BODY_BYTES}`,
+      `request body is ${buffer.byteLength} bytes; the limit is ${maxBytes}`,
     )
   }
   let parsed: unknown

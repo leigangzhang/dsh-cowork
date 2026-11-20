@@ -56,12 +56,12 @@ test('the reads carry the expected query parameters', async () => {
   ])
 })
 
-test('a new comment always sends dispatch:false and only sends an anchor when present', async () => {
+test('a new comment omits dispatch (the host default is delivery) and sends only present extras', async () => {
   const { calls, impl } = fakeFetch(() => ok({ ok: true }))
   const api = createWorkItemApi(impl)
   await api.comment({ sessionId: 's', artifactId: 'a', body: 'hello' })
   const plain = JSON.parse(calls[0].init.body)
-  assert.deepEqual(plain, { sessionId: 's', artifactId: 'a', body: 'hello', dispatch: false })
+  assert.deepEqual(plain, { sessionId: 's', artifactId: 'a', body: 'hello' })
   assert.equal(calls[0].init.method, 'POST')
   assert.equal(calls[0].init.headers['content-type'], 'application/json')
 
@@ -70,10 +70,12 @@ test('a new comment always sends dispatch:false and only sends an anchor when pr
     artifactId: 'a',
     body: 'anchored',
     anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 2, endLine: 3, quote: 'q' },
+    attachments: [{ attachmentId: 'attachment-1', name: 'x.png', mediaType: 'image/png', size: 1, sha256: 'x' }],
   })
   const anchored = JSON.parse(calls[1].init.body)
   assert.equal(anchored.anchor.startLine, 2)
-  assert.equal(anchored.dispatch, false)
+  assert.equal(anchored.attachments.length, 1)
+  assert.equal('dispatch' in anchored, false)
 })
 
 test('resolve and status post their bodies to the contract routes', async () => {
@@ -137,4 +139,92 @@ test('a network rejection propagates untouched', async () => {
 test('the plugin exports a callable client instance', () => {
   assert.equal(typeof workItemApi.list, 'function')
   assert.equal(typeof workItemApi.comment, 'function')
+})
+
+test('a save posts the base revision, base version, and content', async () => {
+  const { calls, impl } = fakeFetch(() => ok({ ok: true, revision: 2 }))
+  const api = createWorkItemApi(impl)
+  await api.edit({
+    sessionId: 's',
+    artifactId: 'a',
+    path: 'docs/spec.md',
+    baseRevision: 1,
+    baseVersion: 'v1',
+    content: 'new body',
+  })
+  assert.equal(calls[0].input, '/api/cowork.artifact.edit')
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    sessionId: 's',
+    artifactId: 'a',
+    path: 'docs/spec.md',
+    baseRevision: 1,
+    baseVersion: 'v1',
+    content: 'new body',
+  })
+})
+
+test('a 409 save throws an error carrying the conflict ranges', async () => {
+  const { impl } = fakeFetch(() => new Response(JSON.stringify({
+    ok: false,
+    error: { code: 'artifact/version-conflict', message: 'changed' },
+    currentVersion: 'v2',
+    revision: 3,
+    conflictRanges: [{ startLine: 2, endLine: 4 }],
+  }), { status: 409 }))
+  const api = createWorkItemApi(impl)
+  await assert.rejects(api.edit({
+    sessionId: 's',
+    artifactId: 'a',
+    path: 'docs/spec.md',
+    baseRevision: 1,
+    baseVersion: 'v1',
+    content: 'x',
+  }), (error) => {
+    assert.ok(error instanceof WorkItemApiError)
+    assert.equal(error.code, 'artifact/version-conflict')
+    assert.deepEqual(error.conflict, {
+      currentVersion: 'v2',
+      revision: 3,
+      conflictRanges: [{ startLine: 2, endLine: 4 }],
+    })
+    return true
+  })
+})
+
+test('presence posts the ranges to its own route', async () => {
+  const { calls, impl } = fakeFetch(() => ok({ ok: true, ttlMs: 5000 }))
+  const api = createWorkItemApi(impl)
+  const result = await api.presence({
+    sessionId: 's',
+    artifactId: 'a',
+    path: 'docs/spec.md',
+    ranges: [{ startLine: 2, endLine: 3 }],
+  })
+  assert.equal(result.ttlMs, 5000)
+  assert.equal(calls[0].input, '/api/cowork.artifact.presence')
+  assert.deepEqual(JSON.parse(calls[0].init.body).ranges, [{ startLine: 2, endLine: 3 }])
+})
+
+test('an upload posts raw bytes with the name in the query', async () => {
+  const { calls, impl } = fakeFetch(() => ok({ ok: true, attachment: { attachmentId: 'attachment-1' } }))
+  const api = createWorkItemApi(impl)
+  const result = await api.upload({
+    sessionId: 's',
+    artifactId: 'a',
+    name: 'shot.png',
+    bytes: new Uint8Array([1, 2, 3]),
+  })
+  assert.equal(result.attachment.attachmentId, 'attachment-1')
+  assert.equal(calls[0].input, '/api/cowork.artifact.upload?sessionId=s&artifactId=a&name=shot.png')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.equal(calls[0].init.headers['content-type'], 'application/octet-stream')
+  assert.deepEqual([...calls[0].init.body], [1, 2, 3])
+})
+
+test('the attachment URL is the same-origin read route', () => {
+  const api = createWorkItemApi(async () => ok({ ok: true }))
+  assert.equal(
+    api.attachmentUrl({ sessionId: 's', artifactId: 'a', attachmentId: 'attachment-1' }),
+    '/api/cowork.artifact.attachment?sessionId=s&artifactId=a&attachmentId=attachment-1',
+  )
 })

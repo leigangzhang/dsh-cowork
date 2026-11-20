@@ -48,7 +48,7 @@ async function withSeededHarness(operation, options = {}) {
 test('the harness registers every panel and artifact route', async () => {
   const harness = await createHarness()
   try {
-    assert.equal(harness.routes.size, 18)
+    assert.equal(harness.routes.size, 22)
     assert.ok(harness.routes.has('/api/cowork.artifact.list'))
     assert.ok(harness.routes.has('/api/cowork.artifact.events'))
   } finally {
@@ -323,7 +323,7 @@ test('comment validation refuses the bad shapes with stable codes', async () => 
   await withSeededHarness(async (harness) => {
     const cases = [
       [{ sessionId: SESSION, artifactId: ARTIFACT, body: '   ' }, 400, 'request/invalid-body'],
-      [{ sessionId: SESSION, artifactId: ARTIFACT, body: 'x', dispatch: true }, 501, 'artifact/dispatch-unavailable'],
+      [{ sessionId: SESSION, artifactId: ARTIFACT, body: 'x', dispatch: true }, 200, null],
       [{ sessionId: SESSION, artifactId: ARTIFACT, body: 'x', anchor: 'nope' }, 400, 'artifact/anchor-invalid'],
       [{ sessionId: SESSION, artifactId: ARTIFACT, body: 'x', anchor: { kind: 'whole', path: 'docs/other.md' } }, 400, 'artifact/path-not-allowed'],
       [{ sessionId: SESSION, artifactId: ARTIFACT, body: 'x', anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 99, endLine: 99 } }, 400, 'artifact/anchor-invalid'],
@@ -444,6 +444,50 @@ test('status view opens once, confirm accepts, and both report changes', async (
   })
 })
 
+test('a failed snapshot during reconcile is swallowed, not returned', async () => {
+  const fakeRuntime = {
+    fsAvailable: true,
+    files: {
+      async stat() {
+        return { exists: true, regular: true, size: 1, version: 'v2' }
+      },
+      async readText() {
+        return { content: 'x', size: 1, version: 'v2' }
+      },
+      async writeText() {
+        return { version: null, before: null }
+      },
+    },
+    events: { publish() {} },
+  }
+  fakeRuntime.store = {
+    async withLock(operation) {
+      return operation()
+    },
+    async readRecord() {
+      return makeRecord({ files: [specFile()] })
+    },
+    async mutateRecordUnlocked() {
+      return makeRecord({
+        files: [makeFile({ revision: 2, sha256: sha256('x'), size: 1, fsVersion: 'v2' })],
+        revision: 2,
+      })
+    },
+    async appendEventUnlocked(_event) {
+      return { version: 1, seq: 1, eventId: 'e', type: 'file.changed', artifactId: ARTIFACT, time: NOW.toISOString(), data: {} }
+    },
+    async saveRevision() {
+      throw new Error('snapshot write failed')
+    },
+  }
+  const result = await artifactApi.reconcileRecord(
+    fakeRuntime,
+    makeRecord({ files: [makeFile({ sha256: sha256('old'), size: 3, fsVersion: 'v1' })] }),
+    NOW,
+  )
+  assert.equal(result.record.revision, 2)
+})
+
 test('reconcile refuses a record that vanished before its lock', async () => {
   const fakeRuntime = {
     fsAvailable: true,
@@ -532,4 +576,489 @@ test('the SSE route replays by Last-Event-ID and streams live events', async () 
     const noSession = await harness.request('/api/cowork.artifact.events')
     assert.equal(noSession.status, 400)
   })
+})
+
+/** Save one revision-1 snapshot for the seeded spec. */
+async function seedBaseRevision(harness, content = SPEC) {
+  await harness.runtime().store.saveRevision(ARTIFACT, 1, content)
+}
+
+/** One edit body with the seeded file's opaque version. */
+function editBody(overrides = {}) {
+  return {
+    sessionId: SESSION,
+    artifactId: ARTIFACT,
+    path: 'docs/spec.md',
+    baseRevision: 1,
+    baseVersion: sha256(SPEC),
+    content: '# Spec\n\nfirst paragraph\nsecond paragraph\nchanged\n',
+    ...overrides,
+  }
+}
+
+test('a matching base version saves directly and bumps one revision', async () => {
+  await withSeededHarness(async (harness) => {
+    await seedBaseRevision(harness)
+    const body = await jsonOf(await harness.request('/api/cowork.artifact.edit', { method: 'POST', body: editBody() }))
+    assert.equal(body.ok, true)
+    assert.equal(body.merged, false)
+    assert.equal(body.content, editBody().content)
+    assert.equal(body.revision, 2)
+    assert.equal(body.record.files[0].revision, 2)
+    assert.equal(body.record.files[0].sha256, sha256(editBody().content))
+    assert.equal(await harness.runtime().store.readRevision(ARTIFACT, 2), editBody().content)
+    const events = await harness.runtime().store.readEvents()
+    assert.deepEqual(events.slice(-2).map((event) => event.type), ['file.changed', 'artifact.updated'])
+  })
+})
+
+test('saving identical content is a no-op with no revision bump', async () => {
+  await withSeededHarness(async (harness) => {
+    await seedBaseRevision(harness)
+    const body = await jsonOf(await harness.request('/api/cowork.artifact.edit', {
+      method: 'POST',
+      body: editBody({ content: SPEC }),
+    }))
+    assert.equal(body.ok, true)
+    assert.equal(body.revision, 1)
+    assert.equal(body.record.revision, 1)
+  })
+})
+
+test('a stale save merges a non-overlapping model change', async () => {
+  await withSeededHarness(async (harness) => {
+    await seedBaseRevision(harness)
+    // The model changed the last line while the browser held revision 1.
+    await writeFile(join(harness.repoPath, 'docs/spec.md'), SPEC.replace('second paragraph', 'MODEL LINE'))
+    const body = await jsonOf(await harness.request('/api/cowork.artifact.edit', {
+      method: 'POST',
+      body: editBody({
+        baseVersion: sha256(SPEC),
+        content: SPEC.replace('first paragraph', 'USER LINE'),
+      }),
+    }))
+    assert.equal(body.ok, true)
+    assert.equal(body.merged, true)
+    assert.equal(body.content, '# Spec\n\nUSER LINE\nMODEL LINE\n')
+    assert.equal(body.record.files[0].revision, 3)
+  })
+})
+
+test('an overlapping stale save returns 409 with conflict ranges and writes nothing', async () => {
+  await withSeededHarness(async (harness) => {
+    await seedBaseRevision(harness)
+    await writeFile(join(harness.repoPath, 'docs/spec.md'), SPEC.replace('first paragraph', 'MODEL LINE'))
+    const response = await harness.request('/api/cowork.artifact.edit', {
+      method: 'POST',
+      body: editBody({ content: SPEC.replace('first paragraph', 'USER LINE') }),
+    })
+    assert.equal(response.status, 409)
+    const body = await jsonOf(response)
+    assert.equal(body.error.code, 'artifact/version-conflict')
+    assert.deepEqual(body.conflictRanges, [{ startLine: 3, endLine: 3 }])
+    const read = await harness.runtime().files.readText('docs/spec.md')
+    assert.equal(read.content, SPEC.replace('first paragraph', 'MODEL LINE'))
+  })
+})
+
+test('a stale save without a base snapshot refuses to guess', async () => {
+  await withSeededHarness(async (harness) => {
+    await writeFile(join(harness.repoPath, 'docs/spec.md'), `${SPEC}model\n`)
+    const response = await harness.request('/api/cowork.artifact.edit', {
+      method: 'POST',
+      body: editBody({ content: `${SPEC}user\n` }),
+    })
+    assert.equal(response.status, 409)
+    const body = await jsonOf(response)
+    assert.equal(body.error.code, 'artifact/version-conflict')
+    assert.equal(body.conflictRanges.length, 1)
+    assert.equal(body.conflictRanges[0].startLine, 1)
+    assert.equal(body.conflictRanges[0].endLine, 5)
+  })
+})
+
+test('a concurrent write is merged and retried once', async () => {
+  const harness = await createHarness({
+    files: { 'docs/spec.md': SPEC },
+    fsOptions: { staleOnFirstWrite: ['docs/spec.md'] },
+  })
+  try {
+    await harness.runtime().store.createRecord(makeRecord({ files: [specFile()] }))
+    await harness.runtime().store.saveRevision(ARTIFACT, 1, SPEC)
+    const response = await harness.request('/api/cowork.artifact.edit', {
+      method: 'POST',
+      body: editBody({ content: SPEC.replace('first paragraph', 'USER LINE') }),
+    })
+    assert.equal(response.status, 200)
+    const body = await jsonOf(response)
+    assert.equal(body.merged, true)
+    assert.match(body.content, /USER LINE/)
+    assert.match(body.content, /concurrent-model-line/)
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test('a permanent write race gives up with a conflict after two retries', async () => {
+  const harness = await createHarness({
+    files: { 'docs/spec.md': SPEC },
+    fsOptions: { staleAlways: ['docs/spec.md'] },
+  })
+  try {
+    await harness.runtime().store.createRecord(makeRecord({ files: [specFile()] }))
+    await harness.runtime().store.saveRevision(ARTIFACT, 1, SPEC)
+    const response = await harness.request('/api/cowork.artifact.edit', {
+      method: 'POST',
+      body: editBody({ content: SPEC.replace('first paragraph', 'USER LINE') }),
+    })
+    assert.equal(response.status, 409)
+    const body = await jsonOf(response)
+    assert.equal(body.error.code, 'artifact/version-conflict')
+    assert.deepEqual(body.conflictRanges, [{ startLine: 1, endLine: 4 }])
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test('a non-conflict write failure is returned with its own code', async () => {
+  const harness = await createHarness({
+    files: { 'docs/spec.md': SPEC },
+    fsOptions: { writeFailures: new Map([['docs/spec.md', 'FS_TOO_LARGE']]) },
+  })
+  try {
+    await harness.runtime().store.createRecord(makeRecord({ files: [specFile()] }))
+    await harness.runtime().store.saveRevision(ARTIFACT, 1, SPEC)
+    const response = await harness.request('/api/cowork.artifact.edit', { method: 'POST', body: editBody() })
+    assert.equal(response.status, 413)
+    assert.equal((await jsonOf(response)).error.code, 'artifact/file-too-large')
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test('a failed revision snapshot does not fail the committed save', async () => {
+  const harness = await createHarness({ files: { 'docs/spec.md': SPEC } })
+  try {
+    await harness.runtime().store.createRecord(makeRecord({ files: [specFile()] }))
+    await harness.runtime().store.saveRevision(ARTIFACT, 1, SPEC)
+    // A file where the revision directory belongs makes the snapshot write fail.
+    const revisions = join(harness.repoPath, '.dsh-cowork', 'artifacts', ARTIFACT, 'revisions')
+    const { rm } = await import('node:fs/promises')
+    await rm(revisions, { recursive: true, force: true })
+    await writeFile(revisions, 'not a directory')
+    const response = await harness.request('/api/cowork.artifact.edit', { method: 'POST', body: editBody() })
+    assert.equal(response.status, 200)
+    const body = await jsonOf(response)
+    assert.equal(body.revision, 2)
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test('the text line cap refuses a save before writing', async () => {
+  await withSeededHarness(async (harness) => {
+    await seedBaseRevision(harness)
+    const content = Array.from({ length: artifactContract.MAX_ARTIFACT_TEXT_LINES + 1 }, () => 'x').join('\n')
+    const response = await harness.request('/api/cowork.artifact.edit', {
+      method: 'POST',
+      body: editBody({ content }),
+    })
+    assert.equal(response.status, 413)
+    assert.equal((await jsonOf(response)).error.code, 'artifact/file-too-large')
+  })
+})
+
+test('edit validation keeps its stable codes', async () => {
+  await withSeededHarness(async (harness) => {
+    const cases = [
+      [editBody({ content: 7 }), 400, 'request/invalid-body'],
+      [editBody({ baseRevision: 0 }), 400, 'request/invalid-body'],
+      [editBody({ path: 'docs/other.md' }), 400, 'artifact/path-not-allowed'],
+      [editBody({ content: 'x'.repeat(5 * 1024 * 1024 + 1) }), 413, 'artifact/file-too-large'],
+      [editBody({ sessionId: '   ' }), 400, 'request/invalid-body'],
+    ]
+    for (const [payload, status, code] of cases) {
+      const response = await harness.request('/api/cowork.artifact.edit', { method: 'POST', body: payload })
+      assert.equal(response.status, status, JSON.stringify(payload).slice(0, 100))
+      assert.equal((await jsonOf(response)).error.code, code)
+    }
+  })
+})
+
+test('a non-editable or non-text file refuses the save', async () => {
+  const harness = await createHarness({ files: { 'docs/plot.png': 'x' } })
+  try {
+    await harness.runtime().store.createRecord(makeRecord({
+      artifactId: ARTIFACT,
+      type: 'image',
+      files: [makeFile({ path: 'docs/plot.png', mediaType: 'image/png', editable: false })],
+      primaryPath: 'docs/plot.png',
+    }))
+    const response = await harness.request('/api/cowork.artifact.edit', {
+      method: 'POST',
+      body: { sessionId: SESSION, artifactId: ARTIFACT, path: 'docs/plot.png', baseRevision: 1, content: 'x' },
+    })
+    assert.equal(response.status, 409)
+    assert.equal((await jsonOf(response)).error.code, 'artifact/not-editable')
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test('presence reports its TTL and validates the ranges', async () => {
+  await withSeededHarness(async (harness) => {
+    const response = await harness.request('/api/cowork.artifact.presence', {
+      method: 'POST',
+      body: {
+        sessionId: SESSION,
+        artifactId: ARTIFACT,
+        path: 'docs/spec.md',
+        ranges: [{ startLine: 2, endLine: 3 }],
+      },
+    })
+    assert.equal(response.status, 200)
+    const body = await jsonOf(response)
+    assert.equal(body.ok, true)
+    assert.equal(body.ttlMs, artifactContract.ARTIFACT_PRESENCE_TTL_MS)
+    const absolute = `${harness.repoPath}/docs/spec.md`
+    assert.deepEqual(harness.runtime().presence.activeRanges(absolute), [{ startLine: 2, endLine: 3 }])
+
+    const cases = [
+      [{ ranges: [] }, 400],
+      [{ ranges: [{ startLine: 0, endLine: 1 }] }, 400],
+      [{ ranges: [{ startLine: 3, endLine: 2 }] }, 400],
+      [{ ranges: [{ startLine: 1.5, endLine: 2 }] }, 400],
+      [{ ranges: [null] }, 400],
+      [{ ranges: Array.from({ length: artifactContract.MAX_PRESENCE_RANGES + 1 }, () => ({ startLine: 1, endLine: 1 })) }, 400],
+      [{ path: 'docs/other.md' }, 400],
+    ]
+    for (const [override, status] of cases) {
+      const bad = await harness.request('/api/cowork.artifact.presence', {
+        method: 'POST',
+        body: {
+          sessionId: SESSION,
+          artifactId: ARTIFACT,
+          path: 'docs/spec.md',
+          ranges: [{ startLine: 1, endLine: 1 }],
+          ...override,
+        },
+      })
+      assert.equal(bad.status, status, JSON.stringify(override).slice(0, 80))
+    }
+  })
+})
+
+const { rawRequest } = await import('../support/artifact-fixtures.mjs')
+
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+
+/** Upload one attachment through the streaming route. */
+async function uploadAttachment(harness, name, bytes, contentType = 'application/octet-stream') {
+  return harness.routes.get('/api/cowork.artifact.upload')(rawRequest(
+    '/api/cowork.artifact.upload',
+    { query: { sessionId: SESSION, artifactId: ARTIFACT, name }, bytes, contentType },
+  ))
+}
+
+test('an image upload is sniffed, stored, and counted', async () => {
+  await withSeededHarness(async (harness) => {
+    const response = await uploadAttachment(harness, 'shot.png', PNG_BYTES)
+    assert.equal(response.status, 200)
+    const body = await jsonOf(response)
+    assert.equal(body.ok, true)
+    assert.equal(body.attachment.mediaType, 'image/png')
+    assert.equal(body.attachment.size, PNG_BYTES.byteLength)
+    assert.match(body.attachment.attachmentId, /^attachment-/)
+    const stored = await harness.runtime().store.readUpload(ARTIFACT, body.attachment.attachmentId)
+    assert.deepEqual([...stored], [...PNG_BYTES])
+    const record = await harness.runtime().store.readRecord(ARTIFACT)
+    assert.equal(record.attachmentCount, 1)
+
+    const comment = await jsonOf(await harness.request('/api/cowork.artifact.comment', {
+      method: 'POST',
+      body: {
+        sessionId: SESSION,
+        artifactId: ARTIFACT,
+        body: 'see the screenshot',
+        attachments: [body.attachment],
+      },
+    }))
+    assert.equal(comment.ok, true)
+    assert.deepEqual(comment.comment.attachments, [body.attachment])
+    assert.equal(comment.record.attachmentCount, 2)
+  })
+})
+
+test('a stored attachment is served with its media type and nosniff', async () => {
+  await withSeededHarness(async (harness) => {
+    const uploaded = await jsonOf(await uploadAttachment(harness, 'shot.png', PNG_BYTES))
+    await harness.request('/api/cowork.artifact.comment', {
+      method: 'POST',
+      body: {
+        sessionId: SESSION,
+        artifactId: ARTIFACT,
+        body: 'see attached',
+        attachments: [uploaded.attachment],
+      },
+    })
+    const response = await harness.request('/api/cowork.artifact.attachment', {
+      query: { sessionId: SESSION, artifactId: ARTIFACT, attachmentId: uploaded.attachment.attachmentId },
+    })
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('content-type'), 'image/png')
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [...PNG_BYTES])
+    const unknown = await harness.request('/api/cowork.artifact.attachment', {
+      query: { sessionId: SESSION, artifactId: ARTIFACT, attachmentId: 'attachment-missing' },
+    })
+    assert.equal(unknown.status, 404)
+    // A ref that exists while its bytes are gone is a 404, not a broken body.
+    const { rm } = await import('node:fs/promises')
+    await rm(join(harness.repoPath, '.dsh-cowork', 'artifacts', ARTIFACT, 'uploads', uploaded.attachment.attachmentId))
+    const vanished = await harness.request('/api/cowork.artifact.attachment', {
+      query: { sessionId: SESSION, artifactId: ARTIFACT, attachmentId: uploaded.attachment.attachmentId },
+    })
+    assert.equal(vanished.status, 404)
+  })
+})
+
+test('a text upload is accepted and stored as text/markdown', async () => {
+  await withSeededHarness(async (harness) => {
+    const bytes = new TextEncoder().encode('# note\n')
+    const body = await jsonOf(await uploadAttachment(harness, 'note.md', bytes, 'text/markdown'))
+    assert.equal(body.attachment.mediaType, 'text/markdown')
+  })
+})
+
+test('upload validation keeps its stable codes', async () => {
+  await withSeededHarness(async (harness) => {
+    const cases = [
+      ['shot.png', new Uint8Array([1, 2, 3]), 400, 'artifact/upload-invalid'],
+      ['notes.bin', new Uint8Array([1]), 400, 'artifact/upload-invalid'],
+      ['shots.png', new Uint8Array(), 400, 'artifact/upload-invalid'],
+      ['text.txt', new Uint8Array([0xff, 0xfe]), 400, 'artifact/upload-invalid'],
+      ['a'.repeat(201), PNG_BYTES, 400, 'request/invalid-query'],
+    ]
+    for (const [name, bytes, status, code] of cases) {
+      const response = await uploadAttachment(harness, name, bytes)
+      assert.equal(response.status, status, name)
+      assert.equal((await jsonOf(response)).error.code, code, name)
+    }
+    const tooLarge = new Uint8Array(artifactContract.MAX_ARTIFACT_ATTACHMENT_BYTES + 1)
+    const oversized = await uploadAttachment(harness, 'big.png', tooLarge)
+    assert.equal(oversized.status, 413)
+    const noBody = await harness.routes.get('/api/cowork.artifact.upload')(new Request(
+      `http://127.0.0.1:3080/api/cowork.artifact.upload?sessionId=${SESSION}&artifactId=${ARTIFACT}&name=shot.png`,
+      { method: 'POST', headers: { host: '127.0.0.1:3080', origin: 'http://127.0.0.1:3080' } },
+    ))
+    assert.equal(noBody.status, 400)
+    assert.equal((await jsonOf(noBody)).error.code, 'request/invalid-body')
+    const declaredTooLarge = await harness.routes.get('/api/cowork.artifact.upload')(new Request(
+      `http://127.0.0.1:3080/api/cowork.artifact.upload?sessionId=${SESSION}&artifactId=${ARTIFACT}&name=shot.png`,
+      {
+        method: 'POST',
+        headers: {
+          host: '127.0.0.1:3080',
+          origin: 'http://127.0.0.1:3080',
+          'content-length': String(artifactContract.MAX_ARTIFACT_ATTACHMENT_BYTES + 1),
+        },
+      },
+    ))
+    assert.equal(declaredTooLarge.status, 413)
+  })
+})
+
+test('a comment refuses an unknown attachment ref and more than five', async () => {
+  await withSeededHarness(async (harness) => {
+    const unknown = await harness.request('/api/cowork.artifact.comment', {
+      method: 'POST',
+      body: {
+        sessionId: SESSION,
+        artifactId: ARTIFACT,
+        body: 'x',
+        attachments: [{ attachmentId: 'attachment-missing', name: 'x.png', mediaType: 'image/png', size: 1, sha256: 'x' }],
+      },
+    })
+    assert.equal(unknown.status, 400)
+    assert.equal((await jsonOf(unknown)).error.code, 'artifact/upload-invalid')
+    const tooMany = await harness.request('/api/cowork.artifact.comment', {
+      method: 'POST',
+      body: {
+        sessionId: SESSION,
+        artifactId: ARTIFACT,
+        body: 'x',
+        attachments: Array.from({ length: 6 }, () => ({ attachmentId: 'attachment-1', name: 'x', mediaType: 'image/png' })),
+      },
+    })
+    assert.equal(tooMany.status, 400)
+  })
+})
+
+test('the upload attachment cap is enforced', async () => {
+  await withSeededHarness(async (harness) => {
+    await harness.runtime().store.mutateRecord(ARTIFACT, (record) => ({
+      ...record,
+      attachmentCount: artifactContract.MAX_ARTIFACT_ATTACHMENTS,
+    }))
+    const response = await uploadAttachment(harness, 'shot.png', PNG_BYTES)
+    assert.equal(response.status, 409)
+    assert.equal((await jsonOf(response)).error.code, 'artifact/limit-reached')
+  })
+})
+
+test('a full dispatch queue keeps the comment and reports no dispatch', async () => {
+  const harness = await createHarness({
+    files: { 'docs/spec.md': SPEC },
+    prompt: { async prompt() { return { accepted: true } } },
+    dispatch: { windowMs: 60_000, maxQueuePerSession: 0 },
+  })
+  try {
+    await harness.runtime().store.createRecord(makeRecord({ files: [specFile()] }))
+    const response = await harness.request('/api/cowork.artifact.comment', {
+      method: 'POST',
+      body: { sessionId: SESSION, artifactId: ARTIFACT, body: 'still saved' },
+    })
+    assert.equal(response.status, 200)
+    const body = await jsonOf(response)
+    assert.equal(body.dispatch, null)
+    assert.equal(body.record.commentCount, 1)
+    assert.ok(harness.logs.some((message) => message.includes('dispatch not queued')))
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test('a comment queues a dispatch when the runtime has a prompt port', async () => {
+  const prompts = []
+  const harness = await createHarness({
+    files: { 'docs/spec.md': SPEC },
+    prompt: {
+      async prompt(request) {
+        prompts.push(request)
+        return { accepted: true }
+      },
+    },
+    dispatch: { windowMs: 1 },
+  })
+  try {
+    await harness.runtime().store.createRecord(makeRecord({ files: [specFile()] }))
+    const response = await harness.request('/api/cowork.artifact.comment', {
+      method: 'POST',
+      body: { sessionId: SESSION, artifactId: ARTIFACT, body: 'deliver me' },
+    })
+    assert.equal(response.status, 200)
+    const body = await jsonOf(response)
+    assert.equal(body.dispatch.state, 'queued')
+    assert.equal(body.record.activeDispatch.state, 'queued')
+    const deadline = Date.now() + 15_000
+    while (prompts.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(prompts.length, 1)
+    assert.equal(prompts[0].sessionId, SESSION)
+    const latest = await harness.runtime().store.readLatestDispatch(ARTIFACT)
+    assert.equal(latest.state, 'sent')
+  } finally {
+    await harness.cleanup()
+  }
 })

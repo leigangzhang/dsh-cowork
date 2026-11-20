@@ -1,6 +1,8 @@
 /** User-outcome scenarios for the real DSH browser panel lane. */
 import assert from 'node:assert/strict'
-import { BROWSER_ARTIFACT, BROWSER_REQUESTS, BROWSER_TOPICS } from './fixtures.mjs'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { BROWSER_ARTIFACT, BROWSER_REQUESTS, BROWSER_SPEC, BROWSER_SPEC_PATH, BROWSER_TOPICS } from './fixtures.mjs'
 
 const PATH_RESOLVE = '/api/cowork.topic.resolve'
 const PATH_REOPEN = '/api/cowork.topic.reopen'
@@ -661,6 +663,112 @@ async function scenarioWorkItemChain(page) {
   await backToTopicTab(page)
 }
 
+/**
+ * The text save path: edit, autosave, verify the file on disk, then force a
+ * real 409 by changing the file under the editor before the debounce fires and
+ * resolve it by loading the latest content.
+ */
+async function scenarioWorkItemEdit(page, fixtures) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+
+  const saved = `${BROWSER_SPEC}\n第四段：浏览器保存。\n`
+  await page.getByTestId('cwi-edit').click()
+  const editor = page.getByTestId('cwi-editor')
+  await editor.waitFor({ timeout: 10_000 })
+  assert.match(await editor.inputValue(), /第一段：逐行批注。/)
+  const saveResponse = page.waitForResponse((response) => {
+    try {
+      return new URL(response.url()).pathname === '/api/cowork.artifact.edit'
+        && response.request().method() === 'POST'
+    } catch {
+      return false
+    }
+  })
+  await editor.fill(saved)
+  assert.equal((await saveResponse).status(), 200)
+  await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 10_000 })
+  assert.equal(await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8'), saved)
+
+  // Inject a real external write while the save request is in flight: the
+  // route handler changes the file after the browser sent its base version and
+  // before the host reads it, which is exactly a concurrent model edit.
+  const draft = `${saved}第五段：我的草稿。\n`
+  let injected = false
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    if (!injected) {
+      injected = true
+      await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${saved}模型并发行。\n`, 'utf8')
+    }
+    await route.continue()
+  })
+  const conflictResponse = page.waitForResponse((response) => {
+    try {
+      return new URL(response.url()).pathname === '/api/cowork.artifact.edit'
+        && response.request().method() === 'POST'
+    } catch {
+      return false
+    }
+  })
+  await editor.fill(draft)
+  assert.equal((await conflictResponse).status(), 409)
+  await page.unroute('**/api/cowork.artifact.edit*')
+  await page.getByTestId('cwi-conflict').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-conflict-diff').click()
+  await page.getByTestId('cwi-conflict-latest').waitFor({ timeout: 10_000 })
+  assert.match(await page.getByTestId('cwi-conflict-latest').innerText(), /模型并发行。/)
+  await page.getByTestId('cwi-conflict-load').click()
+  await page.getByTestId('cwi-conflict').waitFor({ state: 'detached', timeout: 10_000 })
+  assert.match(await editor.inputValue(), /模型并发行。/)
+  await page.getByTestId('cwi-edit').click()
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+  assert.match(await page.getByTestId('cwi-lines').innerText(), /模型并发行。/)
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
+/**
+ * Live updates and attachments: a comment created from the page context appears
+ * through the project SSE stream without a reload, and an uploaded PNG renders
+ * as a thumbnail in its thread.
+ */
+async function scenarioWorkItemLive(page, fixtures) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+
+  // Create the comment in the page's own origin, so EventSource and fetch share
+  // the browser cookie and the stream is the only reason the rail updates.
+  await page.evaluate(async ({ sessionId, artifactId }) => {
+    await fetch('/api/cowork.artifact.comment', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId, artifactId, body: '来自 SSE 的评论' }),
+    })
+  }, { sessionId: fixtures.primarySessionId, artifactId: BROWSER_ARTIFACT })
+  await page.locator('[data-testid="cwi-thread"]').filter({ hasText: '来自 SSE 的评论' })
+    .waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-activity').waitFor({ timeout: 10_000 })
+
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  await page.getByTestId('cwi-file-input').setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: png })
+  await page.getByTestId('cwi-pending-attachments').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-composer').fill('这张截图说明问题')
+  await page.getByTestId('cwi-submit').click()
+  const attached = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '这张截图说明问题' })
+  await attached.waitFor({ timeout: 15_000 })
+  const thumb = attached.getByTestId('cwi-attachment-thumb')
+  await thumb.waitFor({ timeout: 15_000 })
+  assert.match(await thumb.getAttribute('src'), /\/api\/cowork\.artifact\.attachment\?/)
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
 /** A failed detail read paints the viewer error; retry recovers to the record. */
 async function scenarioWorkItemError(page) {
   // The rail reports a failed read and its retry recovers the list.
@@ -795,6 +903,8 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioOverviewRetry(page)
   await scenarioPanelTabs(page)
   await scenarioWorkItemChain(page)
+  await scenarioWorkItemEdit(page, fixtures)
+  await scenarioWorkItemLive(page, fixtures)
   await scenarioWorkItemError(page)
   await scenarioFilterSetup(page)
 }

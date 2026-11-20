@@ -79,6 +79,15 @@ export const WORK_ITEM_CSS = `
 .cwi-composer-hint { font-size: 11px; color: var(--dsw-alias-label-secondary, #5b6470); }
 .cwi-receipt { font-size: 11px; color: var(--dsw-alias-state-error-primary, #d93026); }
 .cwi-viewer-empty { padding: 30px 16px; text-align: center; font-size: 12px; color: var(--dsw-alias-label-secondary, #5b6470); }
+.cwi-editor-wrap { display: flex; min-height: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 20px; }
+.cwi-gutter { flex: none; width: 52px; margin: 0; padding: 6px 6px 24px 0; text-align: right; color: var(--dsw-alias-label-secondary, #9aa3ad); overflow: hidden; user-select: none; font: inherit; line-height: 20px; }
+.cwi-editor { flex: 1; min-width: 0; min-height: 70vh; border: none; outline: none; resize: none; padding: 6px 12px 24px; font: inherit; line-height: 20px; background: transparent; color: inherit; white-space: pre; overflow: auto; }
+.cwi-editor:focus-visible { outline: 1px solid var(--dsw-alias-brand-primary, #3457d5); outline-offset: -1px; }
+.cwi-conflict { border-bottom: 1px solid var(--dsw-alias-state-warn-primary, #b26a00); background: var(--cw-surface-muted, #f2f4f7); color: var(--dsw-alias-label-primary, #1f2329); padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.cwi-conflict-diff { display: flex; flex-direction: column; gap: 4px; }
+.cwi-attachment-thumb { max-width: 220px; max-height: 160px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1, #e3e6ea); display: block; }
+.cwi-attachment-link { font-size: 11px; color: var(--dsw-alias-brand-primary, #3457d5); word-break: break-all; }
+.cwi-conflict-latest { margin: 0; max-height: 180px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: pre-wrap; border-left: 2px solid var(--dsw-alias-border-l2, #dfe3e8); padding-left: 6px; }
 @media (max-width: 900px) {
   .cwi-body { flex-direction: column; }
   .cwi-rail { width: auto; border-left: none; border-top: 1px solid var(--dsw-alias-border-l1, #e3e6ea); max-height: 45%; }

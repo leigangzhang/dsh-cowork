@@ -130,6 +130,18 @@ export function createHostClient(host) {
     return { status: response.status, body }
   }
 
+  /** Raw panel fetch: streaming bodies, uploads, and attachment bytes. */
+  async function panelFetch(path, init = {}) {
+    return fetch(`${host.origin}${path}`, {
+      ...init,
+      headers: {
+        ...headers,
+        origin: host.origin,
+        ...(init.headers ?? {}),
+      },
+    })
+  }
+
   function panelGet(path) {
     return panelJson(path, { method: 'GET' })
   }
@@ -146,6 +158,7 @@ export function createHostClient(host) {
     createSession,
     prompt,
     promptAndWait,
+    panelFetch,
     panelGet,
     panelPost,
   }

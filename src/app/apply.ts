@@ -37,6 +37,9 @@ import { NoopTopicNoticePort, TopicNoticeDispatcher } from '../domains/notices/n
 import type { CoworkToolDeps, CurrentModelRoute } from '../platform/tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
 import { ArtifactRuntimeManager } from '../platform/artifact-runtime.js'
+import { ArtifactPresenceRegistry, createArtifactWriteGuard } from '../platform/artifact-presence.js'
+import { createDispatchPromptPort, createDispatchSessionListener } from '../platform/artifact-dispatch.js'
+import { ARTIFACT_PRESENCE_TTL_MS } from '../panel/artifact-contract.js'
 import type { HostFileSystem } from '../platform/artifact-files.js'
 import { TopicEvents } from '../platform/topic-events.js'
 import type { TopicEventLike, TopicEventSession } from '../platform/topic-events.js'
@@ -331,11 +334,30 @@ export function apply(ctx: Context, config: Config): void {
   // Work-item runtimes: one per project, created on first use. A host without
   // `ctx.fs` still gets the records/comments/SSE half and answers file reads
   // with `artifact/fs-unavailable`.
+  const artifactPresence = new ArtifactPresenceRegistry({ ttlMs: ARTIFACT_PRESENCE_TTL_MS })
+  // Annotation delivery rides the host session queue: the request id is the
+  // dispatch id, so a retry after a restart cannot duplicate a turn.
+  const dispatchPrompt = createDispatchPromptPort(
+    assembly.sessionController as unknown as Parameters<typeof createDispatchPromptPort>[0],
+    settings.promptTimeoutMs,
+  )
   const artifactRuntimes = new ArtifactRuntimeManager({
     hostFs: hostService<HostFileSystem>(ctx, 'fs'),
     log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
+    presence: artifactPresence,
+    prompt: dispatchPrompt,
   })
   ctx.effect(() => () => artifactRuntimes.dispose(), 'dsh-cowork: artifact runtimes')
+
+  // The editing guard refuses a model write overlapping the lines a browser
+  // user is editing. It covers `write`, `edit`, and `str_replace_editor`; bash
+  // is the recorded, unfixable gap. A host without `tools.guard` keeps loading.
+  const toolsService = (ctx as unknown as {
+    tools?: { guard?: (guard: (execution: never) => string | undefined) => () => void }
+  }).tools
+  if (typeof toolsService?.guard === 'function') {
+    ctx.effect(() => toolsService.guard!(createArtifactWriteGuard(artifactPresence)), 'dsh-cowork: artifact tool guard')
+  }
 
   const coworkDeps: CoworkToolDeps = {
     sessionController: assembly.sessionController,
@@ -427,6 +449,20 @@ export function apply(ctx: Context, config: Config): void {
       active = false
     }
   }, 'dsh-cowork: workspace repair')
+
+  // The work-item dispatcher follows the same session event stream: turn and
+  // tool events advance queued annotation batches through sent/thinking/
+  // working, and a turn that ends without a reply fails the batch honestly.
+  ctx.effect(() => {
+    const on = (ctx as unknown as {
+      on(name: 'session/event', handler: (session: { header?: { id?: unknown; cwd?: unknown } }, event: { type?: unknown }) => void): () => void
+    }).on
+    return on.call(ctx, 'session/event', createDispatchSessionListener({
+      resolveRepoPath: (cwd) => findProjectRoot(cwd),
+      runtimeFor: (repoPath) => artifactRuntimes.runtimeFor(repoPath),
+      log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
+    }))
+  }, 'dsh-cowork: artifact dispatch events')
 
   // The dev surface is opt-in: an installed profile never exposes it.
   if (settings.enableDevRoutes) {

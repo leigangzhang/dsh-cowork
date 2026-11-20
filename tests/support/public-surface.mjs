@@ -32,6 +32,10 @@ export const PANEL_ROUTES = [
   [artifact.ARTIFACT_COMMENT_PATH, 'POST'],
   [artifact.ARTIFACT_COMMENT_RESOLVE_PATH, 'POST'],
   [artifact.ARTIFACT_STATUS_PATH, 'POST'],
+  [artifact.ARTIFACT_EDIT_PATH, 'POST'],
+  [artifact.ARTIFACT_PRESENCE_PATH, 'POST'],
+  [artifact.ARTIFACT_UPLOAD_PATH, 'POST'],
+  [artifact.ARTIFACT_ATTACHMENT_PATH, 'GET'],
   [artifact.ARTIFACT_EVENTS_PATH, 'GET'],
 ]
 
@@ -63,6 +67,8 @@ export const BUSINESS_TOOL_ORDER = [
   'cowork_memory_search',
   'cowork_checkout_merge',
   'cowork_artifact_create',
+  'cowork_artifact_comments',
+  'cowork_artifact_reply',
 ]
 
 /** The business tools as a sorted set (order-insensitive assertions). */
@@ -92,5 +98,5 @@ export const TOOL_DOMAINS = [
   ['src/tools/memory.ts', ['cowork_memory_write', 'cowork_memory_search']],
   ['src/tools/isolation.ts', ['cowork_work_item_create', 'cowork_checkout_merge']],
   ['src/tools/review.ts', ['cowork_review_request', 'cowork_review_verdict']],
-  ['src/tools/artifact.ts', ['cowork_artifact_create']],
+  ['src/tools/artifact.ts', ['cowork_artifact_create', 'cowork_artifact_comments', 'cowork_artifact_reply']],
 ]

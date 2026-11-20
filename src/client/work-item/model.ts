@@ -347,3 +347,50 @@ export function errorPresentation(error: { readonly code?: string; readonly mess
   if (code === 'artifact/not-previewable') return { title: '暂不支持预览', detail, retryable: false }
   return { title: '加载失败', detail, retryable: true }
 }
+
+/**
+ * Changed line ranges between the saved text and the draft, in draft line
+ * numbers. This is what the browser reports as editing presence: the server
+ * only needs the ranges a model write must avoid.
+ *
+ * The rule is intentionally simple — consecutive differing lines group into one
+ * range, and an insertion contributes its own point range — because presence is
+ * a transient hint, not a merge base.
+ */
+export function changedLineRanges(before: string, after: string): LineSelection[] {
+  const beforeLines = contentLines(before)
+  const afterLines = contentLines(after)
+  const ranges: LineSelection[] = []
+  const shared = Math.min(beforeLines.length, afterLines.length)
+  let start = -1
+  for (let index = 0; index < shared; index += 1) {
+    if (beforeLines[index] !== afterLines[index]) {
+      if (start === -1) start = index + 1
+    } else if (start !== -1) {
+      ranges.push({ startLine: start, endLine: index })
+      start = -1
+    }
+  }
+  if (start !== -1) ranges.push({ startLine: start, endLine: shared })
+  if (afterLines.length > shared) {
+    ranges.push({ startLine: shared + 1, endLine: afterLines.length })
+  }
+  return ranges
+}
+
+/** Save-state label the toolbar shows while editing. */
+export type SavePhase = 'saved' | 'saving' | 'conflict' | 'failed'
+
+/** Toolbar text of one save state, e.g. `已保存 · r12`. */
+export function saveStateLabel(phase: SavePhase, revision: number): string {
+  switch (phase) {
+    case 'saved':
+      return `已保存 · r${String(revision)}`
+    case 'saving':
+      return '保存中…'
+    case 'conflict':
+      return '冲突'
+    case 'failed':
+      return '保存失败'
+  }
+}

@@ -10,13 +10,19 @@ import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import {
+  ARTIFACT_COMMENT_VERSION,
   ARTIFACT_RECORD_VERSION,
+  MAX_ARTIFACT_COMMENT_CHARS,
   MAX_ARTIFACT_PATH_CHARS,
   MAX_ARTIFACT_TITLE_CHARS,
   artifactSummaryOf,
   type ArtifactRecordV1,
   type ArtifactType,
+  type AttachmentRefV1,
+  type CommentEventV1,
 } from '../panel/artifact-contract.js'
+import { parseAttachmentRef } from '../store/artifact-schema.js'
+import { createEventRow } from '../platform/artifact-events.js'
 import {
   inferArtifactType,
   inferMediaType,
@@ -114,8 +120,10 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
         const revision = 1
         let sha256 = ''
         let size = observed.size
+        let content: string | null = null
         if (editable) {
           const read = await runtime.files.readText(path)
+          content = read.content
           sha256 = sha256Hex(read.content)
           size = read.size
         }
@@ -146,6 +154,14 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
           updatedAt: now.toISOString(),
         }
         const created = await runtime.store.createRecord(record)
+        if (content !== null) {
+          try {
+            await runtime.store.saveRevision(created.artifactId, 1, content)
+          } catch (error) {
+            // A missing first snapshot only makes a later stale save a 409.
+            deps.log?.(`artifact create: revision snapshot failed: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
         try {
           const event = await runtime.store.appendEvent({
             eventId: `event-${randomUUID()}`,
@@ -167,5 +183,195 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
     },
   })))
 
+  // 2) cowork_artifact_comments — read the work item and its open threads.
+  disposers.push(host.tools.register(defineTool({
+    name: 'cowork_artifact_comments',
+    description:
+      'Read one registered work item and its annotation threads, so the topic session can pick up the context a delivery prompt summarized. Master or the owning thread session.',
+    parameters: {
+      artifactId: { type: 'string', required: true, description: 'Work-item id (from the delivery prompt).' },
+      includeResolved: { type: 'boolean', description: 'Include resolved threads too (default false).' },
+    },
+    output: { schema: { type: 'json' }, render: renderJson },
+    execute: async (args, exec) => {
+      const caller = callerOf(exec)
+      if (isFailure(caller)) return toJson(caller)
+      try {
+        const opened = await openProject(caller, deps)
+        if (isFailure(opened)) return toJson(opened)
+        const denied = checkRole('master-or-thread', caller, opened.index)
+        if (denied !== null) return toJson(denied)
+        const runtime = runtimeOf(deps, opened.repoPath)
+        if (runtime === null) {
+          return toJson(failure('artifact/fs-unavailable', 'work items are unavailable in this host'))
+        }
+        const artifactId = typeof args.artifactId === 'string' ? args.artifactId.trim() : ''
+        if (artifactId === '') return toJson(failure('artifact/not-found', 'artifactId is required'))
+        const record = await runtime.store.readRecord(artifactId)
+        if (record === null || record.projectId !== opened.index.projectId) {
+          return toJson(failure('artifact/not-found', `unknown work item: ${artifactId}`))
+        }
+        if (record.ownerSessionId !== caller.sessionId && caller.sessionId !== opened.index.masterSessionId) {
+          return toJson(failure('role/forbidden', 'only the owning topic session or the master may read this work item'))
+        }
+        const events = await runtime.store.readComments(artifactId)
+        const threads = new Map<string, { resolved: boolean; comments: CommentEventV1[] }>()
+        for (const event of events) {
+          const thread = threads.get(event.threadId) ?? { resolved: false, comments: [] }
+          if (event.type === 'resolve') thread.resolved = true
+          else if (event.type === 'reopen') thread.resolved = false
+          else if (event.type === 'create' || event.type === 'reply') thread.comments.push(event)
+          threads.set(event.threadId, thread)
+        }
+        const includeResolved = args.includeResolved === true
+        const visible = [...threads.entries()]
+          .filter(([, thread]) => includeResolved || !thread.resolved)
+          .slice(0, 50)
+          .map(([threadId, thread]) => ({
+            threadId,
+            resolved: thread.resolved,
+            anchor: thread.comments.find((comment) => comment.type === 'create')?.anchor ?? null,
+            comments: thread.comments.slice(-20)
+              .filter((comment) => comment.type === 'create' || comment.type === 'reply')
+              .map((comment) => ({
+                commentId: comment.commentId,
+                author: comment.author,
+                body: comment.body.slice(0, MAX_ARTIFACT_COMMENT_CHARS),
+                attachments: comment.attachments ?? [],
+              })),
+          }))
+        return toJson(success({ artifact: artifactSummaryOf(record), threads: visible }))
+      } catch (error) {
+        return toJson(mapError(error))
+      }
+    },
+  })))
+
+  // 3) cowork_artifact_reply — write the model's reply into the threads.
+  disposers.push(host.tools.register(defineTool({
+    name: 'cowork_artifact_reply',
+    description:
+      'Reply to one or more annotation threads on a work item. Every delivered annotation batch must end with this call; the batch only becomes replied when it succeeds. Master or the owning thread session.',
+    parameters: {
+      artifactId: { type: 'string', required: true, description: 'Work-item id from the delivery prompt.' },
+      commentIds: {
+        type: 'array',
+        required: true,
+        items: { type: 'string' },
+        description: 'The annotation ids this reply answers (from the delivery prompt).',
+      },
+      body: { type: 'string', required: true, description: `Reply text, at most ${MAX_ARTIFACT_COMMENT_CHARS} characters.` },
+      attachments: {
+        type: 'array',
+        items: { type: 'object', additionalProperties: true },
+        description: 'Attachment refs returned by cowork_artifact_comments; each must already be stored on the work item.',
+      },
+    },
+    output: { schema: { type: 'json' }, render: renderJson },
+    execute: async (args, exec) => {
+      const caller = callerOf(exec)
+      if (isFailure(caller)) return toJson(caller)
+      try {
+        const opened = await openProject(caller, deps)
+        if (isFailure(opened)) return toJson(opened)
+        const denied = checkRole('master-or-thread', caller, opened.index)
+        if (denied !== null) return toJson(denied)
+        const runtime = runtimeOf(deps, opened.repoPath)
+        if (runtime === null) {
+          return toJson(failure('artifact/fs-unavailable', 'work items are unavailable in this host'))
+        }
+        const artifactId = typeof args.artifactId === 'string' ? args.artifactId.trim() : ''
+        const body = typeof args.body === 'string' ? args.body.trim() : ''
+        if (artifactId === '') return toJson(failure('artifact/not-found', 'artifactId is required'))
+        if (body === '' || body.length > MAX_ARTIFACT_COMMENT_CHARS) {
+          return toJson(failure('artifact/anchor-invalid', `body must be 1..${String(MAX_ARTIFACT_COMMENT_CHARS)} characters`))
+        }
+        const commentIds = Array.isArray(args.commentIds)
+          ? args.commentIds.filter((id): id is string => typeof id === 'string' && id.trim() !== '').slice(0, 10)
+          : []
+        if (commentIds.length === 0) return toJson(failure('artifact/anchor-invalid', 'commentIds must name at least one thread'))
+        const record = await runtime.store.readRecord(artifactId)
+        if (record === null || record.projectId !== opened.index.projectId) {
+          return toJson(failure('artifact/not-found', `unknown work item: ${artifactId}`))
+        }
+        if (record.ownerSessionId !== caller.sessionId && caller.sessionId !== opened.index.masterSessionId) {
+          return toJson(failure('role/forbidden', 'only the owning topic session or the master may reply to this work item'))
+        }
+        const roots = await runtime.store.readComments(artifactId)
+        const rootIds = new Set(roots.filter((event) => event.type === 'create').map((event) => event.commentId))
+        for (const commentId of commentIds) {
+          if (!rootIds.has(commentId)) {
+            return toJson(failure('artifact/not-found', `unknown comment thread: ${commentId}`))
+          }
+        }
+        const rawAttachments = Array.isArray(args.attachments) ? args.attachments : []
+        const attachments: AttachmentRefV1[] = []
+        for (const entry of rawAttachments.slice(0, 5)) {
+          const ref = parseAttachmentRef(entry)
+          if (ref === null || !(await runtime.store.hasUpload(artifactId, ref.attachmentId))) {
+            return toJson(failure('artifact/upload-invalid', 'attachment refs must name an upload stored on this work item'))
+          }
+          attachments.push(ref)
+        }
+        const now = nowOf(deps)
+        const events: CommentEventV1[] = commentIds.map((commentId, index) => ({
+          version: ARTIFACT_COMMENT_VERSION,
+          eventId: `comment-event-${randomUUID()}`,
+          artifactId,
+          commentId: `comment-${randomUUID()}`,
+          threadId: commentId,
+          type: 'reply',
+          author: 'model',
+          sessionId: caller.sessionId,
+          body,
+          createdAt: now.toISOString(),
+          ...(index === 0 && attachments.length > 0 ? { attachments } : {}),
+        }))
+        const committed = await runtime.store.withLock(async () => {
+          let saved = record
+          for (const event of events) {
+            await runtime.store.appendCommentUnlocked(event)
+            saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => {
+              const folded = { ...current }
+              const next = applyCommentEventForTool(folded, now)
+              return (attachments.length > 0 && events[0] === event)
+                ? { ...next, attachmentCount: current.attachmentCount + attachments.length }
+                : next
+            })
+          }
+          const published = []
+          for (const event of events) {
+            published.push(await runtime.store.appendEventUnlocked(
+              createEventRow(artifactId, 'reply.created', now, { commentId: event.commentId, threadId: event.threadId }),
+            ))
+          }
+          published.push(await runtime.store.appendEventUnlocked(
+            createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
+          ))
+          return { record: saved, events: published }
+        })
+        for (const event of committed.events) runtime.events.publish(event)
+        let dispatchId: string | null = null
+        if (runtime.dispatch !== null) {
+          const dispatch = runtime.dispatch.inFlightFor(artifactId)
+          if (dispatch !== null && (await runtime.dispatch.markReplied(dispatch.dispatchId))) dispatchId = dispatch.dispatchId
+        }
+        return toJson(success({ replied: events.length, dispatchId, artifact: artifactSummaryOf(committed.record) }))
+      } catch (error) {
+        return toJson(mapError(error))
+      }
+    },
+  })))
+
   return disposers
+}
+
+/** Fold one model reply into the record counters (same rule as the routes). */
+function applyCommentEventForTool(record: ArtifactRecordV1, now: Date): ArtifactRecordV1 {
+  return {
+    ...record,
+    status: record.status === 'needs-feedback' || record.status === 'in-progress' ? record.status : 'needs-feedback',
+    commentCount: record.commentCount + 1,
+    updatedAt: now.toISOString(),
+  }
 }

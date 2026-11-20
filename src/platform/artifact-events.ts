@@ -12,6 +12,7 @@
  * id is older than the retained log receives `reset`; the browser then reloads
  * the detail instead of pretending the gap did not happen.
  */
+import { randomUUID } from 'node:crypto'
 import {
   ARTIFACT_EVENT_HEARTBEAT_MS,
   ARTIFACT_EVENT_VERSION,
@@ -57,6 +58,22 @@ export class ArtifactEventHub {
   /** Drop every subscription; the plugin fiber calls this on unload. */
   dispose(): void {
     this.subscribers.clear()
+  }
+}
+
+/** Build one event row ready for `store.appendEventUnlocked`. */
+export function createEventRow(
+  artifactId: string,
+  type: ArtifactEventV1['type'],
+  now: Date,
+  data: Readonly<Record<string, unknown>>,
+): Omit<ArtifactEventV1, 'version' | 'seq'> {
+  return {
+    eventId: `event-${randomUUID()}`,
+    type,
+    artifactId,
+    time: now.toISOString(),
+    data,
   }
 }
 

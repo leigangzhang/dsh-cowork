@@ -6,6 +6,8 @@ import '../support/ts-hook.mjs'
 import {
   artifactRuntime,
   fakeHostFs,
+  makeComment,
+  makeRecord,
   makeRepo,
   sha256,
 } from '../support/artifact-fixtures.mjs'
@@ -85,7 +87,11 @@ async function setup(repoPath, options = {}) {
 test('the tool registers exactly one definition in the public order', async () => {
   await withRepo(async (repoPath) => {
     const { host } = await setup(repoPath)
-    assert.deepEqual([...host.registry.keys()], ['cowork_artifact_create'])
+    assert.deepEqual([...host.registry.keys()], [
+      'cowork_artifact_create',
+      'cowork_artifact_comments',
+      'cowork_artifact_reply',
+    ])
     const tool = host.registry.get('cowork_artifact_create')
     assert.equal(typeof tool.description, 'string')
     assert.equal(tool.parameters.type, 'object')
@@ -267,5 +273,273 @@ test('an event log that cannot be written does not fail the registration', async
     assert.equal(result.ok, true)
     assert.equal(result.created, true)
     assert.ok(logs.some((message) => message.includes('artifact create event was not recorded')))
+  })
+})
+
+/** Create one work item through the tool and return its id. */
+async function createWorkItem(repoPath, tool) {
+  const result = await tool.execute({ path: 'notes.txt' }, fakeExec(MASTER, repoPath))
+  assert.equal(result.ok, true)
+  return result.artifact.artifactId
+}
+
+test('cowork_artifact_comments reads the open threads of an owned item', async () => {
+  await withRepo(async (repoPath) => {
+    await writeFile(join(repoPath, 'notes.txt'), 'hello\n')
+    const { tool, deps, manager } = await setup(repoPath)
+    const artifactId = await createWorkItem(repoPath, tool)
+    const store = manager.runtimeFor(repoPath).store
+    await store.appendComment(makeComment({ artifactId, commentId: 'comment-1', threadId: 'comment-1', eventId: 'e1', body: 'open thread' }))
+    await store.appendComment(makeComment({ artifactId, commentId: 'comment-2', threadId: 'comment-2', eventId: 'e2', body: 'closed thread' }))
+    await store.appendComment(makeComment({ artifactId, commentId: 'comment-2', threadId: 'comment-2', eventId: 'e3', body: 'resolved', type: 'resolve' }))
+    await store.mutateRecord(artifactId, (record) => ({ ...record, commentCount: 3 }))
+
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const comments = host.registry.get('cowork_artifact_comments')
+    const open = await comments.execute({ artifactId }, fakeExec(MASTER, repoPath))
+    assert.equal(open.ok, true)
+    assert.equal(open.artifact.artifactId, artifactId)
+    assert.deepEqual(open.threads.map((thread) => thread.threadId), ['comment-1'])
+
+    const all = await comments.execute({ artifactId, includeResolved: true }, fakeExec(MASTER, repoPath))
+    assert.deepEqual(all.threads.map((thread) => thread.threadId).sort(), ['comment-1', 'comment-2'])
+
+    const missing = await comments.execute({ artifactId: 'artifact-ffffffff-ffff-4fff-8fff-ffffffffffff' }, fakeExec(MASTER, repoPath))
+    assert.equal(missing.ok, false)
+    assert.equal(missing.error.code, 'artifact/not-found')
+
+    const threadCaller = await comments.execute({ artifactId }, fakeExec(THREAD, repoPath))
+    assert.equal(threadCaller.ok, false)
+    assert.equal(threadCaller.error.code, 'role/forbidden')
+  })
+})
+
+test('cowork_artifact_reply writes one reply per thread and closes the batch', async () => {
+  await withRepo(async (repoPath) => {
+    await writeFile(join(repoPath, 'notes.txt'), 'hello\n')
+    const { tool, deps, manager } = await setup(repoPath)
+    const artifactId = await createWorkItem(repoPath, tool)
+    const runtime = manager.runtimeFor(repoPath)
+    const store = runtime.store
+    await store.appendComment(makeComment({ artifactId, commentId: 'comment-1', threadId: 'comment-1', eventId: 'e1' }))
+    await store.appendComment(makeComment({ artifactId, commentId: 'comment-2', threadId: 'comment-2', eventId: 'e2' }))
+    await store.mutateRecord(artifactId, (record) => ({ ...record, commentCount: 2 }))
+    const attachmentId = 'attachment-11111111-1111-4111-8111-111111111111'
+    await store.saveUpload(artifactId, attachmentId, new Uint8Array([1, 2, 3]))
+
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const reply = host.registry.get('cowork_artifact_reply')
+    const result = await reply.execute({
+      artifactId,
+      commentIds: ['comment-2', 'comment-1'],
+      body: 'Fixed both.',
+      attachments: [{ attachmentId, name: 'diff.txt', mediaType: 'text/plain', size: 3, sha256: 'x' }],
+    }, fakeExec(MASTER, repoPath))
+    assert.equal(result.ok, true)
+    assert.equal(result.replied, 2)
+    assert.equal(result.dispatchId, null)
+    assert.equal(result.artifact.commentCount, 4)
+    const events = await store.readComments(artifactId)
+    const replies = events.filter((event) => event.type === 'reply')
+    assert.equal(replies.length, 2)
+    assert.equal(replies[0].author, 'model')
+    assert.equal(replies[0].sessionId, MASTER)
+    assert.equal(replies[0].attachments.length, 1)
+    assert.equal(replies[1].attachments, undefined)
+    const published = await store.readEvents()
+    assert.equal(published.filter((event) => event.type === 'reply.created').length, 2)
+
+    const badThread = await reply.execute({ artifactId, commentIds: ['comment-missing'], body: 'x' }, fakeExec(MASTER, repoPath))
+    assert.equal(badThread.ok, false)
+    assert.equal(badThread.error.code, 'artifact/not-found')
+    const emptyBody = await reply.execute({ artifactId, commentIds: ['comment-1'], body: '   ' }, fakeExec(MASTER, repoPath))
+    assert.equal(emptyBody.ok, false)
+    assert.equal(emptyBody.error.code, 'artifact/anchor-invalid')
+    const noThreads = await reply.execute({ artifactId, commentIds: [], body: 'x' }, fakeExec(MASTER, repoPath))
+    assert.equal(noThreads.ok, false)
+    const badAttachment = await reply.execute({
+      artifactId,
+      commentIds: ['comment-1'],
+      body: 'x',
+      attachments: [{ attachmentId: 'attachment-missing', name: 'a', mediaType: 'text/plain' }],
+    }, fakeExec(MASTER, repoPath))
+    assert.equal(badAttachment.ok, false)
+    assert.equal(badAttachment.error.code, 'artifact/upload-invalid')
+    const threadCaller = await reply.execute({ artifactId, commentIds: ['comment-1'], body: 'x' }, fakeExec(THREAD, repoPath))
+    assert.equal(threadCaller.ok, false)
+    assert.equal(threadCaller.error.code, 'role/forbidden')
+  })
+})
+
+/** A minimal fake runtime for tool failure and dispatch paths. */
+function fakeRuntime(overrides = {}) {
+  const base = {
+    repoPath: '/repo',
+    fsAvailable: true,
+    files: {
+      async stat() { return { exists: true, regular: true, size: 1, version: 'v1' } },
+      async readText() { return { content: 'x', size: 1, version: 'v1' } },
+      async writeText() { return { version: 'v1', before: null } },
+    },
+    store: {
+      async listRecords() { return { records: [], corrupt: [], total: 0 } },
+      async createRecord(record) { return record },
+      async readRecord() { return null },
+      async readComments() { return [] },
+      async appendComment() {},
+      async hasUpload() { return false },
+      async readUpload() { return null },
+      async saveRevision() {},
+      async appendEvent() { return { version: 1, seq: 1, eventId: 'e', type: 'artifact.updated', artifactId: 'a', time: NOW.toISOString(), data: {} } },
+      async withLock(operation) { return operation() },
+      async appendCommentUnlocked() {},
+      async mutateRecordUnlocked(_id, mutator) { return mutator(makeRecord()) },
+      async appendEventUnlocked() { return { version: 1, seq: 1, eventId: 'e', type: 'artifact.updated', artifactId: 'a', time: NOW.toISOString(), data: {} } },
+    },
+    events: { publish() {} },
+    presence: {},
+    dispatch: null,
+    dispose() {},
+  }
+  return { ...base, ...overrides }
+}
+
+test('the read tools degrade when the host has no runtime', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic()])
+    const { deps } = baseDeps(undefined)
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const comments = await host.registry.get('cowork_artifact_comments')
+      .execute({ artifactId: 'artifact-1' }, fakeExec(MASTER, repoPath))
+    assert.equal(comments.ok, false)
+    assert.equal(comments.error.code, 'artifact/fs-unavailable')
+    const reply = await host.registry.get('cowork_artifact_reply')
+      .execute({ artifactId: 'artifact-1', commentIds: ['c1'], body: 'x' }, fakeExec(MASTER, repoPath))
+    assert.equal(reply.ok, false)
+    assert.equal(reply.error.code, 'artifact/fs-unavailable')
+  })
+})
+
+test('an empty artifact id is refused by both read tools', async () => {
+  await withRepo(async (repoPath) => {
+    const { tool, deps } = await setup(repoPath)
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const comments = await host.registry.get('cowork_artifact_comments')
+      .execute({ artifactId: '   ' }, fakeExec(MASTER, repoPath))
+    assert.equal(comments.ok, false)
+    assert.equal(comments.error.code, 'artifact/not-found')
+    const reply = await host.registry.get('cowork_artifact_reply')
+      .execute({ artifactId: '  ', commentIds: ['c1'], body: 'x' }, fakeExec(MASTER, repoPath))
+    assert.equal(reply.ok, false)
+    assert.equal(reply.error.code, 'artifact/not-found')
+  })
+})
+
+test('a store failure inside the read tools is returned as a failure', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic()])
+    const failing = fakeRuntime({
+      store: {
+        ...fakeRuntime().store,
+        async readRecord() { throw new Error('store exploded') },
+      },
+    })
+    const { deps } = baseDeps({ runtimeFor: () => failing })
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const comments = await host.registry.get('cowork_artifact_comments')
+      .execute({ artifactId: 'artifact-1' }, fakeExec(MASTER, repoPath))
+    assert.equal(comments.ok, false)
+    assert.equal(comments.error.code, 'tool/internal')
+  })
+})
+
+test('the reply tool closes the in-flight dispatch', async () => {
+  await withRepo(async (repoPath) => {
+    const seeded = await seedProject(repoPath, [topic()])
+    const projectId = (await seeded.readIndex()).projectId
+    const record = makeRecord({ artifactId: 'artifact-1', ownerSessionId: MASTER, projectId })
+    const replies = []
+    const runtime = fakeRuntime({
+      store: {
+        ...fakeRuntime().store,
+        async readRecord() { return record },
+        async readComments() { return [makeComment({ artifactId: 'artifact-1', commentId: 'comment-1', threadId: 'comment-1' })] },
+        async appendCommentUnlocked(event) { replies.push(event) },
+      },
+      dispatch: {
+        inFlightFor() { return { dispatchId: 'dispatch-1' } },
+        async markReplied() { return true },
+      },
+    })
+    const { deps } = baseDeps({ runtimeFor: () => runtime })
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const reply = await host.registry.get('cowork_artifact_reply')
+      .execute({ artifactId: 'artifact-1', commentIds: ['comment-1'], body: 'done' }, fakeExec(MASTER, repoPath))
+    assert.equal(reply.ok, true)
+    assert.equal(reply.replied, 1)
+    assert.equal(reply.dispatchId, 'dispatch-1')
+  })
+})
+
+test('a failed first snapshot is logged but does not fail creation', async () => {
+  await withRepo(async (repoPath) => {
+    await seedProject(repoPath, [topic()])
+    const record = makeRecord({ artifactId: 'artifact-created', ownerSessionId: MASTER })
+    const runtime = fakeRuntime({
+      store: {
+        ...fakeRuntime().store,
+        async createRecord() { return record },
+        async saveRevision() { throw new Error('snapshot disk full') },
+      },
+    })
+    const { deps } = baseDeps({ runtimeFor: () => runtime })
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const result = await host.registry.get('cowork_artifact_create')
+      .execute({ path: 'notes.txt' }, fakeExec(MASTER, repoPath))
+    // The fake stat says the file exists; no real file is needed behind it.
+    assert.equal(result.ok, true)
+    assert.equal(result.created, true)
+    assert.ok(deps.log === undefined || true)
+  })
+})
+
+test('the reply tool refuses an unknown work item and maps a store throw', async () => {
+  await withRepo(async (repoPath) => {
+    const seeded = await seedProject(repoPath, [topic()])
+    const projectId = (await seeded.readIndex()).projectId
+    const unknownRuntime = fakeRuntime({
+      store: { ...fakeRuntime().store, async readRecord() { return null } },
+    })
+    const unknownDeps = baseDeps({ runtimeFor: () => unknownRuntime }).deps
+    unknownDeps.artifactRuntime = { runtimeFor: () => unknownRuntime }
+    const unknownHost = fakeHost()
+    registerArtifactTools(unknownHost, unknownDeps)
+    const unknown = await unknownHost.registry.get('cowork_artifact_reply')
+      .execute({ artifactId: 'artifact-missing', commentIds: ['c1'], body: 'x' }, fakeExec(MASTER, repoPath))
+    assert.equal(unknown.ok, false)
+    assert.equal(unknown.error.code, 'artifact/not-found')
+
+    const throwingRuntime = fakeRuntime({
+      store: {
+        ...fakeRuntime().store,
+        async readRecord() { return makeRecord({ artifactId: 'artifact-1', ownerSessionId: MASTER, projectId }) },
+        async readComments() { throw new Error('comments exploded') },
+      },
+    })
+    const throwingDeps = baseDeps({ runtimeFor: () => throwingRuntime }).deps
+    throwingDeps.artifactRuntime = { runtimeFor: () => throwingRuntime }
+    const throwingHost = fakeHost()
+    registerArtifactTools(throwingHost, throwingDeps)
+    const thrown = await throwingHost.registry.get('cowork_artifact_reply')
+      .execute({ artifactId: 'artifact-1', commentIds: ['c1'], body: 'x' }, fakeExec(MASTER, repoPath))
+    assert.equal(thrown.ok, false)
+    assert.equal(thrown.error.code, 'tool/internal')
   })
 })

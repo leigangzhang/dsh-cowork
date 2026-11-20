@@ -1,6 +1,6 @@
 # Cowork 工作项后端：调研、架构与实现设计
 
-Status: draft（backend design，2026-11-10；仅设计，未实现）
+Status: implementing（backend design，2026-11-10；阶段 0–3 已落地 2026-11-19，阶段 4–5 未开始；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)）
 
 本方案把[工作项前端设计与开发方案](work-item-frontend.md)和[工作项查看器设计](work-item-artifact-viewer.md)落成后端实现设计。范围是 artifacts 记录、文件、批注、版本、保存冲突、模型投递、SSE 和工具；不含前端代码、编辑器依赖和旧 `workItems` 改造。决策和备选见[后端提案](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-backend.md)。
 

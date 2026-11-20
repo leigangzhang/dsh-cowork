@@ -11,17 +11,25 @@ import {
   ARTIFACT_COMMENT_RESOLVE_PATH,
   ARTIFACT_COMMENTS_PATH,
   ARTIFACT_DETAIL_PATH,
+  ARTIFACT_EDIT_PATH,
   ARTIFACT_FILE_PATH,
+  ARTIFACT_ATTACHMENT_PATH,
   ARTIFACT_LIST_PATH,
+  ARTIFACT_PRESENCE_PATH,
+  ARTIFACT_UPLOAD_PATH,
   ARTIFACT_STATUS_PATH,
   type ArtifactAnchor,
   type ArtifactCommentResolveResponse,
   type ArtifactCommentResponse,
   type ArtifactCommentsResponse,
   type ArtifactDetailResponse,
+  type ArtifactEditResponse,
   type ArtifactFileResponse,
   type ArtifactListResponse,
+  type ArtifactPresenceResponse,
   type ArtifactStatusResponse,
+  type ArtifactUploadResponse,
+  type AttachmentRefV1,
   type CommentEventV1,
 } from '../../panel/artifact-contract.js'
 
@@ -47,6 +55,15 @@ export interface CommentInput {
   readonly artifactId: string
   readonly body: string
   readonly anchor?: ArtifactAnchor
+  readonly attachments?: readonly AttachmentRefV1[]
+}
+
+/** One attachment upload. */
+export interface UploadInput {
+  readonly sessionId: string
+  readonly artifactId: string
+  readonly name: string
+  readonly bytes: Blob | Uint8Array
 }
 
 /** One resolve/reopen request. */
@@ -55,6 +72,31 @@ export interface ResolveCommentInput {
   readonly artifactId: string
   readonly commentId: string
   readonly resolved: boolean
+}
+
+/** One text save; the base revision and version are what the browser loaded. */
+export interface EditInput {
+  readonly sessionId: string
+  readonly artifactId: string
+  readonly path: string
+  readonly baseRevision: number
+  readonly baseVersion: string | null
+  readonly content: string
+}
+
+/** The conflict ranges a 409 save carries. */
+export interface SaveConflict {
+  readonly currentVersion: string
+  readonly revision: number
+  readonly conflictRanges: readonly { readonly startLine: number; readonly endLine: number }[]
+}
+
+/** One editing-presence report. */
+export interface PresenceInput {
+  readonly sessionId: string
+  readonly artifactId: string
+  readonly path: string
+  readonly ranges: readonly { readonly startLine: number; readonly endLine: number }[]
 }
 
 /** One status action. */
@@ -73,6 +115,11 @@ export interface WorkItemApi {
   comment(input: CommentInput): Promise<ArtifactCommentResponse>
   resolveComment(input: ResolveCommentInput): Promise<ArtifactCommentResolveResponse>
   status(input: StatusInput): Promise<ArtifactStatusResponse>
+  edit(input: EditInput): Promise<ArtifactEditResponse>
+  presence(input: PresenceInput): Promise<ArtifactPresenceResponse>
+  upload(input: UploadInput): Promise<ArtifactUploadResponse>
+  /** Same-origin URL of one stored attachment, for an `<img>` or a download link. */
+  attachmentUrl(input: { sessionId: string; artifactId: string; attachmentId: string }): string
 }
 
 /** Read the JSON body of one response, refusing a non-JSON error page. */
@@ -143,9 +190,9 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
         sessionId: input.sessionId,
         artifactId: input.artifactId,
         body: input.body,
-        dispatch: false,
       }
       if (input.anchor !== undefined) body.anchor = input.anchor
+      if (input.attachments !== undefined && input.attachments.length > 0) body.attachments = input.attachments
       return post<ArtifactCommentResponse>(ARTIFACT_COMMENT_PATH, body)
     },
     async resolveComment(input) {
@@ -154,6 +201,53 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
     status(input) {
       const result: Promise<ArtifactStatusResponse> = post<ArtifactStatusResponse>(ARTIFACT_STATUS_PATH, input)
       return result
+    },
+    async edit(input) {
+      const response = await fetchImpl(ARTIFACT_EDIT_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+      if (response.status === 409) {
+        const body = await readJson(response)
+        const conflict = body as unknown as SaveConflict & { ok?: unknown; error?: { code?: unknown; message?: unknown } }
+        const error = new WorkItemApiError(
+          typeof conflict.error?.code === 'string' ? conflict.error.code : 'artifact/version-conflict',
+          typeof conflict.error?.message === 'string' ? conflict.error.message : 'save conflict',
+          409,
+        )
+        Object.assign(error, {
+          conflict: {
+            currentVersion: typeof conflict.currentVersion === 'string' ? conflict.currentVersion : '',
+            revision: typeof conflict.revision === 'number' ? conflict.revision : 0,
+            conflictRanges: Array.isArray(conflict.conflictRanges) ? conflict.conflictRanges : [],
+          } satisfies SaveConflict,
+        })
+        throw error
+      }
+      return envelope<ArtifactEditResponse>(response)
+    },
+    async presence(input) {
+      return post<ArtifactPresenceResponse>(ARTIFACT_PRESENCE_PATH, input)
+    },
+    async upload(input) {
+      const response = await fetchImpl(withQuery(ARTIFACT_UPLOAD_PATH, {
+        sessionId: input.sessionId,
+        artifactId: input.artifactId,
+        name: input.name,
+      }), {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: input.bytes as BodyInit,
+      })
+      return envelope<ArtifactUploadResponse>(response)
+    },
+    attachmentUrl(input) {
+      return withQuery(ARTIFACT_ATTACHMENT_PATH, {
+        sessionId: input.sessionId,
+        artifactId: input.artifactId,
+        attachmentId: input.attachmentId,
+      })
     },
   } satisfies WorkItemApi
 }

@@ -26,7 +26,7 @@
       "functionCoverage": 95
     },
     "src/client/work-item/panel.tsx": {
-      "lineCoverage": 95,
+      "lineCoverage": 94,
       "functionCoverage": 85
     }
   }

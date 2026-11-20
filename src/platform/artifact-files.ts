@@ -196,10 +196,12 @@ export function createHostArtifactFiles(fs: HostFileSystem, repoPath: string): A
   }
 }
 
-/** One reconcile result: the updated file entry plus whether it moved. */
+/** One reconcile result: the updated file entry, whether it moved, and its text. */
 export interface FileReconcile {
   readonly file: ArtifactFileV1
   readonly changed: boolean
+  /** The text this reconcile read, when the entry is text; used for snapshots. */
+  readonly text: string | null
 }
 
 /**
@@ -218,17 +220,20 @@ export async function reconcileArtifactFile(
   try {
     observed = await files.stat(file.path)
   } catch {
-    return { file: file.missing ? file : { ...file, missing: true }, changed: !file.missing }
+    return { file: file.missing ? file : { ...file, missing: true }, changed: !file.missing, text: null }
   }
   if (!observed.exists) {
-    return file.missing ? { file, changed: false } : { file: { ...file, missing: true }, changed: true }
+    return file.missing
+      ? { file, changed: false, text: null }
+      : { file: { ...file, missing: true }, changed: true, text: null }
   }
   if (!isTextMediaType(file.mediaType)) {
     const versionChanged = observed.version !== null && observed.version !== file.fsVersion
     const sizeChanged = observed.size !== file.size
-    if (!versionChanged && !sizeChanged && !file.missing) return { file, changed: false }
+    if (!versionChanged && !sizeChanged && !file.missing) return { file, changed: false, text: null }
     return {
       changed: true,
+      text: null,
       file: {
         ...file,
         missing: false,
@@ -242,14 +247,15 @@ export async function reconcileArtifactFile(
   try {
     read = await files.readText(file.path)
   } catch {
-    return { file: file.missing ? file : { ...file, missing: true }, changed: !file.missing }
+    return { file: file.missing ? file : { ...file, missing: true }, changed: !file.missing, text: null }
   }
   const sha256 = sha256Hex(read.content)
   const contentChanged = sha256 !== file.sha256
   const versionChanged = read.version !== null && read.version !== file.fsVersion
-  if (!contentChanged && !versionChanged && !file.missing) return { file, changed: false }
+  if (!contentChanged && !versionChanged && !file.missing) return { file, changed: false, text: read.content }
   return {
     changed: true,
+    text: read.content,
     file: {
       ...file,
       missing: false,

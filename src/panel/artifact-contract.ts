@@ -45,6 +45,9 @@ export const ARTIFACT_PRESENCE_PATH = '/api/cowork.artifact.presence'
 /** Exact Fetch-route path: upload one comment/reply attachment (stage 3). */
 export const ARTIFACT_UPLOAD_PATH = '/api/cowork.artifact.upload'
 
+/** Exact Fetch-route path: read one stored attachment's bytes (stage 3). */
+export const ARTIFACT_ATTACHMENT_PATH = '/api/cowork.artifact.attachment'
+
 /** Exact Fetch-route path: the project's work-item event stream (SSE). */
 export const ARTIFACT_EVENTS_PATH = '/api/cowork.artifact.events'
 
@@ -387,6 +390,9 @@ export const ARTIFACT_EVENT_LOG_MAX_LINES = 2000
 
 /** Most attachments one work item may hold. */
 export const MAX_ARTIFACT_ATTACHMENTS = 200
+
+/** Most editing ranges one presence report may carry. */
+export const MAX_PRESENCE_RANGES = 200
 
 /** Stable artifact failure codes. They join {@link PanelErrorCode} in `api-contract`. */
 export const ARTIFACT_ERROR_CODES = [

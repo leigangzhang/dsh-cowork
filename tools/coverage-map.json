@@ -102,6 +102,10 @@
       "lane": "unit"
     },
     {
+      "path": "src/domains/artifact/merge.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/domains/artifact/paths.ts",
       "lane": "unit"
     },
@@ -218,11 +222,19 @@
       "lane": "unit"
     },
     {
+      "path": "src/platform/artifact-dispatch.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/platform/artifact-events.ts",
       "lane": "unit"
     },
     {
       "path": "src/platform/artifact-files.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/artifact-presence.ts",
       "lane": "unit"
     },
     {

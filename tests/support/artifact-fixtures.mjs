@@ -76,6 +76,10 @@ export async function makeRepo(files = {}) {
 export function fakeHostFs(options = {}) {
   const calls = []
   const failures = options.failures ?? new Map()
+  const staleOnFirstWrite = new Set(options.staleOnFirstWrite ?? [])
+  const staleAlways = new Set(options.staleAlways ?? [])
+  const writeFailures = options.writeFailures ?? new Map()
+  let staleServed = false
   const tokenOf = async (path) => {
     try {
       return sha256(await readFile(path, 'utf8'))
@@ -128,6 +132,19 @@ export function fakeHostFs(options = {}) {
         if (error.code === 'ENOENT') return null
         throw error
       })
+      const matches = (entry) => target.targetKey === entry || target.targetKey.endsWith(`/${entry}`)
+      for (const [entry, code] of writeFailures) {
+        if (matches(entry)) throw Object.assign(new Error(`forced ${code}`), { code })
+      }
+      if ([...staleAlways].some(matches)) {
+        throw Object.assign(new Error('stale version'), { code: 'FS_STALE_VERSION' })
+      }
+      const staleTarget = [...staleOnFirstWrite].some(matches)
+      if (staleTarget && !staleServed) {
+        staleServed = true
+        await writeFile(target.targetKey, `${before ?? ''}concurrent-model-line\n`)
+        throw Object.assign(new Error('stale version'), { code: 'FS_STALE_VERSION' })
+      }
       if (expected !== undefined) {
         const current = await tokenOf(target.targetKey)
         if (current !== expected.version) {
@@ -210,6 +227,21 @@ export function request(path, { method = 'GET', query = {}, body, headers = {} }
   return new Request(url, init)
 }
 
+/** Build one raw-body Request (upload) for a registered route. */
+export function rawRequest(path, { query = {}, bytes = new Uint8Array(), contentType = 'application/octet-stream' } = {}) {
+  const url = new URL(`http://127.0.0.1:3080${path}`)
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value)
+  return new Request(url, {
+    method: 'POST',
+    headers: {
+      host: '127.0.0.1:3080',
+      origin: 'http://127.0.0.1:3080',
+      'content-type': contentType,
+    },
+    body: bytes,
+  })
+}
+
 /** Read one JSON route response. */
 export async function jsonOf(response) {
   return JSON.parse(await response.text())
@@ -226,6 +258,8 @@ export async function createHarness(options = {}) {
   const manager = new artifactRuntime.ArtifactRuntimeManager({
     hostFs: options.hostFs === null ? undefined : (options.hostFs ?? fakeHostFs(options.fsOptions)),
     log: (message) => logs.push(message),
+    ...(options.prompt === undefined ? {} : { prompt: options.prompt }),
+    ...(options.dispatch === undefined ? {} : { dispatch: options.dispatch }),
   })
   const { ports } = fakePorts({
     root: repoPath,
@@ -260,7 +294,17 @@ export async function createHarness(options = {}) {
     runtime: () => manager.runtimeFor(repoPath),
     cleanup: async () => {
       manager.dispose()
-      await rm(repoPath, { recursive: true, force: true })
+      // A dispatch timer or in-flight state write may land just after dispose;
+      // give it a beat and retry the removal instead of racing it.
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await rm(repoPath, { recursive: true, force: true })
+          return
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 30))
+        }
+      }
     },
   }
 }

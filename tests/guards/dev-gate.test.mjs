@@ -171,7 +171,7 @@ test('Config defaults pin the M10 isolation and reviewer settings', () => {
   const normalized = normalizeConfig({})
   assert.deepEqual(normalized.isolation, { provider: 'clone' })
   assert.deepEqual(normalized.reviewer, { reclaim: 'after-verdict' })
-  assert.equal(BUSINESS_TOOL_ORDER.length, 23)
+  assert.equal(BUSINESS_TOOL_ORDER.length, 25)
 })
 
 test('CONFIG_DEFAULTS is the one defaults table behind both readers', () => {
@@ -249,7 +249,7 @@ test('enableDevRoutes=false keeps the business surface and registers no dev surf
 
   // The business topic lifecycle listener and the memory prompt's
   // agent/created listener are attached; no dev feed exists.
-  assert.equal(sessionListeners(host).length, 1)
+  assert.equal(sessionListeners(host).length, 2)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 
   // Only the three business presets; the retired probe preset is absent.
@@ -303,7 +303,7 @@ test('enableDevRoutes=true adds only the loopback health route', async () => {
   assert.equal(host.presets.some((preset) => preset.id === 'cowork-probe'), false)
 
   // The business topic lifecycle listener; the retired dev feed is gone.
-  assert.equal(sessionListeners(host).length, 1)
+  assert.equal(sessionListeners(host).length, 2)
   assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
 
   // Every dev route is a fiber-owned effect with a label a later diagnostic
@@ -401,7 +401,7 @@ test('disposing the plugin releases the dev session listeners', async () => {
   const host = fakeHost()
   apply(host.ctx, config(true))
   await settle()
-  assert.equal(sessionListeners(host).length, 1)
+  assert.equal(sessionListeners(host).length, 2)
 
   await disposeAll(host)
 

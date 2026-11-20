@@ -13,6 +13,7 @@
  * {@link ArtifactDomainError} onto the one `PanelErrorBody` table.
  */
 import { randomUUID } from 'node:crypto'
+import { resolve as resolvePath } from 'node:path'
 import type { PanelErrorCode } from './api-contract.js'
 import type { PanelFetchRoute } from './api-types.js'
 import {
@@ -22,13 +23,23 @@ import {
   ARTIFACT_COMMENTS_PATH,
   ARTIFACT_COMMENTS_DEFAULT_LIMIT,
   ARTIFACT_COMMENTS_MAX_LIMIT,
+  ARTIFACT_ATTACHMENT_PATH,
   ARTIFACT_DETAIL_PATH,
+  ARTIFACT_EDIT_PATH,
   ARTIFACT_EVENTS_PATH,
   ARTIFACT_FILE_PATH,
   ARTIFACT_LIST_MAX_LIMIT,
   ARTIFACT_LIST_PATH,
+  ARTIFACT_PRESENCE_PATH,
   ARTIFACT_STATUS_PATH,
+  ARTIFACT_UPLOAD_PATH,
+  MAX_ARTIFACT_ATTACHMENT_BYTES,
+  MAX_ARTIFACT_ATTACHMENTS,
+  MAX_ARTIFACT_ATTACHMENTS_PER_COMMENT,
   MAX_ARTIFACT_COMMENT_CHARS,
+  MAX_ARTIFACT_TEXT_BYTES,
+  MAX_ARTIFACT_TEXT_LINES,
+  MAX_PRESENCE_RANGES,
   addArtifactToCounts,
   artifactSummaryOf,
   emptyArtifactCounts,
@@ -37,22 +48,58 @@ import {
   type ArtifactCommentResponse,
   type ArtifactCommentResolveResponse,
   type ArtifactCommentsResponse,
+  type ArtifactConflictBody,
+  type ArtifactConflictRange,
   type ArtifactDetailResponse,
+  type ArtifactEditResponse,
   type ArtifactEventV1,
   type ArtifactFileResponse,
   type ArtifactListResponse,
+  type ArtifactPresenceResponse,
   type ArtifactRecordV1,
   type ArtifactStatusResponse,
+  type ArtifactUploadResponse,
+  type AttachmentRefV1,
   type CommentEventV1,
+  type DispatchRecordV1,
 } from './artifact-contract.js'
 import type { ArtifactRuntime } from '../platform/artifact-runtime.js'
-import { parseLastEventId, openArtifactEventStream } from '../platform/artifact-events.js'
+import { createEventRow, parseLastEventId, openArtifactEventStream } from '../platform/artifact-events.js'
 import { ArtifactDomainError } from '../domains/artifact/errors.js'
 import { parseArtifactAnchor, deriveLineAnchor } from '../domains/artifact/anchor.js'
 import { isTextMediaType } from '../domains/artifact/paths.js'
-import { reconcileArtifactFile } from '../platform/artifact-files.js'
+import { reconcileArtifactFile, sha256Hex } from '../platform/artifact-files.js'
+import { mergeText } from '../domains/artifact/merge.js'
+import { parseAttachmentRef } from '../store/artifact-schema.js'
 import { applyCommentEvent, applyStatusAction } from '../domains/artifact/state.js'
 import type { ArtifactStatusAction } from '../domains/artifact/state.js'
+
+/** The 1-based line range the conflict UI should highlight for a whole file. */
+function wholeFileRange(content: string): ArtifactConflictRange[] {
+  const lines = content.split('\n')
+  const count = lines.length > 1 && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length
+  return [{ startLine: 1, endLine: Math.max(1, count) }]
+}
+
+/** One 409 response for a save that could not be merged. */
+function conflictResponse(
+  kit: ArtifactRouteKit,
+  currentVersion: string | null,
+  revision: number,
+  conflictRanges: readonly ArtifactConflictRange[],
+): Response {
+  const body: ArtifactConflictBody = {
+    ok: false,
+    error: {
+      code: 'artifact/version-conflict',
+      message: 'the file changed since this revision; resolve the conflict and retry the save',
+    },
+    currentVersion: currentVersion ?? '',
+    revision,
+    conflictRanges,
+  }
+  return kit.jsonResponse(409, body)
+}
 
 /** One resolved project and its work-item runtime. */
 export interface ArtifactOpenedProject {
@@ -67,7 +114,7 @@ export interface ArtifactOpenedProject {
  */
 export interface ArtifactRouteKit {
   openProject(sessionId: string): Promise<ArtifactOpenedProject>
-  readJsonBody(request: Request): Promise<Record<string, unknown>>
+  readJsonBody(request: Request, maxBytes?: number): Promise<Record<string, unknown>>
   jsonResponse(status: number, payload: unknown): Response
   serve(handler: (request: Request) => Promise<Response>): (request: Request) => Promise<Response>
   fail(code: PanelErrorCode, message: string, path?: string): Error
@@ -121,21 +168,6 @@ function nowOf(ports: ArtifactApiPorts): Date {
   return ports.now?.() ?? new Date()
 }
 
-/** Build one artifact event row ready for `store.appendEventUnlocked`. */
-function eventRow(
-  artifactId: string,
-  type: ArtifactEventV1['type'],
-  now: Date,
-  data: Readonly<Record<string, unknown>>,
-): Omit<ArtifactEventV1, 'version' | 'seq'> {
-  return {
-    eventId: `event-${randomUUID()}`,
-    type,
-    artifactId,
-    time: now.toISOString(),
-    data,
-  }
-}
 
 /**
  * Read the work item a request names, after proving it belongs to the project
@@ -175,16 +207,16 @@ export async function reconcileRecord(
   now: Date,
 ): Promise<{ record: ArtifactRecordV1; events: ArtifactEventV1[] }> {
   if (!runtime.fsAvailable) return { record, events: [] }
-  const files = []
+  const files: Awaited<ReturnType<typeof reconcileArtifactFile>>[] = []
   const changed: { path: string; revision: number; missing: boolean }[] = []
   for (const file of record.files) {
     const result = await reconcileArtifactFile(runtime.files, file)
-    files.push(result.file)
+    files.push(result)
     if (result.changed) changed.push({ path: result.file.path, revision: result.file.revision, missing: result.file.missing })
   }
   if (changed.length === 0) return { record, events: [] }
-  const reconciled = new Map(files.map((file) => [file.path, file]))
-  return runtime.store.withLock(async () => {
+  const reconciled = new Map(files.map((entry) => [entry.file.path, entry]))
+  const result = await runtime.store.withLock(async () => {
     // Re-read inside the lock so a concurrent comment count or status update is
     // kept; only the reconciled file entries and the revision are ours.
     const current = await runtime.store.readRecord(record.artifactId)
@@ -193,7 +225,7 @@ export async function reconcileRecord(
     }
     const next: ArtifactRecordV1 = {
       ...current,
-      files: current.files.map((file) => reconciled.get(file.path) ?? file),
+      files: current.files.map((file) => reconciled.get(file.path)?.file ?? file),
       revision: current.revision + 1,
       updatedAt: now.toISOString(),
     }
@@ -201,14 +233,29 @@ export async function reconcileRecord(
     const events: ArtifactEventV1[] = []
     for (const file of changed) {
       events.push(await runtime.store.appendEventUnlocked(
-        eventRow(saved.artifactId, 'file.changed', now, file),
+        createEventRow(saved.artifactId, 'file.changed', now, file),
       ))
     }
     events.push(await runtime.store.appendEventUnlocked(
-      eventRow(saved.artifactId, 'artifact.updated', now, { revision: saved.revision }),
+      createEventRow(saved.artifactId, 'artifact.updated', now, { revision: saved.revision }),
     ))
     return { record: saved, events }
   })
+  // A snapshot of every observed revision is the merge base a later save
+  // needs; a failed snapshot is logged, never allowed to fail the read.
+  for (const entry of files) {
+    if (entry.text === null) continue
+    const savedFile = result.record.files.find((file) => file.path === entry.file.path)
+    if (savedFile === undefined) continue
+    try {
+      await runtime.store.saveRevision(record.artifactId, savedFile.revision, entry.text)
+    } catch (error) {
+      // A failed snapshot is a lost merge base, not a failed read; the next
+      // save answers 409 instead of guessing a base.
+      void error
+    }
+  }
+  return result
 }
 
 /** Broadcast already-committed events to live subscribers. */
@@ -301,6 +348,7 @@ async function handleFile(
   publishAll(runtime, reconciled.events)
   const current = registeredFile(reconciled.record, path)
   const read = await runtime.files.readText(path)
+  runtime.presence.cacheText(resolvePath(runtime.repoPath, path), read.content)
   const response: ArtifactFileResponse = {
     ok: true,
     artifactId: reconciled.record.artifactId,
@@ -343,6 +391,52 @@ async function handleComments(
   return kit.jsonResponse(200, response)
 }
 
+/** The image magic bytes this surface accepts. */
+function sniffImageMediaType(bytes: Uint8Array): string | null {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return 'image/gif'
+  if (
+    bytes.length >= 12
+    && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+    && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) return 'image/webp'
+  return null
+}
+
+/** Whether the bytes decode as UTF-8 (text/markdown uploads). */
+function isUtf8(bytes: Uint8Array): boolean {
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Validate the attachment refs one comment or reply carries. */
+async function commentAttachments(
+  runtime: ArtifactRuntime,
+  record: ArtifactRecordV1,
+  value: unknown,
+  kit: ArtifactRouteKit,
+): Promise<AttachmentRefV1[]> {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > MAX_ARTIFACT_ATTACHMENTS_PER_COMMENT) {
+    throw kit.fail('request/invalid-body', `attachments must be an array of at most ${String(MAX_ARTIFACT_ATTACHMENTS_PER_COMMENT)} refs`)
+  }
+  const refs: AttachmentRefV1[] = []
+  for (const entry of value) {
+    const ref = parseAttachmentRef(entry)
+    if (ref === null) throw kit.fail('request/invalid-body', 'each attachment needs attachmentId, name, and mediaType')
+    if (!(await runtime.store.hasUpload(record.artifactId, ref.attachmentId))) {
+      throw new ArtifactDomainError('artifact/upload-invalid', `attachment is not stored on this work item: ${ref.attachmentId}`)
+    }
+    refs.push(ref)
+  }
+  return refs
+}
+
 /** Resolve and validate the anchor a create-comment request carries. */
 async function commentAnchor(
   runtime: ArtifactRuntime,
@@ -378,15 +472,11 @@ async function handleComment(
   if (text.length > MAX_ARTIFACT_COMMENT_CHARS) {
     throw kit.fail('request/invalid-body', `body must be at most ${MAX_ARTIFACT_COMMENT_CHARS} characters`)
   }
-  if (body.dispatch === true) {
-    throw new ArtifactDomainError(
-      'artifact/dispatch-unavailable',
-      'annotation delivery is not available on this host yet; send dispatch: false',
-    )
-  }
+  const wantsDispatch = body.dispatch === undefined ? true : body.dispatch === true
   const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
   const now = nowOf(ports)
   const anchorResult = await commentAnchor(runtime, record, body.anchor)
+  const attachments = await commentAttachments(runtime, record, body.attachments, kit)
   const commentId = `comment-${randomUUID()}`
   const event: CommentEventV1 = {
     version: ARTIFACT_COMMENT_VERSION,
@@ -401,25 +491,46 @@ async function handleComment(
     ...(anchorResult === null
       ? {}
       : { anchor: anchorResult.anchor, ...(anchorResult.fileRevision === null ? {} : { fileRevision: anchorResult.fileRevision }) }),
+    ...(attachments.length === 0 ? {} : { attachments }),
   }
   const result = await runtime.store.withLock(async () => {
     await runtime.store.appendCommentUnlocked(event)
-    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) =>
-      applyCommentEvent(current, event, now).record)
+    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => {
+      const folded = applyCommentEvent(current, event, now).record
+      return folded.attachmentCount === current.attachmentCount && attachments.length === 0
+        ? folded
+        : { ...folded, attachmentCount: current.attachmentCount + attachments.length }
+    })
     const events = [
-      await runtime.store.appendEventUnlocked(eventRow(artifactId, 'comment.created', now, { commentId })),
+      await runtime.store.appendEventUnlocked(createEventRow(artifactId, 'comment.created', now, { commentId })),
       await runtime.store.appendEventUnlocked(
-        eventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
+        createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
       ),
     ]
     return { record: saved, events }
   })
   publishAll(runtime, result.events)
+  let dispatch: DispatchRecordV1 | null = null
+  if (wantsDispatch && runtime.dispatch !== null) {
+    try {
+      dispatch = await runtime.dispatch.enqueue({
+        record: result.record,
+        commentIds: [commentId],
+        comments: [event],
+      })
+    } catch (error) {
+      // The comment is committed; a full queue is a visible delivery failure,
+      // not a reason to lose the user's annotation.
+      ports.log?.(`artifact comment: dispatch not queued: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   const response: ArtifactCommentResponse = {
     ok: true,
     comment: event,
-    dispatch: null,
-    record: result.record,
+    dispatch,
+    record: dispatch === null
+      ? result.record
+      : { ...result.record, activeDispatch: { dispatchId: dispatch.dispatchId, state: dispatch.state, updatedAt: dispatch.updatedAt } },
   }
   return kit.jsonResponse(200, response)
 }
@@ -473,10 +584,10 @@ async function handleCommentResolve(
       applyCommentEvent(current, event, now).record)
     const emitted = [
       await runtime.store.appendEventUnlocked(
-        eventRow(artifactId, 'comment.updated', now, { commentId, resolved }),
+        createEventRow(artifactId, 'comment.updated', now, { commentId, resolved }),
       ),
       await runtime.store.appendEventUnlocked(
-        eventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
+        createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
       ),
     ]
     return { record: saved, events: emitted }
@@ -517,7 +628,7 @@ async function handleStatus(
     if (!changed) return { record: saved, changed: false, events: [] as ArtifactEventV1[] }
     const events = [
       await runtime.store.appendEventUnlocked(
-        eventRow(artifactId, 'artifact.updated', now, { status: saved.status }),
+        createEventRow(artifactId, 'artifact.updated', now, { status: saved.status }),
       ),
     ]
     return { record: saved, changed: true, events }
@@ -525,6 +636,299 @@ async function handleStatus(
   publishAll(runtime, result.events)
   const response: ArtifactStatusResponse = { ok: true, changed: result.changed, record: result.record }
   return kit.jsonResponse(200, response)
+}
+
+
+/** Validate one presence range list from the wire. */
+function parsePresenceRanges(value: unknown, kit: ArtifactRouteKit): { startLine: number; endLine: number }[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_PRESENCE_RANGES) {
+    throw kit.fail('request/invalid-body', `ranges must be an array of 1..${String(MAX_PRESENCE_RANGES)} line ranges`)
+  }
+  return value.map((entry) => {
+    if (typeof entry !== 'object' || entry === null) {
+      throw kit.fail('request/invalid-body', 'each presence range must be an object')
+    }
+    const { startLine, endLine } = entry as { startLine?: unknown; endLine?: unknown }
+    if (
+      typeof startLine !== 'number' || !Number.isSafeInteger(startLine) || startLine < 1
+      || typeof endLine !== 'number' || !Number.isSafeInteger(endLine) || endLine < startLine
+    ) {
+      throw kit.fail('request/invalid-body', 'each presence range needs ordered positive line numbers')
+    }
+    return { startLine, endLine }
+  })
+}
+
+/**
+ * `POST /api/cowork.artifact.edit` — save text with optimistic concurrency.
+ *
+ * The fast path writes when the browser's opaque version still matches. A
+ * stale base falls back to a line merge against the snapshot the browser had;
+ * only an overlap (or a missing snapshot) becomes 409 with conflict ranges.
+ */
+async function handleEdit(
+  request: Request,
+  ports: ArtifactApiPorts,
+  kit: ArtifactRouteKit,
+): Promise<Response> {
+  const body = await kit.readJsonBody(request, MAX_ARTIFACT_TEXT_BYTES + 65_536)
+  const sessionId = requireBodyString(body, 'sessionId', kit)
+  const artifactId = requireBodyString(body, 'artifactId', kit)
+  const path = requireBodyString(body, 'path', kit)
+  if (typeof body.content !== 'string') throw kit.fail('request/invalid-body', 'body field content must be a string')
+  const content = body.content
+  const baseRevision = body.baseRevision
+  if (typeof baseRevision !== 'number' || !Number.isSafeInteger(baseRevision) || baseRevision < 1) {
+    throw kit.fail('request/invalid-body', 'body field baseRevision must be a positive integer')
+  }
+  const baseVersion = typeof body.baseVersion === 'string' && body.baseVersion !== '' ? body.baseVersion : null
+  if (Buffer.byteLength(content, 'utf8') > MAX_ARTIFACT_TEXT_BYTES) {
+    throw new ArtifactDomainError('artifact/file-too-large', `file must be at most ${String(MAX_ARTIFACT_TEXT_BYTES)} bytes`, path)
+  }
+  if (content.split('\n').length > MAX_ARTIFACT_TEXT_LINES) {
+    throw new ArtifactDomainError('artifact/file-too-large', `file must be at most ${String(MAX_ARTIFACT_TEXT_LINES)} lines`, path)
+  }
+  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const registered = registeredFile(record, path)
+  if (!registered.editable || !isTextMediaType(registered.mediaType)) {
+    throw new ArtifactDomainError('artifact/not-editable', `file is not editable: ${path}`, path)
+  }
+  const now = nowOf(ports)
+  const reconciled = await reconcileRecord(runtime, record, now)
+  publishAll(runtime, reconciled.events)
+  let current = await runtime.files.readText(path)
+  let source = reconciled.record
+  let file = registeredFile(source, path)
+  if (content === current.content) {
+    const unchanged: ArtifactEditResponse = {
+      ok: true, path, content, revision: file.revision, fsVersion: current.version, record: source, merged: false,
+    }
+    return kit.jsonResponse(200, unchanged)
+  }
+  let nextContent = content
+  let merged = false
+  if (baseVersion === null || current.version === null || baseVersion !== current.version) {
+    const base = await runtime.store.readRevision(artifactId, baseRevision)
+    if (base === null) return conflictResponse(kit, current.version, file.revision, wholeFileRange(current.content))
+    const result = mergeText({ base, current: current.content, mine: content })
+    if (!result.ok) return conflictResponse(kit, current.version, file.revision, result.conflictRanges)
+    nextContent = result.content
+    merged = true
+  }
+  let written
+  let retries = 0
+  while (true) {
+    try {
+      written = await runtime.files.writeText(path, nextContent, current.version)
+      break
+    } catch (error) {
+      const conflict = error instanceof ArtifactDomainError && error.code === 'artifact/version-conflict'
+      if (!conflict || retries >= 2) {
+        if (conflict) return conflictResponse(kit, current.version, file.revision, wholeFileRange(current.content))
+        throw error
+      }
+      retries += 1
+      current = await runtime.files.readText(path)
+      const base = await runtime.store.readRevision(artifactId, baseRevision)
+      if (base === null) return conflictResponse(kit, current.version, file.revision, wholeFileRange(current.content))
+      const result = mergeText({ base, current: current.content, mine: content })
+      if (!result.ok) return conflictResponse(kit, current.version, file.revision, result.conflictRanges)
+      nextContent = result.content
+      merged = true
+    }
+  }
+  const committed = await runtime.store.withLock(async () => {
+    let nextRevision = 0
+    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (existing) => {
+      const target = existing.files.find((entry) => entry.path === path)
+      if (target === undefined) return null
+      nextRevision = target.revision + 1
+      const nextFile = {
+        ...target,
+        revision: nextRevision,
+        sha256: sha256Hex(nextContent),
+        size: Buffer.byteLength(nextContent, 'utf8'),
+        fsVersion: written.version ?? target.fsVersion,
+        missing: false,
+      }
+      return {
+        ...existing,
+        files: existing.files.map((entry) => (entry.path === path ? nextFile : entry)),
+        revision: existing.revision + 1,
+        updatedAt: now.toISOString(),
+      }
+    })
+    const events = [
+      await runtime.store.appendEventUnlocked(
+        createEventRow(artifactId, 'file.changed', now, { path, revision: nextRevision, merged }),
+      ),
+      await runtime.store.appendEventUnlocked(
+        createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
+      ),
+    ]
+    file = registeredFile(saved, path)
+    return { record: saved, events, revision: nextRevision }
+  })
+  publishAll(runtime, committed.events)
+  try {
+    await runtime.store.saveRevision(artifactId, committed.revision, nextContent)
+  } catch {
+    // The save is committed; a missing snapshot only turns a later stale save
+    // into a 409 instead of a merge.
+  }
+  const response: ArtifactEditResponse = {
+    ok: true,
+    path,
+    content: nextContent,
+    revision: committed.revision,
+    fsVersion: written.version,
+    record: committed.record,
+    merged,
+  }
+  return kit.jsonResponse(200, response)
+}
+
+/** `POST /api/cowork.artifact.presence` — the browser's editing ranges. */
+async function handlePresence(
+  request: Request,
+  ports: ArtifactApiPorts,
+  kit: ArtifactRouteKit,
+): Promise<Response> {
+  const body = await kit.readJsonBody(request)
+  const sessionId = requireBodyString(body, 'sessionId', kit)
+  const artifactId = requireBodyString(body, 'artifactId', kit)
+  const path = requireBodyString(body, 'path', kit)
+  const ranges = parsePresenceRanges(body.ranges, kit)
+  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  registeredFile(record, path)
+  const ttlMs = runtime.presence.report(resolvePath(runtime.repoPath, path), ranges)
+  const response: ArtifactPresenceResponse = { ok: true, ttlMs }
+  return kit.jsonResponse(200, response)
+}
+
+/** Read a raw request body with a hard byte cap. */
+async function readBodyWithCap(request: Request, maxBytes: number, kit: ArtifactRouteKit): Promise<Uint8Array> {
+  const declared = Number(request.headers.get('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw kit.fail('request/body-too-large', `request body must not exceed ${String(maxBytes)} bytes`)
+  }
+  const reader = request.body?.getReader()
+  if (reader === undefined) throw kit.fail('request/invalid-body', 'request body is required')
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const chunk = await reader.read()
+    if (chunk.done) break
+    total += chunk.value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel()
+      throw kit.fail('request/body-too-large', `request body must not exceed ${String(maxBytes)} bytes`)
+    }
+    chunks.push(chunk.value)
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+/** The media type one uploaded name and its bytes resolve to. */
+function uploadMediaType(name: string, bytes: Uint8Array): string {
+  const lower = name.toLowerCase()
+  if (/\.(png|jpe?g|webp|gif)$/.test(lower)) {
+    const sniffed = sniffImageMediaType(bytes)
+    if (sniffed === null) throw new ArtifactDomainError('artifact/upload-invalid', 'image bytes do not match a supported type')
+    return sniffed
+  }
+  if (/\.(txt|md|markdown|csv|tsv|json)$/.test(lower) || !lower.includes('.')) {
+    if (!isUtf8(bytes)) throw new ArtifactDomainError('artifact/upload-invalid', 'text attachment is not valid UTF-8')
+    return lower.endsWith('.md') || lower.endsWith('.markdown') ? 'text/markdown' : 'text/plain'
+  }
+  throw new ArtifactDomainError('artifact/upload-invalid', 'only image and text attachments are accepted', name)
+}
+
+/**
+ * `POST /api/cowork.artifact.upload` — one comment attachment.
+ *
+ * The body is the raw bytes; the name rides the query string because the
+ * connection route streams the body. Images are checked by magic bytes, text
+ * must be UTF-8, and the stored file is never overwritten.
+ */
+async function handleUpload(
+  request: Request,
+  ports: ArtifactApiPorts,
+  kit: ArtifactRouteKit,
+): Promise<Response> {
+  const sessionId = requireQuery(request, 'sessionId', kit, 'request/session-required')
+  const artifactId = requireQuery(request, 'artifactId', kit, 'request/invalid-query')
+  const name = requireQuery(request, 'name', kit, 'request/invalid-query')
+  if (name.length > 200) throw kit.fail('request/invalid-query', 'name must be at most 200 characters')
+  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  if (record.attachmentCount >= MAX_ARTIFACT_ATTACHMENTS) {
+    throw new ArtifactDomainError('artifact/limit-reached', `work item already holds ${String(MAX_ARTIFACT_ATTACHMENTS)} attachments`)
+  }
+  const bytes = await readBodyWithCap(request, MAX_ARTIFACT_ATTACHMENT_BYTES, kit)
+  if (bytes.byteLength === 0) throw new ArtifactDomainError('artifact/upload-invalid', 'attachment is empty')
+  const mediaType = uploadMediaType(name, bytes)
+  const attachment: AttachmentRefV1 = {
+    attachmentId: `attachment-${randomUUID()}`,
+    name,
+    mediaType,
+    size: bytes.byteLength,
+    sha256: sha256Hex(new TextDecoder().decode(bytes)),
+  }
+  await runtime.store.saveUpload(artifactId, attachment.attachmentId, bytes)
+  const now = nowOf(ports)
+  const result = await runtime.store.withLock(async () => {
+    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => ({
+      ...current,
+      attachmentCount: current.attachmentCount + 1,
+      updatedAt: now.toISOString(),
+    }))
+    const events = [await runtime.store.appendEventUnlocked(
+      createEventRow(artifactId, 'artifact.updated', now, { attachmentId: attachment.attachmentId }),
+    )]
+    return { record: saved, events }
+  })
+  publishAll(runtime, result.events)
+  const response: ArtifactUploadResponse = { ok: true, attachment }
+  return kit.jsonResponse(200, response)
+}
+
+/** `GET /api/cowork.artifact.attachment` — one stored attachment's bytes. */
+async function handleAttachment(
+  request: Request,
+  ports: ArtifactApiPorts,
+  kit: ArtifactRouteKit,
+): Promise<Response> {
+  const sessionId = requireQuery(request, 'sessionId', kit, 'request/session-required')
+  const artifactId = requireQuery(request, 'artifactId', kit, 'request/invalid-query')
+  const attachmentId = requireQuery(request, 'attachmentId', kit, 'request/invalid-query')
+  const { runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const events = await runtime.store.readComments(artifactId)
+  let ref: AttachmentRefV1 | null = null
+  for (const event of events) {
+    if (event.type !== 'create' && event.type !== 'reply') continue
+    ref = (event.attachments ?? []).find((entry) => entry.attachmentId === attachmentId) ?? ref
+  }
+  if (ref === null) {
+    throw new ArtifactDomainError('artifact/not-found', `unknown attachment: ${attachmentId}`, attachmentId)
+  }
+  const bytes = await runtime.store.readUpload(artifactId, attachmentId)
+  if (bytes === null) {
+    throw new ArtifactDomainError('artifact/not-found', `attachment content is missing: ${attachmentId}`, attachmentId)
+  }
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      'content-type': ref.mediaType,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
+  })
 }
 
 /** `GET /api/cowork.artifact.events` — the project SSE stream. */
@@ -556,10 +960,11 @@ export function artifactPanelRoutes(
     path: string,
     methods: PanelFetchRoute['methods'],
     handler: (request: Request) => Promise<Response>,
+    requestBody: PanelFetchRoute['requestBody'] = 'buffered',
   ): PanelFetchRoute => ({
     path,
     methods,
-    requestBody: 'buffered',
+    requestBody,
     fetch: kit.serve(handler),
   })
   return [
@@ -570,6 +975,10 @@ export function artifactPanelRoutes(
     route(ARTIFACT_COMMENT_PATH, ['POST'], (request) => handleComment(request, ports, kit)),
     route(ARTIFACT_COMMENT_RESOLVE_PATH, ['POST'], (request) => handleCommentResolve(request, ports, kit)),
     route(ARTIFACT_STATUS_PATH, ['POST'], (request) => handleStatus(request, ports, kit)),
+    route(ARTIFACT_EDIT_PATH, ['POST'], (request) => handleEdit(request, ports, kit)),
+    route(ARTIFACT_PRESENCE_PATH, ['POST'], (request) => handlePresence(request, ports, kit)),
+    route(ARTIFACT_UPLOAD_PATH, ['POST'], (request) => handleUpload(request, ports, kit), 'streaming'),
+    route(ARTIFACT_ATTACHMENT_PATH, ['GET'], (request) => handleAttachment(request, ports, kit)),
     route(ARTIFACT_EVENTS_PATH, ['GET'], (request) => handleEvents(request, ports, kit)),
   ]
 }

@@ -235,3 +235,28 @@ test('error presentation names the four known failures and a retryable default',
   assert.equal(empty.title, '加载失败')
   assert.match(empty.detail, /稍后重试/)
 })
+
+test('changed line ranges group consecutive differences and trailing inserts', () => {
+  assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'a\nb\nc\n'), [])
+  assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'a\nB\nc\n'), [{ startLine: 2, endLine: 2 }])
+  assert.deepEqual(model.changedLineRanges('a\nb\nc\nd\n', 'A\nb\nC\nd\n'), [
+    { startLine: 1, endLine: 1 },
+    { startLine: 3, endLine: 3 },
+  ])
+  assert.deepEqual(model.changedLineRanges('a\n', 'a\nb\n'), [{ startLine: 2, endLine: 2 }])
+  assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'a\nb\n'), [])
+  // A shifted line is reported at the position it now occupies; presence is a
+  // hint, not a diff.
+  assert.deepEqual(model.changedLineRanges('a\nb\nc\n', 'a\nc\n'), [{ startLine: 2, endLine: 2 }])
+  assert.deepEqual(model.changedLineRanges('', 'x\ny\n'), [
+    { startLine: 1, endLine: 1 },
+    { startLine: 2, endLine: 2 },
+  ])
+})
+
+test('save state labels name every phase', () => {
+  assert.equal(model.saveStateLabel('saved', 12), '已保存 · r12')
+  assert.equal(model.saveStateLabel('saving', 12), '保存中…')
+  assert.equal(model.saveStateLabel('conflict', 12), '冲突')
+  assert.equal(model.saveStateLabel('failed', 12), '保存失败')
+})

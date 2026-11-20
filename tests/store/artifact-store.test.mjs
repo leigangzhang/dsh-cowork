@@ -210,6 +210,23 @@ test('events get a monotonic sequence and replay after a cursor', async () => {
   })
 })
 
+test('upload ids are validated and an unreadable entry is reported', async () => {
+  await withStore(async (store, repo) => {
+    await store.createRecord(makeRecord())
+    assert.equal(await store.hasUpload(ARTIFACT, '../escape'), false)
+    await assert.rejects(store.saveUpload(ARTIFACT, '../escape', new Uint8Array([1])), (error) => {
+      assert.equal(error.code, 'artifact/not-found')
+      return true
+    })
+    const directory = join(repo.repoPath, '.dsh-cowork', 'artifacts', ARTIFACT, 'uploads', 'attachment-11111111')
+    await mkdir(directory, { recursive: true })
+    await assert.rejects(store.readUpload(ARTIFACT, 'attachment-11111111'), (error) => {
+      assert.equal(error.code, 'EISDIR')
+      return true
+    })
+  })
+})
+
 test('the artifact writer lock is the independent artifacts lock', async () => {
   await withStore(async (store) => {
     const order = []
@@ -218,5 +235,32 @@ test('the artifact writer lock is the independent artifacts lock', async () => {
     })
     order.push('after')
     assert.deepEqual(order, ['inside', 'after'])
+  })
+})
+
+test('revision snapshots are readable and keep only the newest twenty', async () => {
+  await withStore(async (store) => {
+    await store.createRecord(makeRecord())
+    for (let revision = 1; revision <= 21; revision += 1) {
+      await store.saveRevision(ARTIFACT, revision, `content ${revision}\n`)
+    }
+    assert.equal(await store.readRevision(ARTIFACT, 1), null)
+    assert.equal(await store.readRevision(ARTIFACT, 2), 'content 2\n')
+    assert.equal(await store.readRevision(ARTIFACT, 21), 'content 21\n')
+    assert.equal(await store.readRevision(ARTIFACT, 99), null)
+  })
+})
+
+test('revision IO for an unknown or malformed artifact id fails like the record', async () => {
+  await withStore(async (store) => {
+    assert.equal(await store.readRevision('artifact-99999999-9999-4999-8999-999999999999', 1), null)
+    await assert.rejects(store.readRevision('../escape', 1), (error) => {
+      assert.equal(error.code, 'artifact/not-found')
+      return true
+    })
+    await assert.rejects(store.saveRevision('../escape', 1, 'x'), (error) => {
+      assert.equal(error.code, 'artifact/not-found')
+      return true
+    })
   })
 })
