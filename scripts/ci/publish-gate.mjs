@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * Publish the derived `gate-artifact` check run from trusted base-branch code.
+ * Publish the derived `gate-artifact` commit status from trusted base-branch code.
  *
- * The required context is always `gate-artifact`, and this is its only
- * publisher. Report mode keeps the legacy review/pr-gate/main-ancestor gate
- * required and publishes a separate report-only `gate-artifact-v2` advisory.
+ * The required context is always `gate-artifact`, carried by a commit status so
+ * repeated runs overwrite one context instead of accumulating same-named check
+ * runs across Actions check suites. `gate-artifact-v2` is a non-required check
+ * run that mirrors the decision on the Checks page.
+ *
+ * Report mode keeps the legacy review/pr-gate/main-ancestor gate required.
  * Block mode switches the required context to the v2 review + pre-merge gate.
  *
  * The publisher never checks out or executes pull-request code.
@@ -16,10 +19,10 @@ import { fileURLToPath } from 'node:url'
 import { parseReviewMarker } from './review-verdict.mjs'
 import { validatePrMetadata } from './pr-metadata.mjs'
 
-/** Required check context. Never changes with policy mode. */
-export const REQUIRED_GATE_CHECK = 'gate-artifact'
-/** Report-only advisory context. Never add this name to required checks. */
-export const REPORT_GATE_CHECK = 'gate-artifact-v2'
+/** Required commit-status context. Never changes with policy mode. */
+export const REQUIRED_GATE_CONTEXT = 'gate-artifact'
+/** Non-required display check. Never add this name to required checks. */
+export const GATE_DISPLAY_CHECK = 'gate-artifact-v2'
 
 /**
  * Return the newest review-verdict marker for one head.
@@ -143,6 +146,57 @@ export function decideLegacyGate(input) {
  */
 export function requiredGateDecision(mode, legacy, modern) {
   return mode === 'block' ? modern : legacy
+}
+
+/**
+ * Build a short commit-status description from the gate decision.
+ *
+ * @param {{ pass: boolean, reasons: string[] }} decision Gate decision.
+ * @param {'report'|'block'} mode Policy mode.
+ * @returns {string} Description of at most 140 characters.
+ */
+export function gateStatusDescription(decision, mode) {
+  const text = decision.pass
+    ? `${mode}: gate passed`
+    : `blocked: ${decision.reasons[0] ?? 'gate decision blocked'}`
+  return text.length <= 140 ? text : `${text.slice(0, 137)}...`
+}
+
+/**
+ * Publish the required gate as one commit status on the PR head.
+ *
+ * The Statuses API replaces the previous value for the same context, so a
+ * later evaluation cannot leave a stale success hidden in a different check
+ * suite. The commit status is the merge gate; the Checks API is display-only.
+ *
+ * @param {{ token: string, repository: string, apiUrl: string, head: string,
+ *   state: 'success'|'failure'|'error'|'pending', description: string,
+ *   detailsUrl: string, context?: string, fetchImpl?: typeof fetch }} input
+ * @returns {Promise<{ context: string, state: string }>} Published status identity.
+ */
+export async function publishGateStatus(input) {
+  const context = input.context ?? REQUIRED_GATE_CONTEXT
+  const description = input.description.slice(0, 140)
+  const response = await (input.fetchImpl ?? fetch)(`${input.apiUrl}/repos/${input.repository}/statuses/${input.head}`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${input.token}`,
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify({
+      state: input.state,
+      context,
+      description,
+      target_url: input.detailsUrl,
+    }),
+  })
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(`publishing ${context} status failed (${String(response.status)}): ${detail}`)
+  }
+  return { context, state: input.state }
 }
 
 /**
@@ -328,13 +382,16 @@ function requiredEnv(name) {
 
 const invoked = process.argv[1]
 if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)) {
+  let mode = 'report'
+  let statusContext = null
   try {
     const token = requiredEnv('GH_TOKEN')
     const repository = requiredEnv('GITHUB_REPOSITORY')
     const prNumber = requiredEnv('PR_NUMBER')
     const apiUrl = process.env.GITHUB_API_URL ?? 'https://api.github.com'
-    const mode = process.env.POLICY_MODE === 'block' ? 'block' : 'report'
+    mode = process.env.POLICY_MODE === 'block' ? 'block' : 'report'
     const detailsUrl = process.env.RUN_URL ?? ''
+    const checkToken = process.env.GATE_CHECK_TOKEN || token
     const cwd = process.env.GATE_WORKSPACE ?? process.cwd()
     const currentMain = (await github({
       token,
@@ -343,6 +400,12 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
     })).object.sha
     const pull = await github({ token, apiUrl, path: `/repos/${repository}/pulls/${prNumber}` })
     const head = pull.head.sha
+    statusContext = { token, repository, apiUrl, head, detailsUrl }
+    await publishGateStatus({
+      ...statusContext,
+      state: 'pending',
+      description: `${mode}: evaluating gate`,
+    })
     const reviews = await github({
       token,
       apiUrl,
@@ -401,14 +464,26 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
       overlap: identity.overlap,
     })
     const required = requiredGateDecision(mode, legacy, modern)
+    // Re-read main at the write boundary. A gate that started before a main
+    // advance must not publish success for the pre-advance base; base-recheck
+    // may have skipped the in-flight status because it was already pending.
+    const mainAfterEvaluation = (await github({
+      token,
+      apiUrl,
+      path: `/repos/${repository}/git/ref/heads/main`,
+    })).object.sha
+    const finalRequired = mainAfterEvaluation === currentMain
+      ? required
+      : { pass: false, reasons: ['main advanced during gate evaluation; re-run the gate'] }
     const requiredSummary = JSON.stringify({
       mode,
-      pass: required.pass,
-      reasons: required.reasons,
+      pass: finalRequired.pass,
+      reasons: finalRequired.reasons,
       legacy: mode === 'report' ? legacy : null,
       modern,
       head,
       currentMain,
+      currentMainAfterEvaluation: mainAfterEvaluation,
       review: modernReview === null ? null : {
         markerVersion: modernReview.markerVersion,
         base: modernReview.baseSha,
@@ -417,38 +492,45 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
         model: modernReview.model,
       },
     })
-    const requiredPublished = await publishGateCheck({
-      token,
-      repository,
-      apiUrl,
-      head,
-      name: REQUIRED_GATE_CHECK,
-      conclusion: required.pass ? 'success' : 'failure',
-      title: required.pass ? 'gate-artifact: pass' : 'gate-artifact: blocked',
-      summary: requiredSummary,
-      detailsUrl,
+    const requiredPublished = await publishGateStatus({
+      ...statusContext,
+      state: finalRequired.pass ? 'success' : 'failure',
+      description: gateStatusDescription(finalRequired, mode),
     })
-    let reportPublished = null
-    if (mode === 'report') {
-      reportPublished = await publishGateCheck({
-        token,
+    let displayPublished = null
+    try {
+      displayPublished = await publishGateCheck({
+        token: checkToken,
         repository,
         apiUrl,
         head,
-        name: REPORT_GATE_CHECK,
-        conclusion: 'success',
-        title: modern.pass ? 'REPORT: gate would pass' : 'REPORT: gate would fail',
-        summary: JSON.stringify({ pass: modern.pass, reasons: modern.reasons, head, currentMain }),
+        name: GATE_DISPLAY_CHECK,
+        conclusion: finalRequired.pass ? 'success' : 'action_required',
+        title: finalRequired.pass ? 'gate-artifact: pass' : 'gate-artifact: blocked',
+        summary: requiredSummary,
         detailsUrl,
       })
+    } catch (error) {
+      process.stderr.write(`publish-gate: display check not published: ${error instanceof Error ? error.message : String(error)}\n`)
     }
-    process.stdout.write(`${JSON.stringify({ mode, required: requiredPublished, report: reportPublished, decision: required })}\n`)
-    // A blocked decision is carried by the required check run. Failing this job
-    // would mark the app's check suite failed, and a GitHub ruleset then treats
-    // the required check as expected even after a later success. Keep the job
-    // green for a published decision; only unexpected errors use exit code 1.
+    process.stdout.write(`${JSON.stringify({ mode, required: requiredPublished, display: displayPublished, decision: finalRequired })}\n`)
+    // A blocked decision is carried by the required commit status. Keep the
+    // publisher job green for a published decision; only unexpected errors use
+    // exit code 1.
   } catch (error) {
-    process.stderr.write(`publish-gate: ${error instanceof Error ? error.message : String(error)}\n`)
+    const message = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`publish-gate: ${message}\n`)
+    if (statusContext !== null) {
+      try {
+        await publishGateStatus({
+          ...statusContext,
+          state: 'error',
+          description: `${mode}: gate publisher failed`,
+        })
+      } catch (statusError) {
+        process.stderr.write(`publish-gate: error status not published: ${statusError instanceof Error ? statusError.message : String(statusError)}\n`)
+      }
+    }
     process.exitCode = 1
   }
 }

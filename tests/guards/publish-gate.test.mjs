@@ -1,10 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 import {
   binaryDiffSha,
@@ -13,12 +15,14 @@ import {
   decideLegacyGate,
   findPassingReview,
   findReviewDecision,
+  GATE_DISPLAY_CHECK,
+  gateStatusDescription,
   isAncestor,
   overlapPaths,
   publishGateCheck,
+  publishGateStatus,
   readPreMerge,
-  REPORT_GATE_CHECK,
-  REQUIRED_GATE_CHECK,
+  REQUIRED_GATE_CONTEXT,
   requiredGateDecision,
   validateReviewedIdentity,
 } from '../../scripts/ci/publish-gate.mjs'
@@ -81,10 +85,17 @@ test('the latest non-pass marker blocks an older pass', () => {
   }
 })
 
-test('the required and report contexts have distinct fixed names', () => {
-  assert.equal(REQUIRED_GATE_CHECK, 'gate-artifact')
-  assert.equal(REPORT_GATE_CHECK, 'gate-artifact-v2')
-  assert.notEqual(REQUIRED_GATE_CHECK, REPORT_GATE_CHECK)
+test('the required status and display check have distinct fixed names', () => {
+  assert.equal(REQUIRED_GATE_CONTEXT, 'gate-artifact')
+  assert.equal(GATE_DISPLAY_CHECK, 'gate-artifact-v2')
+  assert.notEqual(REQUIRED_GATE_CONTEXT, GATE_DISPLAY_CHECK)
+})
+
+test('gateStatusDescription stays short and names the blocking reason', () => {
+  assert.equal(gateStatusDescription({ pass: true, reasons: [] }, 'block'), 'block: gate passed')
+  const blocked = gateStatusDescription({ pass: false, reasons: ['x'.repeat(200)] }, 'block')
+  assert.match(blocked, /^blocked: /)
+  assert.equal(blocked.length, 140)
 })
 
 test('requiredGateDecision switches the required context by mode', () => {
@@ -294,17 +305,43 @@ test('readPreMerge rejects malformed or stale summaries', () => {
   }], head).error, /conclusion is failure/)
 })
 
-test('the publisher job stays green when it publishes a blocked decision', () => {
-  // A failed job marks the app's check suite failed; a GitHub ruleset then
-  // treats the required check as expected even after a later success. The
-  // required check run carries the blocked verdict, so the CLI must not fail
-  // the job for a published decision.
+test('the publisher job stays green when the required status carries a blocked decision', () => {
+  // The commit status carries the blocked verdict, so the publisher job does
+  // not need to fail a second time; only unexpected errors use exit code 1.
   const source = readFileSync(new URL('../../scripts/ci/publish-gate.mjs', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /if \(!required\.pass\) process\.exitCode = 1/)
-  assert.match(source, /check suite/)
+  assert.match(source, /publishGateStatus/)
+  assert.match(source, /state: finalRequired\.pass \? 'success' : 'failure'/)
 })
 
-test('publishGateCheck sends one completed check run', async () => {
+test('publishGateStatus writes the required commit status on the head', async () => {
+  const requests = []
+  const detailsUrl = 'https://github.com/owner/repo/actions/runs/1'
+  const result = await publishGateStatus({
+    token: 'token',
+    repository: 'owner/repo',
+    apiUrl: 'https://api.example',
+    head,
+    state: 'failure',
+    description: 'blocked: pre-merge missing',
+    detailsUrl,
+    fetchImpl: async (url, init) => {
+      requests.push({ url, body: JSON.parse(init.body) })
+      return { ok: true }
+    },
+  })
+  assert.deepEqual(result, { context: 'gate-artifact', state: 'failure' })
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].url, `https://api.example/repos/owner/repo/statuses/${head}`)
+  assert.deepEqual(requests[0].body, {
+    state: 'failure',
+    context: 'gate-artifact',
+    description: 'blocked: pre-merge missing',
+    target_url: detailsUrl,
+  })
+})
+
+test('publishGateCheck sends one completed display check run', async () => {
   const requests = []
   const result = await publishGateCheck({
     token: 'token',
@@ -313,7 +350,7 @@ test('publishGateCheck sends one completed check run', async () => {
     head,
     name: 'gate-artifact-v2',
     conclusion: 'success',
-    title: 'REPORT: gate would pass',
+    title: 'gate-artifact: pass',
     summary: '{}',
     detailsUrl: 'https://github.com/owner/repo/actions/runs/1',
     fetchImpl: async (url, init) => {
@@ -323,9 +360,216 @@ test('publishGateCheck sends one completed check run', async () => {
   })
   assert.deepEqual(result, { id: 7, conclusion: 'success' })
   assert.equal(requests.length, 1)
+  assert.equal(requests[0].body.name, 'gate-artifact-v2')
   assert.equal(requests[0].body.head_sha, head)
-  assert.equal(requests[0].body.output.title, 'REPORT: gate would pass')
+  assert.equal(requests[0].body.output.title, 'gate-artifact: pass')
 })
+
+test('the publisher main path writes pending then success and mirrors the display check', async () => {
+  const fixture = await createGateFixture()
+  const requests = []
+  const { server, baseUrl } = await startGateServer(makeGateHandler({
+    requests,
+    fixture,
+    mainShas: [fixture.mainSha, fixture.mainSha],
+  }))
+  try {
+    const result = await runPublisher({
+      GITHUB_API_URL: baseUrl,
+      GATE_WORKSPACE: fixture.repo,
+      POLICY_MODE: 'block',
+    })
+    assert.equal(result.code, 0, result.stderr)
+    const statuses = requests.filter((request) =>
+      request.method === 'POST' && request.path.startsWith('/repos/owner/repo/statuses/'))
+    assert.equal(statuses.length, 2)
+    assert.equal(statuses[0].body.state, 'pending')
+    assert.equal(statuses[1].body.state, 'success')
+    assert.match(statuses[1].body.description, /gate passed/)
+    const display = requests.find((request) =>
+      request.method === 'POST' && request.path === '/repos/owner/repo/check-runs')
+    assert.equal(display.body.name, 'gate-artifact-v2')
+    assert.equal(display.body.conclusion, 'success')
+  } finally {
+    await stopGateServer(server)
+    await rm(fixture.repo, { recursive: true, force: true })
+  }
+})
+
+test('a failed final status write publishes error and exits non-zero', async () => {
+  const fixture = await createGateFixture()
+  const requests = []
+  const { server, baseUrl } = await startGateServer(makeGateHandler({
+    requests,
+    fixture,
+    mainShas: [fixture.mainSha, fixture.mainSha],
+    failStatusAt: 2,
+  }))
+  try {
+    const result = await runPublisher({
+      GITHUB_API_URL: baseUrl,
+      GATE_WORKSPACE: fixture.repo,
+      POLICY_MODE: 'block',
+    })
+    assert.equal(result.code, 1)
+    const statuses = requests.filter((request) =>
+      request.method === 'POST' && request.path.startsWith('/repos/owner/repo/statuses/'))
+    assert.equal(statuses.length, 3)
+    assert.equal(statuses[1].body.state, 'success')
+    assert.equal(statuses[2].body.state, 'error')
+    assert.match(result.stderr, /publishing gate-artifact status failed/)
+  } finally {
+    await stopGateServer(server)
+    await rm(fixture.repo, { recursive: true, force: true })
+  }
+})
+
+test('a main advance during evaluation turns the final status into a failure', async () => {
+  const fixture = await createGateFixture()
+  const requests = []
+  const { server, baseUrl } = await startGateServer(makeGateHandler({
+    requests,
+    fixture,
+    mainShas: [fixture.mainSha, 'f'.repeat(40)],
+  }))
+  try {
+    const result = await runPublisher({
+      GITHUB_API_URL: baseUrl,
+      GATE_WORKSPACE: fixture.repo,
+      POLICY_MODE: 'block',
+    })
+    assert.equal(result.code, 0, result.stderr)
+    const statuses = requests.filter((request) =>
+      request.method === 'POST' && request.path.startsWith('/repos/owner/repo/statuses/'))
+    assert.equal(statuses.length, 2)
+    assert.equal(statuses[1].body.state, 'failure')
+    assert.match(statuses[1].body.description, /main advanced during gate evaluation/)
+    const display = requests.find((request) =>
+      request.method === 'POST' && request.path === '/repos/owner/repo/check-runs')
+    assert.equal(display.body.conclusion, 'action_required')
+  } finally {
+    await stopGateServer(server)
+    await rm(fixture.repo, { recursive: true, force: true })
+  }
+})
+
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+const prBody = '## Motivation\nx\n\n## Changes\nx\n\n## Testing\nx\n\n## Evidence\nx\n'
+
+async function createGateFixture() {
+  const repo = await mkdtemp(join(tmpdir(), 'cowork-gate-run-'))
+  git(repo, ['init', '-q'])
+  git(repo, ['config', 'user.name', 'test'])
+  git(repo, ['config', 'user.email', 'test@example.com'])
+  await writeFile(join(repo, 'base.txt'), 'base\n')
+  git(repo, ['add', '.'])
+  git(repo, ['commit', '-qm', 'base'])
+  const baseSha = git(repo, ['rev-parse', 'HEAD']).trim()
+
+  await writeFile(join(repo, 'main.txt'), 'main\n')
+  git(repo, ['add', '.'])
+  git(repo, ['commit', '-qm', 'main'])
+  const mainSha = git(repo, ['rev-parse', 'HEAD']).trim()
+
+  git(repo, ['checkout', '-qb', 'head', baseSha])
+  await writeFile(join(repo, 'head.txt'), 'head\n')
+  git(repo, ['add', '.'])
+  git(repo, ['commit', '-qm', 'head'])
+  const headSha = git(repo, ['rev-parse', 'HEAD']).trim()
+  git(repo, ['remote', 'add', 'origin', repo])
+  return { repo, baseSha, mainSha, headSha, diffSha: binaryDiffSha(repo, baseSha, headSha) }
+}
+
+function makeGateHandler({ requests, fixture, mainShas, failStatusAt = 0 }) {
+  let mainIndex = 0
+  let statusCount = 0
+  return async (request, response) => {
+    const url = new URL(request.url, 'http://127.0.0.1')
+    let raw = ''
+    for await (const chunk of request) raw += chunk
+    const body = raw === '' ? undefined : JSON.parse(raw)
+    requests.push({ method: request.method, path: url.pathname, search: url.search, body })
+    const json = (value, status = 200) => {
+      response.statusCode = status
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify(value))
+    }
+    if (request.method === 'GET' && url.pathname === '/repos/owner/repo/git/ref/heads/main') {
+      const sha = mainShas[Math.min(mainIndex, mainShas.length - 1)]
+      mainIndex += 1
+      return json({ object: { sha } })
+    }
+    if (request.method === 'GET' && url.pathname === '/repos/owner/repo/pulls/1') {
+      return json({ head: { sha: fixture.headSha }, title: 'ci(test): gate', body: prBody })
+    }
+    if (request.method === 'GET' && url.pathname === '/repos/owner/repo/pulls/1/reviews') {
+      return json([{
+        state: 'COMMENTED',
+        commit_id: fixture.headSha,
+        submitted_at: '2026-11-19T00:00:00Z',
+        body: `<!-- review-verdict:v2 head=${fixture.headSha} base=${fixture.baseSha} diffSha=${fixture.diffSha} verdict=pass reviewer=agentteam model=test -->`,
+      }])
+    }
+    if (request.method === 'GET' && url.pathname === `/repos/owner/repo/commits/${fixture.headSha}/check-runs`) {
+      return json({
+        check_runs: [
+          { name: 'pr-gate', conclusion: 'success' },
+          {
+            name: 'pre-merge',
+            conclusion: 'success',
+            completed_at: '2026-11-19T00:00:00Z',
+            output: { summary: JSON.stringify({ head: fixture.headSha, base: fixture.mainSha, result: 'success' }) },
+          },
+        ],
+      })
+    }
+    if (request.method === 'POST' && url.pathname === `/repos/owner/repo/statuses/${fixture.headSha}`) {
+      statusCount += 1
+      if (statusCount === failStatusAt) return json({ message: 'forbidden' }, 403)
+      return json({ state: body.state })
+    }
+    if (request.method === 'POST' && url.pathname === '/repos/owner/repo/check-runs') {
+      return json({ id: 7 })
+    }
+    return json({ error: `${request.method} ${url.pathname}` }, 404)
+  }
+}
+
+async function startGateServer(handler) {
+  const server = createServer(handler)
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  return { server, baseUrl: `http://127.0.0.1:${server.address().port}` }
+}
+
+async function stopGateServer(server) {
+  await new Promise((resolve) => server.close(resolve))
+}
+
+function runPublisher(env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['scripts/ci/publish-gate.mjs'], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        GH_TOKEN: 'token',
+        GITHUB_REPOSITORY: 'owner/repo',
+        PR_NUMBER: '1',
+        RUN_URL: 'https://example.test/run',
+        ...env,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', reject)
+    child.on('close', (code) => resolve({ code, stdout, stderr }))
+  })
+}
 
 function git(cwd, args) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' })
