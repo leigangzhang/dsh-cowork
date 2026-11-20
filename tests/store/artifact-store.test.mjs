@@ -264,3 +264,27 @@ test('revision IO for an unknown or malformed artifact id fails like the record'
     })
   })
 })
+
+test('the event window filters by artifact before the cap and reports a trimmed log', async () => {
+  await withStore(async (store) => {
+    await mkdir(store.root, { recursive: true })
+    const row = (seq, artifactId) => ({
+      version: 1, seq, eventId: `event-${seq}`, type: 'artifact.updated',
+      artifactId, time: '2026-02-01T00:00:00.000Z', data: { seq },
+    })
+    await writeFile(
+      join(store.root, 'events.jsonl'),
+      `${JSON.stringify(row(5, 'artifact-a'))}\n${JSON.stringify(row(6, 'artifact-b'))}\n`,
+    )
+    const current = await store.readEventsWindow(0, 'artifact-b')
+    assert.deepEqual(current.events.map((event) => event.seq), [6])
+    assert.equal(current.newest, 6)
+    assert.equal(current.truncated, false)
+    const trimmed = await store.readEventsWindow(2, 'artifact-b')
+    assert.equal(trimmed.truncated, true)
+    assert.deepEqual(trimmed.events.map((event) => event.seq), [6])
+    const empty = await store.readEventsWindow(9, 'artifact-b')
+    assert.deepEqual(empty.events, [])
+    assert.equal(empty.newest, 6)
+  })
+})

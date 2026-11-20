@@ -14,6 +14,7 @@ import {
   isTerminalDispatchState,
   type ActiveDispatchV1,
   type ArtifactAnchor,
+  type ArtifactDispatchSummary,
   type ArtifactFileV1,
   type ArtifactStatus,
   type ArtifactSummaryV1,
@@ -137,6 +138,25 @@ export function activeDispatchSummary(
         ? 'pending'
         : 'active'
   return { label: DISPATCH_STATE_LABELS[dispatch.state], tone, terminal }
+}
+
+/** The newest delivery batch that carried any comment of one thread. */
+export function dispatchForThread(
+  thread: WorkItemThread,
+  dispatches: readonly ArtifactDispatchSummary[],
+): ArtifactDispatchSummary | null {
+  const commentIds = new Set(thread.comments.map((event) => event.commentId))
+  let newest: ArtifactDispatchSummary | null = null
+  for (const dispatch of dispatches) {
+    if (!dispatch.commentIds.some((commentId) => commentIds.has(commentId))) continue
+    if (newest === null || dispatch.updatedAt > newest.updatedAt) newest = dispatch
+  }
+  return newest
+}
+
+/** Whether a failed/blocked/stale batch can be sent again. */
+export function isRetryableDispatch(dispatch: ArtifactDispatchSummary): boolean {
+  return dispatch.state === 'failed' || dispatch.state === 'blocked' || dispatch.state === 'stale'
 }
 
 /** A short relative time: 刚刚 / N 分钟前 / N 小时前 / N 天前 / a date. */
@@ -417,6 +437,22 @@ export function changedLineRanges(before: string, after: string): LineSelection[
   return ranges
 }
 
+/** One source line reduced for the read-only Markdown-ish view. */
+export interface ReadLine {
+  readonly kind: 'text' | 'h1' | 'h2' | 'h3' | 'list' | 'quote'
+  readonly text: string
+}
+
+/** Strip the most common Markdown markers without rendering HTML. */
+export function markdownLine(line: string): ReadLine {
+  if (line.startsWith('### ')) return { kind: 'h3', text: line.slice(4) }
+  if (line.startsWith('## ')) return { kind: 'h2', text: line.slice(3) }
+  if (line.startsWith('# ')) return { kind: 'h1', text: line.slice(2) }
+  if (line.startsWith('- ') || line.startsWith('* ')) return { kind: 'list', text: line.slice(2) }
+  if (line.startsWith('> ')) return { kind: 'quote', text: line.slice(2) }
+  return { kind: 'text', text: line }
+}
+
 /** Save-state label the toolbar shows while editing. */
 export type SavePhase = 'saved' | 'saving' | 'conflict' | 'failed'
 
@@ -432,4 +468,66 @@ export function saveStateLabel(phase: SavePhase, revision: number): string {
     case 'failed':
       return '保存失败'
   }
+}
+
+/** Prefix of the per-work-item draft kept across close/session switches. */
+const DRAFT_STORAGE_PREFIX = 'cowork.work-item.draft.'
+
+/** Persisted shape of one unsaved draft. */
+export interface PersistedDraft {
+  readonly content: string
+  readonly baseRevision: number
+  readonly baseVersion: string | null
+  readonly savedAt: string
+}
+
+/** Persist one draft; a storage failure must not break editing. */
+export function savePersistedDraft(artifactId: string, draft: PersistedDraft): void {
+  try {
+    window.localStorage.setItem(`${DRAFT_STORAGE_PREFIX}${artifactId}`, JSON.stringify(draft))
+  } catch {
+    // Storage may be full or disabled; the in-memory draft still exists.
+  }
+}
+
+/** Read and validate one stored draft; malformed entries are dropped. */
+export function readPersistedDraft(artifactId: string): PersistedDraft | null {
+  try {
+    const raw = window.localStorage.getItem(`${DRAFT_STORAGE_PREFIX}${artifactId}`)
+    if (raw === null) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) {
+      removePersistedDraft(artifactId)
+      return null
+    }
+    const value = parsed as Partial<PersistedDraft>
+    if (typeof value.content !== 'string' || typeof value.baseRevision !== 'number') {
+      removePersistedDraft(artifactId)
+      return null
+    }
+    return {
+      content: value.content,
+      baseRevision: value.baseRevision,
+      baseVersion: typeof value.baseVersion === 'string' ? value.baseVersion : null,
+      savedAt: typeof value.savedAt === 'string' ? value.savedAt : '',
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Remove the stored draft after a successful save or an explicit reload. */
+export function removePersistedDraft(artifactId: string): void {
+  try {
+    window.localStorage.removeItem(`${DRAFT_STORAGE_PREFIX}${artifactId}`)
+  } catch {
+    // A storage failure must not break saving or closing.
+  }
+}
+
+/** A compact attachment size label. */
+export function formatBytes(size: number): string {
+  if (size < 1024) return `${String(size)} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }

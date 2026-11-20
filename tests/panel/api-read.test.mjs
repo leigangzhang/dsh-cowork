@@ -192,6 +192,7 @@ test('toErrorResponse maps every stable code to its documented status', () => {
     'artifact/dispatch-queue-full': 429,
     'artifact/dispatch-unavailable': 501,
     'artifact/dispatch-not-found': 404,
+    'artifact/dispatch-not-retryable': 409,
     'artifact/fs-unavailable': 501,
     'artifact/io-error': 500,
     'artifact/limit-reached': 409,
@@ -199,7 +200,7 @@ test('toErrorResponse maps every stable code to its documented status', () => {
     'artifact/corrupt': 500,
     internal: 500,
   }
-  assert.equal(Object.keys(expected).length, 49, 'a new PanelErrorCode must decide its status here')
+  assert.equal(Object.keys(expected).length, 50, 'a new PanelErrorCode must decide its status here')
   assert.deepEqual(
     Object.keys(expected).sort(),
     [...Object.keys(contract.PANEL_ERROR_STATUS)].sort(),
@@ -248,7 +249,7 @@ test('registerCoworkApi registers every route and disposes them', async () => {
   const fake = fakeConnection()
   const { host, effects } = fakeHost(fake.connection)
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(effects.length, 22, 'one fiber effect per route')
+  assert.equal(effects.length, 23, 'one fiber effect per route')
   assert.deepEqual(effects.map((effect) => effect.label), PANEL_ROUTES.map(
     ([path]) => `dsh-cowork: panel route ${path}`,
   ))
@@ -261,7 +262,7 @@ test('registerCoworkApi registers every route and disposes them', async () => {
   for (const effect of effects) await effect.disposer()
   assert.equal(fake.routes.size, 0, 'disposal unregisters every route')
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(fake.routes.size, 22, 'a reload re-registers without a duplicate error')
+  assert.equal(fake.routes.size, 23, 'a reload re-registers without a duplicate error')
 })
 
 test('registerCoworkApi is a no-op when the host has no connection service', () => {

@@ -16,6 +16,7 @@ import {
   ARTIFACT_SAVE_DEBOUNCE_MS,
   ARTIFACT_STATUS_LABELS,
   type ArtifactAnchor,
+  type ArtifactDispatchSummary,
   type ArtifactFileResponse,
   type ArtifactRecordV1,
   type AttachmentRefV1,
@@ -31,11 +32,17 @@ import {
   commentAuthor,
   commentBody,
   contentLines,
+  dispatchLabel,
   errorPresentation,
   fileSummary,
+  formatBytes,
   foldThreads,
   formatRelativeTime,
   isSelected,
+  markdownLine,
+  readPersistedDraft,
+  removePersistedDraft,
+  savePersistedDraft,
   revisionSummary,
   saveStateLabel,
   selectLine,
@@ -44,6 +51,8 @@ import {
   type LineSelection,
   type SavePhase,
   type WorkItemThread,
+  dispatchForThread,
+  isRetryableDispatch,
 } from './model.ts'
 import { workItemOpenStore } from './store.ts'
 
@@ -52,6 +61,8 @@ interface ViewerData {
   readonly record: ArtifactRecordV1
   readonly file: ArtifactFileResponse | null
   readonly events: readonly CommentEventV1[]
+  readonly dispatches: readonly ArtifactDispatchSummary[]
+  readonly commentsTruncated: boolean
 }
 
 const BYTE_ENCODER = new TextEncoder()
@@ -80,23 +91,68 @@ function ThreadCard({
   thread,
   now,
   pending,
+  dispatch,
+  retrying,
   onToggle,
+  onReply,
+  onRetry,
+  onFocus,
   attachmentUrl,
 }: {
   readonly thread: WorkItemThread
   readonly now: Date
   readonly pending: boolean
+  readonly dispatch: ArtifactDispatchSummary | null
+  readonly retrying: boolean
   readonly onToggle: (thread: WorkItemThread) => void
+  readonly onReply: (thread: WorkItemThread) => void
+  readonly onRetry: (dispatch: ArtifactDispatchSummary) => void
+  readonly onFocus: (thread: WorkItemThread) => void
   readonly attachmentUrl: (attachmentId: string) => string
 }): ReactElement {
   const stale = anchorStatusLabel(thread.anchorStatus)
+  const [expanded, setExpanded] = useState(false)
+  const showComments = !thread.resolved || expanded
   return (
-    <div className="cwi-thread" data-testid="cwi-thread" data-resolved={thread.resolved ? 'true' : 'false'}>
+    <div className="cwi-thread" data-testid="cwi-thread" data-thread-id={thread.threadId} data-resolved={thread.resolved ? 'true' : 'false'}>
       <div className="cwi-thread-meta">
         <span>{anchorLabel(thread.anchor)}</span>
         {stale === null ? null : <span className="cwi-stale">{stale}</span>}
         <span>{formatRelativeTime(thread.latestAt, now)}</span>
+        {dispatch === null ? null : (
+          <span className="cwi-thread-meta" data-testid="cwi-thread-dispatch">
+            <span
+              className="cwi-chip"
+              data-tone={dispatch.state === 'failed' || dispatch.state === 'blocked' ? 'error' : (dispatch.state === 'replied' ? 'done' : 'pending')}
+            >
+              {dispatchLabel(dispatch.state)}
+            </span>
+            {dispatch.errorCode === null ? null : <span className="cwi-stale">{dispatch.errorCode}</span>}
+            {isRetryableDispatch(dispatch) ? (
+              <button
+                type="button"
+                className="cwi-secondary"
+                data-testid="cwi-dispatch-retry"
+                disabled={retrying}
+                onClick={() => { onRetry(dispatch) }}
+              >
+                {retrying ? '重试中…' : '重试'}
+              </button>
+            ) : null}
+          </span>
+        )}
         <span className="cwi-toolbar-spacer" style={{ flex: 1 }} />
+        {thread.resolved ? null : (
+          <button
+            type="button"
+            className="cwi-secondary"
+            data-testid="cwi-thread-reply"
+            disabled={pending}
+            onClick={() => { onReply(thread) }}
+          >
+            回复
+          </button>
+        )}
         <button
           type="button"
           className="cwi-secondary"
@@ -109,9 +165,18 @@ function ThreadCard({
         </button>
       </div>
       {thread.anchor !== null && 'quote' in thread.anchor && thread.anchor.quote !== ''
-        ? <div className="cwi-quote">{thread.anchor.quote}</div>
+        ? (
+            <button type="button" className="cwi-quote" data-testid="cwi-thread-focus" onClick={() => { onFocus(thread) }}>
+              {thread.anchor.quote}
+            </button>
+          )
         : null}
-      {thread.comments.map((event) => (
+      {thread.resolved ? (
+        <button type="button" className="cwi-secondary" data-testid="cwi-thread-expand" onClick={() => { setExpanded(value => !value) }}>
+          {expanded ? `收起 ${String(thread.comments.length)} 条` : `已解决 · 展开 ${String(thread.comments.length)} 条`}
+        </button>
+      ) : null}
+      {(showComments ? thread.comments : []).map((event) => (
         <div key={event.eventId} className={event.type === 'reply' ? 'cwi-thread-reply' : undefined}>
           <div className="cwi-thread-meta">
             <span>{commentAuthor(event)}</span>
@@ -141,6 +206,11 @@ function ThreadCard({
                   </a>
                 )
           ))}
+          {((event.type === 'create' || event.type === 'reply') ? event.attachments ?? [] : []).map((attachment) => (
+            <span key={`${attachment.attachmentId}-meta`} className="cwi-thread-meta" data-testid="cwi-attachment-meta">
+              {attachment.name} · {attachment.mediaType} · {formatBytes(attachment.size)}
+            </span>
+          ))}
         </div>
       ))}
     </div>
@@ -157,9 +227,15 @@ export function WorkItemViewer(): ReactElement {
   const [fileNotice, setFileNotice] = useState<string | null>(null)
   const [selection, setSelection] = useState<LineSelection | null>(null)
   const [pendingAnchor, setPendingAnchor] = useState<ArtifactAnchor | null>(null)
+  const [replyTarget, setReplyTarget] = useState<WorkItemThread | null>(null)
   const [draft, setDraft] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [pendingThread, setPendingThread] = useState<string | null>(null)
+  const [pendingDispatch, setPendingDispatch] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [viewTab, setViewTab] = useState<'document' | 'versions' | 'attachments'>('document')
+  const [readMode, setReadMode] = useState(true)
+  const [showRail, setShowRail] = useState(true)
   const [receipt, setReceipt] = useState<string | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [now, setNow] = useState(() => new Date())
@@ -167,6 +243,7 @@ export function WorkItemViewer(): ReactElement {
   const [editDraft, setEditDraft] = useState('')
   const [savedContent, setSavedContent] = useState('')
   const [savePhase, setSavePhase] = useState<SavePhase>('saved')
+  const [draftBase, setDraftBase] = useState<{ revision: number; baseVersion: string | null } | null>(null)
   const [conflict, setConflict] = useState<SaveConflict | null>(null)
   const [conflictLatest, setConflictLatest] = useState('')
   const [showConflictDiff, setShowConflictDiff] = useState(false)
@@ -179,6 +256,8 @@ export function WorkItemViewer(): ReactElement {
   const dirtyRef = useRef(false)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const editorRef = useRef<HTMLTextAreaElement | null>(null)
+  const persistDraftRef = useRef<() => void>(() => {})
+  const contextKeyRef = useRef<string | null>(null)
   const gutterRef = useRef<HTMLPreElement | null>(null)
   const dirty = editing && data !== null && data.file !== null && editDraft !== savedContent
   const layout = services.layout
@@ -189,12 +268,37 @@ export function WorkItemViewer(): ReactElement {
     if (canReturn) layout.selectPanel(null)
   }, [canReturn, layout])
 
+  /** Persist the user's only copy locally; reopening restores it. */
+  const persistDraft = useCallback(() => {
+    if (context === null || data?.file == null || !editing || editDraft === savedContent) return
+    savePersistedDraft(context.artifactId, {
+      content: editDraft,
+      baseRevision: draftBase?.revision ?? data.file.revision,
+      baseVersion: draftBase?.baseVersion ?? data.file.fsVersion,
+      savedAt: new Date().toISOString(),
+    })
+  }, [context, data?.file, draftBase, editDraft, editing, savedContent])
+
+  const clearPersistedDraft = useCallback(() => {
+    if (context === null) return
+    removePersistedDraft(context.artifactId)
+  }, [context])
+
   // Load the work item whenever the context or an explicit retry changes.
   useEffect(() => {
     if (context === null) {
+      contextKeyRef.current = null
       setPhase('idle')
       setData(null)
       return
+    }
+    const contextKey = `${context.sessionId}\u0000${context.artifactId}`
+    if (contextKeyRef.current !== contextKey) {
+      contextKeyRef.current = contextKey
+      setDraft('')
+      setReplyTarget(null)
+      setPendingAttachments([])
+      setBackArmed(false)
     }
     let active = true
     setPhase(current => (current === 'ready' ? 'ready' : 'loading'))
@@ -213,7 +317,7 @@ export function WorkItemViewer(): ReactElement {
       }
       const comments = await workItemApi.comments(context.sessionId, context.artifactId)
       if (!active) return
-      setData({ record: detail.record, file, events: comments.events })
+      setData({ record: detail.record, file, events: comments.events, dispatches: detail.dispatches, commentsTruncated: comments.truncated })
       setFileNotice(notice)
       setNow(new Date())
       setEditing(false)
@@ -224,6 +328,18 @@ export function WorkItemViewer(): ReactElement {
       setShowConflictDiff(false)
       setSavePhase('saved')
       setBackArmed(false)
+      setDraftBase(null)
+      if (file !== null) {
+        const restored = readPersistedDraft(context.artifactId)
+        if (restored !== null && restored.content !== file.content) {
+          setEditing(true)
+          setEditDraft(restored.content)
+          setDraftBase({ revision: restored.baseRevision, baseVersion: restored.baseVersion })
+          setReceipt('已恢复上次未保存的草稿')
+        } else if (restored !== null) {
+          removePersistedDraft(context.artifactId)
+        }
+      }
       setPhase('ready')
       // Opening the viewer records first-view; the server is idempotent and the
       // failure must not block reading.
@@ -240,7 +356,11 @@ export function WorkItemViewer(): ReactElement {
       setError(reason)
       setPhase('error')
     })
-    return () => { active = false }
+    return () => {
+      active = false
+      // Switching to another work item must leave the old draft recoverable.
+      persistDraftRef.current()
+    }
   }, [context, refreshToken])
 
   // The viewer closes itself when the host switches the main area away from the
@@ -259,14 +379,14 @@ export function WorkItemViewer(): ReactElement {
     return info.subscribe(() => {
       const current = info.getSnapshot().retainedBy.mainView ?? 0
       if (previous > 0 && current === 0) {
-        workItemOpenStore.close()
+        persistDraft()
         // Returning to the conversation is part of closing the viewer; without
         // this the root main slot would keep the now-idle work-item panel.
         if (canReturn) layout.selectPanel(null)
       }
       previous = current
     })
-  }, [canReturn, context, layout, services.sessions])
+  }, [canReturn, context, layout, persistDraft, services.sessions])
 
   /** Save the draft through the optimistic-concurrency route. */
   const saveDraft = useCallback(async (options?: {
@@ -284,8 +404,10 @@ export function WorkItemViewer(): ReactElement {
         sessionId: context.sessionId,
         artifactId: context.artifactId,
         path: file.path,
-        baseRevision: options?.baseRevision ?? file.revision,
-        baseVersion: options?.baseVersion === undefined ? file.fsVersion : options.baseVersion,
+        baseRevision: options?.baseRevision ?? draftBase?.revision ?? file.revision,
+        baseVersion: options?.baseVersion === undefined
+          ? (draftBase?.baseVersion ?? file.fsVersion)
+          : options.baseVersion,
         content,
       })
       setData(current => current === null || current.file === null
@@ -307,6 +429,8 @@ export function WorkItemViewer(): ReactElement {
       setConflict(null)
       setConflictLatest('')
       setShowConflictDiff(false)
+      setDraftBase(null)
+      clearPersistedDraft()
       setSavePhase('saved')
       setReceipt(response.merged ? '已合并模型修改并保存' : '已保存')
     } catch (error) {
@@ -327,7 +451,7 @@ export function WorkItemViewer(): ReactElement {
       setSavePhase('failed')
       setReceipt(`保存失败：${messageOf(error)}`)
     }
-  }, [context, data, editDraft])
+  }, [clearPersistedDraft, context, data, draftBase, editDraft])
 
   // Debounced autosave: every edit restarts the 800 ms window; a conflict
   // pauses saving until the user picks a resolution.
@@ -336,6 +460,21 @@ export function WorkItemViewer(): ReactElement {
     const timer = window.setTimeout(() => { void saveDraft() }, ARTIFACT_SAVE_DEBOUNCE_MS)
     return () => { window.clearTimeout(timer) }
   }, [conflict, data?.file, dirty, draft, saveDraft])
+
+  // Keep the local copy current on every edit, not only after a failed save.
+  useEffect(() => {
+    if (!dirty) return
+    persistDraft()
+  }, [dirty, editDraft, persistDraft])
+
+  // Closing or switching work items may unmount this viewer at any time; the
+  // stored copy is what the next open restores. Keep the ref current in a
+  // separate effect so a successful save (which changes persistDraft) does not
+  // run an old closure that still considers the draft dirty.
+  useEffect(() => {
+    persistDraftRef.current = persistDraft
+  }, [persistDraft])
+  useEffect(() => () => { persistDraftRef.current() }, [])
 
   // Editing presence: report the changed lines every 300 ms while the draft
   // differs from the saved text. The server expires the report on its own.
@@ -384,26 +523,29 @@ export function WorkItemViewer(): ReactElement {
       setReceipt('还有未保存内容：再点一次返回会关闭查看器')
       return
     }
+    persistDraft()
     close()
-  }, [backArmed, close, dirty, editing])
+  }, [backArmed, close, dirty, editing, persistDraft])
 
   const loadLatest = useCallback(async () => {
     if (context === null || data?.file == null) return
     try {
       const latest = await workItemApi.file(context.sessionId, context.artifactId, data.file.path)
       const detail = await workItemApi.detail(context.sessionId, context.artifactId)
-      setData({ record: detail.record, file: latest, events: data.events })
+      setData({ record: detail.record, file: latest, events: data.events, dispatches: detail.dispatches, commentsTruncated: data.commentsTruncated })
       setEditDraft(latest.content)
       setSavedContent(latest.content)
       setConflict(null)
       setConflictLatest('')
       setShowConflictDiff(false)
+      setDraftBase(null)
+      clearPersistedDraft()
       setSavePhase('saved')
       setReceipt('已加载最新内容')
     } catch (error) {
       setReceipt(`加载失败：${messageOf(error)}`)
     }
-  }, [context, data])
+  }, [clearPersistedDraft, context, data])
 
   const keepMine = useCallback(() => {
     if (conflict === null) return
@@ -426,7 +568,7 @@ export function WorkItemViewer(): ReactElement {
    * reconnect. A dirty draft keeps its old file base (so the save merges or
    * conflicts) and only gets a receipt; a clean viewer reloads the content.
    */
-  const refreshFromServer = useCallback(async (withFile = false) => {
+  const refreshFromServer = useCallback(async (withFile = false, fileChanged = false) => {
     if (context === null) return
     try {
       const detail = await workItemApi.detail(context.sessionId, context.artifactId)
@@ -442,14 +584,20 @@ export function WorkItemViewer(): ReactElement {
       const keepDraft = editingRef.current && dirtyRef.current
       setData(current => {
         if (current === null) return current
-        const next = { ...current, record: detail.record, events: comments.events }
+        const next = {
+          ...current,
+          record: detail.record,
+          events: comments.events,
+          dispatches: detail.dispatches,
+          commentsTruncated: comments.truncated,
+        }
         return file === null || keepDraft ? next : { ...next, file }
       })
       if (file !== null && !keepDraft) {
         setEditDraft(file.content)
         setSavedContent(file.content)
         if (!editingRef.current) setSavePhase('saved')
-      } else if (file !== null && keepDraft) {
+      } else if (file !== null && keepDraft && fileChanged) {
         setReceipt('模型已修改文件；保存时会自动合并，重叠则提示冲突')
       }
     } catch {
@@ -473,7 +621,7 @@ export function WorkItemViewer(): ReactElement {
         if (closed) return
         failures = 0
         setSseNotice(null)
-        void refreshFromServer()
+        void refreshFromServer(true)
       }
       // Named SSE events (`event: comment.created`) do not reach `onmessage`;
       // every artifact event type is registered explicitly.
@@ -481,8 +629,8 @@ export function WorkItemViewer(): ReactElement {
         if (closed) return
         try {
           const event = JSON.parse(message.data) as { type?: unknown }
-          if (event.type === 'reset') void refreshFromServer()
-          if (event.type === 'file.changed') void refreshFromServer(true)
+          if (event.type === 'reset') void refreshFromServer(true)
+          if (event.type === 'file.changed') void refreshFromServer(true, true)
           if (
             event.type === 'comment.created'
             || event.type === 'comment.updated'
@@ -546,6 +694,17 @@ export function WorkItemViewer(): ReactElement {
 
   const lines = useMemo(() => contentLines(data?.file?.content ?? ''), [data?.file?.content])
   const threads = useMemo(() => sortThreads(foldThreads(data?.events ?? [])), [data?.events])
+  const focusThread = useCallback((thread: WorkItemThread) => {
+    const anchor = thread.anchor
+    if (anchor === null || anchor.kind !== 'line-range') return
+    setViewTab('document')
+    setShowRail(true)
+    setSelection({ startLine: anchor.startLine, endLine: anchor.endLine })
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-line="${String(anchor.startLine)}"]`)?.scrollIntoView({ block: 'center' })
+    })
+  }, [])
+
   const anchoredLines = useMemo(() => {
     const values = new Set<number>()
     for (const thread of threads) {
@@ -557,15 +716,28 @@ export function WorkItemViewer(): ReactElement {
     return values
   }, [threads])
 
+  const attachmentRows = useMemo(() => {
+    const rows: AttachmentRefV1[] = []
+    for (const thread of threads) {
+      for (const event of thread.comments) {
+        if (event.type !== 'create' && event.type !== 'reply') continue
+        for (const attachment of event.attachments ?? []) rows.push(attachment)
+      }
+    }
+    return rows
+  }, [threads])
+
   const pickLine = useCallback((line: number, extend: boolean) => {
     setSelection(current => selectLine(current, line, extend))
   }, [])
 
   const annotate = useCallback(() => {
     if (data === null || selection === null) return
+    setReplyTarget(null)
     const startLine = Math.max(1, selection.startLine)
     const endLine = Math.min(selection.endLine, lines.length)
     const quote = lines.slice(startLine - 1, endLine).join('\n')
+    setReplyTarget(null)
     setPendingAnchor({
       kind: 'line-range',
       path: data.file?.path ?? data.record.primaryPath,
@@ -585,7 +757,9 @@ export function WorkItemViewer(): ReactElement {
         sessionId: context.sessionId,
         artifactId: context.artifactId,
         body: draft.trim(),
-        ...(pendingAnchor === null ? {} : { anchor: pendingAnchor }),
+        ...(replyTarget === null
+          ? (pendingAnchor === null ? {} : { anchor: pendingAnchor })
+          : { threadId: replyTarget.threadId }),
         ...(pendingAttachments.length === 0 ? {} : { attachments: pendingAttachments }),
       })
       setData(current => current === null
@@ -593,6 +767,7 @@ export function WorkItemViewer(): ReactElement {
         : { ...current, record: response.record, events: [...current.events, response.comment] })
       setDraft('')
       setPendingAnchor(null)
+      setReplyTarget(null)
       setSelection(null)
       setPendingAttachments([])
       setReceipt(response.dispatchError === null
@@ -603,7 +778,48 @@ export function WorkItemViewer(): ReactElement {
     } finally {
       setSubmitting(false)
     }
-  }, [context, data, draft, pendingAnchor, submitting])
+  }, [context, data, draft, pendingAnchor, replyTarget, submitting])
+
+  const startReply = useCallback((thread: WorkItemThread) => {
+    setReplyTarget(thread)
+    setPendingAnchor(null)
+    setSelection(null)
+    composerRef.current?.focus()
+  }, [])
+
+  const confirmWork = useCallback(async () => {
+    if (context === null || confirming) return
+    setConfirming(true)
+    setReceipt(null)
+    try {
+      await workItemApi.status({ sessionId: context.sessionId, artifactId: context.artifactId, action: 'confirm' })
+      await refreshFromServer()
+      setReceipt('已确认完成')
+    } catch (reason) {
+      setReceipt(`确认失败：${messageOf(reason)}`)
+    } finally {
+      setConfirming(false)
+    }
+  }, [confirming, context, refreshFromServer])
+
+  const retryDispatch = useCallback(async (dispatch: ArtifactDispatchSummary) => {
+    if (context === null || pendingDispatch !== null) return
+    setPendingDispatch(dispatch.dispatchId)
+    setReceipt(null)
+    try {
+      await workItemApi.retryDispatch({
+        sessionId: context.sessionId,
+        artifactId: context.artifactId,
+        dispatchId: dispatch.dispatchId,
+      })
+      await refreshFromServer()
+      setReceipt('已重新投递')
+    } catch (reason) {
+      setReceipt(`重试失败：${messageOf(reason)}`)
+    } finally {
+      setPendingDispatch(null)
+    }
+  }, [context, pendingDispatch, refreshFromServer])
 
   const toggleThread = useCallback(async (thread: WorkItemThread) => {
     if (context === null || data === null || pendingThread !== null) return
@@ -690,12 +906,61 @@ export function WorkItemViewer(): ReactElement {
         {activity === null ? null : (
           <span className="cwi-chip" data-tone={activity.tone} data-testid="cwi-activity">{activity.label}</span>
         )}
+        {record.status === 'confirmed' ? null : (
+          <button
+            type="button"
+            className="cwi-primary"
+            data-testid="cwi-confirm"
+            disabled={confirming}
+            onClick={() => { void confirmWork() }}
+          >
+            {confirming ? '确认中…' : '确认完成'}
+          </button>
+        )}
         {data.file === null ? null : (
           <button type="button" className="cwi-secondary" data-testid="cwi-edit" onClick={toggleEditing}>
             {editing ? '退出编辑' : '编辑'}
           </button>
         )}
         <span data-testid="cwi-save-state">{editing ? saveStateLabel(savePhase, data.file?.revision ?? record.revision) : '只读'}</span>
+      </div>
+      <div className="cwi-view-tabs" role="tablist" aria-label="工作项视图">
+        {(['document', 'versions', 'attachments'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            className="cwi-view-tab"
+            data-testid="cwi-view-tab"
+            data-tab={tab}
+            data-active={viewTab === tab ? 'true' : 'false'}
+            aria-selected={viewTab === tab}
+            onClick={() => { setViewTab(tab) }}
+          >
+            {tab === 'document' ? '文档' : (tab === 'versions' ? '版本' : `附件${attachmentRows.length === 0 ? '' : ` ${String(attachmentRows.length)}`}`)}
+          </button>
+        ))}
+        <span className="cwi-spacer" />
+        {viewTab === 'document' && !editing ? (
+          <button
+            type="button"
+            className="cwi-secondary"
+            data-testid="cwi-mode"
+            data-mode={readMode ? 'read' : 'source'}
+            onClick={() => { setReadMode(value => !value) }}
+          >
+            {readMode ? '查看源码' : '阅读模式'}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="cwi-secondary"
+          data-testid="cwi-rail-toggle"
+          data-visible={showRail ? 'true' : 'false'}
+          onClick={() => { setShowRail(value => !value) }}
+        >
+          {showRail ? '隐藏批注' : '显示批注'}
+        </button>
       </div>
       {fileNotice === null ? null : (
         <div className="cwi-receipt" data-testid="cwi-file-notice">{fileNotice}</div>
@@ -738,6 +1003,7 @@ export function WorkItemViewer(): ReactElement {
               ) : null}
             </div>
           )}
+          <div className="cwi-doc-view" data-testid="cwi-doc-view" hidden={viewTab !== 'document'} data-mode={readMode ? 'read' : 'source'}>
           {editing ? (
             <div className="cwi-editor-wrap">
               <pre className="cwi-gutter" ref={gutterRef} aria-hidden="true">
@@ -788,17 +1054,69 @@ export function WorkItemViewer(): ReactElement {
                       onClick={(event) => { pickLine(line, event.shiftKey) }}
                     >
                       <span className="cwi-line-number">{line}</span>
-                      <span className="cwi-line-text">{text === '' ? ' ' : text}</span>
+                      {anchoredLines.has(line) ? <span className="cwi-line-pin" data-testid="cwi-line-pin" title="这一行有批注">●</span> : null}
+                      {readMode && text !== ''
+                        ? (() => {
+                            const rendered = markdownLine(text)
+                            return <span className={`cwi-line-text cwi-md-${rendered.kind}`}>{rendered.text === '' ? ' ' : rendered.text}</span>
+                          })()
+                        : <span className="cwi-line-text">{text === '' ? ' ' : text}</span>}
                     </div>
                   )
                 })}
               </div>
             </>
           )}
+          </div>
+          {viewTab === 'versions' ? (
+            <div className="cwi-panel" data-testid="cwi-versions">
+              <div className="cwi-panel-title">当前版本</div>
+              <dl className="cwi-meta-list">
+                <dt>文件</dt><dd>{record.primaryPath}</dd>
+                <dt>版本</dt><dd>r{data.file?.revision ?? record.revision}</dd>
+                <dt>大小</dt><dd>{data.file === null ? '—' : formatBytes(data.file.size)}</dd>
+                <dt>类型</dt><dd>{data.file?.mediaType ?? record.files[0]?.mediaType ?? '—'}</dd>
+                <dt>SHA-256</dt><dd className="cwi-mono">{data.file?.sha256 ?? record.files[0]?.sha256 ?? '—'}</dd>
+                <dt>文件系统版本</dt><dd className="cwi-mono">{data.file?.fsVersion ?? '—'}</dd>
+              </dl>
+              <p className="cwi-hint">服务端为每个工作项保留最近 20 份文本快照；此视图展示当前文件的版本元数据。</p>
+            </div>
+          ) : null}
+          {viewTab === 'attachments' ? (
+            <div className="cwi-panel" data-testid="cwi-attachments">
+              <div className="cwi-panel-title">附件（{attachmentRows.length}）</div>
+              {attachmentRows.length === 0 ? <p className="cwi-hint">还没有附件。在批注或回复里添加图片或文本文件。</p> : null}
+              {attachmentRows.map((attachment) => (
+                <div key={attachment.attachmentId} className="cwi-attachment-row" data-testid="cwi-attachment-row">
+                  {attachment.mediaType.startsWith('image/') ? (
+                    <img
+                      className="cwi-attachment-thumb"
+                      data-testid="cwi-attachment-thumb"
+                      src={workItemApi.attachmentUrl({ sessionId: context.sessionId, artifactId: context.artifactId, attachmentId: attachment.attachmentId })}
+                      alt={attachment.name}
+                    />
+                  ) : null}
+                  <div className="cwi-attachment-info">
+                    <span>{attachment.name}</span>
+                    <span className="cwi-hint">{attachment.mediaType} · {formatBytes(attachment.size)}</span>
+                  </div>
+                  <a
+                    className="cwi-secondary"
+                    data-testid="cwi-attachment-link"
+                    href={workItemApi.attachmentUrl({ sessionId: context.sessionId, artifactId: context.artifactId, attachmentId: attachment.attachmentId })}
+                    download={attachment.name}
+                  >
+                    下载
+                  </a>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
-        <aside className="cwi-rail" data-testid="cwi-rail">
+        <aside className="cwi-rail" data-testid="cwi-rail" hidden={!showRail}>
           <div className="cwi-rail-header" data-testid="cwi-thread-count">
             {threads.length === 0 ? '还没有批注' : `${threads.length} 条批注线程`}
+            {data.commentsTruncated ? <span data-testid="cwi-comments-truncated"> · 仅载入最近 200 条</span> : null}
           </div>
           <div className="cwi-threads">
             {threads.map((thread) => (
@@ -807,7 +1125,12 @@ export function WorkItemViewer(): ReactElement {
                 thread={thread}
                 now={now}
                 pending={pendingThread === thread.threadId}
+                dispatch={dispatchForThread(thread, data.dispatches)}
+                retrying={pendingDispatch !== null}
                 onToggle={toggleThread}
+                onReply={startReply}
+                onRetry={(dispatch) => { void retryDispatch(dispatch) }}
+                onFocus={focusThread}
                 attachmentUrl={(attachmentId) => workItemApi.attachmentUrl({
                   sessionId: context.sessionId,
                   artifactId: context.artifactId,
@@ -817,6 +1140,14 @@ export function WorkItemViewer(): ReactElement {
             ))}
           </div>
           <div className="cwi-composer">
+            {replyTarget === null ? null : (
+              <div className="cwi-thread-meta" data-testid="cwi-reply-target">
+                <span>回复 {anchorLabel(replyTarget.anchor)} 的批注</span>
+                <button type="button" className="cwi-secondary" onClick={() => { setReplyTarget(null) }}>
+                  取消回复
+                </button>
+              </div>
+            )}
             {pendingAnchor === null ? null : (
               <div className="cwi-thread-meta">
                 <span>{anchorLabel(pendingAnchor)}</span>
@@ -829,7 +1160,7 @@ export function WorkItemViewer(): ReactElement {
               ref={composerRef}
               data-testid="cwi-composer"
               value={draft}
-              placeholder={pendingAnchor === null ? '写下整体批注…' : '写下对所选行的批注…'}
+              placeholder={replyTarget !== null ? '回复这条批注…' : (pendingAnchor === null ? '写下整体批注…' : '写下对所选行的批注…')}
               onChange={(event) => { setDraft(event.target.value) }}
             />
             <div className="cwi-composer-row">
@@ -856,7 +1187,7 @@ export function WorkItemViewer(): ReactElement {
                 disabled={draft.trim() === '' || submitting}
                 onClick={() => { void submit() }}
               >
-                {submitting ? '提交中…' : '提交批注'}
+                {submitting ? '提交中…' : (replyTarget === null ? '提交批注' : '提交回复')}
               </button>
             </div>
             {pendingAttachments.length === 0 ? null : (

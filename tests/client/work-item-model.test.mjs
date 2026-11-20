@@ -260,3 +260,58 @@ test('save state labels name every phase', () => {
   assert.equal(model.saveStateLabel('conflict', 12), '冲突')
   assert.equal(model.saveStateLabel('failed', 12), '保存失败')
 })
+
+
+test('dispatchForThread picks the newest matching batch and flags retries', () => {
+  const thread = model.foldThreads([comment({ commentId: 'comment-1', threadId: 'comment-1' })])[0]
+  const dispatches = [
+    { dispatchId: 'dispatch-1', state: 'replied', commentIds: ['comment-1'], errorCode: null, updatedAt: '2026-02-01T00:00:00.000Z' },
+    { dispatchId: 'dispatch-2', state: 'failed', commentIds: ['comment-1'], errorCode: 'artifact/dispatch-unavailable', updatedAt: '2026-02-02T00:00:00.000Z' },
+    { dispatchId: 'dispatch-3', state: 'queued', commentIds: ['comment-9'], errorCode: null, updatedAt: '2026-02-03T00:00:00.000Z' },
+  ]
+  const dispatch = model.dispatchForThread(thread, dispatches)
+  assert.equal(dispatch.dispatchId, 'dispatch-2')
+  assert.equal(model.dispatchForThread(thread, []), null)
+  assert.equal(model.isRetryableDispatch(dispatch), true)
+  assert.equal(model.isRetryableDispatch({ ...dispatch, state: 'replied' }), false)
+  assert.equal(model.isRetryableDispatch({ ...dispatch, state: 'queued' }), false)
+})
+
+
+test('markdownLine strips common markers without touching other text', () => {
+  assert.deepEqual(model.markdownLine('# Title'), { kind: 'h1', text: 'Title' })
+  assert.deepEqual(model.markdownLine('## Sub'), { kind: 'h2', text: 'Sub' })
+  assert.deepEqual(model.markdownLine('### Deep'), { kind: 'h3', text: 'Deep' })
+  assert.deepEqual(model.markdownLine('- item'), { kind: 'list', text: 'item' })
+  assert.deepEqual(model.markdownLine('> quoted'), { kind: 'quote', text: 'quoted' })
+  assert.deepEqual(model.markdownLine('plain'), { kind: 'text', text: 'plain' })
+})
+
+test('persisted drafts round-trip, drop malformed entries, and clear', () => {
+  const storage = new Map()
+  const savedWindow = globalThis.window
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => { storage.set(key, value) },
+      removeItem: (key) => { storage.delete(key) },
+    },
+  }
+  try {
+    model.savePersistedDraft('artifact-1', { content: 'draft', baseRevision: 3, baseVersion: 'v3', savedAt: 'now' })
+    assert.deepEqual(model.readPersistedDraft('artifact-1'), { content: 'draft', baseRevision: 3, baseVersion: 'v3', savedAt: 'now' })
+    storage.set('cowork.work-item.draft.' + 'artifact-2', '{"content":1}')
+    assert.equal(model.readPersistedDraft('artifact-2'), null)
+    assert.equal(storage.has('cowork.work-item.draft.' + 'artifact-2'), false)
+    model.removePersistedDraft('artifact-1')
+    assert.equal(model.readPersistedDraft('artifact-1'), null)
+  } finally {
+    globalThis.window = savedWindow
+  }
+})
+
+test('formatBytes names bytes, kilobytes, and megabytes', () => {
+  assert.equal(model.formatBytes(12), '12 B')
+  assert.equal(model.formatBytes(2048), '2.0 KB')
+  assert.equal(model.formatBytes(2 * 1024 * 1024), '2.0 MB')
+})

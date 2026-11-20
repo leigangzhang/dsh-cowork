@@ -21,6 +21,7 @@ const NOTES_PATH = 'notes.md'
 const QUEUED_COMMENT = 'comment-recovery-queued'
 const STALE_ARTIFACT = 'artifact-00000000-0000-4000-8000-000000000001'
 const QUEUED_ARTIFACT = 'artifact-00000000-0000-4000-8000-000000000002'
+const FAILED_ARTIFACT = 'artifact-00000000-0000-4000-8000-000000000003'
 
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
 export async function runArtifactRecovery(ctx) {
@@ -92,7 +93,7 @@ export async function runArtifactRecovery(ctx) {
       files: [fileEntry],
       primaryPath: NOTES_PATH,
       revision: 1,
-      commentCount: artifactId === QUEUED_ARTIFACT ? 1 : 0,
+      commentCount: artifactId === QUEUED_ARTIFACT || artifactId === FAILED_ARTIFACT ? 1 : 0,
       attachmentCount: 0,
       activeDispatch,
       createdAt,
@@ -126,10 +127,11 @@ export async function runArtifactRecovery(ctx) {
     }
     await writeArtifact(STALE_ARTIFACT, 'sent', false)
     await writeArtifact(QUEUED_ARTIFACT, 'queued', true)
+    await writeArtifact(FAILED_ARTIFACT, 'failed', true)
 
     // The first artifact read creates the runtime and runs recovery.
     const list = await ctx.client.panelGet(`/api/cowork.artifact.list?sessionId=${encodeURIComponent(sessionId)}`)
-    ctx.check('the seeded work items list', list.status === 200 && list.body?.items?.length === 2, String(list.body?.items?.length))
+    ctx.check('the seeded work items list', list.status === 200 && list.body?.items?.length === 3, String(list.body?.items?.length))
     const detailOf = (artifactId) => ctx.client.panelGet(
       `/api/cowork.artifact.detail?sessionId=${encodeURIComponent(sessionId)}&artifactId=${encodeURIComponent(artifactId)}`,
     )
@@ -149,6 +151,26 @@ export async function runArtifactRecovery(ctx) {
     )
     const reply = comments.body?.events?.find((event) => event.type === 'reply' && event.body === '恢复后的回复')
     ctx.check('the rescheduled batch has a model reply', reply !== undefined, String(reply?.threadId))
+
+    // A terminal failure is retryable through the panel route, not only by a
+    // fresh comment: the same batch is re-enqueued and the model replies.
+    const failedDetail = await detailOf(FAILED_ARTIFACT)
+    const failedComments = await ctx.client.panelGet(
+      `/api/cowork.artifact.comments?sessionId=${encodeURIComponent(sessionId)}&artifactId=${encodeURIComponent(FAILED_ARTIFACT)}`,
+    )
+    ctx.check('the failed batch still has its comment', (failedComments.body?.events?.length ?? 0) === 1, String(failedComments.body?.events?.length))
+    const failedDispatchId = failedDetail.body?.record?.activeDispatch?.dispatchId ?? `dispatch-failed-${FAILED_ARTIFACT}`
+    const retried = await ctx.client.panelPost('/api/cowork.artifact.dispatch.retry', {
+      sessionId,
+      artifactId: FAILED_ARTIFACT,
+      dispatchId: failedDispatchId,
+    })
+    ctx.check('the failed batch is accepted for retry', retried.status === 200, `${retried.status}:${JSON.stringify(retried.body?.error ?? '')}`)
+    const retryReplied = await ctx.waitUntil('the retried batch to be replied', async () => {
+      const detail = await detailOf(FAILED_ARTIFACT)
+      return detail.body?.record?.activeDispatch?.state === 'replied' ? detail.body.record : undefined
+    }, { timeoutMs: 30_000 })
+    ctx.check('the retried batch reached replied', retryReplied.activeDispatch.state === 'replied', retryReplied.activeDispatch.state)
 
     // The stale batch must not have prompted the session again.
     const prompts = ctx.model.calls.filter((call) => call.sessionId === sessionId).map((call) => call.prompt)

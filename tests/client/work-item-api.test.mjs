@@ -51,8 +51,8 @@ test('the reads carry the expected query parameters', async () => {
   assert.deepEqual(calls.map((call) => call.input), [
     '/api/cowork.artifact.detail?sessionId=session-1&artifactId=artifact-1',
     '/api/cowork.artifact.file?sessionId=session-1&artifactId=artifact-1&path=docs%2Fspec.md',
-    '/api/cowork.artifact.comments?sessionId=session-1&artifactId=artifact-1',
-    '/api/cowork.artifact.comments?sessionId=session-1&artifactId=artifact-1&after=event-2',
+    '/api/cowork.artifact.comments?sessionId=session-1&artifactId=artifact-1&limit=200',
+    '/api/cowork.artifact.comments?sessionId=session-1&artifactId=artifact-1&after=event-2&limit=200',
   ])
 })
 
@@ -76,6 +76,19 @@ test('a new comment omits dispatch (the host default is delivery) and sends only
   assert.equal(anchored.anchor.startLine, 2)
   assert.equal(anchored.attachments.length, 1)
   assert.equal('dispatch' in anchored, false)
+
+  await api.comment({ sessionId: 's', artifactId: 'a', body: 'reply', threadId: 'comment-1' })
+  const reply = JSON.parse(calls[2].init.body)
+  assert.equal(reply.threadId, 'comment-1')
+  assert.equal('anchor' in reply, false)
+})
+
+test('retryDispatch posts the batch id to its own route', async () => {
+  const { calls, impl } = fakeFetch(() => ok({ ok: true, dispatch: { dispatchId: 'd2' }, record: {} }))
+  const api = createWorkItemApi(impl)
+  await api.retryDispatch({ sessionId: 's', artifactId: 'a', dispatchId: 'd1' })
+  assert.equal(calls[0].input, '/api/cowork.artifact.dispatch.retry')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionId: 's', artifactId: 'a', dispatchId: 'd1' })
 })
 
 test('resolve and status post their bodies to the contract routes', async () => {

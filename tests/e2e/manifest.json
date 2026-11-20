@@ -146,7 +146,8 @@
         "tool:cowork_artifact_reply",
         "route:/api/cowork.artifact.list GET",
         "route:/api/cowork.artifact.detail GET",
-        "route:/api/cowork.artifact.comments GET"
+        "route:/api/cowork.artifact.comments GET",
+        "route:/api/cowork.artifact.dispatch.retry POST"
       ]
     }
   ]

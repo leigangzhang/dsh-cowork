@@ -208,3 +208,73 @@ export function deriveLineAnchor(
     },
   }
 }
+
+/** Outcome of relocating one thread after a file edit. */
+export interface AnchorRelocation {
+  readonly status: 'unchanged' | 'moved' | 'stale'
+  readonly anchor: ArtifactAnchor
+}
+
+/** One candidate occurrence of the quoted lines in the new content. */
+interface QuoteCandidate {
+  readonly start: number
+  readonly end: number
+  readonly contextBefore: boolean
+  readonly contextAfter: boolean
+}
+
+/**
+ * Re-anchor a line-range comment after its file changed.
+ *
+ * The quote is the primary key: it is searched first within 20 lines of the old
+ * position, then in the whole file. One line of stored context on each side
+ * breaks ties. A quote found in several equally good places is reported
+ * `stale` rather than guessed, and an unchanged position needs no new event.
+ */
+export function relocateLineAnchor(content: string, anchor: ArtifactAnchor): AnchorRelocation {
+  if (anchor.kind !== 'line-range') return { status: 'unchanged', anchor }
+  const lines = contentLines(content)
+  const quoteLines = anchor.quote === '' ? [] : anchor.quote.split('\n')
+  if (quoteLines.length === 0) return { status: 'stale', anchor }
+  const candidates: QuoteCandidate[] = []
+  for (let start = 0; start + quoteLines.length <= lines.length; start += 1) {
+    let matches = true
+    for (let offset = 0; offset < quoteLines.length; offset += 1) {
+      if (lines[start + offset] !== quoteLines[offset]) {
+        matches = false
+        break
+      }
+    }
+    if (!matches) continue
+    candidates.push({
+      start: start + 1,
+      end: start + quoteLines.length,
+      contextBefore: anchor.contextBefore !== undefined && start > 0 && lines[start - 1] === anchor.contextBefore,
+      contextAfter: anchor.contextAfter !== undefined
+        && start + quoteLines.length < lines.length
+        && lines[start + quoteLines.length] === anchor.contextAfter,
+    })
+  }
+  if (candidates.length === 0) return { status: 'stale', anchor }
+  const near = candidates.filter((candidate) => Math.abs(candidate.start - anchor.startLine) <= 20)
+  const pool = near.length > 0 ? near : candidates
+  const contextScore = (candidate: QuoteCandidate): number =>
+    (candidate.contextBefore ? 1 : 0) + (candidate.contextAfter ? 1 : 0)
+  const best = Math.max(...pool.map(contextScore))
+  const winners = pool.filter((candidate) => contextScore(candidate) === best)
+  if (winners.length !== 1) return { status: 'stale', anchor }
+  const winner = winners[0]!
+  const derived = deriveLineAnchor(content, anchor.path, winner.start, winner.end)
+  if (!derived.ok) return { status: 'stale', anchor }
+  // A stored anchor may omit context (older comments or a client that only
+  // sent lines); an absent context cannot prove the thread moved. Only a
+  // present, different context counts as evidence of a relocation.
+  const sameContext = (stored: string | undefined, current: string | undefined): boolean =>
+    stored === undefined || stored === current
+  const unchanged = derived.anchor.startLine === anchor.startLine
+    && derived.anchor.endLine === anchor.endLine
+    && derived.anchor.quote === anchor.quote
+    && sameContext(anchor.contextBefore, derived.anchor.contextBefore)
+    && sameContext(anchor.contextAfter, derived.anchor.contextAfter)
+  return { status: unchanged ? 'unchanged' : 'moved', anchor: derived.anchor }
+}

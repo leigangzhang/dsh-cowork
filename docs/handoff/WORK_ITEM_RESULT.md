@@ -33,6 +33,16 @@
 - 附件安全：服务端按存储字节重新推导类型/大小/SHA-256（不信任评论或模型给的 ref），文本附件强制 `Content-Disposition: attachment` 与 CSP sandbox；图片只允许 PNG/JPEG/WebP/GIF。
 - 上限与回放：评论 5000 条上限在写锁内执行；SSE 回放也按 `artifactId` 过滤。
 
+## A+B+C 审查修复（2026-11-20）
+
+独立审查（设计一致性 + 高危第二意见）提出 A 正确性、B 草稿安全、C 设计对齐三组问题，本轮全部落地：
+
+- A：跨会话 turn 绑定清理按 session 过滤；恢复读取每个 artifact 的全部 dispatch 行（不只最后一行）；SSE 先按 artifact 过滤再截断，落后/截断发 reset，客户端 open/reset 重取文件；reconcile 只在记录仍是观察版本时应用，避免并发保存被回退；回复工具校验 commentIds 属于当前批次；非法 `after` 返回 400。
+- B：未保存草稿写入 localStorage（带 baseRevision/baseVersion），关闭、切会话、切工作项、刷新后重新打开均恢复；保存成功/加载最新后清理；失败草稿保留。
+- C：文件保存/对账后按 quote+context 重定位批注（±20 行优先、歧义标 stale），写 `anchor-moved` + `comment.updated`；用户可在线程内回复；线程卡显示投递状态/错误与重试入口（新增 `POST /api/cowork.artifact.dispatch.retry`）；dispatcher 进入 in-progress、终态回 needs-feedback，查看器有“确认完成”；查看器补文档/版本/附件 tabs、阅读/源码切换、行内 pin、批注卡定位、已解决折叠、附件元数据/下载；列表卡补状态与来源、已确认组默认折叠、错误保留旧列表、骨架与空态动作；评论请求取满 200；dispatch prompt 带 quote/context 且有图片总字节上限。
+
+仍未做（已记 KI）：模型回复不能携带新附件（KI-54，宿主无二进制读取）、附件无删除/重命名（KI-55）；进程级重启/失败注入、真实模型 guard 拒绝重试见 KI-53。
+
 ## 验证证据
 
 均在最终代码树上实际运行（`agent/work-item-docs-facts` HEAD）：

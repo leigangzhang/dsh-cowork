@@ -19,11 +19,11 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 const { presetDefinitions } = await import('../../src/platform/presets.ts')
 
-test('the public surface stays at 25 tools, 22 routes, 3 presets, and 3 exports', () => {
+test('the public surface stays at 25 tools, 23 routes, 3 presets, and 3 exports', () => {
   assert.equal(BUSINESS_TOOL_ORDER.length, 25)
   assert.equal(new Set(BUSINESS_TOOL_ORDER).size, 25, 'tool names must be unique')
-  assert.equal(PANEL_ROUTES.length, 22)
-  assert.equal(new Set(PANEL_ROUTES.map(([path]) => path)).size, 22, 'route paths must be unique')
+  assert.equal(PANEL_ROUTES.length, 23)
+  assert.equal(new Set(PANEL_ROUTES.map(([path]) => path)).size, 23, 'route paths must be unique')
   assert.equal(presetDefinitions().length, 3)
 
   const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))

@@ -472,7 +472,7 @@ test('the reply tool closes the in-flight dispatch', async () => {
         async appendCommentUnlocked(event) { replies.push(event) },
       },
       dispatch: {
-        inFlightFor() { return { dispatchId: 'dispatch-1' } },
+        inFlightFor() { return { dispatchId: 'dispatch-1', commentIds: ['comment-1'] } },
         async markReplied() { return true },
       },
     })
@@ -484,6 +484,28 @@ test('the reply tool closes the in-flight dispatch', async () => {
     assert.equal(reply.ok, true)
     assert.equal(reply.replied, 1)
     assert.equal(reply.dispatchId, 'dispatch-1')
+  })
+})
+
+test('the reply tool refuses a reply when no batch is in flight', async () => {
+  await withRepo(async (repoPath) => {
+    const seeded = await seedProject(repoPath, [topic()])
+    const projectId = (await seeded.readIndex()).projectId
+    const runtime = fakeRuntime({
+      store: {
+        ...fakeRuntime().store,
+        async readRecord() { return makeRecord({ artifactId: 'artifact-1', ownerSessionId: MASTER, projectId }) },
+        async readComments() { return [makeComment({ artifactId: 'artifact-1', commentId: 'comment-1', threadId: 'comment-1' })] },
+      },
+      dispatch: { inFlightFor() { return null } },
+    })
+    const { deps } = baseDeps({ runtimeFor: () => runtime })
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const reply = await host.registry.get('cowork_artifact_reply')
+      .execute({ artifactId: 'artifact-1', commentIds: ['comment-1'], body: 'late' }, fakeExec(MASTER, repoPath))
+    assert.equal(reply.ok, false)
+    assert.equal(reply.error.code, 'artifact/dispatch-not-found')
   })
 })
 

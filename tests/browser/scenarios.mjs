@@ -11,6 +11,9 @@ const PATH_INBOX_RESOLVE = '/api/cowork.inbox.resolve'
 const PATH_INBOX_OPEN = '/api/cowork.inbox.open'
 const PATH_OVERVIEW = '/api/cowork.overview'
 
+/** Thread id created by the chain scenario; resolved cards hide their body. */
+let chainThreadId = null
+
 /** Wait for one POST response by pathname. */
 function waitForPost(page, path) {
   return page.waitForResponse((response) => {
@@ -653,21 +656,22 @@ async function scenarioWorkItemChain(page) {
   const created = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '浏览器 lane 的新批注' })
   await created.waitFor({ timeout: 10_000 })
   assert.equal(await created.getAttribute('data-resolved'), 'false')
+  chainThreadId = await created.getAttribute('data-thread-id')
 
   // Resolve it: the server appends one resolve row and the card folds.
   await created.getByTestId('cwi-thread-toggle').click()
-  await page.waitForFunction(() => {
-    const threads = [...document.querySelectorAll('[data-testid="cwi-thread"]')]
-    return threads.some((thread) => thread.textContent?.includes('浏览器 lane 的新批注')
-      && thread.getAttribute('data-resolved') === 'true')
-  })
+  const resolvedCard = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
+  await page.waitForFunction((threadId) => {
+    const thread = document.querySelector(`[data-testid="cwi-thread"][data-thread-id="${threadId}"]`)
+    return thread?.getAttribute('data-resolved') === 'true'
+  }, chainThreadId)
 
   // Back to the conversation, then reopen: the server serves the same thread.
   await page.getByTestId('cwi-back').click()
   const list = await openWorkItemTab(page)
   await list.waitFor()
   await card.click()
-  const reopened = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '浏览器 lane 的新批注' })
+  const reopened = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
   await reopened.waitFor({ timeout: 10_000 })
   assert.equal(await reopened.getAttribute('data-resolved'), 'true')
   await page.getByTestId('cwi-back').click()
@@ -783,11 +787,83 @@ async function scenarioWorkItemEdit(page, fixtures) {
   await page.getByTestId('cwi-edit').click()
   await editor.waitFor({ timeout: 10_000 })
   assert.match(await editor.inputValue(), /失败后仍需保留的草稿/)
+  // Let the retained draft save so later scenarios open this work item read-only.
+  await page.unroute('**/api/cowork.artifact.edit*')
+  const recoveredSave = waitForEdit()
+  assert.equal((await recoveredSave).status(), 200)
+  await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
+/**
+ * Draft safety and viewer controls: a failed save survives a close/reopen,
+ * then the toolbar tabs, mode toggle, rail toggle, pins, and thread focus work.
+ */
+async function scenarioWorkItemDraft(page) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-edit').click()
+  const editor = page.getByTestId('cwi-editor')
+  await editor.waitFor({ timeout: 10_000 })
+
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'draft save boom' } }),
+    })
+  })
+  await editor.fill(`${await editor.inputValue()}未保存草稿恢复验证\n`)
+  await page.getByText(/保存失败/).first().waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-back').click()
   await page.getByText('还有未保存内容').waitFor({ timeout: 5_000 })
   await page.getByTestId('cwi-back').click()
   await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
   await page.unroute('**/api/cowork.artifact.edit*')
+
+  await openWorkItemTab(page)
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+  assert.match(await page.getByTestId('cwi-editor').inputValue(), /未保存草稿恢复验证/)
+  const saveResponse = page.waitForResponse((response) => {
+    try {
+      return new URL(response.url()).pathname === '/api/cowork.artifact.edit'
+        && response.request().method() === 'POST'
+    } catch {
+      return false
+    }
+  })
+  assert.equal((await saveResponse).status(), 200)
+  await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-edit').click()
+
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '版本' }).click()
+  await page.getByTestId('cwi-versions').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '附件' }).click()
+  await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '文档' }).click()
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+
+  const mode = page.getByTestId('cwi-mode')
+  const before = await mode.getAttribute('data-mode')
+  await mode.click()
+  assert.notEqual(await mode.getAttribute('data-mode'), before)
+
+  await page.getByTestId('cwi-rail-toggle').click()
+  assert.equal(await page.getByTestId('cwi-rail').isVisible(), false)
+  await page.getByTestId('cwi-rail-toggle').click()
+  await page.getByTestId('cwi-rail').waitFor({ timeout: 10_000 })
+
+  await page.getByTestId('cwi-line-pin').first().waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-thread-focus').first().click()
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-back').click()
   await backToTopicTab(page)
 }
 
@@ -923,7 +999,7 @@ async function scenarioWorkItemRestore(page) {
   // unmount the session-scoped tab body.
   assert.match(await list.innerText(), /浏览器交付物/)
   await card.click()
-  const thread = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '浏览器 lane 的新批注' })
+  const thread = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
   await thread.waitFor({ timeout: 10_000 })
   assert.equal(await thread.getAttribute('data-resolved'), 'true')
   await page.getByTestId('cwi-back').click()
@@ -1001,6 +1077,7 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioPanelTabs(page)
   await scenarioWorkItemChain(page)
   await scenarioWorkItemEdit(page, fixtures)
+  await scenarioWorkItemDraft(page)
   await scenarioWorkItemLive(page, fixtures)
   await scenarioWorkItemError(page)
   await scenarioFilterSetup(page)

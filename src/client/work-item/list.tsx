@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { ArtifactListResponse, ArtifactSummaryV1 } from '../../panel/artifact-contract.js'
+import { ARTIFACT_STATUS_LABELS, type ArtifactListResponse, type ArtifactSummaryV1 } from '../../panel/artifact-contract.js'
 import { useClientServices } from '../contracts.ts'
 import { WorkItemApiError, workItemApi } from './api.ts'
 import {
@@ -18,6 +18,7 @@ import {
   formatRelativeTime,
   groupArtifacts,
   typeLabel,
+  type WorkItemGroup,
   WORK_ITEM_FILTERS,
   type WorkItemFilter,
 } from './model.ts'
@@ -57,6 +58,9 @@ function WorkItemCard({
     >
       <span className="cwi-card-title">{item.title}</span>
       <span className="cwi-card-meta">
+        <span className="cwi-chip" data-testid="cwi-card-status" data-status={item.status}>
+          {ARTIFACT_STATUS_LABELS[item.status]}
+        </span>
         <span className="cwi-chip">{typeLabel(item.type)}</span>
         {dispatch === null ? null : (
           <span className="cwi-chip" data-tone={dispatch.tone} data-testid="cwi-card-dispatch">
@@ -68,7 +72,38 @@ function WorkItemCard({
         <span>{formatRelativeTime(item.updatedAt, now)}</span>
       </span>
       <span className="cwi-path">{item.primaryPath}</span>
+      <span className="cwi-card-meta" data-testid="cwi-card-source">来源：{item.ownerSessionId}</span>
     </button>
+  )
+}
+
+/** One status group; a confirmed group starts folded. */
+function WorkItemGroupSection({
+  group,
+  now,
+  onOpen,
+}: {
+  readonly group: WorkItemGroup
+  readonly now: Date
+  readonly onOpen: (item: ArtifactSummaryV1) => void
+}): ReactElement {
+  const [expanded, setExpanded] = useState(!group.collapsedByDefault)
+  return (
+    <div data-testid="cwi-group" data-group={group.status} data-collapsed={expanded ? 'false' : 'true'}>
+      <button
+        type="button"
+        className="cwi-group-title"
+        data-testid="cwi-group-toggle"
+        aria-expanded={expanded}
+        onClick={() => { setExpanded(value => !value) }}
+      >
+        <span>{expanded ? '▾' : '▸'} {group.label}</span>
+        <span>{group.items.length}</span>
+      </button>
+      {expanded ? group.items.map(item => (
+        <WorkItemCard key={item.artifactId} item={item} now={now} onOpen={onOpen} />
+      )) : null}
+    </div>
   )
 }
 
@@ -94,7 +129,6 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
       setNow(new Date())
     }).catch((reason: unknown) => {
       if (!active) return
-      setData(null)
       setError(reason)
       setPhase('error')
     })
@@ -117,13 +151,16 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
   if (phase === 'loading') {
     return (
       <div className="cwi-list" data-testid="cwi-list" data-phase="loading" aria-busy="true">
-        <div className="cwi-skeleton" />
-        <div className="cwi-skeleton" />
-        <div className="cwi-skeleton" />
+        {[0, 1, 2].map((index) => (
+          <div key={index} className="cwi-skeleton-card" data-testid="cwi-skeleton">
+            <div className="cwi-skeleton cwi-skeleton-title" />
+            <div className="cwi-skeleton cwi-skeleton-line" />
+          </div>
+        ))}
       </div>
     )
   }
-  if (phase === 'error' || data === null) {
+  if (data === null) {
     return (
       <div className="cwi-list" data-testid="cwi-list" data-phase="error">
         <div className="cwi-error" data-testid="cwi-list-error">
@@ -139,6 +176,7 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
         <div className="cwi-empty" data-testid="cwi-list-empty">
           还没有工作项。让主题会话用 cowork_artifact_create 登记项目里的交付物后，
           它们会出现在这里。
+          <div><button type="button" className="cwi-secondary" onClick={retry}>刷新</button></div>
         </div>
       </div>
     )
@@ -163,18 +201,16 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
         ))}
       </div>
       {openError === null ? null : <div className="cwi-error" role="alert">{openError}</div>}
+      {phase === 'error' ? (
+        <div className="cwi-error" role="alert" data-testid="cwi-list-error">
+          刷新失败：{messageOf(error)}
+          <div><button type="button" className="cwi-secondary" onClick={retry}>重试</button></div>
+        </div>
+      ) : null}
       {groups.length === 0 ? (
         <div className="cwi-empty">这个筛选下没有工作项。</div>
       ) : groups.map((group) => (
-        <div key={group.status} data-testid="cwi-group" data-group={group.status}>
-          <div className="cwi-group-title">
-            <span>{group.label}</span>
-            <span>{group.items.length}</span>
-          </div>
-          {group.items.map(item => (
-            <WorkItemCard key={item.artifactId} item={item} now={now} onOpen={open} />
-          ))}
-        </div>
+        <WorkItemGroupSection key={group.status} group={group} now={now} onOpen={open} />
       ))}
       {data.truncated ? <div className="cwi-empty">仅显示最近 200 个工作项。</div> : null}
     </div>

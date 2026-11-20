@@ -128,6 +128,28 @@ test('a cursor ahead of the project gets a reset frame', async () => {
   controller.abort()
 })
 
+test('a trimmed log sends reset before the surviving replay', async () => {
+  const hub = new artifactEvents.ArtifactEventHub()
+  const controller = new AbortController()
+  const response = artifactEvents.openArtifactEventStream({
+    hub,
+    source: {
+      readEvents: async () => [],
+      lastEventSeq: async () => 9,
+      readEventsWindow: async () => ({ events: [event(9)], truncated: true, newest: 9 }),
+    },
+    lastEventId: 2,
+    signal: controller.signal,
+    heartbeatMs: 60_000,
+  })
+  const reader = response.body.getReader()
+  const text = await readUntil(reader, (buffer) => buffer.includes(': ready'))
+  assert.match(text, /event: reset/)
+  assert.match(text, /id: 9/)
+  controller.abort()
+  await reader.read()
+})
+
 test('without a cursor the whole retained window replays', async () => {
   const hub = new artifactEvents.ArtifactEventHub()
   const controller = new AbortController()

@@ -27,6 +27,9 @@ export const ARTIFACT_FILE_PATH = '/api/cowork.artifact.file'
 /** Exact Fetch-route path: comment threads of one work item. */
 export const ARTIFACT_COMMENTS_PATH = '/api/cowork.artifact.comments'
 
+/** Exact Fetch-route path: re-enqueue one failed delivery batch. */
+export const ARTIFACT_DISPATCH_RETRY_PATH = '/api/cowork.artifact.dispatch.retry'
+
 /** Exact Fetch-route path: append one comment or one reply. */
 export const ARTIFACT_COMMENT_PATH = '/api/cowork.artifact.comment'
 
@@ -412,6 +415,7 @@ export const ARTIFACT_ERROR_CODES = [
   'artifact/dispatch-queue-full',
   'artifact/dispatch-unavailable',
   'artifact/dispatch-not-found',
+  'artifact/dispatch-not-retryable',
   'artifact/fs-unavailable',
   'artifact/io-error',
   'artifact/limit-reached',
@@ -443,6 +447,7 @@ export const ARTIFACT_ERROR_STATUS: Readonly<Record<ArtifactErrorCode, number>> 
   'artifact/dispatch-queue-full': 429,
   'artifact/dispatch-unavailable': 501,
   'artifact/dispatch-not-found': 404,
+  'artifact/dispatch-not-retryable': 409,
   'artifact/fs-unavailable': 501,
   'artifact/io-error': 500,
   'artifact/limit-reached': 409,
@@ -549,12 +554,23 @@ export interface ArtifactListResponse {
   readonly truncated: boolean
 }
 
+/** The delivery facts one thread card shows without loading the prompt log. */
+export interface ArtifactDispatchSummary {
+  readonly dispatchId: string
+  readonly state: DispatchState
+  readonly commentIds: readonly string[]
+  readonly errorCode: string | null
+  readonly updatedAt: string
+}
+
 /** Body of a successful `GET artifact.detail`. */
 export interface ArtifactDetailResponse {
   readonly ok: true
   readonly record: ArtifactRecordV1
   /** Last project-event sequence the viewer has seen. */
   readonly eventsSeq: number
+  /** Latest row of every batch that carried a comment of this work item. */
+  readonly dispatches: readonly ArtifactDispatchSummary[]
 }
 
 /** Body of a successful text `GET artifact.file`. */
@@ -591,6 +607,13 @@ export interface ArtifactCommentResponse {
 export interface ArtifactDispatchError {
   readonly code: string
   readonly message: string
+}
+
+/** Body of a successful `POST artifact.dispatch.retry`. */
+export interface ArtifactDispatchRetryResponse {
+  readonly ok: true
+  readonly dispatch: DispatchRecordV1
+  readonly record: ArtifactRecordV1
 }
 
 /** Body of a successful `POST artifact.comment.resolve`. */

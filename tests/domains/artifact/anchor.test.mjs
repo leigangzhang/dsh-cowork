@@ -123,3 +123,31 @@ test('boundQuote keeps short text and caps long text', () => {
   const long = 'x'.repeat(artifactContract.MAX_ARTIFACT_QUOTE_CHARS + 3)
   assert.equal(artifactAnchor.boundQuote(long).length, artifactContract.MAX_ARTIFACT_QUOTE_CHARS)
 })
+
+test('relocateLineAnchor keeps, moves, or marks a line thread stale', () => {
+  const anchor = {
+    kind: 'line-range', path: 'docs/spec.md', startLine: 2, endLine: 2,
+    quote: 'target', contextBefore: 'before', contextAfter: 'after',
+  }
+  const unchanged = artifactAnchor.relocateLineAnchor('before\ntarget\nafter\n', anchor)
+  assert.equal(unchanged.status, 'unchanged')
+  assert.equal(unchanged.anchor.startLine, 2)
+
+  const moved = artifactAnchor.relocateLineAnchor('inserted\nbefore\ntarget\nafter\n', anchor)
+  assert.equal(moved.status, 'moved')
+  assert.equal(moved.anchor.startLine, 3)
+  assert.equal(moved.anchor.contextBefore, 'before')
+
+  const deleted = artifactAnchor.relocateLineAnchor('before\nafter\n', anchor)
+  assert.equal(deleted.status, 'stale')
+  assert.deepEqual(deleted.anchor, anchor)
+
+  const contextFree = { kind: 'line-range', path: 'a.md', startLine: 1, endLine: 1, quote: 'one' }
+  assert.equal(artifactAnchor.relocateLineAnchor('one\ntwo\n', contextFree).status, 'unchanged')
+
+  const ambiguous = artifactAnchor.relocateLineAnchor('target\ntarget\n', anchor)
+  assert.equal(ambiguous.status, 'stale')
+
+  assert.equal(artifactAnchor.relocateLineAnchor('anything', { kind: 'whole', path: 'a.md' }).status, 'unchanged')
+  assert.equal(artifactAnchor.relocateLineAnchor('anything', { ...anchor, quote: '' }).status, 'stale')
+})

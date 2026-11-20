@@ -17,6 +17,7 @@ import {
   MAX_ARTIFACT_PATH_CHARS,
   MAX_ARTIFACT_TITLE_CHARS,
   artifactSummaryOf,
+  type ArtifactAnchor,
   type ArtifactRecordV1,
   type ArtifactType,
   type AttachmentRefV1,
@@ -219,12 +220,16 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
           return toJson(failure('role/forbidden', 'only the owning topic session or the master may read this work item'))
         }
         const events = await runtime.store.readComments(artifactId)
-        const threads = new Map<string, { resolved: boolean; comments: CommentEventV1[] }>()
+        const threads = new Map<string, { resolved: boolean; comments: CommentEventV1[]; anchor: ArtifactAnchor | undefined }>()
         for (const event of events) {
-          const thread = threads.get(event.threadId) ?? { resolved: false, comments: [] }
+          const thread = threads.get(event.threadId) ?? { resolved: false, comments: [], anchor: undefined }
           if (event.type === 'resolve') thread.resolved = true
           else if (event.type === 'reopen') thread.resolved = false
-          else if (event.type === 'create' || event.type === 'reply') thread.comments.push(event)
+          else if (event.type === 'anchor-moved') thread.anchor = event.anchor
+          else if (event.type === 'create' || event.type === 'reply') {
+            thread.comments.push(event)
+            if (event.type === 'create' && event.anchor !== undefined) thread.anchor = event.anchor
+          }
           threads.set(event.threadId, thread)
         }
         const includeResolved = args.includeResolved === true
@@ -234,7 +239,7 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
           .map(([threadId, thread]) => ({
             threadId,
             resolved: thread.resolved,
-            anchor: thread.comments.find((comment) => comment.type === 'create')?.anchor ?? null,
+            anchor: thread.anchor ?? null,
             comments: thread.comments.slice(-20)
               .filter((comment) => comment.type === 'create' || comment.type === 'reply')
               .map((comment) => ({
@@ -308,6 +313,21 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
             return toJson(failure('artifact/not-found', `unknown comment thread: ${commentId}`))
           }
         }
+        const batch = runtime.dispatch?.inFlightFor(artifactId) ?? null
+        if (batch === null) {
+          // A host with a dispatcher only accepts a reply while a batch is in
+          // flight; otherwise the reply would close no batch and could revive
+          // a settled one. A host without a dispatcher keeps the manual path.
+          if (runtime.dispatch !== null) {
+            return toJson(failure('artifact/dispatch-not-found', 'no in-flight annotation batch is waiting for a reply'))
+          }
+        } else {
+          for (const commentId of commentIds) {
+            if (!batch.commentIds.includes(commentId)) {
+              return toJson(failure('artifact/anchor-invalid', `reply ids must belong to the in-flight annotation batch: ${commentId}`))
+            }
+          }
+        }
         const rawAttachments = Array.isArray(args.attachments) ? args.attachments : []
         const attachments: AttachmentRefV1[] = []
         for (const entry of rawAttachments.slice(0, 5)) {
@@ -346,13 +366,8 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
           let saved = record
           for (const event of events) {
             await runtime.store.appendCommentUnlocked(event)
-            saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => {
-              const folded = { ...current }
-              const next = applyCommentEventForTool(folded, now)
-              return (attachments.length > 0 && events[0] === event)
-                ? { ...next, attachmentCount: current.attachmentCount + attachments.length }
-                : next
-            })
+            saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) =>
+              applyCommentEventForTool(current, now))
           }
           const published = []
           for (const event of events) {

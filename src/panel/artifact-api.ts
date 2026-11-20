@@ -19,6 +19,7 @@ import type { PanelFetchRoute } from './api-types.js'
 import {
   ARTIFACT_COMMENT_PATH,
   ARTIFACT_COMMENT_RESOLVE_PATH,
+  ARTIFACT_DISPATCH_RETRY_PATH,
   ARTIFACT_COMMENT_VERSION,
   ARTIFACT_COMMENTS_PATH,
   ARTIFACT_COMMENTS_DEFAULT_LIMIT,
@@ -59,6 +60,8 @@ import {
   type ArtifactPresenceResponse,
   type ArtifactRecordV1,
   type ArtifactDispatchError,
+  type ArtifactDispatchRetryResponse,
+  type ArtifactDispatchSummary,
   type ArtifactStatusResponse,
   type ArtifactUploadResponse,
   type AttachmentRefV1,
@@ -68,7 +71,7 @@ import {
 import type { ArtifactRuntime } from '../platform/artifact-runtime.js'
 import { createEventRow, parseLastEventId, openArtifactEventStream } from '../platform/artifact-events.js'
 import { ArtifactDomainError } from '../domains/artifact/errors.js'
-import { parseArtifactAnchor, deriveLineAnchor } from '../domains/artifact/anchor.js'
+import { parseArtifactAnchor, deriveLineAnchor, relocateLineAnchor } from '../domains/artifact/anchor.js'
 import { isTextMediaType } from '../domains/artifact/paths.js'
 import { reconcileArtifactFile, sha256Hex, sha256HexBytes } from '../platform/artifact-files.js'
 import { mergeText } from '../domains/artifact/merge.js'
@@ -76,6 +79,9 @@ import { attachmentMediaType, isUtf8, sniffImageMediaType } from '../domains/art
 import { parseAttachmentRef } from '../store/artifact-schema.js'
 import { applyCommentEvent, applyStatusAction } from '../domains/artifact/state.js'
 import type { ArtifactStatusAction } from '../domains/artifact/state.js'
+
+/** Recent delivery batches the detail response carries. */
+const DISPATCH_SUMMARY_LIMIT = 50
 
 /** The 1-based line range the conflict UI should highlight for a whole file. */
 function wholeFileRange(content: string): ArtifactConflictRange[] {
@@ -211,44 +217,61 @@ export async function reconcileRecord(
 ): Promise<{ record: ArtifactRecordV1; events: ArtifactEventV1[] }> {
   if (!runtime.fsAvailable) return { record, events: [] }
   const files: Awaited<ReturnType<typeof reconcileArtifactFile>>[] = []
-  const changed: { path: string; revision: number; missing: boolean }[] = []
+  let anyChanged = false
   for (const file of record.files) {
     const result = await reconcileArtifactFile(runtime.files, file)
     files.push(result)
-    if (result.changed) changed.push({ path: result.file.path, revision: result.file.revision, missing: result.file.missing })
+    if (result.changed) anyChanged = true
   }
-  if (changed.length === 0) return { record, events: [] }
+  if (!anyChanged) return { record, events: [] }
+  const sourceRevisions = new Map(record.files.map((file) => [file.path, file.revision]))
   const reconciled = new Map(files.map((entry) => [entry.file.path, entry]))
   const result = await runtime.store.withLock(async () => {
     // Re-read inside the lock so a concurrent comment count or status update is
-    // kept; only the reconciled file entries and the revision are ours.
+    // kept. A file is only replaced when the record still carries the revision
+    // this scan observed; a newer save wins and this observation is discarded.
     const current = await runtime.store.readRecord(record.artifactId)
     if (current === null) {
       throw new ArtifactDomainError('artifact/not-found', `work item is missing: ${record.artifactId}`, record.artifactId)
     }
+    const applied: { path: string; revision: number; missing: boolean }[] = []
+    const nextFiles = current.files.map((file) => {
+      const observed = reconciled.get(file.path)
+      if (observed === undefined || !observed.changed) return file
+      if (file.revision !== sourceRevisions.get(file.path)) return file
+      applied.push({ path: observed.file.path, revision: file.revision + 1, missing: observed.file.missing })
+      return { ...observed.file, revision: file.revision + 1 }
+    })
+    if (applied.length === 0) return { record: current, events: [] as ArtifactEventV1[], applied }
     const next: ArtifactRecordV1 = {
       ...current,
-      files: current.files.map((file) => reconciled.get(file.path)?.file ?? file),
+      files: nextFiles,
       revision: current.revision + 1,
       updatedAt: now.toISOString(),
     }
     const saved = await runtime.store.mutateRecordUnlocked(next.artifactId, () => next)
     const events: ArtifactEventV1[] = []
-    for (const file of changed) {
+    for (const file of applied) {
       events.push(await runtime.store.appendEventUnlocked(
         createEventRow(saved.artifactId, 'file.changed', now, file),
       ))
+      const observed = files.find((candidate) => candidate.file.path === file.path)
+      if (observed !== undefined && observed.text !== null) {
+        const relocated = await relocateAnchorsUnlocked(runtime, saved, file.path, observed.text, now)
+        events.push(...relocated.events)
+      }
     }
     events.push(await runtime.store.appendEventUnlocked(
       createEventRow(saved.artifactId, 'artifact.updated', now, { revision: saved.revision }),
     ))
-    return { record: saved, events }
+    return { record: saved, events, applied }
   })
-  // A snapshot of every observed revision is the merge base a later save
-  // needs; a failed snapshot is logged, never allowed to fail the read.
-  for (const entry of files) {
-    if (entry.text === null) continue
-    const savedFile = result.record.files.find((file) => file.path === entry.file.path)
+  // A snapshot of every applied revision is the merge base a later save needs;
+  // a failed snapshot is logged, never allowed to fail the read.
+  for (const file of result.applied) {
+    const entry = files.find((candidate) => candidate.file.path === file.path)
+    if (entry === undefined || entry.text === null) continue
+    const savedFile = result.record.files.find((candidate) => candidate.path === file.path)
     if (savedFile === undefined) continue
     try {
       await runtime.store.saveRevision(record.artifactId, savedFile.revision, entry.text)
@@ -258,7 +281,7 @@ export async function reconcileRecord(
       void error
     }
   }
-  return result
+  return { record: result.record, events: result.events }
 }
 
 /** Broadcast already-committed events to live subscribers. */
@@ -309,10 +332,18 @@ async function handleDetail(
   const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
   const reconciled = await reconcileRecord(runtime, record, nowOf(ports))
   publishAll(runtime, reconciled.events)
+  const dispatches: ArtifactDispatchSummary[] = (await runtime.store.readDispatches(artifactId)).slice(-DISPATCH_SUMMARY_LIMIT).map((dispatch) => ({
+    dispatchId: dispatch.dispatchId,
+    state: dispatch.state,
+    commentIds: dispatch.commentIds,
+    errorCode: dispatch.errorCode,
+    updatedAt: dispatch.updatedAt,
+  }))
   const response: ArtifactDetailResponse = {
     ok: true,
     record: reconciled.record,
     eventsSeq: await runtime.store.lastEventSeq(),
+    dispatches,
   }
   return kit.jsonResponse(200, response)
 }
@@ -327,6 +358,53 @@ function registeredFile(
     throw new ArtifactDomainError('artifact/path-not-allowed', `path is not registered on this work item: ${path}`, path)
   }
   return file
+}
+
+/** Re-anchor every comment whose file changed, inside the caller's lock. */
+async function relocateAnchorsUnlocked(
+  runtime: ArtifactRuntime,
+  record: ArtifactRecordV1,
+  path: string,
+  content: string,
+  now: Date,
+): Promise<{ rows: CommentEventV1[]; events: ArtifactEventV1[] }> {
+  const comments = await runtime.store.readComments(record.artifactId)
+  const anchors = new Map<string, { anchor: ArtifactAnchor; threadId: string; stale: boolean }>()
+  for (const event of comments) {
+    if (event.type === 'create' && event.anchor !== undefined) {
+      anchors.set(event.commentId, { anchor: event.anchor, threadId: event.threadId, stale: false })
+    } else if (event.type === 'anchor-moved') {
+      const existing = anchors.get(event.commentId)
+      if (existing !== undefined) {
+        anchors.set(event.commentId, { anchor: event.anchor, threadId: existing.threadId, stale: event.anchorStatus === 'stale' })
+      }
+    }
+  }
+  const rows: CommentEventV1[] = []
+  const events: ArtifactEventV1[] = []
+  for (const [commentId, entry] of anchors) {
+    if (entry.stale) continue
+    if (entry.anchor.kind !== 'line-range' || entry.anchor.path !== path) continue
+    const relocated = relocateLineAnchor(content, entry.anchor)
+    if (relocated.status === 'unchanged') continue
+    const row: CommentEventV1 = {
+      version: ARTIFACT_COMMENT_VERSION,
+      eventId: `comment-event-${randomUUID()}`,
+      artifactId: record.artifactId,
+      commentId,
+      threadId: entry.threadId,
+      type: 'anchor-moved',
+      anchor: relocated.anchor,
+      anchorStatus: relocated.status,
+      createdAt: now.toISOString(),
+    }
+    await runtime.store.appendCommentUnlocked(row)
+    rows.push(row)
+    events.push(await runtime.store.appendEventUnlocked(
+      createEventRow(record.artifactId, 'comment.updated', now, { commentId, anchorStatus: relocated.status }),
+    ))
+  }
+  return { rows, events }
 }
 
 /** `GET /api/cowork.artifact.file` — one registered text file. */
@@ -382,9 +460,10 @@ async function handleComments(
   const { runtime } = await openRecord(ports, kit, sessionId, artifactId)
   const events = await runtime.store.readComments(artifactId)
   const after = queryParam(request, 'after')
-  const start = after === null
-    ? 0
-    : events.findIndex((event) => event.eventId === after) + 1
+  if (after !== null && !events.some((event) => event.eventId === after)) {
+    throw kit.fail('request/invalid-query', `after does not name a comment on this work item: ${after}`)
+  }
+  const start = after === null ? 0 : events.findIndex((event) => event.eventId === after) + 1
   const page = events.slice(start, start + limit)
   const response: ArtifactCommentsResponse = {
     ok: true,
@@ -462,9 +541,25 @@ async function handleComment(
     throw kit.fail('request/invalid-body', `body must be at most ${MAX_ARTIFACT_COMMENT_CHARS} characters`)
   }
   const wantsDispatch = body.dispatch === undefined ? true : body.dispatch === true
+  let rootThreadId: string | null = null
+  if (body.threadId !== undefined) {
+    if (typeof body.threadId !== 'string' || body.threadId === '') {
+      throw kit.fail('request/invalid-body', 'body field threadId must be a non-empty string')
+    }
+    if (body.anchor !== undefined) {
+      throw kit.fail('request/invalid-body', 'a reply inherits its thread anchor; do not send anchor')
+    }
+    rootThreadId = body.threadId
+  }
   const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
   const now = nowOf(ports)
-  const anchorResult = await commentAnchor(runtime, record, body.anchor)
+  if (rootThreadId !== null) {
+    const comments = await runtime.store.readComments(artifactId)
+    if (!comments.some((event) => event.type === 'create' && event.commentId === rootThreadId)) {
+      throw new ArtifactDomainError('artifact/not-found', `unknown comment thread: ${rootThreadId}`, rootThreadId)
+    }
+  }
+  const anchorResult = rootThreadId === null ? await commentAnchor(runtime, record, body.anchor) : null
   const attachments = await commentAttachments(runtime, record, body.attachments, kit)
   const commentId = `comment-${randomUUID()}`
   const event: CommentEventV1 = {
@@ -472,8 +567,8 @@ async function handleComment(
     eventId: `comment-event-${randomUUID()}`,
     artifactId,
     commentId,
-    threadId: commentId,
-    type: 'create',
+    threadId: rootThreadId ?? commentId,
+    type: rootThreadId === null ? 'create' : 'reply',
     author: 'user',
     body: text,
     createdAt: now.toISOString(),
@@ -489,13 +584,12 @@ async function handleComment(
     }
     await runtime.store.appendCommentUnlocked(event)
     const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => {
-      const folded = applyCommentEvent(current, event, now).record
-      return folded.attachmentCount === current.attachmentCount && attachments.length === 0
-        ? folded
-        : { ...folded, attachmentCount: current.attachmentCount + attachments.length }
+      // An upload already counted when it was stored; attaching the ref must
+      // not count the same bytes again.
+      return applyCommentEvent(current, event, now).record
     })
     const events = [
-      await runtime.store.appendEventUnlocked(createEventRow(artifactId, 'comment.created', now, { commentId })),
+      await runtime.store.appendEventUnlocked(createEventRow(artifactId, rootThreadId === null ? 'comment.created' : 'reply.created', now, { commentId })),
       await runtime.store.appendEventUnlocked(
         createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
       ),
@@ -529,6 +623,26 @@ async function handleComment(
       ? result.record
       : { ...result.record, activeDispatch: { dispatchId: dispatch.dispatchId, state: dispatch.state, updatedAt: dispatch.updatedAt } },
   }
+  return kit.jsonResponse(200, response)
+}
+
+/** `POST /api/cowork.artifact.dispatch.retry` — retry one failed batch. */
+async function handleDispatchRetry(
+  request: Request,
+  ports: ArtifactApiPorts,
+  kit: ArtifactRouteKit,
+): Promise<Response> {
+  const body = await kit.readJsonBody(request)
+  const sessionId = requireBodyString(body, 'sessionId', kit)
+  const artifactId = requireBodyString(body, 'artifactId', kit)
+  const dispatchId = requireBodyString(body, 'dispatchId', kit)
+  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  if (runtime.dispatch === null) {
+    throw new ArtifactDomainError('artifact/dispatch-unavailable', 'delivery is not configured for this host')
+  }
+  const dispatch = await runtime.dispatch.retry(record, dispatchId)
+  const current = await runtime.store.readRecord(artifactId) ?? record
+  const response: ArtifactDispatchRetryResponse = { ok: true, dispatch, record: current }
   return kit.jsonResponse(200, response)
 }
 
@@ -763,10 +877,12 @@ async function handleEdit(
       await runtime.store.appendEventUnlocked(
         createEventRow(artifactId, 'file.changed', now, { path, revision: nextRevision, merged }),
       ),
-      await runtime.store.appendEventUnlocked(
-        createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
-      ),
     ]
+    const relocated = await relocateAnchorsUnlocked(runtime, saved, path, nextContent, now)
+    events.push(...relocated.events)
+    events.push(await runtime.store.appendEventUnlocked(
+      createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
+    ))
     file = registeredFile(saved, path)
     return { record: saved, events, revision: nextRevision }
   })
@@ -856,10 +972,7 @@ async function handleUpload(
   const artifactId = requireQuery(request, 'artifactId', kit, 'request/invalid-query')
   const name = requireQuery(request, 'name', kit, 'request/invalid-query')
   if (name.length > 200) throw kit.fail('request/invalid-query', 'name must be at most 200 characters')
-  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
-  if (record.attachmentCount >= MAX_ARTIFACT_ATTACHMENTS) {
-    throw new ArtifactDomainError('artifact/limit-reached', `work item already holds ${String(MAX_ARTIFACT_ATTACHMENTS)} attachments`)
-  }
+  const { runtime } = await openRecord(ports, kit, sessionId, artifactId)
   const bytes = await readBodyWithCap(request, MAX_ARTIFACT_ATTACHMENT_BYTES, kit)
   if (bytes.byteLength === 0) throw new ArtifactDomainError('artifact/upload-invalid', 'attachment is empty')
   const mediaType = attachmentMediaType(name, bytes)
@@ -873,11 +986,16 @@ async function handleUpload(
   await runtime.store.saveUpload(artifactId, attachment.attachmentId, bytes)
   const now = nowOf(ports)
   const result = await runtime.store.withLock(async () => {
-    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => ({
-      ...current,
-      attachmentCount: current.attachmentCount + 1,
-      updatedAt: now.toISOString(),
-    }))
+    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => {
+      if (current.attachmentCount >= MAX_ARTIFACT_ATTACHMENTS) {
+        throw new ArtifactDomainError('artifact/limit-reached', `work item already holds ${String(MAX_ARTIFACT_ATTACHMENTS)} attachments`)
+      }
+      return {
+        ...current,
+        attachmentCount: current.attachmentCount + 1,
+        updatedAt: now.toISOString(),
+      }
+    })
     const events = [await runtime.store.appendEventUnlocked(
       createEventRow(artifactId, 'artifact.updated', now, { attachmentId: attachment.attachmentId }),
     )]
@@ -971,6 +1089,7 @@ export function artifactPanelRoutes(
     route(ARTIFACT_FILE_PATH, ['GET'], (request) => handleFile(request, ports, kit)),
     route(ARTIFACT_COMMENTS_PATH, ['GET'], (request) => handleComments(request, ports, kit)),
     route(ARTIFACT_COMMENT_PATH, ['POST'], (request) => handleComment(request, ports, kit)),
+    route(ARTIFACT_DISPATCH_RETRY_PATH, ['POST'], (request) => handleDispatchRetry(request, ports, kit)),
     route(ARTIFACT_COMMENT_RESOLVE_PATH, ['POST'], (request) => handleCommentResolve(request, ports, kit)),
     route(ARTIFACT_STATUS_PATH, ['POST'], (request) => handleStatus(request, ports, kit)),
     route(ARTIFACT_EDIT_PATH, ['POST'], (request) => handleEdit(request, ports, kit)),

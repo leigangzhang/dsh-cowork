@@ -89,11 +89,13 @@ test('a queued batch becomes sent, then follows turn and tool events', async () 
     await waitUntil(async () => (await runtime.store.readLatestDispatch(ARTIFACT))?.state === 'sent', 'sent')
     await dispatcher.onTurnStart('session-1')
     assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'thinking')
+    assert.equal((await runtime.store.readRecord(ARTIFACT)).status, 'in-progress')
     await dispatcher.onToolCall('session-1')
     assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'working')
     assert.equal(await dispatcher.markReplied(dispatch.dispatchId), true)
     assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'replied')
     const stored = await runtime.store.readRecord(ARTIFACT)
+    assert.equal(stored.status, 'needs-feedback')
     assert.equal(stored.activeDispatch.state, 'replied')
     const events = await runtime.store.readEvents()
     assert.ok(events.filter((event) => event.type === 'dispatch.updated').length >= 4)
@@ -271,6 +273,23 @@ test('dispose cancels the pending flush', async () => {
     await new Promise((resolve) => setTimeout(resolve, 30))
     assert.equal(calls.length, 0)
   })
+})
+
+test('the prompt carries the anchor quote and its surrounding lines', () => {
+  const text = buildDispatchPrompt({
+    record: makeRecord(),
+    comments: [makeComment({
+      eventId: 'comment-event-anchor', commentId: 'comment-anchor', threadId: 'comment-anchor',
+      body: 'please fix',
+      anchor: {
+        kind: 'line-range', path: 'docs/spec.md', startLine: 2, endLine: 2,
+        quote: 'body', contextBefore: '# Spec', contextAfter: '',
+      },
+    })],
+    repoPath: '/repo',
+  })
+  assert.match(text, /Quote: body/)
+  assert.match(text, /Before: # Spec/)
 })
 
 test('the prompt text is bounded and names the registered file', async () => {
@@ -611,4 +630,144 @@ test('a flush without a queue is a no-op, and a comment during a flush only mark
     await waitUntil(() => prompts === 2, 'second prompt after reply')
     dispatcher.dispose()
   })
+})
+
+test('turn numbers are per session: ending one session turn keeps another binding', async () => {
+  await withRuntime(async ({ runtime, record, calls }) => {
+    const dispatcher = runtime.dispatch
+    const otherArtifact = 'artifact-22222222-2222-4222-8222-222222222222'
+    const secondRecord = { ...record, artifactId: otherArtifact, ownerSessionId: 'session-2' }
+    await runtime.store.createRecord(secondRecord)
+    await dispatcher.enqueue({ record, commentIds: ['c1'], comments: [comment(1)] })
+    await dispatcher.enqueue({ record: secondRecord, commentIds: ['c2'], comments: [comment(2)] })
+    await waitUntil(() => calls.length === 2, 'both prompts')
+    await waitUntil(async () => (await runtime.store.readLatestDispatch(ARTIFACT))?.state === 'sent', 'first sent')
+    await waitUntil(async () => (await runtime.store.readLatestDispatch(otherArtifact))?.state === 'sent', 'second sent')
+    await dispatcher.onTurnStart('session-1', 1)
+    await dispatcher.onTurnStart('session-2', 1)
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'thinking')
+    assert.equal((await runtime.store.readLatestDispatch(otherArtifact)).state, 'thinking')
+
+    await dispatcher.onTurnEnd('session-1', 1)
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'failed')
+    // Session 2 also has turn 1; its binding must survive session 1's cleanup.
+    assert.equal((await runtime.store.readLatestDispatch(otherArtifact)).state, 'thinking')
+    await dispatcher.onTurnEnd('session-2', 1)
+    assert.equal((await runtime.store.readLatestDispatch(otherArtifact)).state, 'failed')
+  })
+})
+
+test('a bound turn that ends without a reply fails only that batch', async () => {
+  await withRuntime(async ({ runtime, record, calls }) => {
+    const dispatcher = runtime.dispatch
+    await dispatcher.enqueue({ record, commentIds: ['c1'], comments: [comment(1)] })
+    await waitUntil(() => calls.length === 1, 'prompt')
+    await waitUntil(async () => (await runtime.store.readLatestDispatch(ARTIFACT))?.state === 'sent', 'sent')
+    await dispatcher.onTurnStart('session-1', 9)
+    await dispatcher.onTurnEnd('session-1', 9)
+    const latest = await runtime.store.readLatestDispatch(ARTIFACT)
+    assert.equal(latest.state, 'failed')
+    assert.equal(latest.errorCode, 'artifact/reply-missing')
+  })
+})
+
+test('recover replays every queued batch, not only the latest', async () => {
+  await withRuntime(async ({ runtime, record, calls }) => {
+    const dispatcher = runtime.dispatch
+    await runtime.store.appendComment(comment(1))
+    await runtime.store.appendComment(comment(2))
+    const base = {
+      version: 1, artifactId: ARTIFACT, sessionId: 'session-1', attempts: 0,
+      promptRequestId: 'prompt-recovered', errorCode: null,
+    }
+    await runtime.store.appendDispatch({
+      ...base, dispatchId: 'dispatch-1', commentIds: ['comment-1'], state: 'queued',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+    await runtime.store.appendDispatch({
+      ...base, dispatchId: 'dispatch-2', commentIds: ['comment-2'], state: 'queued',
+      createdAt: '2026-01-01T00:00:01.000Z', updatedAt: '2026-01-01T00:00:01.000Z',
+    })
+    const recovering = dispatcher.recover()
+    assert.equal(await dispatcher.recover(), 2)
+    assert.equal(await recovering, 2)
+    await waitUntil(() => calls.length === 1, 'first recovered batch')
+    assert.match(calls[0].content[0].text, /please fix 1/)
+    const first = dispatcher.inFlightFor(ARTIFACT)
+    assert.ok(first)
+    await dispatcher.markReplied(first.dispatchId)
+    await waitUntil(() => calls.length === 2, 'second recovered batch')
+    assert.match(calls[1].content[0].text, /please fix 2/)
+    await waitUntil(async () => {
+      const states = (await runtime.store.readDispatches(ARTIFACT)).map((row) => row.state)
+      return states.includes('replied') && states.includes('sent')
+    }, 'both batches reached a terminal or sent state')
+    const states = (await runtime.store.readDispatches(ARTIFACT)).map((row) => row.state)
+    assert.deepEqual(states.sort(), ['replied', 'sent'])
+  })
+})
+
+test('retry re-enqueues only a failed, blocked, or stale batch', async () => {
+  await withRuntime(async ({ runtime, record }) => {
+    const dispatcher = runtime.dispatch
+    const failed = {
+      version: 1, dispatchId: 'dispatch-failed', artifactId: ARTIFACT, sessionId: 'session-1',
+      commentIds: ['comment-1'], state: 'failed', attempts: 3, promptRequestId: 'request-failed',
+      errorCode: 'artifact/dispatch-unavailable', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    }
+    await runtime.store.appendDispatch(failed)
+    await runtime.store.appendComment(comment(1))
+    const retried = await dispatcher.retry(record, 'dispatch-failed')
+    assert.notEqual(retried.dispatchId, failed.dispatchId)
+    assert.equal(retried.state, 'queued')
+    assert.deepEqual(retried.commentIds, ['comment-1'])
+    await assert.rejects(() => dispatcher.retry(record, 'dispatch-failed'), (error) => error.code === 'artifact/duplicate')
+
+    const replied = { ...failed, dispatchId: 'dispatch-replied', state: 'replied', promptRequestId: 'request-replied' }
+    await runtime.store.appendDispatch(replied)
+    await assert.rejects(() => dispatcher.retry(record, 'dispatch-replied'), (error) => error.code === 'artifact/dispatch-not-retryable')
+    await assert.rejects(() => dispatcher.retry(record, 'dispatch-missing'), (error) => error.code === 'artifact/dispatch-not-found')
+
+    const incomplete = { ...failed, dispatchId: 'dispatch-incomplete', promptRequestId: 'request-incomplete', commentIds: ['comment-missing'] }
+    await runtime.store.appendDispatch(incomplete)
+    await assert.rejects(() => dispatcher.retry(record, 'dispatch-incomplete'), (error) => error.code === 'artifact/corrupt')
+  }, { dispatch: { windowMs: 10_000 } })
+})
+
+
+test('the total image bytes of one prompt are capped', async () => {
+  await withRuntime(async ({ runtime, record, calls }) => {
+    const attachments = [0, 1, 2, 3].map((index) => ({
+      attachmentId: `attachment-${String(index)}`, name: `${String(index)}.png`, mediaType: 'image/png', size: 5 * 1024 * 1024, sha256: 'x',
+    }))
+    for (const attachment of attachments) {
+      await runtime.store.saveUpload(ARTIFACT, attachment.attachmentId, new Uint8Array(attachment.size))
+    }
+    const annotated = makeComment({
+      eventId: 'comment-event-images', commentId: 'comment-images', threadId: 'comment-images',
+      body: 'four images', attachments,
+    })
+    await runtime.dispatch.enqueue({ record, commentIds: ['comment-images'], comments: [annotated] })
+    await waitUntil(() => calls.length === 1, 'prompt')
+    const images = calls[0].content.filter((part) => part.type === 'image')
+    assert.equal(images.length, 1)
+  })
+})
+
+test('a reply-only batch carries its thread anchor context', async () => {
+  const reply = makeComment({
+    eventId: 'comment-event-reply', commentId: 'comment-reply', threadId: 'comment-root',
+    type: 'reply', body: 'what changed?',
+  })
+  const text = buildDispatchPrompt({
+    record: makeRecord(),
+    comments: [reply],
+    repoPath: '/repo',
+    threadAnchors: new Map([['comment-root', {
+      kind: 'line-range', path: 'docs/spec.md', startLine: 2, endLine: 2,
+      quote: 'body', contextBefore: '# Spec',
+    }]]),
+  })
+  assert.match(text, /annotation comment-reply \(lines 2-2\)/)
+  assert.match(text, /Quote: body/)
 })

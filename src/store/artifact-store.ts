@@ -274,6 +274,14 @@ export class ArtifactStore {
     return rows.length === 0 ? null : rows[rows.length - 1]
   }
 
+  /** The last row of every dispatch batch, oldest batch first. */
+  async readDispatches(artifactId: string): Promise<DispatchRecordV1[]> {
+    const rows = await this.readJsonLines(DISPATCH_FILE_NAME, artifactId, parseDispatchRecord)
+    const latest = new Map<string, DispatchRecordV1>()
+    for (const row of rows) latest.set(row.dispatchId, row)
+    return [...latest.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  }
+
   /**
    * Append one project event, assigning the next `seq` under the lock.
    *
@@ -295,8 +303,28 @@ export class ArtifactStore {
 
   /** Event rows after `afterSeq`, capped at the log's line budget. */
   async readEvents(afterSeq = 0): Promise<ArtifactEventV1[]> {
+    return (await this.readEventsWindow(afterSeq)).events
+  }
+
+  /**
+   * The replay window for one stream, with the facts a client needs to detect
+   * a trimmed log. The artifact filter runs before the line cap so one noisy
+   * neighbor cannot evict this work item's own replay.
+   */
+  async readEventsWindow(
+    afterSeq = 0,
+    artifactId?: string,
+  ): Promise<{ events: ArtifactEventV1[]; truncated: boolean; newest: number }> {
     const rows = await this.readJsonLines(EVENTS_FILE_NAME, undefined, parseArtifactEvent)
-    return rows.filter((row) => row.seq > afterSeq).slice(0, ARTIFACT_EVENT_LOG_MAX_LINES)
+    const newest = rows.length === 0 ? 0 : rows[rows.length - 1].seq
+    const firstSeq = rows.length === 0 ? 0 : rows[0].seq
+    const after = rows.filter((row) => row.seq > afterSeq)
+    const filtered = artifactId === undefined ? after : after.filter((row) => row.artifactId === artifactId)
+    return {
+      events: filtered.slice(0, ARTIFACT_EVENT_LOG_MAX_LINES),
+      truncated: afterSeq > 0 && firstSeq > afterSeq + 1,
+      newest,
+    }
   }
 
   /** The newest event sequence of the project, or 0 when the log is empty. */

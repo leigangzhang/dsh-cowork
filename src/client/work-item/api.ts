@@ -9,8 +9,10 @@
 import {
   ARTIFACT_COMMENT_PATH,
   ARTIFACT_COMMENT_RESOLVE_PATH,
+  ARTIFACT_COMMENTS_MAX_LIMIT,
   ARTIFACT_COMMENTS_PATH,
   ARTIFACT_DETAIL_PATH,
+  ARTIFACT_DISPATCH_RETRY_PATH,
   ARTIFACT_EDIT_PATH,
   ARTIFACT_FILE_PATH,
   ARTIFACT_ATTACHMENT_PATH,
@@ -19,6 +21,7 @@ import {
   ARTIFACT_UPLOAD_PATH,
   ARTIFACT_STATUS_PATH,
   type ArtifactAnchor,
+  type ArtifactDispatchRetryResponse,
   type ArtifactCommentResolveResponse,
   type ArtifactCommentResponse,
   type ArtifactCommentsResponse,
@@ -54,6 +57,8 @@ export interface CommentInput {
   readonly artifactId: string
   readonly body: string
   readonly anchor?: ArtifactAnchor
+  /** Existing root comment being replied to; replies inherit its anchor. */
+  readonly threadId?: string
   readonly attachments?: readonly AttachmentRefV1[]
 }
 
@@ -113,6 +118,7 @@ export interface WorkItemApi {
   comments(sessionId: string, artifactId: string, after?: string): Promise<ArtifactCommentsResponse>
   comment(input: CommentInput): Promise<ArtifactCommentResponse>
   resolveComment(input: ResolveCommentInput): Promise<ArtifactCommentResolveResponse>
+  retryDispatch(input: { sessionId: string; artifactId: string; dispatchId: string }): Promise<ArtifactDispatchRetryResponse>
   status(input: StatusInput): Promise<ArtifactStatusResponse>
   edit(input: EditInput): Promise<ArtifactEditResponse>
   presence(input: PresenceInput): Promise<ArtifactPresenceResponse>
@@ -181,7 +187,12 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
       return envelope<ArtifactFileResponse>(response)
     },
     async comments(sessionId, artifactId, after) {
-      const response = await fetchImpl(withQuery(ARTIFACT_COMMENTS_PATH, { sessionId, artifactId, after }))
+      const response = await fetchImpl(withQuery(ARTIFACT_COMMENTS_PATH, {
+        sessionId,
+        artifactId,
+        after,
+        limit: String(ARTIFACT_COMMENTS_MAX_LIMIT),
+      }))
       return envelope<ArtifactCommentsResponse>(response)
     },
     async comment(input) {
@@ -191,8 +202,12 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
         body: input.body,
       }
       if (input.anchor !== undefined) body.anchor = input.anchor
+      if (input.threadId !== undefined) body.threadId = input.threadId
       if (input.attachments !== undefined && input.attachments.length > 0) body.attachments = input.attachments
       return post<ArtifactCommentResponse>(ARTIFACT_COMMENT_PATH, body)
+    },
+    async retryDispatch(input) {
+      return post<ArtifactDispatchRetryResponse>(ARTIFACT_DISPATCH_RETRY_PATH, input)
     },
     async resolveComment(input) {
       return post<ArtifactCommentResolveResponse>(ARTIFACT_COMMENT_RESOLVE_PATH, input)

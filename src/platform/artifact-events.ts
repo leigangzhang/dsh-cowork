@@ -23,6 +23,11 @@ import {
 export interface ArtifactEventSource {
   readEvents(afterSeq?: number): Promise<ArtifactEventV1[]>
   lastEventSeq(): Promise<number>
+  /** Optional filtered window with gap metadata; preferred when available. */
+  readEventsWindow?(
+    afterSeq: number,
+    artifactId?: string,
+  ): Promise<{ events: ArtifactEventV1[]; truncated: boolean; newest: number }>
 }
 
 /** One live subscription filter; an absent field matches every event. */
@@ -186,18 +191,23 @@ export function openArtifactEventStream(options: ArtifactStreamOptions): Respons
   async function replay(): Promise<void> {
     try {
       const after = options.lastEventId ?? 0
-      const events = await options.source.readEvents(after)
-      const newest = await options.source.lastEventSeq()
-      // A client that named an id older than the retained log gets a reset
-      // instead of a silently incomplete history. With today's untrimmed log
-      // this only fires when the client's id is ahead of the project's.
-      if (after > 0 && events.length === 0 && newest < after) {
+      const window = options.source.readEventsWindow === undefined
+        ? {
+            events: options.source.readEvents
+              ? await options.source.readEvents(after)
+              : [],
+            truncated: false,
+            newest: await options.source.lastEventSeq(),
+          }
+        : await options.source.readEventsWindow(after, options.filter?.artifactId)
+      const newest = window.newest
+      // A cursor older than the retained log, or ahead of the project, gets a
+      // reset instead of a silently incomplete history. The browser reloads
+      // the detail (and file) on `reset`.
+      if (after > 0 && (window.truncated || (window.events.length === 0 && newest < after))) {
         send(formatResetFrame(newest))
       }
-      const filtered = options.filter?.artifactId === undefined
-        ? events
-        : events.filter((event) => event.artifactId === options.filter?.artifactId)
-      for (const event of filtered) sendEvent(event)
+      for (const event of window.events) sendEvent(event)
       ready = true
       queued.sort((left, right) => left.seq - right.seq)
       for (const event of queued) sendEvent(event)

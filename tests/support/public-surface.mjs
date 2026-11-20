@@ -30,6 +30,7 @@ export const PANEL_ROUTES = [
   [artifact.ARTIFACT_FILE_PATH, 'GET'],
   [artifact.ARTIFACT_COMMENTS_PATH, 'GET'],
   [artifact.ARTIFACT_COMMENT_PATH, 'POST'],
+  [artifact.ARTIFACT_DISPATCH_RETRY_PATH, 'POST'],
   [artifact.ARTIFACT_COMMENT_RESOLVE_PATH, 'POST'],
   [artifact.ARTIFACT_STATUS_PATH, 'POST'],
   [artifact.ARTIFACT_EDIT_PATH, 'POST'],
