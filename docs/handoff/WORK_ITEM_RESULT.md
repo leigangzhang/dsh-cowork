@@ -39,12 +39,12 @@
 
 - `npm run check`：`check-invariants: ok`。
 - `npm run typecheck`：exit 0。
-- `npm test`：1494/1494 通过，0 skipped。
-- `npm run test:coverage`：79 个 owner 模块，行覆盖 100%（30340/30340）。
+- `npm test`：1508/1508 通过，0 skipped。
+- `npm run test:coverage`：80 个 owner 模块，行覆盖 100%（30591/30591）。
 - `npm run build`：exit 0（client bundle 约 196 KB）。
 - `npm run test:host-smoke`：5/5 通过。
 - `npm run test:browser`：通过；工作项链路，直接保存 + 非重叠自动合并 + 409 后“加载最新”与“保留我的”，脏草稿返回拦截，会话切换自动关闭查看器，图片/文本附件，SSE 实时更新与重试均在真实 Chromium 中执行；两个新 TSX 的 reviewed floors 已登记。
-- `npm run test:coverage:layered -- --base 3b140e3`：87 个 counted 文件，行覆盖 99.77%，reviewed floors 全部通过。
+- `npm run test:coverage:layered -- --base 3b140e3`：88 个 counted 文件，行覆盖 99.84%（32808/32859），reviewed floors 全部通过。
 - `npm run test:e2e`：6 个 keyless 场景、134 checks 通过。`artifact-chain`（23 checks）覆盖登记 → 列表/详情/文件 → 批注 → 投递 → 模型回复 → 直接保存 → 非重叠三方自动合并 → SSE 回放 → 上传/附件 → `tools.guard` 拒绝重叠模型写入；`artifact-recovery`（7 checks）在真实宿主里从预置的 dispatch 日志执行恢复：in-flight → `stale` 且不再提示，queued 重新投递并由脚本化模型回复。
 - `npm run test:e2e:live -- --scenario live-master-chain --scenario live-artifact-chain`：2 个真实模型场景、21 checks 通过。`live-artifact-chain` 观测到：master 与 routed topic 各自登记工作项；两条批注同时处于投递中（`overlap=true`）并都到达 `replied`；红色图片批注的模型回复包含「红」，证明图片 prompt 已到达模型；两个线程的回复均为 `author:"model"`。
 
