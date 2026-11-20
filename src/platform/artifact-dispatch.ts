@@ -85,6 +85,8 @@ export interface ArtifactDispatcherOptions {
   /** Queue caps, injectable so the cap path is testable without 200 files. */
   readonly maxQueuePerSession?: number
   readonly maxQueuePerProject?: number
+  /** Terminal records retained for late-event suppression (default 200). */
+  readonly maxSettled?: number
 }
 
 /** One queued batch plus the record and comments it carries. */
@@ -171,11 +173,12 @@ export class ArtifactDispatcher {
   private readonly timeoutMs: number
   private readonly maxQueuePerSession: number
   private readonly maxQueuePerProject: number
+  private readonly maxSettled: number
   private readonly semaphore: Semaphore
   private readonly queues = new Map<string, QueueEntry[]>()
   private readonly active = new Map<string, DispatchRecordV1>()
-  /** Batches that reached a terminal state; later events cannot revive them. */
-  private readonly settled = new Set<string>()
+  /** Terminal batches and their last record; later events cannot revive them. */
+  private readonly settled = new Map<string, DispatchRecordV1>()
   private readonly timers = new Map<string, () => void>()
   private disposed = false
   /** Serializes state writes: a slow earlier event must not land after a later one. */
@@ -198,6 +201,7 @@ export class ArtifactDispatcher {
     this.timeoutMs = options.timeoutMs ?? ARTIFACT_DISPATCH_TIMEOUT_MS
     this.maxQueuePerSession = options.maxQueuePerSession ?? MAX_DISPATCH_QUEUE_PER_SESSION
     this.maxQueuePerProject = options.maxQueuePerProject ?? MAX_DISPATCH_QUEUE_PER_PROJECT
+    this.maxSettled = options.maxSettled ?? 200
     this.semaphore = new Semaphore(options.concurrency ?? ARTIFACT_DISPATCH_CONCURRENCY)
   }
 
@@ -493,10 +497,18 @@ export class ArtifactDispatcher {
     // Session events and a reply may race (turn/start vs the reply tool). A
     // terminal batch must not be moved back to thinking/working by a stale
     // event that was captured before the reply landed.
-    if (this.settled.has(dispatch.dispatchId)) {
-      return this.active.get(dispatch.dispatchId) ?? dispatch
+    const settled = this.settled.get(dispatch.dispatchId)
+    if (settled !== undefined) return settled
+    if (isTerminalDispatchState(state)) {
+      this.settled.set(dispatch.dispatchId, { ...dispatch, state, errorCode, updatedAt: this.now().toISOString() })
+      // Bound the retained terminal records; the newest 200 are enough for the
+      // rare late event and never grow with the project.
+      while (this.settled.size > this.maxSettled) {
+        const oldest = this.settled.keys().next().value
+        if (oldest === undefined) break
+        this.settled.delete(oldest)
+      }
     }
-    if (isTerminalDispatchState(state)) this.settled.add(dispatch.dispatchId)
     const updated: DispatchRecordV1 = {
       ...dispatch,
       state,

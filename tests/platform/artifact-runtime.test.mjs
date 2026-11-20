@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { artifactRuntime, fakeHostFs, makeRepo } from '../support/artifact-fixtures.mjs'
 
 /**
@@ -54,6 +55,32 @@ test('a host without ctx.fs degrades every file operation to 501', async () => {
     // Records, comments and the event log still work.
     assert.deepEqual(await runtime.store.listRecords(), { records: [], corrupt: [], total: 0 })
     manager.dispose()
+  } finally {
+    await repo.remove()
+  }
+})
+
+test('a failed dispatch recovery is logged, never thrown at startup', async () => {
+  const repo = await makeRepo()
+  const logs = []
+  try {
+    const artifacts = join(repo.repoPath, '.dsh-cowork', 'artifacts')
+    const { mkdir, chmod } = await import('node:fs/promises')
+    await mkdir(artifacts, { recursive: true })
+    await chmod(artifacts, 0o000)
+    const manager = new artifactRuntime.ArtifactRuntimeManager({
+      hostFs: fakeHostFs(),
+      prompt: { async prompt() { return { accepted: true } } },
+      log: (message) => logs.push(message),
+    })
+    manager.runtimeFor(repo.repoPath)
+    const deadline = Date.now() + 2_000
+    while (logs.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    assert.ok(logs.some((message) => message.includes('artifact dispatch recovery failed')), logs.join('|'))
+    manager.dispose()
+    await chmod(artifacts, 0o700)
   } finally {
     await repo.remove()
   }

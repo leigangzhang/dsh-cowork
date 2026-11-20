@@ -430,3 +430,48 @@ test('the session listener advances only turn events for a resolvable project', 
   failing({ header: { id: 'session-1', cwd: '/repo' } }, { type: 'turn/end' })
   await waitUntil(() => logs.some((message) => message.includes('lookup exploded')), 'logged failure')
 })
+
+test('a settled batch ignores a late late-thinking transition', async () => {
+  await withRuntime(async ({ runtime, record }) => {
+    const dispatcher = new ArtifactDispatcher({
+      runtime,
+      prompt: { async prompt() { return { accepted: true } } },
+      windowMs: 60_000,
+      retryDelaysMs: [],
+    })
+    const dispatch = await dispatcher.enqueue({ record, commentIds: ['c1'], comments: [comment(1)] })
+    // Runtime-private seam: the guard exists only to stop a race that is hard
+    // to schedule deterministically from the public surface.
+    const apply = dispatcher['applyTransition'].bind(dispatcher)
+    const replied = await apply(dispatch, 'replied', null)
+    assert.equal(replied.state, 'replied')
+    const late = await apply(dispatch, 'thinking', null)
+    assert.equal(late.state, 'replied')
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'replied')
+    dispatcher.dispose()
+  })
+})
+
+test('the retained terminal records are bounded', async () => {
+  await withRuntime(async ({ runtime, record }) => {
+    const dispatcher = new ArtifactDispatcher({
+      runtime,
+      prompt: { async prompt() { return { accepted: true } } },
+      windowMs: 60_000,
+      retryDelaysMs: [],
+      maxSettled: 1,
+    })
+    const apply = dispatcher['applyTransition'].bind(dispatcher)
+    const first = await dispatcher.enqueue({ record, commentIds: ['c1'], comments: [comment(1)] })
+    const secondRecord = { ...record, artifactId: 'artifact-22222222-2222-4222-8222-222222222222' }
+    await runtime.store.createRecord(secondRecord)
+    const second = await dispatcher.enqueue({ record: secondRecord, commentIds: ['c2'], comments: [comment(2)] })
+    await apply(first, 'replied', null)
+    await apply(second, 'replied', null)
+    // The oldest terminal record was pruned; a late event for it cannot be
+    // suppressed, but a new transition works from its own record.
+    const late = await apply(first, 'thinking', null)
+    assert.equal(late.state, 'thinking')
+    dispatcher.dispose()
+  })
+})
