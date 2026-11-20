@@ -70,8 +70,16 @@
       "lane": "unit"
     },
     {
+      "path": "src/client/work-item/list.tsx",
+      "lane": "browser"
+    },
+    {
       "path": "src/client/work-item/model.ts",
       "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/panel.tsx",
+      "lane": "browser"
     },
     {
       "path": "src/client/work-item/store.ts",
