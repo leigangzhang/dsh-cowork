@@ -163,9 +163,9 @@ publisher 在评估前先把 `gate-artifact` 写成 `pending`，随后写 `succe
 | Require conversation resolution | on |
 | Require branches up to date | off（pre-merge 已接管当前 main 的合并结果测试） |
 | Block force push / deletion | on |
+| Bypass actors | 空 |
 
 **验证状态（2026-11-19）：** status-only ruleset acceptance 尚未在合并后的 Policy V2 run 上验证。首个合并后运行需确认 `gate-artifact` status 的 creator 是 `github-actions[bot]`，且 merge box 接受它；在此之前不要写成已验证事实。
-| Bypass actors | 空 |
 
 仓库设置：
 
