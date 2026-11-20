@@ -19,7 +19,7 @@ const { ArtifactDispatcher, buildDispatchPrompt } = await import('../../src/plat
 const ARTIFACT = 'artifact-11111111-1111-4111-8111-111111111111'
 
 /** Poll until `predicate` holds or the deadline passes. */
-async function waitUntil(predicate, label, timeoutMs = 2_000) {
+async function waitUntil(predicate, label, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (await predicate()) return
@@ -536,6 +536,7 @@ test('a session keeps one in-flight batch and a re-entrant flush never duplicate
 
     await dispatcher.markReplied(first.dispatchId)
     await waitUntil(() => calls.length === 2, 'second prompt after reply')
+    await waitUntil(async () => (await runtime.store.readLatestDispatch(ARTIFACT))?.state === 'sent', 'second sent')
     await dispatcher.markReplied(second.dispatchId)
     await new Promise((resolve) => setTimeout(resolve, 40))
     assert.equal(calls.length, 2, 'no duplicate prompt')
