@@ -64,15 +64,18 @@ export async function collectSurfaceKeys() {
 /**
  * Return whether a changed path cannot invalidate a keyless E2E recording.
  *
- * Documentation and the repository README do not change the shipped runtime
- * tree. Evidence files themselves are also allowed to move after recording;
- * the checker already binds them to the catalog and version.
+ * Documentation, decision records, and the repository README do not change the
+ * shipped runtime tree. Evidence files themselves are also allowed to move
+ * after recording; the checker already binds them to the catalog and version.
  *
  * @param {string} path Repository-relative path.
  * @returns {boolean} True when the path is evidence-neutral.
  */
 export function isEvidenceNeutralPath(path) {
-  return path.startsWith('tests/e2e/evidence/') || path === 'README.md' || path.startsWith('docs/')
+  return path.startsWith('tests/e2e/evidence/')
+    || path === 'README.md'
+    || path.startsWith('docs/')
+    || path.startsWith('.agents/notes/')
 }
 
 /**
