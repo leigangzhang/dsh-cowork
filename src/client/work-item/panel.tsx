@@ -256,10 +256,15 @@ export function WorkItemViewer(): ReactElement {
     let previous = info.getSnapshot().retainedBy.mainView ?? 0
     return info.subscribe(() => {
       const current = info.getSnapshot().retainedBy.mainView ?? 0
-      if (previous > 0 && current === 0) workItemOpenStore.close()
+      if (previous > 0 && current === 0) {
+        workItemOpenStore.close()
+        // Returning to the conversation is part of closing the viewer; without
+        // this the root main slot would keep the now-idle work-item panel.
+        if (canReturn) layout.selectPanel(null)
+      }
       previous = current
     })
-  }, [context, services.sessions])
+  }, [canReturn, context, layout, services.sessions])
 
   /** Save the draft through the optimistic-concurrency route. */
   const saveDraft = useCallback(async (options?: {
