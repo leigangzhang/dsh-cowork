@@ -387,7 +387,7 @@ test('the exported bounds keep the documented values and their relations', () =>
   assert.equal(MAX_REQUEST_BODY_BYTES, 8 * 1024, 'the write body cap is 8 KiB')
 })
 
-test('the ten route paths are unique, absolute and stable', () => {
+test('the eighteen route paths are unique, absolute and stable', () => {
   const paths = [...PANEL_PATHS]
   assert.deepEqual(paths, [
     '/api/cowork.overview',
@@ -400,6 +400,14 @@ test('the ten route paths are unique, absolute and stable', () => {
     '/api/cowork.inbox',
     '/api/cowork.inbox.resolve',
     '/api/cowork.inbox.open',
+    '/api/cowork.artifact.list',
+    '/api/cowork.artifact.detail',
+    '/api/cowork.artifact.file',
+    '/api/cowork.artifact.comments',
+    '/api/cowork.artifact.comment',
+    '/api/cowork.artifact.comment.resolve',
+    '/api/cowork.artifact.status',
+    '/api/cowork.artifact.events',
   ])
   assert.equal(new Set(paths).size, paths.length, 'every route has its own path')
   for (const path of paths) assert.equal(path.startsWith('/api/'), true, `${path} stays below /api`)
@@ -473,7 +481,7 @@ test('defaultSelectedTopicId picks the first row, or null for an empty list', ()
   )
 })
 
-test('the contract carries no v1 vocabulary, only the pure inbox import, and stays inside the size cap', async () => {
+test('the contract carries no v1 vocabulary, only the pure vocabularies, and stays inside the size cap', async () => {
   const source = await readFile(CONTRACT_SOURCE, 'utf8')
   for (const symbol of [
     'PanelThread',
@@ -491,10 +499,12 @@ test('the contract carries no v1 vocabulary, only the pure inbox import, and sta
   assert.deepEqual(
     [...source.matchAll(/^import\b[^\n]*$/gm)].map((match) => match[0]),
     [
+      "import { ARTIFACT_ERROR_STATUS } from './artifact-contract.js'",
+      "import type { ArtifactErrorCode } from './artifact-contract.js'",
       "import { INBOX_ERROR_STATUS } from './inbox-contract.js'",
       "import type { InboxErrorCode } from './inbox-contract.js'",
     ],
-    'the only import is the pure inbox vocabulary',
+    'the only imports are the two pure vocabularies',
   )
   assert.equal(source.includes('node:'), false, 'no node builtin reaches the client bundle')
   assert.ok(Buffer.byteLength(source, 'utf8') < 51_200, 'src/api-contract.ts stays below the 50 KiB read cap')

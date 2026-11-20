@@ -176,9 +176,30 @@ test('toErrorResponse maps every stable code to its documented status', () => {
     'inbox/path-missing': 404,
     'inbox/open-unsupported': 501,
     'inbox/not-member': 403,
+    'artifact/not-found': 404,
+    'artifact/session-mismatch': 403,
+    'artifact/path-not-allowed': 400,
+    'artifact/invalid-type': 400,
+    'artifact/file-missing': 404,
+    'artifact/file-too-large': 413,
+    'artifact/not-editable': 409,
+    'artifact/not-previewable': 415,
+    'artifact/version-conflict': 409,
+    'artifact/anchor-invalid': 400,
+    'artifact/comment-limit': 409,
+    'artifact/upload-invalid': 400,
+    'artifact/upload-too-large': 413,
+    'artifact/dispatch-queue-full': 429,
+    'artifact/dispatch-unavailable': 501,
+    'artifact/dispatch-not-found': 404,
+    'artifact/fs-unavailable': 501,
+    'artifact/io-error': 500,
+    'artifact/limit-reached': 409,
+    'artifact/duplicate': 409,
+    'artifact/corrupt': 500,
     internal: 500,
   }
-  assert.equal(Object.keys(expected).length, 28, 'a new PanelErrorCode must decide its status here')
+  assert.equal(Object.keys(expected).length, 49, 'a new PanelErrorCode must decide its status here')
   assert.deepEqual(
     Object.keys(expected).sort(),
     [...Object.keys(contract.PANEL_ERROR_STATUS)].sort(),
@@ -219,12 +240,15 @@ test('toErrorResponse keeps the store path for corruption and degrades the rest'
 // ---------------------------------------------------------------------------
 
 
-test('registerCoworkApi registers the ten v2 routes and disposes them', async () => {
+test('registerCoworkApi registers every route and disposes them', async () => {
   const portBag = fakePorts()
+  // The artifact routes register only when the composition root provides the
+  // per-project runtime; a stub is enough because registration does not use it.
+  portBag.ports.artifact = { runtimeFor: () => ({ store: {}, files: {}, events: {}, fsAvailable: false, dispose() {} }) }
   const fake = fakeConnection()
   const { host, effects } = fakeHost(fake.connection)
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(effects.length, 10, 'one fiber effect per route')
+  assert.equal(effects.length, 18, 'one fiber effect per route')
   assert.deepEqual(effects.map((effect) => effect.label), PANEL_ROUTES.map(
     ([path]) => `dsh-cowork: panel route ${path}`,
   ))
@@ -236,7 +260,7 @@ test('registerCoworkApi registers the ten v2 routes and disposes them', async ()
   for (const effect of effects) await effect.disposer()
   assert.equal(fake.routes.size, 0, 'disposal unregisters every route')
   api.registerCoworkApi(host, portBag.ports)
-  assert.equal(fake.routes.size, 10, 'a reload re-registers without a duplicate error')
+  assert.equal(fake.routes.size, 18, 'a reload re-registers without a duplicate error')
 })
 
 test('registerCoworkApi is a no-op when the host has no connection service', () => {
