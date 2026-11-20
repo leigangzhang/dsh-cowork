@@ -315,3 +315,39 @@ test('formatBytes names bytes, kilobytes, and megabytes', () => {
   assert.equal(model.formatBytes(2048), '2.0 KB')
   assert.equal(model.formatBytes(2 * 1024 * 1024), '2.0 MB')
 })
+
+test('draft storage survives disabled or throwing storage', () => {
+  const savedWindow = globalThis.window
+  globalThis.window = {
+    localStorage: {
+      getItem() { throw new Error('disabled') },
+      setItem() { throw new Error('full') },
+      removeItem() { throw new Error('disabled') },
+    },
+  }
+  try {
+    model.savePersistedDraft('artifact-1', { content: 'x', baseRevision: 1, baseVersion: null, savedAt: '' })
+    assert.equal(model.readPersistedDraft('artifact-1'), null)
+    model.removePersistedDraft('artifact-1')
+  } finally {
+    globalThis.window = savedWindow
+  }
+})
+
+test('draft storage drops a JSON null entry', () => {
+  const savedWindow = globalThis.window
+  const storage = new Map([['cowork.work-item.draft.artifact-1', 'null']])
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => { storage.set(key, value) },
+      removeItem: (key) => { storage.delete(key) },
+    },
+  }
+  try {
+    assert.equal(model.readPersistedDraft('artifact-1'), null)
+    assert.equal(storage.has('cowork.work-item.draft.artifact-1'), false)
+  } finally {
+    globalThis.window = savedWindow
+  }
+})

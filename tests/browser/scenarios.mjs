@@ -805,6 +805,39 @@ async function scenarioWorkItemDraft(page) {
   await openWorkItemTab(page)
   const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
   await card.waitFor({ timeout: 15_000 })
+  let injectFailedDispatch = true
+  await page.route('**/api/cowork.artifact.detail*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    if (!injectFailedDispatch) {
+      await route.fulfill({ response })
+      return
+    }
+    body.dispatches = [...(body.dispatches ?? []), {
+      dispatchId: 'dispatch-browser-failed',
+      state: 'failed',
+      commentIds: [chainThreadId],
+      errorCode: 'artifact/dispatch-unavailable',
+      updatedAt: '2099-01-01T00:00:00.000Z',
+    }]
+    await route.fulfill({ status: response.status(), contentType: 'application/json', body: JSON.stringify(body) })
+  })
+  await page.route('**/api/cowork.artifact.dispatch.retry*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        dispatch: {
+          version: 1, dispatchId: 'dispatch-browser-retry', artifactId: BROWSER_ARTIFACT,
+          sessionId: 'session-browser-running', commentIds: [chainThreadId], state: 'queued',
+          attempts: 0, promptRequestId: 'prompt-browser-retry', errorCode: null,
+          createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:01.000Z',
+        },
+        record: {},
+      }),
+    })
+  })
   await card.click()
   await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
   await page.getByTestId('cwi-edit').click()
@@ -863,6 +896,46 @@ async function scenarioWorkItemDraft(page) {
   await page.getByTestId('cwi-line-pin').first().waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-thread-focus').first().click()
   await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+
+  // A failed batch exposes retry; the mocked route proves the request and the
+  // optimistic state path without enqueueing a real model turn.
+  await page.getByTestId('cwi-dispatch-retry').first().click()
+  await page.getByText('已重新投递').waitFor({ timeout: 10_000 })
+
+  // Confirmation carries both failure and success receipts; the real record is
+  // left unchanged so later scenarios still see the same status.
+  await page.route('**/api/cowork.artifact.status*', async (route) => {
+    await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'status boom' } }) })
+  })
+  await page.getByTestId('cwi-confirm').click()
+  await page.getByText(/确认失败/).waitFor({ timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.status*')
+  await page.route('**/api/cowork.artifact.status*', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, record: {} }) })
+  })
+  await page.getByTestId('cwi-confirm').click()
+  await page.getByText('已确认完成').waitFor({ timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.status*')
+  injectFailedDispatch = false
+  await page.unroute('**/api/cowork.artifact.detail*')
+  await page.unroute('**/api/cowork.artifact.dispatch.retry*')
+
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
+/** The attachment tab lists uploaded image/text metadata and download links. */
+async function scenarioWorkItemAttachments(page) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '附件' }).click()
+  await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
+  const rows = page.getByTestId('cwi-attachment-row')
+  assert.ok(await rows.count() >= 2, 'image and text attachments are listed')
+  assert.match(await page.getByTestId('cwi-attachments').innerText(), /shot\.png/)
   await page.getByTestId('cwi-back').click()
   await backToTopicTab(page)
 }
@@ -1079,6 +1152,7 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioWorkItemEdit(page, fixtures)
   await scenarioWorkItemDraft(page)
   await scenarioWorkItemLive(page, fixtures)
+  await scenarioWorkItemAttachments(page)
   await scenarioWorkItemError(page)
   await scenarioFilterSetup(page)
 }

@@ -771,3 +771,78 @@ test('a reply-only batch carries its thread anchor context', async () => {
   assert.match(text, /annotation comment-reply \(lines 2-2\)/)
   assert.match(text, /Quote: body/)
 })
+
+test('enqueue proceeds when a lazy recovery already rejected', async () => {
+  await withRuntime(async ({ runtime, record }) => {
+    const dispatcher = runtime.dispatch
+    const rejected = Promise.reject(new Error('recovery boom'))
+    rejected.catch(() => {})
+    dispatcher['recoverPromise'] = rejected
+    const dispatch = await dispatcher.enqueue({ record, commentIds: ['comment-1'], comments: [comment(1)] })
+    assert.equal(dispatch.state, 'queued')
+  })
+})
+
+test('retry refuses a batch that a newer overlapping dispatch already superseded', async () => {
+  await withRuntime(async ({ runtime, record }) => {
+    const dispatcher = runtime.dispatch
+    await runtime.store.appendComment(comment(1))
+    const base = {
+      version: 1, artifactId: ARTIFACT, sessionId: 'session-1', attempts: 0,
+      promptRequestId: 'prompt-retry', errorCode: null, commentIds: ['comment-1'],
+    }
+    await runtime.store.appendDispatch({
+      ...base, dispatchId: 'dispatch-old', state: 'failed',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+    await runtime.store.appendDispatch({
+      ...base, dispatchId: 'dispatch-new', state: 'failed',
+      createdAt: '2026-01-01T00:00:01.000Z', updatedAt: '2026-01-01T00:00:01.000Z',
+    })
+    await assert.rejects(() => dispatcher.retry(record, 'dispatch-old'), (error) => error.code === 'artifact/duplicate')
+  })
+})
+
+test('a retry whose enqueue fails releases its single-flight marker', async () => {
+  await withRuntime(async ({ runtime, record }) => {
+    const dispatcher = runtime.dispatch
+    await runtime.store.appendComment(comment(1))
+    const failed = {
+      version: 1, artifactId: ARTIFACT, dispatchId: 'dispatch-disposed', sessionId: 'session-1',
+      commentIds: ['comment-1'], state: 'failed', attempts: 1, promptRequestId: 'prompt-disposed',
+      errorCode: 'artifact/dispatch-unavailable',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+    await runtime.store.appendDispatch(failed)
+    dispatcher.dispose()
+    await assert.rejects(() => dispatcher.retry(record, 'dispatch-disposed'), (error) => error.code === 'artifact/dispatch-unavailable')
+  })
+})
+
+test('ending a turn whose batch was settled prunes its stale turn binding', async () => {
+  await withRuntime(async ({ runtime, record, calls }) => {
+    const dispatcher = runtime.dispatch
+    const dispatch = await dispatcher.enqueue({ record, commentIds: ['comment-1'], comments: [comment(1)] })
+    await waitUntil(() => calls.length === 1, 'prompt')
+    await waitUntil(async () => (await runtime.store.readLatestDispatch(ARTIFACT))?.state === 'sent', 'sent')
+    await dispatcher.onTurnStart('session-1', 3)
+    await dispatcher.markReplied(dispatch.dispatchId)
+    await dispatcher.onTurnEnd('session-1', 3)
+    assert.equal((await runtime.store.readLatestDispatch(ARTIFACT)).state, 'replied')
+  })
+})
+
+test('ending a turn prunes a stale binding whose active batch is gone', async () => {
+  await withRuntime(async ({ runtime, record, calls }) => {
+    const dispatcher = runtime.dispatch
+    await dispatcher.enqueue({ record, commentIds: ['comment-1'], comments: [comment(1)] })
+    await waitUntil(() => calls.length === 1, 'prompt')
+    await dispatcher.onTurnStart('session-1', 7)
+    // Simulate a batch removed out of band; the turn-end sweep must still drop
+    // its binding instead of leaking it for the rest of the session.
+    dispatcher['active'].delete('nonexistent-dispatch')
+    dispatcher['turnOfDispatch'].set('nonexistent-dispatch', 7)
+    await dispatcher.onTurnEnd('session-1', 7)
+    assert.equal(dispatcher['turnOfDispatch'].has('nonexistent-dispatch'), false)
+  })
+})

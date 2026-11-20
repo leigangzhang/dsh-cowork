@@ -597,3 +597,25 @@ test('the reply tool canonicalizes attachments and enforces the comment limit', 
     assert.equal(overLimit.error.code, 'artifact/comment-limit')
   })
 })
+
+test('the reply tool rejects a comment outside the in-flight batch', async () => {
+  await withRepo(async (repoPath) => {
+    const seeded = await seedProject(repoPath, [topic()])
+    const projectId = (await seeded.readIndex()).projectId
+    const runtime = fakeRuntime({
+      store: {
+        ...fakeRuntime().store,
+        async readRecord() { return makeRecord({ artifactId: 'artifact-1', ownerSessionId: MASTER, projectId }) },
+        async readComments() { return [makeComment({ artifactId: 'artifact-1', commentId: 'comment-1', threadId: 'comment-1' })] },
+      },
+      dispatch: { inFlightFor() { return { dispatchId: 'dispatch-1', commentIds: ['comment-other'] } } },
+    })
+    const { deps } = baseDeps({ runtimeFor: () => runtime })
+    const host = fakeHost()
+    registerArtifactTools(host, deps)
+    const reply = await host.registry.get('cowork_artifact_reply')
+      .execute({ artifactId: 'artifact-1', commentIds: ['comment-1'], body: 'late' }, fakeExec(MASTER, repoPath))
+    assert.equal(reply.ok, false)
+    assert.equal(reply.error.code, 'artifact/anchor-invalid')
+  })
+})
