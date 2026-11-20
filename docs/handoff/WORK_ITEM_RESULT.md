@@ -33,14 +33,17 @@
 
 ## 验证证据
 
-- `npm run check`：通过（最终提交树，E2E 证据已重录）。
-- `npm run typecheck`：通过。
-- `npm test`：见最终门禁输出。
-- `npm run test:coverage`：通过（逐文件 100% 行覆盖）。
-- `npm run build`：通过。
-- `npm run test:host-smoke`：见最终门禁输出。
-- `npm run test:browser`：通过；新增工作项链路、编辑/冲突、SSE/附件场景，并登记两个新 TSX 的 reviewed floors。
-- `npm run test:e2e`：新增 keyless `artifact-chain` 场景，真实宿主跑通「登记 → 列表/详情/文件 → 批注 → 投递 → 模型回复 → 保存 → 上传/附件 → SSE」。
+均在最终代码树上实际运行（`agent/work-item-docs-facts` HEAD）：
+
+- `npm run check`：`check-invariants: ok`。
+- `npm run typecheck`：exit 0。
+- `npm test`：1494/1494 通过，0 skipped。
+- `npm run test:coverage`：79 个 owner 模块，行覆盖 100%（30340/30340）。
+- `npm run build`：exit 0（client bundle 约 196 KB）。
+- `npm run test:host-smoke`：5/5 通过。
+- `npm run test:browser`：通过；工作项链路、编辑/冲突、SSE/附件场景执行；两个新 TSX 的 reviewed floors 已登记。
+- `npm run test:coverage:layered -- --base 3b140e3`：87 个 counted 文件，行覆盖 99.77%，reviewed floors 全部通过。
+- `npm run test:e2e`：5 个 keyless 场景、121 checks 通过（新增 `artifact-chain`：登记 → 列表/详情/文件 → 批注 → 投递 → 模型回复 → 保存 → 上传/附件 → SSE）。
 
 ## 偏离与未核实
 
