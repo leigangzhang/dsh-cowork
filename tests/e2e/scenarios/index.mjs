@@ -9,6 +9,7 @@
  */
 
 import { artifactChainId, runArtifactChain } from './artifact-chain.mjs'
+import { artifactRecoveryId, runArtifactRecovery } from './artifact-recovery.mjs'
 import { liveArtifactChainId, runLiveArtifactChain } from './live-artifact-chain.mjs'
 import { liveMasterChainId, runLiveMasterChain } from './live-master-chain.mjs'
 import { masterChainId, runMasterChain } from './master-chain.mjs'
@@ -20,6 +21,7 @@ import { topicPanelId, runTopicPanel } from './topic-panel.mjs'
 /** Every scenario module, keyed by the id the manifest declares. */
 export const SCENARIOS = new Map([
   [artifactChainId, { id: artifactChainId, run: runArtifactChain }],
+  [artifactRecoveryId, { id: artifactRecoveryId, run: runArtifactRecovery }],
   [liveArtifactChainId, { id: liveArtifactChainId, run: runLiveArtifactChain }],
   [liveMasterChainId, { id: liveMasterChainId, run: runLiveMasterChain }],
   [masterChainId, { id: masterChainId, run: runMasterChain }],

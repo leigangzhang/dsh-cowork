@@ -10,6 +10,8 @@
  * text except to route the scripted model.
  */
 
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { text, tool } from '../support/scripted-model.mjs'
 
 export const artifactChainId = 'artifact-chain'
@@ -31,6 +33,13 @@ export async function runArtifactChain(ctx) {
     }
     if (prompt.includes('cowork_artifact_comments')) {
       return tool('cowork_artifact_comments', { artifactId: /artifact-[A-Za-z0-9-]+/.exec(prompt)?.[0] ?? '' })
+    }
+    if (prompt.includes('Call edit exactly once')) {
+      return tool('edit', {
+        file_path: SPEC_PATH,
+        old_string: '# dsh-cowork E2E fixture',
+        new_string: '# GUARD TEST',
+      })
     }
     if (prompt.includes('cowork_artifact_reply')) {
       const artifactId = /artifact-[A-Za-z0-9-]+/.exec(prompt)?.[0] ?? ''
@@ -142,8 +151,42 @@ export async function runArtifactChain(ctx) {
     content: `${content}E2E saved line\n`,
   })
   ctx.check('the save appends a revision', edited.status === 200 && edited.body?.revision === baseRevision + 1, `${edited.status}:${edited.body?.revision}`)
-  const saved = await ctx.readText(SPEC_PATH)
+  let saved = await ctx.readText(SPEC_PATH)
   ctx.check('the save reached the file', saved?.includes('E2E saved line') === true, saved?.slice(-20))
+
+  // A concurrent append and a user edit on a different line must auto-merge.
+  const mergeBase = await ctx.client.panelGet(filePath)
+  await writeFile(join(ctx.fixture.path, SPEC_PATH), `${saved}model-concurrent-line\n`)
+  const merged = await ctx.client.panelPost('/api/cowork.artifact.edit', {
+    sessionId: masterId,
+    artifactId,
+    path: SPEC_PATH,
+    baseRevision: mergeBase.body.revision,
+    baseVersion: mergeBase.body.fsVersion,
+    content: `${saved}model-concurrent-line\n`.replace('# dsh-cowork E2E fixture', '# dsh-cowork E2E fixture (user)'),
+  })
+  ctx.check('a non-overlapping stale save merges', merged.status === 200 && merged.body?.merged === true, `${merged.status}:${String(merged.body?.merged)}`)
+  saved = await ctx.readText(SPEC_PATH)
+  ctx.check('the merged file keeps both edits', saved?.includes('(user)') === true && saved?.includes('model-concurrent-line') === true, saved?.slice(0, 60))
+
+  // Replaying from sequence 0 must serve the persisted event window.
+  const replayController = new AbortController()
+  const replay = await ctx.client.panelFetch(
+    `/api/cowork.artifact.events?sessionId=${encodeURIComponent(masterId)}&artifactId=${encodeURIComponent(artifactId)}`,
+    { signal: replayController.signal, headers: { 'last-event-id': '0' } },
+  )
+  const replayReader = replay.body.getReader()
+  let replayFrames = ''
+  await ctx.waitUntil('the SSE replay to reach the ready marker', async () => {
+    while (!replayFrames.includes(': ready')) {
+      const chunk = await replayReader.read()
+      if (chunk.done) return false
+      replayFrames += new TextDecoder().decode(chunk.value, { stream: true })
+    }
+    return true
+  }, { timeoutMs: 15_000 })
+  ctx.check('the replay serves persisted events', /id: \d+/.test(replayFrames) && replayFrames.includes('event: comment.created'), replayFrames.slice(0, 80))
+  replayController.abort()
 
   const upload = await ctx.client.panelFetch(
     `/api/cowork.artifact.upload?sessionId=${encodeURIComponent(masterId)}&artifactId=${encodeURIComponent(artifactId)}&name=shot.png`,
@@ -164,4 +207,26 @@ export async function runArtifactChain(ctx) {
   )
   const bytes = Buffer.from(await attachmentGet.arrayBuffer())
   ctx.check('the attachment route serves the bytes', attachmentGet.status === 200 && bytes.equals(PNG_BYTES), `${attachmentGet.status}:${bytes.length}`)
+
+  // An active editing range must deny a model edit that overlaps it.
+  const guardPresence = await ctx.client.panelPost('/api/cowork.artifact.presence', {
+    sessionId: masterId,
+    artifactId,
+    path: SPEC_PATH,
+    ranges: [{ startLine: 1, endLine: 1 }],
+  })
+  ctx.check('presence is again active for the guard', guardPresence.status === 200, guardPresence.status)
+  const denied = await ctx.promptForTool(
+    masterId,
+    `Call edit exactly once with these arguments (JSON): ${JSON.stringify({
+      file_path: SPEC_PATH,
+      old_string: '# dsh-cowork E2E fixture',
+      new_string: '# GUARD TEST',
+    })} . Then stop.`,
+    'edit',
+    { expectOk: false, acceptError: true },
+  )
+  ctx.check('the guard denied the overlapping model edit', denied.isError === true && /用户正在编辑|重叠/.test(denied.text), denied.text.slice(0, 120))
+  const guarded = await ctx.readText(SPEC_PATH)
+  ctx.check('the denied edit left the file unchanged', guarded?.includes('GUARD TEST') === false, guarded?.slice(0, 40))
 }

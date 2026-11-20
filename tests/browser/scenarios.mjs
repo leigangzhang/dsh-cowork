@@ -418,6 +418,14 @@ async function scenarioSessionSwitch(page, fixtures) {
   const primaryFilter = page.locator(`.cw-card[data-topic-id="${BROWSER_TOPICS.running}"] [data-testid="cw-topic-filter"]`)
   if ((await primaryFilter.getAttribute('aria-pressed')) !== 'true') await primaryFilter.click()
 
+  // Open the work-item viewer; selecting another session must close it. The
+  // viewer owns the main area and closes the panel, so do panel work first.
+  await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+  const workCard = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await workCard.waitFor({ timeout: 15_000 })
+  await workCard.click()
+  await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+
   await page.locator(`[data-row-key="workspace:${fixtures.secondaryWorkspaceId}"]`).hover()
   const createButton = page.locator('button[aria-label*="secondary-repo"][aria-label*="新建会话"]')
   await createButton.waitFor({ state: 'visible', timeout: 10_000 })
@@ -434,6 +442,9 @@ async function scenarioSessionSwitch(page, fixtures) {
   const selectedSessionId = (await created.json()).result.value.sessionId
   const secondary = await fixtures.prepareSecondarySession(selectedSessionId)
 
+  // The session switch released the old session's main view, so the viewer
+  // must have closed itself instead of showing an idle work-item panel.
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 15_000 })
   await ensurePanel(page)
   // The new session may have read the panel before the fixture landed. Force
   // one overview read after seeding and bind it to the selected session id.
@@ -664,9 +675,9 @@ async function scenarioWorkItemChain(page) {
 }
 
 /**
- * The text save path: edit, autosave, verify the file on disk, then force a
- * real 409 by changing the file under the editor before the debounce fires and
- * resolve it by loading the latest content.
+ * The text save path: edit, autosave, verify the file on disk, then merge a
+ * concurrent external change, resolve an overlapping conflict both ways, and
+ * prove an unsaved draft is not lost silently when leaving.
  */
 async function scenarioWorkItemEdit(page, fixtures) {
   await openWorkItemTab(page)
@@ -674,13 +685,11 @@ async function scenarioWorkItemEdit(page, fixtures) {
   await card.waitFor({ timeout: 15_000 })
   await card.click()
   await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
-
-  const saved = `${BROWSER_SPEC}\n第四段：浏览器保存。\n`
   await page.getByTestId('cwi-edit').click()
   const editor = page.getByTestId('cwi-editor')
   await editor.waitFor({ timeout: 10_000 })
   assert.match(await editor.inputValue(), /第一段：逐行批注。/)
-  const saveResponse = page.waitForResponse((response) => {
+  const waitForEdit = () => page.waitForResponse((response) => {
     try {
       return new URL(response.url()).pathname === '/api/cowork.artifact.edit'
         && response.request().method() === 'POST'
@@ -688,32 +697,39 @@ async function scenarioWorkItemEdit(page, fixtures) {
       return false
     }
   })
-  await editor.fill(saved)
+
+  // 1) Direct save.
+  const firstSaved = `${BROWSER_SPEC}\n第四段：浏览器保存。\n`
+  const saveResponse = waitForEdit()
+  await editor.fill(firstSaved)
   assert.equal((await saveResponse).status(), 200)
   await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 10_000 })
-  assert.equal(await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8'), saved)
+  assert.equal(await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8'), firstSaved)
 
-  // Inject a real external write while the save request is in flight: the
-  // route handler changes the file after the browser sent its base version and
-  // before the host reads it, which is exactly a concurrent model edit.
-  const draft = `${saved}第五段：我的草稿。\n`
+  // 2) A non-overlapping concurrent append must auto-merge with the user's
+  // edit to a different line.
+  const mergedDraft = firstSaved.replace('# 浏览器交付物', '# 浏览器交付物 (user)')
+  await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${firstSaved}模型合并行。\n`, 'utf8')
+  const mergeResponse = waitForEdit()
+  await editor.fill(mergedDraft)
+  assert.equal((await mergeResponse).status(), 200)
+  await page.getByText('已合并模型修改并保存').waitFor({ timeout: 10_000 })
+  const mergedSaved = await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8')
+  assert.match(mergedSaved, /\(user\)/)
+  assert.match(mergedSaved, /模型合并行。/)
+  await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 10_000 })
+
+  // 3) An overlapping external write becomes a real 409 and "load latest".
   let injected = false
   await page.route('**/api/cowork.artifact.edit*', async (route) => {
     if (!injected) {
       injected = true
-      await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${saved}模型并发行。\n`, 'utf8')
+      await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${mergedSaved}模型并发行。\n`, 'utf8')
     }
     await route.continue()
   })
-  const conflictResponse = page.waitForResponse((response) => {
-    try {
-      return new URL(response.url()).pathname === '/api/cowork.artifact.edit'
-        && response.request().method() === 'POST'
-    } catch {
-      return false
-    }
-  })
-  await editor.fill(draft)
+  const conflictResponse = waitForEdit()
+  await editor.fill(`${mergedSaved}第五段：我的草稿。\n`)
   assert.equal((await conflictResponse).status(), 409)
   await page.unroute('**/api/cowork.artifact.edit*')
   await page.getByTestId('cwi-conflict').waitFor({ timeout: 10_000 })
@@ -726,7 +742,43 @@ async function scenarioWorkItemEdit(page, fixtures) {
   await page.getByTestId('cwi-edit').click()
   await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
   assert.match(await page.getByTestId('cwi-lines').innerText(), /模型并发行。/)
+
+  // 4) A second conflict resolved with "keep mine" overwrites with the draft.
+  await page.getByTestId('cwi-edit').click()
+  const latest = await editor.inputValue()
+  let injectedAgain = false
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    if (!injectedAgain) {
+      injectedAgain = true
+      await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${latest}模型第二次并发行。\n`, 'utf8')
+    }
+    await route.continue()
+  })
+  const keepConflict = waitForEdit()
+  const keepDraft = `${latest}我的保留行。\n`
+  await editor.fill(keepDraft)
+  assert.equal((await keepConflict).status(), 409)
+  await page.unroute('**/api/cowork.artifact.edit*')
+  await page.getByTestId('cwi-conflict').waitFor({ timeout: 10_000 })
+  const keepResponse = waitForEdit()
+  await page.getByTestId('cwi-conflict-keep').click()
+  assert.equal((await keepResponse).status(), 200)
+  await page.getByTestId('cwi-conflict').waitFor({ state: 'detached', timeout: 10_000 })
+  const kept = await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8')
+  assert.match(kept, /我的保留行。/)
+
+  // 5) A dirty draft needs a second back click; the first one only warns.
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
+    // Closing the viewer (and unrouting) can abort the pending request first.
+    await route.continue().catch(() => {})
+  })
+  await editor.fill(`${kept}离开前的草稿\n`)
   await page.getByTestId('cwi-back').click()
+  await page.getByText('还有未保存内容').waitFor({ timeout: 5_000 })
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.edit*')
   await backToTopicTab(page)
 }
 
@@ -765,6 +817,21 @@ async function scenarioWorkItemLive(page, fixtures) {
   const thumb = attached.getByTestId('cwi-attachment-thumb')
   await thumb.waitFor({ timeout: 15_000 })
   assert.match(await thumb.getAttribute('src'), /\/api\/cowork\.artifact\.attachment\?/)
+
+  // A text attachment renders as a download link, not a thumbnail.
+  await page.getByTestId('cwi-file-input').setInputFiles({
+    name: 'note.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('# note\n'),
+  })
+  await page.getByTestId('cwi-pending-attachments').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-composer').fill('这张文本附件说明问题')
+  await page.getByTestId('cwi-submit').click()
+  const linked = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '这张文本附件说明问题' })
+  await linked.waitFor({ timeout: 15_000 })
+  const link = linked.getByTestId('cwi-attachment-link')
+  await link.waitFor({ timeout: 15_000 })
+  assert.match(await link.innerText(), /note\.md/)
   await page.getByTestId('cwi-back').click()
   await backToTopicTab(page)
 }

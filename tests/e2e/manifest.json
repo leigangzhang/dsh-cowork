@@ -137,6 +137,17 @@
         "route:/api/cowork.artifact.comments GET",
         "route:/api/cowork.artifact.upload POST"
       ]
+    },
+    {
+      "id": "artifact-recovery",
+      "mode": "keyless",
+      "summary": "A project already holds a previous run's dispatch logs (one in-flight and one queued) before the work-item runtime exists; the first artifact read runs recovery, which marks the in-flight batch stale without a new prompt and reschedules the queued batch until the scripted model replies.",
+      "covers": [
+        "tool:cowork_artifact_reply",
+        "route:/api/cowork.artifact.list GET",
+        "route:/api/cowork.artifact.detail GET",
+        "route:/api/cowork.artifact.comments GET"
+      ]
     }
   ]
 }
