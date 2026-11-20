@@ -44,12 +44,13 @@
 - `npm run test:browser`：通过；工作项链路、编辑/冲突、SSE/附件场景执行；两个新 TSX 的 reviewed floors 已登记。
 - `npm run test:coverage:layered -- --base 3b140e3`：87 个 counted 文件，行覆盖 99.77%，reviewed floors 全部通过。
 - `npm run test:e2e`：5 个 keyless 场景、121 checks 通过（新增 `artifact-chain`：登记 → 列表/详情/文件 → 批注 → 投递 → 模型回复 → 保存 → 上传/附件 → SSE）。
+- `npm run test:e2e:live -- --scenario live-master-chain --scenario live-artifact-chain`：2 个真实模型场景、21 checks 通过。`live-artifact-chain` 观测到：master 与 routed topic 各自登记工作项；两条批注同时处于投递中（`overlap=true`）并都到达 `replied`；红色图片批注的模型回复包含「红」，证明图片 prompt 已到达模型；两个线程的回复均为 `author:"model"`。
 
 ## 偏离与未核实
 
 - 编辑器为受控 textarea，不是 CodeMirror（KI-51）；保存/合并/冲突契约不受影响。
 - 右栏列表卡不订阅 SSE（KI-52），查看器实时。
-- 真实模型 E2E 未跑（KI-53）：keyless lane 用脚本化模型证明接线，不能证明模型稳定调用回复工具、图片 prompt、双主题并行与重启 stale。
+- 真实模型 E2E 已跑通核心链路（KI-53 已收窄）：两个会话并行投递、图片 prompt、回复工具采用均通过；仍未观测宿主重启后 `stale`、真实模型回合被 `tools.guard` 按行拒绝后重试，以及 bash 绕过。
 - `tools.guard` 的真实宿主行范围拒绝只有单测与浏览器保存/冲突链路，未在一次真实模型回合里观测拒绝与重试。
 - 阶段 4/5 未开始：图表/表格/Doc/PDF/画布、`open`/字节 Range、rebind、事件裁剪、列表缓存与旧隔离 workItems 入口（KI-41）。
 
