@@ -587,6 +587,34 @@ export function createDispatchPromptPort(
   }
 }
 
+/** The session object a `session/disposed` event carries. */
+export interface DispatchDisposedSession {
+  readonly id?: unknown
+  readonly header?: { readonly id?: unknown; readonly cwd?: unknown }
+}
+
+/**
+ * Build the `session/disposed` listener that blocks in-flight batches.
+ *
+ * An archived or deleted owner session cannot answer an annotation, so its
+ * batches become `blocked` instead of waiting for the restart reconciliation.
+ */
+export function createDispatchDisposedListener(
+  options: DispatchSessionListenerOptions,
+): (session: DispatchDisposedSession) => void {
+  return (session) => {
+    const sessionId = session.header?.id ?? session.id
+    const cwd = session.header?.cwd
+    if (typeof sessionId !== 'string' || sessionId === '' || typeof cwd !== 'string' || cwd === '') return
+    void options.resolveRepoPath(cwd).then((repoPath) => {
+      if (repoPath === null) return undefined
+      return options.runtimeFor(repoPath).dispatch?.onSessionBlocked(sessionId)
+    }).catch((error: unknown) => {
+      options.log?.(`artifact dispatch dispose event failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }
+}
+
 /** The session event shape the dispatch listener reads. */
 export interface DispatchSessionEventSource {
   readonly header?: { readonly id?: unknown; readonly cwd?: unknown }

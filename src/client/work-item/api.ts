@@ -30,7 +30,6 @@ import {
   type ArtifactStatusResponse,
   type ArtifactUploadResponse,
   type AttachmentRefV1,
-  type CommentEventV1,
 } from '../../panel/artifact-contract.js'
 
 /** The fetch shape this client needs; the platform fetch satisfies it. */
@@ -255,5 +254,3 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
 /** The plugin's one client instance. */
 export const workItemApi: WorkItemApi = createWorkItemApi()
 
-/** Type-only re-export seam: the components name comment rows without importing the contract twice. */
-export type { CommentEventV1 }

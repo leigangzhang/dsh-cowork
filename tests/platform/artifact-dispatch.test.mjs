@@ -475,3 +475,43 @@ test('the retained terminal records are bounded', async () => {
     dispatcher.dispose()
   })
 })
+
+test('the dispose listener blocks in-flight batches and logs lookup failures', async () => {
+  const { createDispatchDisposedListener } = await import('../../src/platform/artifact-dispatch.ts')
+  const blocked = []
+  const logs = []
+  const listener = createDispatchDisposedListener({
+    async resolveRepoPath(cwd) { return cwd === '/none' ? null : '/repo' },
+    runtimeFor() {
+      return {
+        dispatch: {
+          async onSessionBlocked(sessionId) { blocked.push(sessionId) },
+        },
+      }
+    },
+    log: (message) => logs.push(message),
+  })
+  // Missing id/cwd and a cwd outside a project are ignored.
+  listener({})
+  listener({ id: '', header: { cwd: '/repo' } })
+  listener({ id: 'session-1', header: { cwd: '' } })
+  listener({ id: 'session-1', header: { cwd: '/none' } })
+  listener({ header: { id: 'session-1', cwd: '/repo' } })
+  listener({ id: 'session-2', header: { cwd: '/repo' } })
+  await waitUntil(() => blocked.length === 2, 'two blocked sessions')
+  assert.deepEqual(blocked, ['session-1', 'session-2'])
+
+  // A host without a dispatcher is a no-op; a failing lookup is logged.
+  const noDispatcher = createDispatchDisposedListener({
+    async resolveRepoPath() { return '/repo' },
+    runtimeFor() { return { dispatch: null } },
+  })
+  noDispatcher({ id: 'session-3', header: { cwd: '/repo' } })
+  const failing = createDispatchDisposedListener({
+    async resolveRepoPath() { throw new Error('dispose lookup exploded') },
+    runtimeFor() { throw new Error('must not run') },
+    log: (message) => logs.push(message),
+  })
+  failing({ id: 'session-4', header: { cwd: '/repo' } })
+  await waitUntil(() => logs.some((message) => message.includes('dispose lookup exploded')), 'logged dispose failure')
+})

@@ -391,7 +391,7 @@ test('apply registers the business surface and dispose releases every effect', a
   assert.equal(host.fetchRoutes.size, PANEL_PATHS.length)
   assert.deepEqual(
     host.listeners.map((entry) => entry.name).sort(),
-    ['agent/created', 'session/event', 'session/event'],
+    ['agent/created', 'session/disposed', 'session/event', 'session/event'],
   )
   assert.equal(host.tools.length, 25)
   assert.equal(host.presets.length, 3)
@@ -403,6 +403,7 @@ test('apply registers the business surface and dispose releases every effect', a
   assert.deepEqual(
     host.effects.map((entry) => entry.label).sort(),
     [
+      'dsh-cowork: artifact dispatch dispose',
       'dsh-cowork: artifact dispatch events',
       'dsh-cowork: artifact runtimes',
       'dsh-cowork: cowork presets',

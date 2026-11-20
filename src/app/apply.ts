@@ -38,7 +38,7 @@ import type { CoworkToolDeps, CurrentModelRoute } from '../platform/tool-runtime
 import { registerCoworkTools } from './tools.js'
 import { ArtifactRuntimeManager } from '../platform/artifact-runtime.js'
 import { ArtifactPresenceRegistry, createArtifactWriteGuard } from '../platform/artifact-presence.js'
-import { createDispatchPromptPort, createDispatchSessionListener } from '../platform/artifact-dispatch.js'
+import { createDispatchDisposedListener, createDispatchPromptPort, createDispatchSessionListener } from '../platform/artifact-dispatch.js'
 import { ARTIFACT_PRESENCE_TTL_MS } from '../panel/artifact-contract.js'
 import type { HostFileSystem } from '../platform/artifact-files.js'
 import { TopicEvents } from '../platform/topic-events.js'
@@ -452,17 +452,24 @@ export function apply(ctx: Context, config: Config): void {
 
   // The work-item dispatcher follows the same session event stream: turn and
   // tool events advance queued annotation batches through sent/thinking/
-  // working, and a turn that ends without a reply fails the batch honestly.
-  ctx.effect(() => {
-    const on = (ctx as unknown as {
-      on(name: 'session/event', handler: (session: { header?: { id?: unknown; cwd?: unknown } }, event: { type?: unknown }) => void): () => void
-    }).on
-    return on.call(ctx, 'session/event', createDispatchSessionListener({
-      resolveRepoPath: (cwd) => findProjectRoot(cwd),
-      runtimeFor: (repoPath) => artifactRuntimes.runtimeFor(repoPath),
-      log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
-    }))
-  }, 'dsh-cowork: artifact dispatch events')
+  // working, a turn that ends without a reply fails the batch honestly, and a
+  // disposed owner session blocks its in-flight batches.
+  const dispatchListenerOptions = {
+    resolveRepoPath: (cwd: string) => findProjectRoot(cwd),
+    runtimeFor: (repoPath: string) => artifactRuntimes.runtimeFor(repoPath),
+    log: (message: string) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
+  }
+  const onHost = (ctx as unknown as {
+    on(name: string, handler: (...args: never[]) => void): () => void
+  }).on
+  ctx.effect(
+    () => onHost.call(ctx, 'session/event', createDispatchSessionListener(dispatchListenerOptions)),
+    'dsh-cowork: artifact dispatch events',
+  )
+  ctx.effect(
+    () => onHost.call(ctx, 'session/disposed', createDispatchDisposedListener(dispatchListenerOptions)),
+    'dsh-cowork: artifact dispatch dispose',
+  )
 
   // The dev surface is opt-in: an installed profile never exposes it.
   if (settings.enableDevRoutes) {
