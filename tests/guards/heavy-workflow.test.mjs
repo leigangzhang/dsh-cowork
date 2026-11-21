@@ -18,6 +18,8 @@ test('heavy workflow is manual-only and targets the local heavy runner', () => {
   assert.match(workflow, /git clone --no-hardlinks --no-checkout "\$LOCAL_REPO" \./)
   assert.match(workflow, /git checkout --detach "\$GITHUB_SHA"/)
   assert.match(workflow, /git fetch --no-tags origin "\$\{\{ inputs\.base \}\}"/)
+  assert.match(workflow, /id: base/)
+  assert.match(workflow, /steps\.base\.outputs\.sha/)
   assert.match(workflow, /git config --global init\.defaultBranch main/)
   for (const key of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']) {
     assert.ok(workflow.includes(`${key}:`), `missing git identity for temporary test commits: ${key}`)

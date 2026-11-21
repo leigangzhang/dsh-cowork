@@ -20,7 +20,7 @@ gh workflow run heavy.yml \
   -f repo_path="$HOME/Workspace/dsh-cowork"
 ```
 
-`--ref` 决定 `$GITHUB_SHA`，publisher 绑定这个 head。`repo_path` 必须指向包含 `.git` 的本地 checkout；workflow 从该路径 clone 当前 `$GITHUB_SHA`，不下载任何 action。
+`--ref` 决定 `$GITHUB_SHA`，publisher 绑定这个 head。`base` 可以是分支名或 commit SHA；workflow 会先 fetch 再解析成 SHA，body 的 coverage、pre-run identity 和 publisher 都使用这个 SHA。`repo_path` 必须指向包含 `.git` 的本地 checkout；workflow 从该路径 clone 当前 `$GITHUB_SHA`，不下载任何 action。
 
 查看最近一次运行：
 

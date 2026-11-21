@@ -46,8 +46,11 @@ jobs:
           git clone --no-hardlinks --no-checkout "$LOCAL_REPO" .
           git checkout --detach "$GITHUB_SHA"
 
-      - name: Fetch base
-        run: git fetch --no-tags origin "${{ inputs.base }}"
+      - name: Resolve base
+        id: base
+        run: |
+          git fetch --no-tags origin "${{ inputs.base }}"
+          echo "sha=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Configure git defaults for temporary test repositories
         run: git config --global init.defaultBranch main
@@ -62,7 +65,7 @@ jobs:
       - name: Record pre-run artifact identity
         run: >-
           node scripts/review/gate-artifact.mjs
-          --base "origin/${{ inputs.base }}"
+          --base "${{ steps.base.outputs.sha }}"
           --head "$GITHUB_SHA"
           > "$RUNNER_TEMP/heavy-artifact.before.json"
 
@@ -107,7 +110,7 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          npm run test:coverage:layered -- --base "origin/${{ inputs.base }}"
+          npm run test:coverage:layered -- --base "${{ steps.base.outputs.sha }}"
           code=$?
           printf '{"name":"coverage-layered","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
           exit "$code"
@@ -136,7 +139,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           HEAD_SHA: ${{ github.sha }}
-          HEAVY_BASE_REF: origin/${{ inputs.base }}
+          HEAVY_BASE_REF: ${{ steps.base.outputs.sha }}
           HEAVY_WORKSPACE: ${{ github.workspace }}
           HEAVY_COMMANDS_FILE: ${{ runner.temp }}/heavy-commands.jsonl
           HEAVY_BEFORE_ARTIFACT: ${{ runner.temp }}/heavy-artifact.before.json
