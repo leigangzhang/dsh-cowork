@@ -10,8 +10,8 @@
  * decoration set is rebuilt when the list of lines changes and re-derived on
  * every document change, so a shifted line keeps its marker.
  */
-import { Compartment, EditorState, Transaction, type Range } from '@codemirror/state'
-import { EditorView, ViewPlugin, Decoration, keymap, lineNumbers, type DecorationSet, type ViewUpdate } from '@codemirror/view'
+import { Compartment, EditorState, StateField, Transaction, type Range, type Text } from '@codemirror/state'
+import { EditorView, Decoration, keymap, lineNumbers, type DecorationSet } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { markdown } from '@codemirror/lang-markdown'
@@ -27,30 +27,30 @@ const anchoredLineDecoration = Decoration.line({ class: 'cwi-editor-anchored' })
  * Lines outside the document and empty line lists are dropped rather than
  * clamped: an anchor whose line disappeared should not move to a neighbour.
  */
-function anchoredDecorations(lines: readonly number[], lineCount: number, lineStart: (line: number) => number): DecorationSet {
+function anchoredDecorations(lines: readonly number[], doc: Text): DecorationSet {
   const ranges: Range<Decoration>[] = []
   for (const lineNumber of lines) {
-    if (!Number.isSafeInteger(lineNumber) || lineNumber < 1 || lineNumber > lineCount) continue
-    ranges.push(anchoredLineDecoration.range(lineStart(lineNumber)))
+    if (!Number.isSafeInteger(lineNumber) || lineNumber < 1 || lineNumber > doc.lines) continue
+    ranges.push(anchoredLineDecoration.range(doc.line(lineNumber).from))
   }
   return Decoration.set(ranges, true)
 }
 
-/** A view plugin that keeps anchored markers in sync with its line list. */
+/**
+ * Line markers that follow their text while the user types.
+ *
+ * A reconfigured field rebuilds from the server's line numbers after a save or
+ * comment update; between those points each edit maps the markers through its
+ * changes, so inserting a line above an annotated one does not move the marker
+ * onto an unrelated neighbour.
+ */
 function anchoredLineMarkers(lines: readonly number[]) {
-  return ViewPlugin.fromClass(class {
-    decorations: DecorationSet
-
-    constructor(view: EditorView) {
-      this.decorations = anchoredDecorations(lines, view.state.doc.lines, line => view.state.doc.line(line).from)
-    }
-
-    update(update: ViewUpdate): void {
-      if (!update.docChanged && !update.viewportChanged) return
-      this.decorations = anchoredDecorations(lines, update.state.doc.lines, line => update.state.doc.line(line).from)
-    }
-  }, {
-    decorations: plugin => plugin.decorations,
+  return StateField.define<DecorationSet>({
+    create: state => anchoredDecorations(lines, state.doc),
+    update: (decorations, transaction) => transaction.docChanged
+      ? decorations.map(transaction.changes)
+      : decorations,
+    provide: field => EditorView.decorations.from(field),
   })
 }
 
