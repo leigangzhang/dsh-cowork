@@ -70,6 +70,10 @@
       "lane": "unit"
     },
     {
+      "path": "src/client/work-item/editor.tsx",
+      "lane": "browser"
+    },
+    {
       "path": "src/client/work-item/list.tsx",
       "lane": "browser"
     },

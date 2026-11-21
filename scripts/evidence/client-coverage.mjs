@@ -30,6 +30,7 @@ export const CLIENT_BROWSER_TSX = Object.freeze([
   'src/client/list.tsx',
   'src/client/inbox.tsx',
   'src/client/notice.tsx',
+  'src/client/work-item/editor.tsx',
   'src/client/work-item/list.tsx',
   'src/client/work-item/panel.tsx',
 ])
