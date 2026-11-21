@@ -128,7 +128,7 @@ npm run change-scope -- --base <verified-base>
 
 目标文件：`.github/workflows/gate-artifact-v2.yml`，workflow 名 `Policy V2`，job 名 `policy-gate`。
 
-- 触发：PR 更新、review 事件、`CI`、`Pre-Merge` 或 `Heavy` 完成；
+- 触发：PR 更新、review 事件、`CI` 或 `Pre-Merge` 完成，以及 `Heavy Comment` 发出的 `workflow_dispatch`；
 - 权限：`contents: read`、`pull-requests: read`、`checks: write`；
 - 从受信任的 base 分支检出脚本；PR head 只作为 git 数据 fetch，不执行 PR 代码；
 - review marker：
@@ -184,7 +184,7 @@ publisher 在评估前先把 `gate-artifact` 写成 `pending`，随后写 `succe
 - 触发：同仓库 `agent/*` PR 在 `CI` 成功后由 `workflow_run` 自动触发；维护者给同仓库 PR 加 `heavy` label；有写权限的人仍可 `workflow_dispatch`。fork PR 的 job 被 job-level `if` 排除，不进入 self-hosted runner。并发按 head SHA。
 - 本机准备 Node、`dsh`/DSH Desktop、Chromium；使用专用 workspace，每次 `npm ci`，安装 Chromium，依次运行 `npm run typecheck`、`npm run build`、`DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke`、`npm run test:coverage:layered -- --base <resolved-base>`、`npm run test:e2e` 和观测性的 `npm run test:e2e:bash`。workflow 从 `repo_path` 指向的本地 checkout clone 目标 head，只依赖 runner 已安装的 Node，并用 `.node-version` 校验；不下载 `setup-node`/`upload-artifact`/checkout action。base 手动传入时解析为固定 SHA；未传时使用 `origin/main` 与 head 的 merge-base。
 - head-bound publisher 把 `heavy-gate` commit status、`heavy-gate-result` display check 和 `heavy-result.json` 绑定到实际 head。派生 gate 读取 status 和 result summary，校验 head、base 祖先关系、diff、porcelain 和 blocking 命令；docs-only PR 直接豁免。
-- `heavy-gate` 不是 ruleset 的 required context，也不加入 ruleset；它是 `gate-artifact` 在非 docs PR 上的输入。`gate-artifact` 仍是唯一 required context。`Heavy` 完成后会触发派生 gate 重算。
+- `heavy-gate` 不是 ruleset 的 required context，也不加入 ruleset；它是 `gate-artifact` 在非 docs PR 上的输入。`gate-artifact` 仍是唯一 required context。`Heavy Comment` 发布摘要后用 `workflow_dispatch` 触发 `Policy V2`，由唯一 gate publisher 重算；`Policy V2` 不直接监听 `Heavy`。
 - 可发布 green 的条件：workflow 在目标 head 上成功、`heavy-gate` status 为 `success`、pre-run 与 post-run 的 head/base/diff 一致、`porcelain` 为空、所有 blocking 命令退出码为 0。`e2e-bash` 只记录，不阻断。新 commit 或新 diff 必须重新运行，不能复用旧 head 的绿色结果。
 - 本机休眠、离线或 runner 不可用时 job 会排队或失败；非 docs PR 会一直等一个有效 heavy 输入。PR 的 `Not run` 必须明确写出未运行的重型检查，不能把 workflow 未运行当成通过。
 
@@ -217,7 +217,7 @@ publisher 在评估前先把 `gate-artifact` 写成 `pending`，随后写 `succe
 4. 验证 base-recheck 能让旧绿色 gate 变 stale。
 5. 设置 `MERGE_POLICY_MODE=block`，验证同一 publisher 的 required `gate-artifact` 变红/变绿后，再移除 strict up-to-date。
 6. heavy lane 先在目标 head 上发布 head-bound 结果并跑出一个绿色周期。
-7. `gate-artifact` 对非 docs PR 消费 `heavy-gate` 身份，docs-only 豁免；`Heavy` 完成触发 gate 重算；同仓库 `agent/*` PR 自动触发，`heavy` label 和手动 dispatch 保留；不把 `heavy-gate` 加入 ruleset。
+7. `gate-artifact` 对非 docs PR 消费 `heavy-gate` 身份，docs-only 豁免；`Heavy Comment` 发布摘要后触发 `Policy V2` 重算；同仓库 `agent/*` PR 自动触发，`heavy` label 和手动 dispatch 保留；不把 `heavy-gate` 加入 ruleset。
 
 ## 10. 验收
 
@@ -231,7 +231,7 @@ publisher 在评估前先把 `gate-artifact` 写成 `pending`，随后写 `succe
 - 直接 push main、force push、删除 main：全部拒绝。
 - `pre-merge` summary 的 base 等于当前 main，head 等于 PR head。
 - 非 docs PR 缺少同 head 的 `heavy-gate`，或 status/result 的 base、diff、porcelain、blocking 命令不匹配，派生 gate blocked；docs-only PR 不要求 heavy。
-- 同仓库 `agent/*` PR 在 CI 成功后自动进入 heavy；fork PR 被 job-level `if` 排除；`heavy` label 和手动 dispatch 可补跑；`Heavy` 完成后派生 gate 重算。
+- 同仓库 `agent/*` PR 在 CI 成功后自动进入 heavy；fork PR 被 job-level `if` 排除；`heavy` label 和手动 dispatch 可补跑；`Heavy Comment` 发布摘要后触发 `Policy V2` 重算。
 - required context 始终是 `gate-artifact` commit status，由唯一 publisher 在 report/block 两种 mode 下写 success/failure；`base-recheck` 只写 pending；`gate-artifact-v2` 只做展示。
 - 旧 workflow 的 bootstrap 历史见[决策记录](../../../.agents/notes/implemented/process/2026-11-17-pre-merge-derived-gate.md)；`tests/guards/review-gate.test.mjs` 断言旧 workflow 不存在且 publisher 唯一。
 - 合并后分支自动删除，main 上是 merge commit。

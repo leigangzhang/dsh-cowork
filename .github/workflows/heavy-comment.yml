@@ -10,6 +10,7 @@ permissions:
   checks: read
   statuses: read
   pull-requests: write
+  actions: write
 
 concurrency:
   group: heavy-comment-${{ github.event.workflow_run.head_sha }}
@@ -32,6 +33,17 @@ jobs:
         with:
           node-version-file: .node-version
 
+      - name: Resolve pull request
+        id: pull
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          pr_number="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/pulls?per_page=100" \
+            --jq '[.[] | select(.state == "open")] | if length == 1 then .[0].number else empty end')"
+          echo "number=$pr_number" >> "$GITHUB_OUTPUT"
+
       - name: Publish heavy summary
         env:
           GH_TOKEN: ${{ github.token }}
@@ -40,5 +52,11 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           HEAVY_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           HEAVY_RUN_URL: ${{ github.event.workflow_run.html_url }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          PR_NUMBER: ${{ steps.pull.outputs.number }}
         run: node scripts/ci/publish-heavy-comment.mjs
+
+      - name: Trigger derived gate
+        if: ${{ always() && steps.pull.outputs.number != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run gate-artifact-v2.yml --ref main -f pr_number="${{ steps.pull.outputs.number }}"

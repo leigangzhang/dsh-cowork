@@ -59,9 +59,9 @@ gh api "repos/leigangzhang/dsh-cowork/commits/$HEAD_SHA/check-runs" \
 
 ## PR 摘要评论
 
-`Heavy Comment` workflow 在 `Heavy` 完成后触发，从受信任的 `main` checkout 运行 `scripts/ci/publish-heavy-comment.mjs`，只持有 `pull-requests: write`，不执行 PR 代码。它按 head 解析唯一的 open PR，读取 `heavy-gate` status 和 `heavy-gate-result`，用 `<!-- heavy-gate-summary -->` marker 创建或原地更新一条摘要评论，内容包含 head、base、current main、diff SHA-256、worktree 状态、命令退出码、失败原因和 run 链接。
+`Heavy Comment` workflow 在 `Heavy` 完成后触发，从受信任的 `main` checkout 运行 `scripts/ci/publish-heavy-comment.mjs`，持有 `pull-requests: write` 和 `actions: write`，不执行 PR 代码。它按 head 解析唯一的 open PR，读取 `heavy-gate` status 和 `heavy-gate-result`，用 `<!-- heavy-gate-summary -->` marker 创建或原地更新一条摘要评论，内容包含 head、base、current main、diff SHA-256、worktree 状态、命令退出码、失败原因和 run 链接。
 
-无 open PR 或 docs-only 成功但没有 heavy 结果时跳过；heavy 失败也发摘要。评论只用于审计和排查，不参与 `gate-artifact` 决策。
+无 open PR 或 docs-only 成功但没有 heavy 结果时跳过；heavy 失败也发摘要。评论只用于审计和排查，不参与 `gate-artifact` 决策。发布后 workflow 用 `workflow_dispatch` 把 PR 号传给 `Policy V2`，由唯一 gate publisher 重算 required status；这个 gate 请求即使评论步骤失败也会尝试执行。
 
 ## gate 如何消费结果
 
@@ -73,7 +73,7 @@ gh api "repos/leigangzhang/dsh-cowork/commits/$HEAD_SHA/check-runs" \
 - base 同时是 head 和 current main 的祖先；
 - 用 base..head 重新计算的 diff SHA-256 与 summary 一致。
 
-docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 docs-only 时 heavy workflow 只做 refresh、checkout、base、classify，不安装依赖、不跑测试、不发布 heavy 结果。任何一项不满足，`gate-artifact` 都会 blocked 并给出具名原因。`Heavy` workflow 完成后也会触发派生 gate 重算，避免 CI 先跑、heavy 后跑造成永久 pending。
+docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 docs-only 时 heavy workflow 只做 refresh、checkout、base、classify，不安装依赖、不跑测试、不发布 heavy 结果。任何一项不满足，`gate-artifact` 都会 blocked 并给出具名原因。`Heavy Comment` 在 Heavy 完成后用 `workflow_dispatch` 触发 `Policy V2`，由唯一 gate publisher 重算 required status；`Policy V2` 不再直接监听 `Heavy`。
 
 ## 判定绿色周期
 
