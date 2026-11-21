@@ -14,16 +14,18 @@ on:
 
 permissions:
   contents: read
+  statuses: write
+  checks: write
 
 concurrency:
-  group: heavy-${{ github.ref }}
+  group: heavy-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
   heavy-gate:
     name: heavy-gate
-    # Only a write-capable maintainer can start this workflow. No PR event
-    # reaches the self-hosted runner until a head-bound check publisher exists.
+    # Stage 2 remains dispatch-only. The publisher binds the result to
+    # github.sha; automatic same-repository PR triggers are a later stage.
     runs-on: [self-hosted, heavy]
     timeout-minutes: 60
     env:
@@ -53,31 +55,94 @@ jobs:
       - name: Verify the runner Node version
         run: test "$(node --version)" = "v$(cat .node-version)"
 
+      - name: Initialize command results
+        run: |
+          : > "$RUNNER_TEMP/heavy-commands.jsonl"
+
+      - name: Record pre-run artifact identity
+        run: >-
+          node scripts/review/gate-artifact.mjs
+          --base "origin/${{ inputs.base }}"
+          --head "$GITHUB_SHA"
+          > "$RUNNER_TEMP/heavy-artifact.before.json"
+
       - name: Install dependencies
+        continue-on-error: true
         run: npm ci
 
       - name: Install Chromium
+        continue-on-error: true
         run: npx playwright install chromium
 
       - name: Typecheck
-        run: npm run typecheck
+        continue-on-error: true
+        run: |
+          set +e
+          npm run typecheck
+          code=$?
+          printf '{"name":"typecheck","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
       - name: Build
-        run: npm run build
+        continue-on-error: true
+        run: |
+          set +e
+          npm run build
+          code=$?
+          printf '{"name":"build","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
       - name: Host smoke
-        run: DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke
+        continue-on-error: true
+        env:
+          DSH_HOST_SMOKE_STRICT: "1"
+        run: |
+          set +e
+          npm run test:host-smoke
+          code=$?
+          printf '{"name":"host-smoke","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
       - name: Browser and layered coverage
-        run: >-
-          npm run test:coverage:layered --
-          --base "origin/${{ inputs.base }}"
+        continue-on-error: true
+        run: |
+          set +e
+          npm run test:coverage:layered -- --base "origin/${{ inputs.base }}"
+          code=$?
+          printf '{"name":"coverage-layered","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
       - name: Versioned keyless E2E
-        run: npm run test:e2e
+        continue-on-error: true
+        run: |
+          set +e
+          npm run test:e2e
+          code=$?
+          printf '{"name":"e2e-keyless","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
-      - name: Versioned host-bash E2E
-        run: npm run test:e2e:bash
+      - name: Versioned host-bash E2E (observational)
+        continue-on-error: true
+        run: |
+          set +e
+          npm run test:e2e:bash
+          code=$?
+          printf '{"name":"e2e-bash","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
+
+      - name: Publish heavy result
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          HEAVY_BASE_REF: origin/${{ inputs.base }}
+          HEAVY_WORKSPACE: ${{ github.workspace }}
+          HEAVY_COMMANDS_FILE: ${{ runner.temp }}/heavy-commands.jsonl
+          HEAVY_BEFORE_ARTIFACT: ${{ runner.temp }}/heavy-artifact.before.json
+          HEAVY_RESULT_PATH: ${{ github.workspace }}/heavy-result.json
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/ci/publish-heavy.mjs
 
       - name: Show coverage evidence
         if: ${{ always() }}
@@ -86,4 +151,10 @@ jobs:
             ls -lh coverage/layered.json coverage/client.json coverage/browser.lcov
           else
             echo "coverage report was not produced"
+          fi
+          if [ -f heavy-result.json ]; then
+            echo "heavy result:"
+            cat heavy-result.json
+          else
+            echo "heavy-result.json was not produced"
           fi

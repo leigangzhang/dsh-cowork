@@ -180,15 +180,14 @@ publisher 在评估前先把 `gate-artifact` 写成 `pending`，随后写 `succe
 
 `npm run typecheck`、`npm run build`、`test:host-smoke`、`test:browser`、`test:coverage:layered` 依赖本机 DSH source/app 或 Chromium，不能直接放进 GitHub-hosted runner 的核心命令。
 
-- 默认不在 GitHub-hosted runner 上跑。目标文件 `.github/workflows/heavy.yml`，workflow 名 `Heavy`，job 名 `heavy-gate`；第一阶段只通过 `workflow_dispatch` 由有写权限的人手动启动，使用 `runs-on: [self-hosted, heavy]`；核心 `pr-gate` 仍跑 GitHub-hosted。第二台机器作为可选扩容/兜底，不作为第一阶段前提。
-- 本机准备 Node、`dsh`/DSH Desktop、Chromium；使用专用 workspace，每次 `npm ci`，安装 Chromium，依次运行 `npm run typecheck`、`npm run build`、`DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke`，最后运行 `npm run test:coverage:layered -- --base <verified-base>`（其中包含 browser lane）；heavy job 并发设为 1。workflow 从 `repo_path` 指向的本地 checkout clone 当前 commit，只依赖 runner 已安装的 Node，并用 `.node-version` 校验；运行前设置临时 repo 的 `init.defaultBranch=main` 和固定 git identity；不下载 `setup-node`/`upload-artifact`/checkout action，coverage 证据留在本机 `coverage/` 与运行日志。
-- 第一阶段不接 `pull_request`/`pull_request_target`，所以任何 PR（包括 fork）都不会自动进入 self-hosted runner；标签触发要等 head-bound check publisher 落地后再评估。
-- `heavy-gate` 目前不是 PR-head 的 required check。稳定后若要加入 ruleset，需要用 App token 在 PR head 发布 check run，或改用等价的可信机制；`workflow_dispatch` 的 job check 不能充当 PR head 状态。
-- 稳定门槛：固定 OS、Node、`dsh`、Chromium 版本；每次 clean workspace；先做 host health 检查；重试只允许有界次数并记录；上传截图/日志/JSON 证据；连续 20 次无基础设施失败的 green 运行后，才把 heavy lane 设为 required。
-- 稳定前只作为独立 workflow 或手动运行，PR 的 `Not run` 必须明确写出；稳定后按 affected paths 增加独立 required check `heavy-gate`，不能把 skipped 当绿。
-- 本机休眠、离线或 runner 不可用时 job 会排队或失败；在 uptime 稳定前不要把它设为 required，否则会阻塞相关 PR。
+- 默认不在 GitHub-hosted runner 上跑。目标文件 `.github/workflows/heavy.yml`，workflow 名 `Heavy`，job 名 `heavy-gate`；当前只通过 `workflow_dispatch` 由有写权限的人手动启动，使用 `runs-on: [self-hosted, heavy]`；核心 `pr-gate` 仍跑 GitHub-hosted。第二台机器作为可选扩容/兜底，不作为当前前提。
+- 本机准备 Node、`dsh`/DSH Desktop、Chromium；使用专用 workspace，每次 `npm ci`，安装 Chromium，依次运行 `npm run typecheck`、`npm run build`、`DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke`、`npm run test:coverage:layered -- --base <verified-base>`、`npm run test:e2e` 和观测性的 `npm run test:e2e:bash`。workflow 从 `repo_path` 指向的本地 checkout clone 当前 commit，只依赖 runner 已安装的 Node，并用 `.node-version` 校验；运行前设置临时 repo 的 `init.defaultBranch=main` 和固定 git identity；不下载 `setup-node`/`upload-artifact`/checkout action，coverage 证据留在本机 `coverage/` 与运行日志。
+- 当前不接 `pull_request`/`pull_request_target`，所以任何 PR（包括 fork）都不会自动进入 self-hosted runner。head-bound publisher 已存在：它把 `heavy-gate` commit status、`heavy-gate-result` display check 和 `heavy-result.json` 绑定到被 dispatch 的 `$GITHUB_SHA`。同仓库 `workflow_run` 自动触发仍属于后续阶段。
+- `heavy-gate` 当前是 observe 模式，不是 PR-head 的 required check，也不加入 ruleset。先在同一个 head 上跑出一个绿色周期；之后才把该结果作为输入接入现有 `gate-artifact` 派生决策。ruleset 继续只要求 `gate-artifact` 一个 context。
+- 可发布 green 的条件：workflow 在目标 head 上成功、`heavy-gate` status 为 `success`、pre-run 与 post-run 的 head/base/diff 一致、`porcelain` 为空、所有 blocking 命令退出码为 0。`e2e-bash` 只记录，不阻断。新 commit 或新 diff 必须重新运行，不能复用旧 head 的绿色结果。
+- 本机休眠、离线或 runner 不可用时 job 会排队或失败；在 observe 模式和派生 gate 接入前，PR 的 `Not run` 必须明确写出未运行的重型检查，不能把 workflow 未运行当成通过。
 
-操作步骤（连续 green 计数、publisher 检查、ruleset 更新与回滚）见 [heavy-runner.md](../../heavy-runner.md)。
+操作步骤（手动触发、head-bound observe 结果核对、绿色周期与回滚）见 [heavy-runner.md](../../heavy-runner.md)。
 
 ## 7. PR 元数据 v1
 
@@ -216,7 +215,7 @@ publisher 在评估前先把 `gate-artifact` 写成 `pending`，随后写 `succe
 3. 接入单一 publisher 和非 required 的 `gate-artifact-v2` 展示 check，验证 review 早于 CI、main 前进和 recheck 的行为。
 4. 验证 base-recheck 能让旧绿色 gate 变 stale。
 5. 设置 `MERGE_POLICY_MODE=block`，验证同一 publisher 的 required `gate-artifact` 变红/变绿后，再移除 strict up-to-date。
-6. heavy lane 仍按现有稳定门槛评估；不因本次改动升级为 required。
+6. heavy lane 先以 observe 模式在目标 head 上发布 `heavy-gate`；跑出一个绿色周期后，再把该结果作为输入接入 `gate-artifact`，不把 `heavy-gate` 加入 ruleset。
 
 ## 10. 验收
 

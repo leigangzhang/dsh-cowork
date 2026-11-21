@@ -11,7 +11,7 @@ test('heavy workflow is manual-only and targets the local heavy runner', () => {
   assert.match(workflow, /^name: Heavy$/m)
   assert.match(workflow, /^on:\n  workflow_dispatch:$/m)
   assert.doesNotMatch(workflow, /pull_request/)
-  assert.match(workflow, /^permissions:\n  contents: read$/m)
+  assert.match(workflow, /^permissions:\n  contents: read\n  statuses: write\n  checks: write$/m)
   assert.match(workflow, /^    runs-on: \[self-hosted, heavy\]$/m)
   assert.match(workflow, /^  heavy-gate:\n    name: heavy-gate$/m)
   assert.match(workflow, /inputs\.repo_path/)
@@ -31,10 +31,11 @@ test('heavy workflow runs its prerequisites in order', () => {
     'npx playwright install chromium',
     'npm run typecheck',
     'npm run build',
-    'DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke',
-    'npm run test:coverage:layered',
+    'npm run test:host-smoke',
+    'npm run test:coverage:layered -- --base',
     'npm run test:e2e',
     'npm run test:e2e:bash',
+    'node scripts/ci/publish-heavy.mjs',
   ]
   let previous = -1
   for (const command of commands) {
@@ -42,12 +43,16 @@ test('heavy workflow runs its prerequisites in order', () => {
     assert.ok(index > previous, `heavy workflow is missing or out of order: ${command}`)
     previous = index
   }
+  assert.match(workflow, /DSH_HOST_SMOKE_STRICT: "1"/)
   assert.match(workflow, /coverage\/layered\.json/)
+  assert.match(workflow, /HEAVY_BEFORE_ARTIFACT/)
+  assert.match(workflow, /HEAVY_RESULT_PATH/)
+  assert.match(workflow, /if: \$\{\{ always\(\) \}\}/)
 })
 
 test('heavy workflow downloads no actions and carries no secrets', () => {
   const uses = [...workflow.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])
   assert.deepEqual(uses, [])
-  assert.doesNotMatch(workflow, /actions\//)
+  assert.doesNotMatch(workflow, /^\s+uses:\s+actions\//m)
   assert.doesNotMatch(workflow, /secrets\./)
 })

@@ -25,7 +25,7 @@ Coverage discovery is mechanical: contract, gap report, heavy gate, review. `npm
 
 `npm run coverage:gaps -- --base <verified-base>` reuses reports whose gate-artifact identity matches HEAD/base/diff/porcelain, otherwise runs the layered lane, then prints changed-file uncovered lines and changed public keys absent from scenario `covers` in [the E2E manifest](../tests/e2e/manifest.json). It writes only gitignored coverage data.
 
-A new interactive surface names its browser scenario in the owning test or review evidence. Review judges assertion meaning, negative controls, mocks, and unrun lanes, not coverage discovery. Docs-only changes skip heavy; other changes need a head-bound `heavy-gate` after one green observe cycle.
+A new interactive surface names its browser scenario in the owning test or review evidence. Review judges assertion meaning, negative controls, mocks, and unrun lanes, not coverage discovery. In the derived gate, docs-only changes skip heavy; until that input is wired, `heavy-gate` stays observe-only and one green cycle must be recorded.
 
 ## Commands
 
