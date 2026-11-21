@@ -12,6 +12,7 @@ import {
 } from '../../tools/e2e-coverage.mjs'
 import { SCENARIOS } from '../../tests/e2e/scenarios/index.mjs'
 import { catalogSha256 } from '../../tests/e2e/support/catalog.mjs'
+import { createTurnLedger, summarizeTurns } from '../../tests/e2e/support/turns.mjs'
 import {
   LIVE_SCENARIO_SETUP_MS,
   LIVE_TURN_OBSERVATION_MS,
@@ -123,6 +124,29 @@ test('a live scenario budget grows with its model turns', () => {
   assert.equal(scenarioTimeoutOf({ id: 'keyless' }, 300_000), 300_000)
   assert.equal(scenarioTimeoutOf({ id: 'live', timeoutMs: liveScenarioTimeout(7) }, 300_000), liveScenarioTimeout(7))
   assert.throws(() => scenarioTimeoutOf({ id: 'bad', timeoutMs: 0 }, 300_000), /positive integer/)
+})
+
+test('a failed live turn skips only its dependants and keeps independent turns running', async () => {
+  const ledger = createTurnLedger()
+  const ran = []
+  assert.equal(await ledger.run('init', {}, async () => { ran.push('init'); return 1 }), 1)
+  assert.equal(await ledger.run('register', { dependsOn: ['init'] }, async () => { throw new Error('model stalled') }), undefined)
+  assert.equal(await ledger.run('dependent', { dependsOn: ['register'] }, async () => { ran.push('dependent'); return 2 }), undefined)
+  assert.equal(await ledger.run('independent', {}, async () => { ran.push('independent'); return 3 }), 3)
+  assert.deepEqual(ran, ['init', 'independent'])
+  const stats = ledger.stats()
+  assert.deepEqual(
+    { passed: stats.passed, failed: stats.failed, skipped: stats.skipped, attempted: stats.attempted },
+    { passed: 2, failed: 1, skipped: 1, attempted: 3 },
+  )
+  assert.equal(stats.rate, 2 / 3)
+  assert.equal(stats.turns.find((turn) => turn.name === 'register').reason, 'model stalled')
+  assert.match(stats.turns.find((turn) => turn.name === 'dependent').reason, /failed dependency "register"/)
+})
+
+test('a skipped turn is never counted as passed', () => {
+  assert.deepEqual(summarizeTurns([{ status: 'skipped' }]), { passed: 0, failed: 0, skipped: 1, attempted: 0, rate: null })
+  assert.deepEqual(summarizeTurns([{ status: 'passed' }, { status: 'skipped' }]), { passed: 1, failed: 0, skipped: 1, attempted: 1, rate: 1 })
 })
 
 test('the live scenarios declare their own per-turn budget', () => {

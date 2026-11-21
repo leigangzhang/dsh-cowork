@@ -279,13 +279,20 @@ async function main() {
         } else if (values.keep) console.log(`kept fixture ${fixture.path}`)
         else await removeFixture(fixture.path)
       }
+      // Live scenarios observe each real-model turn separately; a failed turn
+      // fails the scenario, but the remaining independent turns already ran.
+      const turnStats = context.turns.stats()
+      const turnFailure = error === null && turnStats.failed > 0
+        ? `${String(turnStats.failed)} live turn(s) failed`
+        : null
       const result = {
         id: entry.id,
         mode: entry.mode,
         summary: entry.summary,
-        passed: error === null,
-        error,
+        passed: error === null && turnStats.failed === 0,
+        error: error ?? turnFailure,
         checks: context.checks,
+        ...(turnStats.turns.length === 0 ? {} : { turns: turnStats }),
         startedAt: scenarioStartedAt,
         durationMs: Date.now() - scenarioStartMs,
         modelCalls: model.calls.slice(-40).map((call) => ({
@@ -304,8 +311,11 @@ async function main() {
         `${JSON.stringify({ ...result, evidence: sanitizeEvidenceText(result) }, null, 2)}\n`,
         'utf8',
       )
-      if (error === null) console.log(`PASS ${entry.id}: ${result.checks.length} checks`)
-      else console.log(`FAIL ${entry.id}: ${error}`)
+      const turnNote = turnStats.turns.length === 0
+        ? ''
+        : `, turns ${String(turnStats.passed)}/${String(turnStats.attempted)}${turnStats.skipped === 0 ? '' : ` (+${String(turnStats.skipped)} skipped)`}${turnStats.rate === null ? '' : `, rate ${(turnStats.rate * 100).toFixed(1)}%`}`
+      if (result.passed) console.log(`PASS ${entry.id}: ${result.checks.length} checks${turnNote}`)
+      else console.log(`FAIL ${entry.id}: ${result.error}${turnNote}`)
       if (timedOut) break
     }
   } finally {
@@ -363,7 +373,17 @@ async function main() {
     throw new Error(`e2e failed: ${failed.join(', ')}`)
   }
   const lane = mode === 'keyless' ? 'e2e' : `${mode} e2e (observational)`
-  console.log(`PASS ${lane}: ${results.length} scenarios, ${checkCount} checks, plugin ${packageJson.version} on DSH ${dshVersion}`)
+  const withTurns = results.filter((result) => result.turns !== undefined)
+  const turnTotals = withTurns.reduce((totals, result) => ({
+    attempted: totals.attempted + result.turns.attempted,
+    passed: totals.passed + result.turns.passed,
+    failed: totals.failed + result.turns.failed,
+    skipped: totals.skipped + result.turns.skipped,
+  }), { attempted: 0, passed: 0, failed: 0, skipped: 0 })
+  const turnSummary = withTurns.length === 0
+    ? ''
+    : `, turns ${String(turnTotals.passed)}/${String(turnTotals.attempted)} (failed ${String(turnTotals.failed)}, skipped ${String(turnTotals.skipped)})`
+  console.log(`PASS ${lane}: ${results.length} scenarios, ${checkCount} checks${turnSummary}, plugin ${packageJson.version} on DSH ${dshVersion}`)
 }
 
 main().catch((error) => {
