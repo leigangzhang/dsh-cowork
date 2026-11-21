@@ -29,7 +29,7 @@
 | GitHub 自动测试 | `pr-gate` 的 docs lane 运行 `check`；非 docs 改动再运行 `test:coverage`。`npm test` 不再在 `pr-gate` 中重复执行 |
 | 合并结果测试 | `Pre-Merge` 在 `pull_request_target` 中把当前 `main` 合到 PR HEAD，运行路径相关检查，并发布 `pre-merge` 检查 |
 | Base 前进 | 不更新 PR 分支；`Policy Base` 把旧 `gate-artifact` 写成 `pending`，并把 `gate-artifact-v2` 标成 `action_required`，维护者给 PR 加 `recheck` 标签后重新运行 pre-merge |
-| 本机扩展测试 | 同仓库 `agent/*` PR 在 CI 成功后自动运行，维护者也可加 `heavy` label 或手动 dispatch；运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash，并在目标 HEAD 上发布 `heavy-gate` 身份和 `heavy-result.json` |
+| 本机扩展测试 | 同仓库 `agent/*` PR 在 CI 成功后自动运行，维护者也可加 `heavy` label 或手动 dispatch；docs-only head 在安装依赖前结束，其他 head 运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash，并从可信 main 树发布 `heavy-gate` 身份和 `heavy-result.json` |
 | E2E 证据 | `npm run test:e2e -- --record` 在干净工作区录制；`docs/**` 和 `README.md` 的后续改动不会使证据失效；`test:e2e:live` 和 `test:e2e:bash` 只做观测 |
 | 代码审查 | 独立 review 给出 `review-verdict:v2`；required `gate-artifact` 在 report mode 校验 legacy 身份，在 block mode 校验 v2 + pre-merge |
 | 自动发布 | 无；详见第 7 节 |
@@ -82,7 +82,7 @@ flowchart TD
 | `Pre-Merge / pre-merge` | PR 创建、更新、ready 或 `recheck` 标签 | GitHub 提供的 Ubuntu 运行器；`pull_request_target` | 否，供派生 gate 使用 | 把当前 `main` merge 到 PR HEAD，在临时合并结果上运行 `check` 和按路径选择的 coverage |
 | `Policy V2 / policy-gate` | PR 更新、review 事件、CI/Pre-Merge/Heavy 完成 | GitHub 提供的 Ubuntu 运行器；从受信任的 `main` 执行脚本 | 是；由它发布唯一 required `gate-artifact` commit status | report mode 校验 legacy review、`pr-gate`、main ancestor；block mode 校验 v2 review、`pre-merge`、非 docs 的 heavy 身份、metadata 和 reviewed paths；docs-only 豁免 heavy |
 | `gate-artifact-v2`（display check） | 同一 Policy V2 运行 | 同上 | 否，永不加入 required checks | 镜像 required 决策；report mode 同时记录 v2 would-fail 原因 |
-| `Heavy / heavy-gate` | 同仓库 `agent/*` PR 的 CI 成功后自动触发；`heavy` label 或 `workflow_dispatch` 也可触发 | 标记为 `self-hosted, heavy` 的本机运行器；fork PR 跳过 | 仅作为 `gate-artifact` 的输入；非 docs PR 缺少有效 heavy 会 blocked | 运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash；发布 head-bound `heavy-gate` 状态和 `heavy-result.json`；不审查代码 |
+| `Heavy / heavy-gate` | 同仓库 `agent/*` PR 的 CI 成功后自动触发；`heavy` label 或 `workflow_dispatch` 也可触发 | 标记为 `self-hosted, heavy` 的本机运行器；fork PR 跳过；docs-only head 只做分类 | 仅作为 `gate-artifact` 的输入；非 docs PR 缺少有效 heavy 会 blocked | 非 docs head 运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash；从可信 main 树发布 head-bound `heavy-gate` 状态和 `heavy-result.json`；不审查代码 |
 
 `gate-artifact-v2` 只做展示，永不加入 required checks。required context 始终是 `gate-artifact`，由 commit status 承载：report mode 用 legacy 校验，block mode 用 v2 + pre-merge + 非 docs 的 heavy 身份校验。commit status 按 context 原地覆盖，因此重复运行不会在同一 head 上留下多个同名 required check。切换到 block mode 前，必须先验证 `pre-merge` 能稳定发布当前 base，且 base-recheck 能把旧绿色 gate 标成 stale。
 
@@ -396,9 +396,9 @@ npm run test:e2e
 npm run test:e2e:bash
 ```
 
-workflow 从 `repo_path` 指向的本地仓库 clone 目标 `HEAD_SHA`；手动传 base 时使用该分支/SHA，未传时使用 `origin/main` 与 head 的 merge-base。base 会解析成一个固定 SHA，贯穿 pre-run identity、layered coverage 和 publisher。
+workflow 从 `repo_path` 指向的本地仓库 clone 目标 `HEAD_SHA`；先从该仓库刷新 `refs/remotes/origin/*` 并记录当前 main SHA。手动传 base 时在同一个本地仓库解析该分支/SHA，未传时使用刷新后的 main 与 head 的 merge-base。base 会解析成一个固定 SHA，贯穿 pre-run identity、layered coverage 和 publisher。workflow 另外把 `refs/remotes/origin/main` 导出到临时目录，docs-only classifier、pre-run identity 记录和 publisher 都从这份可信 main 树执行；PR checkout 只运行测试和提供 git 数据。
 
-每条命令的退出码写入临时 JSONL，最后的 publisher 重新计算 `base..HEAD` 的 gate artifact，与运行前捕获的身份比较，读取当前 `main`，写出 gitignored 的 `heavy-result.json`，并在目标 head 上发布 `heavy-gate` commit status 与 `heavy-gate-result` display check。结果文件记录 head、base、current main、diff SHA-256、porcelain 和每个命令的退出码。工作区脏、head/diff 不匹配、base 不再是 head 的祖先、packaging/runtime 阻塞命令缺失或失败时，状态是 failure；host-bash 的失败只记录、不阻断。
+每条命令的退出码写入临时 JSONL，最后的 publisher 重新计算 `base..HEAD` 的 gate artifact，与运行前捕获的身份比较，读取当前 `main`，写出 gitignored 的 `heavy-result.json`，并在目标 head 上发布 `heavy-gate` commit status 与 `heavy-gate-result` display check。结果文件记录 head、base、current main、diff SHA-256、porcelain 和每个命令的退出码。工作区脏、head/diff 不匹配、base 不再是 head 的祖先、packaging/runtime 阻塞命令缺失或失败时，状态是 failure；host-bash 的失败只记录、不阻断。可信 classifier 判断为 docs-only 时，workflow 在安装依赖前结束，不占用完整 heavy lane。
 
 `gate-artifact` 在非 docs PR 上读取同一 head 的 `heavy-gate` success 和 `heavy-gate-result` summary，校验 base 同时是 head 与 current main 的祖先、diff SHA 匹配、worktree clean、blocking 命令全绿。docs-only PR 豁免 heavy。`Heavy` 完成后也会触发派生 gate 重算，避免 CI 先完成、heavy 后完成造成永久 blocked。ruleset 仍只要求 `gate-artifact`，不直接要求 `heavy-gate`。
 

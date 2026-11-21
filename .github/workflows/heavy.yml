@@ -54,6 +54,7 @@ jobs:
       HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Refresh source branch refs
+        id: source
         env:
           LOCAL_REPO: ${{ inputs.repo_path || '/Users/ray/Workspace/dsh-cowork' }}
         run: |
@@ -62,6 +63,7 @@ jobs:
             exit 1
           }
           git -C "$LOCAL_REPO" fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          echo "main=$(git -C "$LOCAL_REPO" rev-parse refs/remotes/origin/main)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout selected ref from the local repository
         env:
@@ -78,47 +80,76 @@ jobs:
       - name: Resolve base
         id: base
         env:
+          LOCAL_REPO: ${{ inputs.repo_path || '/Users/ray/Workspace/dsh-cowork' }}
           BASE_INPUT: ${{ inputs.base }}
+          TRUSTED_MAIN: ${{ steps.source.outputs.main }}
         run: |
           if [ -n "$BASE_INPUT" ]; then
-            if [[ "$BASE_INPUT" =~ ^[0-9a-f]{7,40}$ ]] && git cat-file -e "${BASE_INPUT}^{commit}" 2>/dev/null; then
-              sha="$(git rev-parse "${BASE_INPUT}^{commit}")"
+            if [[ "$BASE_INPUT" =~ ^[0-9a-f]{7,40}$ ]] && git -C "$LOCAL_REPO" cat-file -e "${BASE_INPUT}^{commit}" 2>/dev/null; then
+              sha="$(git -C "$LOCAL_REPO" rev-parse "${BASE_INPUT}^{commit}")"
             else
-              git fetch --no-tags origin "$BASE_INPUT"
-              sha="$(git rev-parse FETCH_HEAD)"
+              git -C "$LOCAL_REPO" fetch --no-tags origin "$BASE_INPUT"
+              sha="$(git -C "$LOCAL_REPO" rev-parse FETCH_HEAD)"
             fi
           else
-            git fetch --no-tags origin main
-            sha="$(git merge-base FETCH_HEAD "$HEAD_SHA")"
+            sha="$(git -C "$LOCAL_REPO" merge-base "$TRUSTED_MAIN" "$HEAD_SHA")"
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare trusted source
+        env:
+          LOCAL_REPO: ${{ inputs.repo_path || '/Users/ray/Workspace/dsh-cowork' }}
+        run: |
+          TRUSTED_ROOT="$RUNNER_TEMP/heavy-trusted"
+          rm -rf "$TRUSTED_ROOT"
+          mkdir -p "$TRUSTED_ROOT"
+          git -C "$LOCAL_REPO" archive --format=tar refs/remotes/origin/main | tar -x -C "$TRUSTED_ROOT"
+          test -f "$TRUSTED_ROOT/scripts/ci/publish-heavy.mjs" || {
+            echo "::error::trusted publisher source is missing"
+            exit 1
+          }
+
+      - name: Classify changed paths
+        id: classify
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          node "$RUNNER_TEMP/heavy-trusted/scripts/ci/classify-change.mjs" \
+            --base "${{ steps.base.outputs.sha }}" \
+            --github-output
+
       - name: Configure git defaults for temporary test repositories
+        if: steps.classify.outputs.docs_only != 'true'
         run: git config --global init.defaultBranch main
 
       - name: Verify the runner Node version
+        if: steps.classify.outputs.docs_only != 'true'
         run: test "$(node --version)" = "v$(cat .node-version)"
 
       - name: Initialize command results
+        if: steps.classify.outputs.docs_only != 'true'
         run: |
           : > "$RUNNER_TEMP/heavy-commands.jsonl"
 
       - name: Record pre-run artifact identity
+        if: steps.classify.outputs.docs_only != 'true'
         run: >-
-          node scripts/review/gate-artifact.mjs
+          node "$RUNNER_TEMP/heavy-trusted/scripts/review/gate-artifact.mjs"
           --base "${{ steps.base.outputs.sha }}"
           --head "$HEAD_SHA"
           > "$RUNNER_TEMP/heavy-artifact.before.json"
 
       - name: Install dependencies
+        if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
         run: npm ci
 
       - name: Install Chromium
+        if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
         run: npx playwright install chromium
 
       - name: Typecheck
+        if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
         run: |
           set +e
@@ -128,6 +159,7 @@ jobs:
           exit "$code"
 
       - name: Build
+        if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
         run: |
           set +e
@@ -137,6 +169,7 @@ jobs:
           exit "$code"
 
       - name: Host smoke
+        if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
         env:
           DSH_HOST_SMOKE_STRICT: "1"
@@ -148,6 +181,7 @@ jobs:
           exit "$code"
 
       - name: Browser and layered coverage
+        if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
         run: |
           set +e
@@ -157,6 +191,7 @@ jobs:
           exit "$code"
 
       - name: Versioned keyless E2E
+        if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
         run: |
           set +e
@@ -166,6 +201,7 @@ jobs:
           exit "$code"
 
       - name: Versioned host-bash E2E (observational)
+        if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
         run: |
           set +e
@@ -175,7 +211,7 @@ jobs:
           exit "$code"
 
       - name: Publish heavy result
-        if: ${{ always() }}
+        if: ${{ always() && steps.classify.outputs.docs_only != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -185,10 +221,10 @@ jobs:
           HEAVY_BEFORE_ARTIFACT: ${{ runner.temp }}/heavy-artifact.before.json
           HEAVY_RESULT_PATH: ${{ github.workspace }}/heavy-result.json
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: node scripts/ci/publish-heavy.mjs
+        run: node "$RUNNER_TEMP/heavy-trusted/scripts/ci/publish-heavy.mjs"
 
       - name: Show coverage evidence
-        if: ${{ always() }}
+        if: ${{ always() && steps.classify.outputs.docs_only != 'true' }}
         run: |
           if [ -f coverage/layered.json ]; then
             ls -lh coverage/layered.json coverage/client.json coverage/browser.lcov

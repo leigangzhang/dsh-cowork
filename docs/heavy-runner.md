@@ -6,6 +6,7 @@
 
 - heavy 有三个入口：同仓库 `agent/*` PR 的 CI 成功后由 `workflow_run` 自动触发，维护者给同仓库 PR 加 `heavy` label，或用 `workflow_dispatch` 手动触发。fork PR 永远跳过 self-hosted job。
 - workflow 在目标 `HEAD_SHA` 上发布 `heavy-gate` commit status 和 `heavy-gate-result` display check；`heavy-result.json` 记录 head、base、current main、diff SHA-256、porcelain 和每个命令的退出码。
+- 结果 publisher、pre-run 身份记录和 docs-only classifier 都从本地 checkout 的 `refs/remotes/origin/main` 导出到临时目录后执行，不执行 PR checkout 里的同名脚本；PR checkout 只用于测试命令和 git 身份读取。
 - `gate-artifact` 现在是唯一 required context；docs-only PR 豁免 heavy，其他 PR 需要同 head 的 `heavy-gate` success 才能通过。
 - ruleset 仍不直接要求 `heavy-gate`。它是 `gate-artifact` 的输入，不是第二个 required check。
 - 新 commit 必须在新的 head 上重新产生结果；旧 status 不会自动迁移。
@@ -28,7 +29,7 @@ gh workflow run heavy.yml \
   -f repo_path="$HOME/Workspace/dsh-cowork"
 ```
 
-`--ref` 决定手动运行的 `HEAD_SHA`。不传 `base` 时 workflow 先 fetch `origin/main`，再取 `HEAD_SHA` 与它的 merge-base；显式传 `-f base=<branch-or-sha>` 时使用该 ref，并解析成固定 SHA。`repo_path` 必须指向包含 `.git`、且 `origin` 指向仓库的本地 checkout；workflow 先从该 checkout fetch `refs/heads/*` 到 remote-tracking refs，再从本地 clone 目标 head，不下载任何 action。这样自动触发的同仓库 PR head 不要求事先手工更新本地 checkout。
+`--ref` 决定手动运行的 `HEAD_SHA`。workflow 先从 `repo_path` 对应的 checkout fetch `refs/heads/*` 到 `refs/remotes/origin/*`，并记录 `refs/remotes/origin/main` 的 SHA；不传 `base` 时用这个 SHA 与 `HEAD_SHA` 的 merge-base，显式传 `-f base=<branch-or-sha>` 时在同一个 checkout 中解析成固定 SHA。`repo_path` 必须指向包含 `.git`、且 `origin` 指向仓库的本地 checkout；workflow 再从本地 clone 目标 head，不下载任何 action。这样自动触发的同仓库 PR head 不要求事先手工更新本地 checkout，base 也不会取到本地未刷新的 `main` 分支。
 
 查看最近一次运行：
 
@@ -64,7 +65,7 @@ gh api "repos/leigangzhang/dsh-cowork/commits/$HEAD_SHA/check-runs" \
 - base 同时是 head 和 current main 的祖先；
 - 用 base..head 重新计算的 diff SHA-256 与 summary 一致。
 
-docs-only PR 由共享的 path classifier 判定后直接豁免 heavy。任何一项不满足，`gate-artifact` 都会 blocked 并给出具名原因。`Heavy` workflow 完成后也会触发派生 gate 重算，避免 CI 先跑、heavy 后跑造成永久 pending。
+docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 docs-only 时 heavy workflow 只做 refresh、checkout、base、classify，不安装依赖、不跑测试、不发布 heavy 结果。任何一项不满足，`gate-artifact` 都会 blocked 并给出具名原因。`Heavy` workflow 完成后也会触发派生 gate 重算，避免 CI 先跑、heavy 后跑造成永久 pending。
 
 ## 判定绿色周期
 
@@ -91,4 +92,5 @@ docs-only PR 由共享的 path classifier 判定后直接豁免 heavy。任何�
 - **依赖旧 head 的绿色结果**：新 commit 没有 `heavy-gate`，gate 会 blocked；必须重新运行。
 - **只看 commit status 不看 result check**：status 是粗粒度裁决，base/diff/porcelain 身份在 `heavy-gate-result` summary 中。
 - **工作区不干净**：runner 上的未跟踪文件会进入 `porcelain`，publisher 必须发布 failure。
+- **让 PR checkout 执行 publisher**：分支可以改写 `publish-heavy.mjs` 来伪造 success；publisher、pre-run 身份记录和 classifier 必须从可信 main 树的临时导出执行。
 - **在默认分支还没有新 workflow 时期待自动触发**：`workflow_run` 使用默认分支上的 workflow 文件；合并前只能手动 dispatch。

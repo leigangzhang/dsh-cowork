@@ -175,7 +175,7 @@ test('heavyStatusDescription names the heavy verdict and stays within 140 charac
   assert.equal(blocked.length, 140)
 })
 
-test('the heavy workflow runs every command, keeps host-bash observational, and always publishes', () => {
+test('the heavy workflow runs every command, keeps host-bash observational, and publishes from trusted main', () => {
   const workflow = readFileSync(resolve(repoRoot, '.github/workflows/heavy.yml'), 'utf8')
   assert.match(workflow, /workflow_dispatch:/)
   assert.match(workflow, /workflow_run:/)
@@ -185,8 +185,8 @@ test('the heavy workflow runs every command, keeps host-bash observational, and 
   assert.match(workflow, /checks: write/)
   assert.match(workflow, /HEAVY_BEFORE_ARTIFACT/)
   assert.match(workflow, /HEAVY_RESULT_PATH/)
-  assert.match(workflow, /publish-heavy\.mjs/)
-  assert.match(workflow, /if: \$\{\{ always\(\) \}\}/)
+  assert.match(workflow, /node "\$RUNNER_TEMP\/heavy-trusted\/scripts\/ci\/publish-heavy\.mjs"/)
+  assert.match(workflow, /if: \$\{\{ always\(\) && steps\.classify\.outputs\.docs_only != 'true' \}\}/)
   assert.match(workflow, /name: Versioned host-bash E2E \(observational\)[\s\S]*?continue-on-error: true/)
   for (const command of HEAVY_COMMANDS) {
     assert.ok(workflow.includes(`"name":"${command.name}"`), `workflow does not record ${command.name}`)

@@ -26,8 +26,14 @@ test('heavy workflow runs automatically for same-repository PR heads and support
   assert.match(workflow, /^    runs-on: \[self-hosted, heavy\]$/m)
   assert.match(workflow, /^  heavy-gate:\n    name: heavy-gate$/m)
   assert.match(workflow, /name: Refresh source branch refs/)
+  assert.match(workflow, /id: source/)
   assert.match(workflow, /git -C "\$LOCAL_REPO" fetch --no-tags origin '\+refs\/heads\/\*:refs\/remotes\/origin\/\*'/)
+  assert.match(workflow, /echo "main=\$\(git -C "\$LOCAL_REPO" rev-parse refs\/remotes\/origin\/main\)" >> "\$GITHUB_OUTPUT"/)
   assert.match(workflow, /git clone --no-hardlinks --no-checkout "\$LOCAL_REPO" \./)
+  assert.match(workflow, /name: Prepare trusted source/)
+  assert.match(workflow, /git -C "\$LOCAL_REPO" archive --format=tar refs\/remotes\/origin\/main \| tar -x -C "\$TRUSTED_ROOT"/)
+  assert.match(workflow, /name: Classify changed paths/)
+  assert.match(workflow, /node "\$RUNNER_TEMP\/heavy-trusted\/scripts\/ci\/classify-change\.mjs"/)
   assert.match(workflow, /git config --global init\.defaultBranch main/)
   for (const key of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']) {
     assert.ok(workflow.includes(`${key}:`), `missing git identity for temporary test commits: ${key}`)
@@ -37,10 +43,10 @@ test('heavy workflow runs automatically for same-repository PR heads and support
 test('heavy workflow resolves one fixed base SHA for the identity, coverage, and publisher', () => {
   assert.match(workflow, /default: ''/)
   assert.match(workflow, /BASE_INPUT: \$\{\{ inputs\.base \}\}/)
-  assert.match(workflow, /git cat-file -e "\$\{BASE_INPUT\}\^\{commit\}"/)
-  assert.match(workflow, /git fetch --no-tags origin "\$BASE_INPUT"/)
-  assert.match(workflow, /git fetch --no-tags origin main/)
-  assert.match(workflow, /git merge-base FETCH_HEAD "\$HEAD_SHA"/)
+  assert.match(workflow, /TRUSTED_MAIN: \$\{\{ steps\.source\.outputs\.main \}\}/)
+  assert.match(workflow, /git -C "\$LOCAL_REPO" cat-file -e "\$\{BASE_INPUT\}\^\{commit\}"/)
+  assert.match(workflow, /git -C "\$LOCAL_REPO" fetch --no-tags origin "\$BASE_INPUT"/)
+  assert.match(workflow, /git -C "\$LOCAL_REPO" merge-base "\$TRUSTED_MAIN" "\$HEAD_SHA"/)
   assert.match(workflow, /id: base/)
   assert.match(workflow, /steps\.base\.outputs\.sha/)
   assert.match(workflow, /--base "\$\{\{ steps\.base\.outputs\.sha \}\}"\n          --head "\$HEAD_SHA"/)
@@ -59,7 +65,7 @@ test('heavy workflow runs its prerequisites in order', () => {
     'npm run test:coverage:layered -- --base',
     'npm run test:e2e',
     'npm run test:e2e:bash',
-    'node scripts/ci/publish-heavy.mjs',
+    'node "$RUNNER_TEMP/heavy-trusted/scripts/ci/publish-heavy.mjs"',
   ]
   let previous = -1
   for (const command of commands) {
@@ -71,7 +77,9 @@ test('heavy workflow runs its prerequisites in order', () => {
   assert.match(workflow, /coverage\/layered\.json/)
   assert.match(workflow, /HEAVY_BEFORE_ARTIFACT/)
   assert.match(workflow, /HEAVY_RESULT_PATH/)
-  assert.match(workflow, /if: \$\{\{ always\(\) \}\}/)
+  assert.match(workflow, /if: \$\{\{ always\(\) && steps\.classify\.outputs\.docs_only != 'true' \}\}/)
+  assert.match(workflow, /if: steps\.classify\.outputs\.docs_only != 'true'/)
+  assert.match(workflow, /node "\$RUNNER_TEMP\/heavy-trusted\/scripts\/review\/gate-artifact\.mjs"/)
 })
 
 test('heavy workflow downloads no actions and carries no secrets', () => {
