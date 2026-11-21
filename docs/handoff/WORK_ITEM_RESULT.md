@@ -45,7 +45,7 @@
 
 ## KI-51 / KI-52 补修（2026-11-20）
 
-- **KI-51（编辑器）**：`src/client/work-item/editor.tsx` 用 CodeMirror 6 取代受控 textarea。Markdown 语法高亮、行号 gutter、括号匹配、默认键位与历史键位、受控值同步（只有外部值与编辑器文档不同才替换，未变化的草稿不重置编辑状态），以及未解决批注的逐行装饰；失焦仍触发一次保存，编辑器卸载时的失焦不再重复保存。deps `@codemirror/{state,view,language,commands,lang-markdown}` 以精确版本进 devDependencies 与 `package-lock.json`（官方 registry）。构建仍是单文件 CJS 闭包，CodeMirror 随主包加载（当前构建不能分块），client bundle 从约 196 KB 增至 1.17 MB（未压缩），仍在 100 MB 客户端上限与 10 MB 包体预算内。
+- **KI-51（编辑器）**：`src/client/work-item/editor.tsx` 用 CodeMirror 6 取代受控 textarea。Markdown 语法高亮、行号 gutter、括号匹配、默认键位与历史键位、受控值同步（只有外部值与编辑器文档不同才替换，未变化的草稿不重置编辑状态），以及未解决批注的逐行装饰（标记随文本映射，不按固定行号重算）；失焦仍触发一次保存，编辑器卸载时的失焦不再重复保存。deps `@codemirror/{state,view,language,commands,lang-markdown}` 以精确版本进 devDependencies 与 `package-lock.json`（官方 registry）。构建仍是单文件 CJS 闭包，CodeMirror 随主包加载（当前构建不能分块），client bundle 从约 196 KB 增至 1.17 MB（未压缩），仍在 100 MB 客户端上限与 10 MB 包体预算内。
 - **KI-52（列表实时）**：`src/client/work-item/list.tsx` 订阅同一项目 SSE 流，250 ms 合并窗口触发一次列表读取；卡片评论数、状态 chip、投递摘要与筛选计数随事件更新，分组折叠状态不重置；连续 3 次连接失败后保留已加载列表并显示“实时更新中断，点击重试”，重试重新建立 EventSource。
 - **测试**：浏览器 lane 新增 CodeMirror 行号/高亮/批注行装饰断言，以及列表 SSE 断线→重试→实时评论计数链路；`npm run test:browser` 通过（19 个报告文件，1 个 blocked）。
 
@@ -70,7 +70,7 @@
 - `npm run typecheck`：exit 0。
 - `npm test`：1541/1541 通过，0 skipped。
 - `npm run test:coverage`：80 个 owner 模块，行覆盖 100%（31118/31118）。
-- `npm run build`：exit 0（client bundle 1,169 KB）。
+- `npm run build`：exit 0（client bundle 1,196,862 B，gzip 303 KB）。
 - `npm run test:host-smoke`：5/5 通过。
 - `npm run test:browser`：通过；18 个 counted client 文件、19 个报告文件（1 个 blocked），`src/client/work-item/editor.tsx` 行/函数覆盖 100%，列表 SSE 断线/重试/实时计数与 CodeMirror 行号、高亮、批注行装饰均在真实 Chromium 中执行。
 - `npm run test:coverage:layered -- --base 26141dd`：通过；89 个 counted 文件，行覆盖 99.88%（33795/33836），reviewed browser floors 全部通过。
@@ -79,6 +79,7 @@
 
 - 真实模型 E2E 已跑通核心链路（KI-53 已收窄）：两个会话并行投递、图片 prompt、回复工具采用均通过。恢复路径由 keyless `artifact-recovery` 覆盖“预置日志 → 真实宿主启动恢复”，但仍未做同一 `DSH_HOME` 的进程级重启；真实模型回合被 `tools.guard` 拒绝后的重试、prompt 拒绝触发的退避重试、队列满与 SSE 重连仍只有单测/浏览器片段证据，bash 绕过保持。
 - `tools.guard` 的重叠拒绝已由 keyless `artifact-chain` 在真实宿主 + 脚本化模型回合中观测；仍未在一次真实模型回合里观测拒绝后重试。
+- 保存请求在途时的并发编辑与“退出编辑”双发保存是 textarea 时代既有竞态，本轮未改（KI-56）。
 - 阶段 4/5 未开始：图表/表格/Doc/PDF/画布、`open`/字节 Range、rebind、事件裁剪、列表缓存与旧隔离 workItems 入口（KI-41）。
 
 ## 回滚

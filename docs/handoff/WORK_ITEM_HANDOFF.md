@@ -51,7 +51,7 @@
 - 工具 schema 预算当前固定为 22 个/16,523 B；新增工具必须显式提高这个数字。
 - 源文件覆盖率按 `tools/coverage-map.json` 的唯一 owner 逐文件 100% 行覆盖；`tools/coverage-debt.json` 是空的审核例外表。
 - 客户端构建是 `scripts/build/build-client.mjs` 用 esbuild 打的单文件 CJS 闭包（externals 为 `react`/`react-dom`/`@deepseek-ai/*`），当前不能产出分块；宿主 `client-modules` 的 `require.async` 分块由 tsdown 构建消费。
-- 当前客户端 build 输出 138,237 B（gzip 29,206 B；esbuild min 89,118 B）。
+- 交接时（2026-11-19）客户端 build 输出 138,237 B（gzip 29,206 B；esbuild min 89,118 B）；后续实测值见 [WORK_ITEM_RESULT](WORK_ITEM_RESULT.md)。
 
 宿主能力（行号按 checkout `dsh-v0.2.2-rc.2`，运行宿主 0.2.1-rc.2 行号不同，见[后端设计](../design/work-item/work-item-backend.md)的“宿主调研”）：
 
