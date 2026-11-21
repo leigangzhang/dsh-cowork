@@ -26,7 +26,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseArgs } from 'node:util'
+import { isDeepStrictEqual, parseArgs } from 'node:util'
 import {
   branchTotals,
   functionTotals,
@@ -40,6 +40,7 @@ import {
   validateOwnershipMap,
 } from './coverage-owners.mjs'
 import { CLIENT_BROWSER_BLOCKED, CLIENT_BROWSER_TSX, coverageCompletenessFailures, coverageGateFailures } from './client-coverage.mjs'
+import { browserFloorFileProblems } from '../../tools/coverage-gaps.mjs'
 import { runScript } from './cli-support.mjs'
 import { gitState } from './git-state.mjs'
 
@@ -61,17 +62,8 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'))
 }
 
-/** Stable JSON for identity comparison; key order must not decide evidence. */
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
-  }
-  return JSON.stringify(value)
-}
-
 function sameArtifact(left, right) {
-  return canonicalJson(left) === canonicalJson(right)
+  return isDeepStrictEqual(left, right)
 }
 
 function missingMessage(path, command, error) {
@@ -357,26 +349,6 @@ function unitFileVerdicts({ cwd, byPath, unitRecords, baselineByPath, failures }
   return files
 }
 
-function floorKeyFailures(file, key, value, path) {
-  if (!['lineCoverage', 'functionCoverage'].includes(key)) {
-    return [`${path}: floor for ${file} has unknown key ${key}`]
-  }
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) {
-    return [`${path}: floor ${file}.${key} must be a number in 0..100`]
-  }
-  return []
-}
-
-function floorFailures(file, floor, byPath, path) {
-  if (byPath.get(file)?.lane !== 'browser') {
-    return [`${path}: floor names no browser source file: ${file}`]
-  }
-  if (floor === null || typeof floor !== 'object' || Array.isArray(floor)) {
-    return [`${path}: floor for ${file} must be an object`]
-  }
-  return Object.entries(floor).flatMap(([key, value]) => floorKeyFailures(file, key, value, path))
-}
-
 function loadFloorsFile({ cwd, path, failures }) {
   try {
     return readJson(resolve(cwd, path))
@@ -387,41 +359,12 @@ function loadFloorsFile({ cwd, path, failures }) {
   }
 }
 
-function floorsMap(parsed, path, failures) {
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    failures.push(`${path} must be an object with version 1 and a files map`)
-    return null
-  }
-  if (parsed.version !== 1 || parsed.files === null || typeof parsed.files !== 'object' || Array.isArray(parsed.files)) {
-    failures.push(`${path} must be an object with version 1 and a files map`)
-    return null
-  }
-  return parsed.files
-}
-
-function validateFloors(files, byPath, path, failures) {
-  let valid = true
-  for (const [file, floor] of Object.entries(files)) {
-    const entryFailures = floorFailures(file, floor, byPath, path)
-    if (entryFailures.length > 0) valid = false
-    failures.push(...entryFailures)
-  }
-  for (const [file, entry] of byPath) {
-    if (entry.lane !== 'browser' || CLIENT_BROWSER_BLOCKED[file] !== undefined) continue
-    if (files[file] === undefined) {
-      failures.push(`${path}: reviewed browser floors are missing ${file}`)
-      valid = false
-    }
-  }
-  return valid
-}
-
 function readBrowserFloors({ cwd, path, failures, byPath }) {
   const parsed = loadFloorsFile({ cwd, path, failures })
   if (parsed === null) return null
-  const files = floorsMap(parsed, path, failures)
-  if (files === null) return null
-  return validateFloors(files, byPath, path, failures) ? files : null
+  const result = browserFloorFileProblems(parsed, byPath, { path, blocked: CLIENT_BROWSER_BLOCKED })
+  failures.push(...result.failures)
+  return result.failures.length === 0 ? result.files : null
 }
 
 function lineCountConsistencyFailure(path, file, covered, uncovered) {

@@ -4,26 +4,46 @@ on:
   workflow_dispatch:
     inputs:
       base:
-        description: Base ref to compare against
+        description: Base ref or SHA; empty resolves the merge base with origin/main
         required: false
-        default: main
+        default: ''
       repo_path:
         description: Local checkout path on the heavy runner
         required: false
         default: /Users/ray/Workspace/dsh-cowork
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches:
+      - 'agent/**'
+  pull_request_target:
+    types: [labeled]
+    branches: [main]
 
 permissions:
   contents: read
+  statuses: write
+  checks: write
 
 concurrency:
-  group: heavy-${{ github.ref }}
+  group: heavy-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
   heavy-gate:
     name: heavy-gate
-    # Only a write-capable maintainer can start this workflow. No PR event
-    # reaches the self-hosted runner until a head-bound check publisher exists.
+    # Automatic runs are limited to same-repository pull-request heads. Fork
+    # heads keep the event but skip the job, so they never reach this runner.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'pull_request_target' &&
+       github.event.label.name == 'heavy' &&
+       github.event.pull_request.state == 'open' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, heavy]
     timeout-minutes: 60
     env:
@@ -31,10 +51,23 @@ jobs:
       GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
       GIT_COMMITTER_NAME: github-actions[bot]
       GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
     steps:
+      - name: Refresh source branch refs
+        id: source
+        env:
+          LOCAL_REPO: ${{ inputs.repo_path || '/Users/ray/Workspace/dsh-cowork' }}
+        run: |
+          test -d "$LOCAL_REPO/.git" || {
+            echo "::error::local repository not found at $LOCAL_REPO"
+            exit 1
+          }
+          git -C "$LOCAL_REPO" fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          echo "main=$(git -C "$LOCAL_REPO" rev-parse refs/remotes/origin/main)" >> "$GITHUB_OUTPUT"
+
       - name: Checkout selected ref from the local repository
         env:
-          LOCAL_REPO: ${{ inputs.repo_path }}
+          LOCAL_REPO: ${{ inputs.repo_path || '/Users/ray/Workspace/dsh-cowork' }}
         run: |
           test -d "$LOCAL_REPO/.git" || {
             echo "::error::local repository not found at $LOCAL_REPO"
@@ -42,48 +75,167 @@ jobs:
           }
           find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
           git clone --no-hardlinks --no-checkout "$LOCAL_REPO" .
-          git checkout --detach "$GITHUB_SHA"
+          git checkout --detach "$HEAD_SHA"
 
-      - name: Fetch base
-        run: git fetch --no-tags origin "${{ inputs.base }}"
+      - name: Resolve base
+        id: base
+        env:
+          LOCAL_REPO: ${{ inputs.repo_path || '/Users/ray/Workspace/dsh-cowork' }}
+          BASE_INPUT: ${{ inputs.base }}
+          TRUSTED_MAIN: ${{ steps.source.outputs.main }}
+        run: |
+          if [ -n "$BASE_INPUT" ]; then
+            if [[ "$BASE_INPUT" =~ ^[0-9a-f]{7,40}$ ]] && git -C "$LOCAL_REPO" cat-file -e "${BASE_INPUT}^{commit}" 2>/dev/null; then
+              sha="$(git -C "$LOCAL_REPO" rev-parse "${BASE_INPUT}^{commit}")"
+            else
+              git -C "$LOCAL_REPO" fetch --no-tags origin "$BASE_INPUT"
+              sha="$(git -C "$LOCAL_REPO" rev-parse FETCH_HEAD)"
+            fi
+          else
+            sha="$(git -C "$LOCAL_REPO" merge-base "$TRUSTED_MAIN" "$HEAD_SHA")"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare trusted source
+        env:
+          LOCAL_REPO: ${{ inputs.repo_path || '/Users/ray/Workspace/dsh-cowork' }}
+        run: |
+          TRUSTED_ROOT="$RUNNER_TEMP/heavy-trusted"
+          rm -rf "$TRUSTED_ROOT"
+          mkdir -p "$TRUSTED_ROOT"
+          trusted_sha="$(git -C "$LOCAL_REPO" rev-parse refs/remotes/origin/main)"
+          echo "trusted_sha=$trusted_sha"
+          git -C "$LOCAL_REPO" archive --format=tar "$trusted_sha" | tar -x -C "$TRUSTED_ROOT"
+          test -f "$TRUSTED_ROOT/scripts/ci/publish-heavy.mjs" || {
+            echo "::error::trusted publisher source is missing"
+            exit 1
+          }
+
+      - name: Classify changed paths
+        id: classify
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          node "$RUNNER_TEMP/heavy-trusted/scripts/ci/classify-change.mjs" \
+            --base "${{ steps.base.outputs.sha }}" \
+            --github-output
 
       - name: Configure git defaults for temporary test repositories
+        if: steps.classify.outputs.docs_only != 'true'
         run: git config --global init.defaultBranch main
 
       - name: Verify the runner Node version
+        if: steps.classify.outputs.docs_only != 'true'
         run: test "$(node --version)" = "v$(cat .node-version)"
 
+      - name: Initialize command results
+        if: steps.classify.outputs.docs_only != 'true'
+        run: |
+          : > "$RUNNER_TEMP/heavy-commands.jsonl"
+
+      - name: Record pre-run artifact identity
+        if: steps.classify.outputs.docs_only != 'true'
+        run: >-
+          node "$RUNNER_TEMP/heavy-trusted/scripts/review/gate-artifact.mjs"
+          --base "${{ steps.base.outputs.sha }}"
+          --head "$HEAD_SHA"
+          > "$RUNNER_TEMP/heavy-artifact.before.json"
+
       - name: Install dependencies
+        if: steps.classify.outputs.docs_only != 'true'
+        continue-on-error: true
         run: npm ci
 
       - name: Install Chromium
+        if: steps.classify.outputs.docs_only != 'true'
+        continue-on-error: true
         run: npx playwright install chromium
 
       - name: Typecheck
-        run: npm run typecheck
+        if: steps.classify.outputs.docs_only != 'true'
+        continue-on-error: true
+        run: |
+          set +e
+          npm run typecheck
+          code=$?
+          printf '{"name":"typecheck","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
       - name: Build
-        run: npm run build
+        if: steps.classify.outputs.docs_only != 'true'
+        continue-on-error: true
+        run: |
+          set +e
+          npm run build
+          code=$?
+          printf '{"name":"build","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
       - name: Host smoke
-        run: DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke
+        if: steps.classify.outputs.docs_only != 'true'
+        continue-on-error: true
+        env:
+          DSH_HOST_SMOKE_STRICT: "1"
+        run: |
+          set +e
+          npm run test:host-smoke
+          code=$?
+          printf '{"name":"host-smoke","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
       - name: Browser and layered coverage
-        run: >-
-          npm run test:coverage:layered --
-          --base "origin/${{ inputs.base }}"
+        if: steps.classify.outputs.docs_only != 'true'
+        continue-on-error: true
+        run: |
+          set +e
+          npm run test:coverage:layered -- --base "${{ steps.base.outputs.sha }}"
+          code=$?
+          printf '{"name":"coverage-layered","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
       - name: Versioned keyless E2E
-        run: npm run test:e2e
+        if: steps.classify.outputs.docs_only != 'true'
+        continue-on-error: true
+        run: |
+          set +e
+          npm run test:e2e
+          code=$?
+          printf '{"name":"e2e-keyless","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
 
-      - name: Versioned host-bash E2E
-        run: npm run test:e2e:bash
+      - name: Versioned host-bash E2E (observational)
+        if: steps.classify.outputs.docs_only != 'true'
+        continue-on-error: true
+        run: |
+          set +e
+          npm run test:e2e:bash
+          code=$?
+          printf '{"name":"e2e-bash","exitCode":%d}\n' "$code" >> "$RUNNER_TEMP/heavy-commands.jsonl"
+          exit "$code"
+
+      - name: Publish heavy result
+        if: ${{ always() && steps.classify.outputs.docs_only != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          HEAVY_BASE_REF: ${{ steps.base.outputs.sha }}
+          HEAVY_WORKSPACE: ${{ github.workspace }}
+          HEAVY_COMMANDS_FILE: ${{ runner.temp }}/heavy-commands.jsonl
+          HEAVY_BEFORE_ARTIFACT: ${{ runner.temp }}/heavy-artifact.before.json
+          HEAVY_RESULT_PATH: ${{ github.workspace }}/heavy-result.json
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node "$RUNNER_TEMP/heavy-trusted/scripts/ci/publish-heavy.mjs"
 
       - name: Show coverage evidence
-        if: ${{ always() }}
+        if: ${{ always() && steps.classify.outputs.docs_only != 'true' }}
         run: |
           if [ -f coverage/layered.json ]; then
             ls -lh coverage/layered.json coverage/client.json coverage/browser.lcov
           else
             echo "coverage report was not produced"
+          fi
+          if [ -f heavy-result.json ]; then
+            echo "heavy result:"
+            cat heavy-result.json
+          else
+            echo "heavy-result.json was not produced"
           fi

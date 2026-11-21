@@ -8,9 +8,11 @@ import { join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
+import { HEAVY_COMMANDS } from '../../scripts/ci/heavy-contract.mjs'
 import {
   binaryDiffSha,
   changedPaths,
+  classifyPrDocsOnly,
   decideGate,
   decideLegacyGate,
   findPassingReview,
@@ -21,9 +23,12 @@ import {
   overlapPaths,
   publishGateCheck,
   publishGateStatus,
+  readHeavyResult,
+  readHeavyStatus,
   readPreMerge,
   REQUIRED_GATE_CONTEXT,
   requiredGateDecision,
+  validateHeavyResult,
   validateReviewedIdentity,
 } from '../../scripts/ci/publish-gate.mjs'
 
@@ -134,7 +139,7 @@ test('overlapPaths returns the sorted intersection of reviewed and main paths', 
 })
 
 test('decideGate reports missing or stale inputs', () => {
-  assert.deepEqual(decideGate({ prGate: {}, preMerge: { base: 'main' }, currentMain: 'main' }), {
+  assert.deepEqual(decideGate({ prGate: {}, preMerge: { base: 'main' }, currentMain: 'main', heavy: {} }), {
     pass: true,
     reasons: [],
   })
@@ -150,6 +155,7 @@ test('decideGate reports missing or stale inputs', () => {
   assert.equal(decision.pass, false)
   assert.match(decision.reasons.join('\n'), /pr-gate/)
   assert.match(decision.reasons.join('\n'), /pre-merge tested base old/)
+  assert.match(decision.reasons.join('\n'), /heavy-gate has not succeeded/)
   assert.match(decision.reasons.join('\n'), /delta review required/)
   assert.match(decision.reasons.join('\n'), /merge current main into the PR branch/)
 })
@@ -159,9 +165,200 @@ test('decideGate rejects a pre-merge result from an older base', () => {
     prGate: {},
     preMerge: { base: 'old' },
     currentMain: 'new',
+    heavy: {},
   })
   assert.equal(decision.pass, false)
   assert.match(decision.reasons.join('\n'), /pre-merge tested base old/)
+})
+
+test('decideGate exempts docs-only changes from heavy and blocks a named heavy failure', () => {
+  const common = { prGate: {}, preMerge: { base: 'main' }, currentMain: 'main' }
+  assert.deepEqual(decideGate({ ...common, docsOnly: true }), { pass: true, reasons: [] })
+  assert.match(
+    decideGate({ ...common, docsOnly: false }).reasons.join('\n'),
+    /heavy-gate has not succeeded/,
+  )
+  assert.match(
+    decideGate({ ...common, docsOnly: false, heavyError: 'heavy-gate is failure: blocked: dirty' }).reasons.join('\n'),
+    /heavy-gate is failure: blocked: dirty/,
+  )
+  assert.match(
+    decideGate({ ...common, docsOnly: true, docsOnlyError: 'could not classify PR paths' }).reasons.join('\n'),
+    /could not classify PR paths/,
+  )
+})
+
+test('readHeavyStatus selects the newest status and names a non-success state', () => {
+  const statuses = [
+    { context: 'other', state: 'success', created_at: '2026-11-19T00:00:00Z' },
+    { context: 'heavy-gate', state: 'failure', description: 'old failure', created_at: '2026-11-19T00:00:00Z' },
+    { context: 'heavy-gate', state: 'success', description: 'heavy: passed', created_at: '2026-11-19T01:00:00Z' },
+  ]
+  assert.equal(readHeavyStatus(statuses, head).value.state, 'success')
+  assert.match(
+    readHeavyStatus([{ context: 'heavy-gate', state: 'failure', description: 'dirty' }], head).error,
+    /heavy-gate is failure: dirty/,
+  )
+  assert.match(readHeavyStatus([], head).error, /has not been published/)
+})
+
+test('readHeavyResult requires a successful check with a JSON object summary', () => {
+  const summary = { formatVersion: 1, head, result: 'pass' }
+  const checks = [
+    { name: 'heavy-gate-result', conclusion: 'failure', completed_at: '2026-11-19T00:00:00Z' },
+    {
+      name: 'heavy-gate-result',
+      conclusion: 'success',
+      completed_at: '2026-11-19T01:00:00Z',
+      output: { summary: JSON.stringify(summary) },
+    },
+  ]
+  assert.deepEqual(readHeavyResult(checks, head).value, summary)
+  assert.match(
+    readHeavyResult([{ name: 'heavy-gate-result', conclusion: 'failure' }], head).error,
+    /conclusion is failure/,
+  )
+  assert.match(
+    readHeavyResult([{ name: 'heavy-gate-result', conclusion: 'success', output: { summary: 'not json' } }], head).error,
+    /not valid JSON/,
+  )
+  assert.match(
+    readHeavyResult([{ name: 'heavy-gate-result', conclusion: 'success', output: { summary: '[]' } }], head).error,
+    /must be a JSON object/,
+  )
+})
+
+test('validateHeavyResult binds head, base ancestry, clean state, commands, and diff', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'cowork-heavy-gate-'))
+  try {
+    git(repo, ['init', '-q'])
+    git(repo, ['config', 'user.name', 'test'])
+    git(repo, ['config', 'user.email', 'test@example.com'])
+    await writeFile(join(repo, 'base.txt'), 'base\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'base'])
+    const baseSha = git(repo, ['rev-parse', 'HEAD']).trim()
+    await writeFile(join(repo, 'main.txt'), 'main\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'main'])
+    const mainSha = git(repo, ['rev-parse', 'HEAD']).trim()
+    git(repo, ['checkout', '-qb', 'head', baseSha])
+    await writeFile(join(repo, 'head.txt'), 'head\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'head'])
+    const headSha = git(repo, ['rev-parse', 'HEAD']).trim()
+    const diffSha = binaryDiffSha(repo, baseSha, headSha)
+    git(repo, ['remote', 'add', 'origin', repo])
+    const result = {
+      formatVersion: 1,
+      head: headSha,
+      base: baseSha,
+      currentMain: mainSha,
+      diffSha256: diffSha,
+      clean: true,
+      porcelain: [],
+      commands: HEAVY_COMMANDS.map((command) => ({
+        ...command,
+        exitCode: command.name === 'e2e-bash' ? 1 : 0,
+      })),
+      reasons: [],
+      result: 'pass',
+    }
+    const status = { context: 'heavy-gate', state: 'success' }
+    assert.equal(validateHeavyResult({ cwd: repo, head: headSha, currentMain: mainSha, status, result }).value, result)
+
+    assert.match(validateHeavyResult({
+      cwd: repo,
+      head: headSha,
+      currentMain: mainSha,
+      status,
+      result: { ...result, diffSha256: 'd'.repeat(64) },
+    }).error, /does not match current authored diff/)
+    assert.match(validateHeavyResult({
+      cwd: repo,
+      head: headSha,
+      currentMain: mainSha,
+      status,
+      result: { ...result, clean: false, porcelain: ['?? dirty.txt'] },
+    }).error, /dirty worktree/)
+    assert.match(validateHeavyResult({
+      cwd: repo,
+      head: headSha,
+      currentMain: mainSha,
+      status,
+      result: { ...result, base: headSha, diffSha256: binaryDiffSha(repo, headSha, headSha) },
+    }).error, /not an ancestor of current main/)
+    assert.match(validateHeavyResult({
+      cwd: repo,
+      head: headSha,
+      currentMain: mainSha,
+      status,
+      result: {
+        ...result,
+        commands: result.commands.map((command) => command.name === 'typecheck'
+          ? { ...command, exitCode: 1 }
+          : command),
+      },
+    }).error, /blocking heavy command typecheck is missing or did not pass/)
+    assert.match(validateHeavyResult({
+      cwd: repo,
+      head: headSha,
+      currentMain: mainSha,
+      status,
+      result: { ...result, commands: result.commands.filter((command) => command.name !== 'build') },
+    }).error, /blocking heavy command build is missing or did not pass/)
+    assert.match(validateHeavyResult({
+      cwd: repo,
+      head: headSha,
+      currentMain: mainSha,
+      status: { context: 'heavy-gate', state: 'failure' },
+      result,
+    }).error, /state is failure/)
+  } finally {
+    await rm(repo, { recursive: true, force: true })
+  }
+})
+
+test('docs-only classification follows the shared path classifier at the merge base', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'cowork-gate-docs-'))
+  try {
+    git(repo, ['init', '-q'])
+    git(repo, ['config', 'user.name', 'test'])
+    git(repo, ['config', 'user.email', 'test@example.com'])
+    await writeFile(join(repo, 'src.txt'), 'base\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'base'])
+    const baseSha = git(repo, ['rev-parse', 'HEAD']).trim()
+    await writeFile(join(repo, 'src.txt'), 'main\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'main'])
+    const mainSha = git(repo, ['rev-parse', 'HEAD']).trim()
+    git(repo, ['checkout', '-qb', 'docs', baseSha])
+    await writeFile(join(repo, 'README.md'), 'docs\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'docs'])
+    const docsHead = git(repo, ['rev-parse', 'HEAD']).trim()
+    assert.equal(classifyPrDocsOnly({
+      cwd: repo,
+      head: docsHead,
+      currentMain: mainSha,
+      ensure: () => {},
+    }).docsOnly, true)
+
+    git(repo, ['checkout', '-qb', 'source', baseSha])
+    await writeFile(join(repo, 'src.txt'), 'head\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-qm', 'source'])
+    const sourceHead = git(repo, ['rev-parse', 'HEAD']).trim()
+    assert.equal(classifyPrDocsOnly({
+      cwd: repo,
+      head: sourceHead,
+      currentMain: mainSha,
+      ensure: () => {},
+    }).docsOnly, false)
+  } finally {
+    await rm(repo, { recursive: true, force: true })
+  }
 })
 
 test('git identity helpers bind the reviewed diff and ancestry', async () => {
@@ -396,6 +593,67 @@ test('the publisher main path writes pending then success and mirrors the displa
   }
 })
 
+test('a non-docs PR is blocked when heavy-gate is missing', async () => {
+  const fixture = await createGateFixture()
+  const requests = []
+  const { server, baseUrl } = await startGateServer(makeGateHandler({
+    requests,
+    fixture,
+    mainShas: [fixture.mainSha, fixture.mainSha],
+    heavyStatus: null,
+  }))
+  try {
+    const result = await runPublisher({
+      GITHUB_API_URL: baseUrl,
+      GATE_WORKSPACE: fixture.repo,
+      POLICY_MODE: 'block',
+    })
+    assert.equal(result.code, 0, result.stderr)
+    const statuses = requests.filter((request) =>
+      request.method === 'POST' && request.path.startsWith('/repos/owner/repo/statuses/'))
+    assert.equal(statuses.length, 2)
+    assert.equal(statuses[1].body.state, 'failure')
+    assert.match(statuses[1].body.description, /heavy-gate has not been published/)
+    const display = requests.find((request) =>
+      request.method === 'POST' && request.path === '/repos/owner/repo/check-runs')
+    assert.equal(display.body.conclusion, 'action_required')
+  } finally {
+    await stopGateServer(server)
+    await rm(fixture.repo, { recursive: true, force: true })
+  }
+})
+
+test('a docs-only PR passes without heavy-gate', async () => {
+  const fixture = await createGateFixture({ headFile: 'README.md' })
+  const requests = []
+  const { server, baseUrl } = await startGateServer(makeGateHandler({
+    requests,
+    fixture,
+    mainShas: [fixture.mainSha, fixture.mainSha],
+    heavyStatus: null,
+  }))
+  try {
+    const result = await runPublisher({
+      GITHUB_API_URL: baseUrl,
+      GATE_WORKSPACE: fixture.repo,
+      POLICY_MODE: 'block',
+    })
+    assert.equal(result.code, 0, result.stderr)
+    const statuses = requests.filter((request) =>
+      request.method === 'POST' && request.path.startsWith('/repos/owner/repo/statuses/'))
+    assert.equal(statuses.length, 2)
+    assert.equal(statuses[1].body.state, 'success')
+    assert.match(statuses[1].body.description, /gate passed/)
+    const display = requests.find((request) =>
+      request.method === 'POST' && request.path === '/repos/owner/repo/check-runs')
+    assert.equal(display.body.conclusion, 'success')
+    assert.equal(JSON.parse(display.body.output.summary).docsOnly, true)
+  } finally {
+    await stopGateServer(server)
+    await rm(fixture.repo, { recursive: true, force: true })
+  }
+})
+
 test('a failed final status write publishes error and exits non-zero', async () => {
   const fixture = await createGateFixture()
   const requests = []
@@ -456,7 +714,7 @@ test('a main advance during evaluation turns the final status into a failure', a
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 const prBody = '## Motivation\nx\n\n## Changes\nx\n\n## Testing\nx\n\n## Evidence\nx\n'
 
-async function createGateFixture() {
+async function createGateFixture({ headFile = 'head.txt' } = {}) {
   const repo = await mkdtemp(join(tmpdir(), 'cowork-gate-run-'))
   git(repo, ['init', '-q'])
   git(repo, ['config', 'user.name', 'test'])
@@ -472,15 +730,29 @@ async function createGateFixture() {
   const mainSha = git(repo, ['rev-parse', 'HEAD']).trim()
 
   git(repo, ['checkout', '-qb', 'head', baseSha])
-  await writeFile(join(repo, 'head.txt'), 'head\n')
+  await writeFile(join(repo, headFile), 'head\n')
   git(repo, ['add', '.'])
   git(repo, ['commit', '-qm', 'head'])
   const headSha = git(repo, ['rev-parse', 'HEAD']).trim()
   git(repo, ['remote', 'add', 'origin', repo])
-  return { repo, baseSha, mainSha, headSha, diffSha: binaryDiffSha(repo, baseSha, headSha) }
+  const diffSha = binaryDiffSha(repo, baseSha, headSha)
+  const heavyResult = {
+    formatVersion: 1,
+    head: headSha,
+    base: baseSha,
+    currentMain: mainSha,
+    diffSha256: diffSha,
+    porcelain: [],
+    clean: true,
+    baseIsAncestor: true,
+    commands: HEAVY_COMMANDS.map((command) => ({ ...command, exitCode: 0 })),
+    result: 'pass',
+    reasons: [],
+  }
+  return { repo, baseSha, mainSha, headSha, diffSha, heavyResult }
 }
 
-function makeGateHandler({ requests, fixture, mainShas, failStatusAt = 0 }) {
+function makeGateHandler({ requests, fixture, mainShas, failStatusAt = 0, heavyStatus = 'success' }) {
   let mainIndex = 0
   let statusCount = 0
   return async (request, response) => {
@@ -520,8 +792,22 @@ function makeGateHandler({ requests, fixture, mainShas, failStatusAt = 0 }) {
             completed_at: '2026-11-19T00:00:00Z',
             output: { summary: JSON.stringify({ head: fixture.headSha, base: fixture.mainSha, result: 'success' }) },
           },
+          {
+            name: 'heavy-gate-result',
+            conclusion: heavyStatus === 'success' ? 'success' : 'failure',
+            completed_at: '2026-11-19T00:00:00Z',
+            output: { summary: JSON.stringify(fixture.heavyResult) },
+          },
         ],
       })
+    }
+    if (request.method === 'GET' && url.pathname === `/repos/owner/repo/commits/${fixture.headSha}/statuses`) {
+      return json(heavyStatus === null ? [] : [{
+        context: 'heavy-gate',
+        state: heavyStatus,
+        description: heavyStatus === 'success' ? 'heavy: passed' : 'blocked: dirty worktree',
+        created_at: '2026-11-19T00:00:00Z',
+      }])
     }
     if (request.method === 'POST' && url.pathname === `/repos/owner/repo/statuses/${fixture.headSha}`) {
       statusCount += 1

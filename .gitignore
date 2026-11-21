@@ -5,6 +5,7 @@ coverage/
 *.tsbuildinfo
 *.tgz
 .dsh-cowork/
+heavy-result.json
 .DS_Store
 
 .agent-teams/

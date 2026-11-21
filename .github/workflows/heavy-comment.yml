@@ -1,0 +1,62 @@
+name: Heavy Comment
+
+on:
+  workflow_run:
+    workflows: [Heavy]
+    types: [completed]
+
+permissions:
+  contents: read
+  checks: read
+  statuses: read
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: heavy-comment-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: heavy-comment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+
+      - name: Resolve pull request
+        id: pull
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          pr_number="$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/pulls?per_page=100" \
+            --jq '[.[] | select(.state == "open")] | if length == 1 then .[0].number else empty end')"
+          echo "number=$pr_number" >> "$GITHUB_OUTPUT"
+
+      - name: Publish heavy summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAVY_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAVY_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          PR_NUMBER: ${{ steps.pull.outputs.number }}
+        run: node scripts/ci/publish-heavy-comment.mjs
+
+      - name: Trigger derived gate
+        if: ${{ always() && steps.pull.outputs.number != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run gate-artifact-v2.yml --ref main -f pr_number="${{ steps.pull.outputs.number }}"
