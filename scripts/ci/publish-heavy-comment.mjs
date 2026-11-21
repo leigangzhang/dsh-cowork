@@ -68,6 +68,37 @@ function commandTable(result) {
   return ['', '| Command | Blocking | Exit |', '| --- | --- | --- |', ...rows]
 }
 
+function resultIdentityLines(result) {
+  if (result === null || result === undefined) return []
+  return [
+    `- Base: \`${String(result.base)}\``,
+    `- Current main: \`${String(result.currentMain)}\``,
+    `- Diff SHA-256: \`${String(result.diffSha256)}\``,
+    `- Worktree: ${result.clean === true ? 'clean' : 'dirty'}`,
+  ]
+}
+
+function statusLine(status) {
+  if (status === null || status === undefined) return []
+  return [`- Status: ${String(status.state)}${status.description ? ` (${String(status.description)})` : ''}`]
+}
+
+function reasonLine(result) {
+  if (!Array.isArray(result?.reasons) || result.reasons.length === 0) return []
+  return [`- Reasons: ${result.reasons.join('; ')}`]
+}
+
+function problemLines(input) {
+  const lines = []
+  if (input.statusError !== null && input.statusError !== undefined) {
+    lines.push(`- Status problem: ${input.statusError}`)
+  }
+  if (input.resultError !== null && input.resultError !== undefined) {
+    lines.push(`- Result problem: ${input.resultError}`)
+  }
+  return lines
+}
+
 /**
  * Format the PR-readable heavy summary.
  *
@@ -78,33 +109,20 @@ function commandTable(result) {
 export function formatHeavySummary(input) {
   const passed = input.result?.result === 'pass' && input.status?.state === 'success'
   const verdict = passed ? 'passed' : input.conclusion === 'failure' ? 'failed' : 'blocked'
-  const lines = [
+  return [
     HEAVY_SUMMARY_MARKER,
     `## Heavy lane: ${verdict}`,
     '',
     `- Head: \`${input.head}\``,
-  ]
-  if (input.result !== null && input.result !== undefined) {
-    lines.push(`- Base: \`${String(input.result.base)}\``)
-    lines.push(`- Current main: \`${String(input.result.currentMain)}\``)
-    lines.push(`- Diff SHA-256: \`${String(input.result.diffSha256)}\``)
-    lines.push(`- Worktree: ${input.result.clean === true ? 'clean' : 'dirty'}`)
-  }
-  if (input.status !== null && input.status !== undefined) {
-    lines.push(`- Status: ${String(input.status.state)}${input.status.description ? ` (${String(input.status.description)})` : ''}`)
-  }
-  if (Array.isArray(input.result?.reasons) && input.result.reasons.length > 0) {
-    lines.push(`- Reasons: ${input.result.reasons.join('; ')}`)
-  }
-  if (input.statusError !== null && input.statusError !== undefined) {
-    lines.push(`- Status problem: ${input.statusError}`)
-  }
-  if (input.resultError !== null && input.resultError !== undefined) {
-    lines.push(`- Result problem: ${input.resultError}`)
-  }
-  lines.push(...commandTable(input.result))
-  lines.push('', `- Run: [workflow logs](${input.runUrl})`)
-  return `${lines.join('\n')}\n`
+    ...resultIdentityLines(input.result),
+    ...statusLine(input.status),
+    ...reasonLine(input.result),
+    ...problemLines(input),
+    ...commandTable(input.result),
+    '',
+    `- Run: [workflow logs](${input.runUrl})`,
+    '',
+  ].join('\n')
 }
 
 /**
