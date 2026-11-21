@@ -7,12 +7,12 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
 
-test('derived gate recalculates from PR, review, and completed CI/pre-merge events', () => {
+test('derived gate recalculates from PR, review, CI/pre-merge, and heavy events', () => {
   const workflow = read('.github/workflows/gate-artifact-v2.yml')
   assert.match(workflow, /^name: Policy V2$/m)
   assert.match(workflow, /^  pull_request_target:/m)
   assert.match(workflow, /^  pull_request_review:/m)
-  assert.match(workflow, /^  workflow_run:\n    workflows: \[CI, Pre-Merge\]\n    types: \[completed\]$/m)
+  assert.match(workflow, /^  workflow_run:\n    workflows: \[CI, Pre-Merge, Heavy\]\n    types: \[completed\]$/m)
   assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read\n  checks: write\n  statuses: write$/m)
   assert.match(workflow, /^  policy-gate:\n    name: policy-gate$/m)
   assert.match(workflow, /ref: main/)
@@ -21,7 +21,9 @@ test('derived gate recalculates from PR, review, and completed CI/pre-merge even
   assert.match(workflow, /actions\/create-github-app-token@[0-9a-f]{40}/)
   assert.match(workflow, /POLICY_MODE:/)
   assert.match(workflow, /commits\/\$WORKFLOW_RUN_HEAD_SHA\/pulls/)
-  assert.match(workflow, /if length == 1/)
+  assert.match(workflow, /if length == 1 then .\[0\]\.number elif length == 0 then "none" else "multiple" end/)
+  assert.match(workflow, /No open pull request for this run; skipping gate publication/)
+  assert.match(workflow, /steps\.event\.outputs\.pr_number != ''/)
   assert.doesNotMatch(workflow, /GATE_CHECK_NAME/)
   assert.doesNotMatch(workflow, /run: npm /)
   assert.doesNotMatch(workflow, /pull-requests: write/)

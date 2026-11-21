@@ -1,42 +1,32 @@
 #!/usr/bin/env node
 /**
- * Publish the observe-mode `heavy-gate` result on one dispatched head.
+ * Publish the head-bound `heavy-gate` result that the derived gate consumes.
  *
  * The heavy workflow records one `{name, exitCode}` row per command in a JSONL
  * file, then invokes this publisher. The publisher recomputes the current
  * gate-artifact identity, compares it with the identity captured before the
  * lane started, fetches current `main`, writes `heavy-result.json`, and
- * publishes a commit status plus a non-required display check.
+ * publishes a commit status plus the structured display check. The display
+ * check is mandatory: it carries the head/base/diff identity the gate verifies.
  *
  * A published blocked result is still a successful publisher run: the status
  * and result file own the verdict. Only an unexpected publisher failure exits
  * non-zero, after attempting to write an `error` status on the same head.
  *
  * The publisher never checks out or executes pull-request code; the workflow
- * already ran the explicitly dispatched branch on the self-hosted runner.
+ * already ran the target head on the self-hosted runner.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { collectGateArtifact } from '../review/gate-artifact.mjs'
+import { fetchCurrentMainSha } from './github-response.mjs'
+import { HEAVY_COMMANDS, HEAVY_DISPLAY_CHECK, HEAVY_GATE_CONTEXT } from './heavy-contract.mjs'
 import { isAncestor, publishGateCheck, publishGateStatus } from './publish-gate.mjs'
 
-/** Required status context once the derived gate consumes the heavy result. */
-export const HEAVY_GATE_CONTEXT = 'heavy-gate'
-/** Non-required display check; never add this name to required contexts. */
-export const HEAVY_DISPLAY_CHECK = 'heavy-gate-result'
-/** One row per command the heavy workflow must record. */
-export const HEAVY_COMMANDS = Object.freeze([
-  Object.freeze({ name: 'typecheck', command: 'npm run typecheck', blocking: true }),
-  Object.freeze({ name: 'build', command: 'npm run build', blocking: true }),
-  Object.freeze({ name: 'host-smoke', command: 'DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke', blocking: true }),
-  Object.freeze({ name: 'coverage-layered', command: 'npm run test:coverage:layered -- --base <base>', blocking: true }),
-  Object.freeze({ name: 'e2e-keyless', command: 'npm run test:e2e', blocking: true }),
-  Object.freeze({ name: 'e2e-bash', command: 'npm run test:e2e:bash', blocking: false }),
-])
+export { HEAVY_COMMANDS, HEAVY_DISPLAY_CHECK, HEAVY_GATE_CONTEXT } from './heavy-contract.mjs'
 
 const COMMIT_SHA = /^[0-9a-f]{40}$/
-const API_TIMEOUT_MS = 15_000
 
 function requiredEnv(name) {
   const value = process.env[name]
@@ -145,29 +135,55 @@ function porcelainSummary(porcelain) {
  * @param {boolean} input.baseIsAncestor Whether the tested base is an ancestor of the head.
  * @returns {{pass: boolean, reasons: string[]}} Publishable verdict.
  */
-export function heavyDecision({ artifact, beforeArtifact, expectedHead, currentMain, commands, baseIsAncestor }) {
-  const reasons = []
+function headIdentityReasons(artifact, expectedHead) {
   if (typeof expectedHead !== 'string' || !COMMIT_SHA.test(expectedHead)) {
-    reasons.push('HEAD_SHA is not a full commit SHA')
-  } else if (artifact?.resolved?.headSha !== expectedHead) {
-    reasons.push(`checked-out head ${String(artifact?.resolved?.headSha)} does not match HEAD_SHA ${expectedHead}`)
+    return ['HEAD_SHA is not a full commit SHA']
   }
+  if (artifact?.resolved?.headSha !== expectedHead) {
+    return [`checked-out head ${String(artifact?.resolved?.headSha)} does not match HEAD_SHA ${expectedHead}`]
+  }
+  return []
+}
+
+function beforeArtifactIdentityReasons(beforeArtifact, artifact) {
   if (beforeArtifact === null || typeof beforeArtifact !== 'object') {
-    reasons.push('pre-run gate artifact is missing')
-  } else {
-    if (beforeArtifact.resolved?.headSha !== artifact?.resolved?.headSha) {
-      reasons.push('pre-run head does not match the post-run head')
-    }
-    if (beforeArtifact.resolved?.baseSha !== artifact?.resolved?.baseSha) {
-      reasons.push('pre-run base does not match the post-run base')
-    }
-    if (beforeArtifact.diff?.sha256 !== artifact?.diff?.sha256) {
-      reasons.push('pre-run diff SHA-256 does not match the post-run diff')
-    }
-    if (Array.isArray(beforeArtifact.porcelain) && beforeArtifact.porcelain.length > 0) {
-      reasons.push(`pre-run worktree was dirty: ${porcelainSummary(beforeArtifact.porcelain)}`)
-    }
+    return ['pre-run gate artifact is missing']
   }
+  const reasons = []
+  if (beforeArtifact.resolved?.headSha !== artifact?.resolved?.headSha) {
+    reasons.push('pre-run head does not match the post-run head')
+  }
+  if (beforeArtifact.resolved?.baseSha !== artifact?.resolved?.baseSha) {
+    reasons.push('pre-run base does not match the post-run base')
+  }
+  if (beforeArtifact.diff?.sha256 !== artifact?.diff?.sha256) {
+    reasons.push('pre-run diff SHA-256 does not match the post-run diff')
+  }
+  return reasons
+}
+
+function beforeArtifactDirtyReason(beforeArtifact) {
+  return Array.isArray(beforeArtifact?.porcelain) && beforeArtifact.porcelain.length > 0
+    ? [`pre-run worktree was dirty: ${porcelainSummary(beforeArtifact.porcelain)}`]
+    : []
+}
+
+function commandReasons(commands) {
+  const reasons = []
+  for (const command of commands) {
+    if (!command.blocking) continue
+    if (command.exitCode === null) reasons.push(`blocking command ${command.name} has no exit code`)
+    else if (command.exitCode !== 0) reasons.push(`blocking command ${command.name} exited ${String(command.exitCode)}`)
+  }
+  return reasons
+}
+
+export function heavyDecision({ artifact, beforeArtifact, expectedHead, currentMain, commands, baseIsAncestor }) {
+  const reasons = [
+    ...headIdentityReasons(artifact, expectedHead),
+    ...beforeArtifactIdentityReasons(beforeArtifact, artifact),
+    ...beforeArtifactDirtyReason(beforeArtifact),
+  ]
   if (!Array.isArray(artifact?.porcelain) || artifact.porcelain.length > 0) {
     reasons.push(`post-run worktree is dirty: ${porcelainSummary(artifact?.porcelain)}`)
   }
@@ -175,11 +191,7 @@ export function heavyDecision({ artifact, beforeArtifact, expectedHead, currentM
   if (typeof currentMain !== 'string' || !COMMIT_SHA.test(currentMain)) {
     reasons.push('current main is not a full commit SHA')
   }
-  for (const command of commands) {
-    if (!command.blocking) continue
-    if (command.exitCode === null) reasons.push(`blocking command ${command.name} has no exit code`)
-    else if (command.exitCode !== 0) reasons.push(`blocking command ${command.name} exited ${String(command.exitCode)}`)
-  }
+  reasons.push(...commandReasons(commands))
   return { pass: reasons.length === 0, reasons }
 }
 
@@ -223,29 +235,6 @@ export function writeHeavyResult(path, result) {
 }
 
 /**
- * Fetch current main from the GitHub API.
- *
- * @param {{token: string, repository: string, apiUrl: string, fetchImpl?: typeof fetch}} input API inputs.
- * @returns {Promise<string>} Current main SHA.
- */
-export async function fetchCurrentMain(input) {
-  const response = await (input.fetchImpl ?? fetch)(`${input.apiUrl}/repos/${input.repository}/git/ref/heads/main`, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${input.token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    signal: AbortSignal.timeout(API_TIMEOUT_MS),
-  })
-  if (!response.ok) {
-    const detail = await response.text()
-    throw new Error(`reading current main failed (${String(response.status)}): ${detail}`)
-  }
-  const body = await response.json()
-  return body.object?.sha
-}
-
-/**
  * Render the commit-status description for the observe result.
  *
  * @param {{pass: boolean, reasons: string[]}} decision Heavy decision.
@@ -253,8 +242,8 @@ export async function fetchCurrentMain(input) {
  */
 export function heavyStatusDescription(decision) {
   const text = decision.pass
-    ? 'observe: heavy passed'
-    : `observe: blocked: ${decision.reasons[0] ?? 'heavy result blocked'}`
+    ? 'heavy: passed'
+    : `blocked: ${decision.reasons[0] ?? 'heavy result blocked'}`
   return text.length <= 140 ? text : `${text.slice(0, 137)}...`
 }
 
@@ -303,66 +292,84 @@ export async function publishHeavy(input) {
   return { status, check, checkError }
 }
 
-async function main() {
-  const token = requiredEnv('GH_TOKEN')
-  const repository = requiredEnv('GITHUB_REPOSITORY')
-  const expectedHead = requiredEnv('HEAD_SHA')
-  const apiUrl = process.env.GITHUB_API_URL ?? 'https://api.github.com'
-  const runUrl = process.env.RUN_URL ?? ''
+function publisherConfig() {
   const workspace = process.env.HEAVY_WORKSPACE ?? process.env.GATE_WORKSPACE ?? process.cwd()
-  const baseRef = process.env.HEAVY_BASE_REF ?? 'origin/main'
-  const commandsPath = requiredEnv('HEAVY_COMMANDS_FILE')
-  const beforePath = process.env.HEAVY_BEFORE_ARTIFACT ?? ''
-  const resultPath = process.env.HEAVY_RESULT_PATH ?? resolve(workspace, 'heavy-result.json')
-  let head = expectedHead
+  return {
+    token: requiredEnv('GH_TOKEN'),
+    checkToken: process.env.GATE_CHECK_TOKEN || requiredEnv('GH_TOKEN'),
+    repository: requiredEnv('GITHUB_REPOSITORY'),
+    expectedHead: requiredEnv('HEAD_SHA'),
+    apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
+    runUrl: process.env.RUN_URL ?? '',
+    workspace,
+    baseRef: process.env.HEAVY_BASE_REF ?? 'origin/main',
+    commandsPath: requiredEnv('HEAVY_COMMANDS_FILE'),
+    beforePath: process.env.HEAVY_BEFORE_ARTIFACT ?? '',
+    resultPath: process.env.HEAVY_RESULT_PATH ?? resolve(workspace, 'heavy-result.json'),
+  }
+}
+
+async function publishFromGit(config) {
+  const artifact = collectGateArtifact(['--base', config.baseRef, '--head', config.expectedHead], config.workspace)
+  const beforeArtifact = readOptionalJson(config.beforePath)
+  const currentMain = await fetchCurrentMainSha({
+    token: config.token,
+    repository: config.repository,
+    apiUrl: config.apiUrl,
+  })
+  const commands = mergeCommandResults(readCommandResults(config.commandsPath))
+  const baseIsAncestor = isAncestor(config.workspace, artifact.resolved.baseSha, artifact.resolved.headSha)
+  const decision = heavyDecision({
+    artifact,
+    beforeArtifact,
+    expectedHead: config.expectedHead,
+    currentMain,
+    commands,
+    baseIsAncestor,
+  })
+  const result = buildHeavyResult({ artifact, currentMain, commands, decision, baseIsAncestor })
+  writeHeavyResult(config.resultPath, result)
+  const published = await publishHeavy({
+    token: config.token,
+    checkToken: config.checkToken,
+    repository: config.repository,
+    apiUrl: config.apiUrl,
+    head: artifact.resolved.headSha,
+    decision,
+    result,
+    detailsUrl: config.runUrl,
+  })
+  if (published.checkError !== null) throw new Error(`display check not published: ${published.checkError}`)
+  return { decision, published, resultPath: config.resultPath }
+}
+
+async function publishFailure(config) {
   try {
-    const artifact = collectGateArtifact(['--base', baseRef, '--head', expectedHead], workspace)
-    head = artifact.resolved.headSha
-    const beforeArtifact = readOptionalJson(beforePath)
-    const currentMain = await fetchCurrentMain({ token, repository, apiUrl })
-    const commands = mergeCommandResults(readCommandResults(commandsPath))
-    const baseIsAncestor = isAncestor(workspace, artifact.resolved.baseSha, artifact.resolved.headSha)
-    const decision = heavyDecision({
-      artifact,
-      beforeArtifact,
-      expectedHead,
-      currentMain,
-      commands,
-      baseIsAncestor,
+    await publishGateStatus({
+      token: config.token,
+      repository: config.repository,
+      apiUrl: config.apiUrl,
+      head: config.expectedHead,
+      state: 'error',
+      description: 'heavy publisher failed',
+      detailsUrl: config.runUrl,
+      context: HEAVY_GATE_CONTEXT,
     })
-    const result = buildHeavyResult({ artifact, currentMain, commands, decision, baseIsAncestor })
-    writeHeavyResult(resultPath, result)
-    const published = await publishHeavy({
-      token,
-      checkToken: process.env.GATE_CHECK_TOKEN || token,
-      repository,
-      apiUrl,
-      head,
-      decision,
-      result,
-      detailsUrl: runUrl,
-    })
-    if (published.checkError !== null) {
-      process.stderr.write(`publish-heavy: display check not published: ${published.checkError}\n`)
-    }
-    process.stdout.write(`${JSON.stringify({ decision, published, resultPath })}\n`)
+  } catch (statusError) {
+    process.stderr.write(`publish-heavy: error status not published: ${statusError instanceof Error ? statusError.message : String(statusError)}\n`)
+  }
+}
+
+async function main() {
+  let config = null
+  try {
+    config = publisherConfig()
+    const output = await publishFromGit(config)
+    process.stdout.write(`${JSON.stringify(output)}\n`)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     process.stderr.write(`publish-heavy: ${message}\n`)
-    try {
-      await publishGateStatus({
-        token,
-        repository,
-        apiUrl,
-        head,
-        state: 'error',
-        description: 'observe: heavy publisher failed',
-        detailsUrl: runUrl,
-        context: HEAVY_GATE_CONTEXT,
-      })
-    } catch (statusError) {
-      process.stderr.write(`publish-heavy: error status not published: ${statusError instanceof Error ? statusError.message : String(statusError)}\n`)
-    }
+    if (config !== null) await publishFailure(config)
     process.exitCode = 1
   }
 }

@@ -26,7 +26,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseArgs } from 'node:util'
+import { isDeepStrictEqual, parseArgs } from 'node:util'
 import {
   branchTotals,
   functionTotals,
@@ -62,17 +62,8 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'))
 }
 
-/** Stable JSON for identity comparison; key order must not decide evidence. */
-function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
-  }
-  return JSON.stringify(value)
-}
-
 function sameArtifact(left, right) {
-  return canonicalJson(left) === canonicalJson(right)
+  return isDeepStrictEqual(left, right)
 }
 
 function missingMessage(path, command, error) {

@@ -9,6 +9,8 @@
  *
  * Report mode keeps the legacy review/pr-gate/main-ancestor gate required.
  * Block mode switches the required context to the v2 review + pre-merge gate.
+ * Non-docs PRs in block mode also need a head-bound heavy-gate result; docs-only
+ * PRs use the shared path classifier and skip that input.
  *
  * The publisher never checks out or executes pull-request code.
  */
@@ -16,6 +18,8 @@ import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { classifyPaths, changedPaths as classifierChangedPaths } from './classify-change.mjs'
+import { HEAVY_COMMANDS, HEAVY_DISPLAY_CHECK, HEAVY_GATE_CONTEXT } from './heavy-contract.mjs'
 import { parseReviewMarker } from './review-verdict.mjs'
 import { validatePrMetadata } from './pr-metadata.mjs'
 
@@ -23,6 +27,171 @@ import { validatePrMetadata } from './pr-metadata.mjs'
 export const REQUIRED_GATE_CONTEXT = 'gate-artifact'
 /** Non-required display check. Never add this name to required checks. */
 export const GATE_DISPLAY_CHECK = 'gate-artifact-v2'
+const COMMIT_SHA = /^[0-9a-f]{40}$/
+const SHA256 = /^[0-9a-f]{64}$/
+
+function timestampOf(value) {
+  return Date.parse(String(value?.created_at ?? value?.completed_at ?? value?.started_at ?? '')) || 0
+}
+
+/**
+ * Select the newest `heavy-gate` commit status for one head.
+ *
+ * The status is the coarse verdict; the structured identity comes from the
+ * `heavy-gate-result` display check. A non-success state is an error rather
+ * than a missing value so the gate can name the reason.
+ *
+ * @param {Array<{context: string, state: string, description?: string, created_at?: string}>} statuses
+ *   Commit statuses for the PR head.
+ * @param {string} head PR head SHA.
+ * @returns {{value: object|null, error: string|null}} Newest status or a blocking reason.
+ */
+export function readHeavyStatus(statuses, head) {
+  const candidates = (Array.isArray(statuses) ? statuses : [])
+    .filter((status) => status?.context === HEAVY_GATE_CONTEXT)
+    .sort((left, right) => timestampOf(right) - timestampOf(left) || Number(right.id ?? 0) - Number(left.id ?? 0))
+  if (candidates.length === 0) return { value: null, error: `heavy-gate has not been published on PR head ${head}` }
+  const status = candidates[0]
+  if (status.state !== 'success') {
+    return {
+      value: null,
+      error: `heavy-gate is ${String(status.state)}${status.description ? `: ${String(status.description)}` : ''}`,
+    }
+  }
+  return { value: status, error: null }
+}
+
+/**
+ * Read the structured heavy result from the newest display check run.
+ *
+ * @param {Array<{name: string, conclusion?: string, output?: {summary?: string}, completed_at?: string}>} checks
+ *   Check runs for the PR head.
+ * @param {string} head PR head SHA.
+ * @returns {{value: object|null, error: string|null}} Parsed heavy result or a blocking reason.
+ */
+export function readHeavyResult(checks, head) {
+  const candidates = (Array.isArray(checks) ? checks : [])
+    .filter((check) => check?.name === HEAVY_DISPLAY_CHECK)
+    .sort((left, right) => timestampOf(right) - timestampOf(left) || Number(right.id ?? 0) - Number(left.id ?? 0))
+  if (candidates.length === 0) return { value: null, error: `heavy-gate-result has not been published on PR head ${head}` }
+  const check = candidates[0]
+  if (check.conclusion !== 'success') {
+    return { value: null, error: `heavy-gate-result conclusion is ${String(check.conclusion)}` }
+  }
+  let result
+  try {
+    result = JSON.parse(check.output?.summary ?? '')
+  } catch {
+    return { value: null, error: 'heavy-gate-result summary is not valid JSON' }
+  }
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) {
+    return { value: null, error: 'heavy-gate-result summary must be a JSON object' }
+  }
+  return { value: result, error: null }
+}
+
+/**
+ * Classify the PR head against current main using the same path classifier as
+ * the hosted CI lane. The triple-dot diff starts at the merge base, so main
+ * moving forward does not turn a docs-only branch into a source change.
+ *
+ * @param {{cwd: string, head: string, currentMain: string,
+ *   ensure?: (cwd: string, sha: string) => void}} input Classification inputs.
+ * @returns {{docsOnly: boolean, paths: string[]}} Classifier result.
+ */
+export function classifyPrDocsOnly({ cwd, head, currentMain, ensure = ensureCommit }) {
+  ensure(cwd, head)
+  ensure(cwd, currentMain)
+  return classifyPaths(classifierChangedPaths({ base: currentMain, head, cwd }))
+}
+
+function heavyStatusProblem(status) {
+  if (status === null || status === undefined) return 'heavy-gate status is missing'
+  if (status.state !== 'success') return `heavy-gate state is ${String(status.state)}`
+  return null
+}
+
+function heavyResultHeaderProblem(result, head) {
+  if (result === null || result === undefined) return 'heavy-gate-result summary is missing'
+  if (result.formatVersion !== 1) return 'heavy result formatVersion must be 1'
+  if (result.result !== 'pass') return `heavy result is ${String(result.result)}`
+  return result.head === head ? null : `heavy result head ${String(result.head)} does not match PR head ${head}`
+}
+
+function heavyResultLineageProblem(result) {
+  if (result.clean !== true || !Array.isArray(result.porcelain) || result.porcelain.length > 0) {
+    return 'heavy result was produced from a dirty worktree'
+  }
+  if (!COMMIT_SHA.test(String(result.base ?? ''))) return 'heavy result base must be a full commit SHA'
+  if (!SHA256.test(String(result.diffSha256 ?? ''))) return 'heavy result diffSha256 must be a SHA-256'
+  return null
+}
+
+function requiredCommandProblem(result) {
+  const commandsByName = new Map(result.commands.map((command) => [command?.name, command]))
+  for (const required of HEAVY_COMMANDS.filter((command) => command.blocking)) {
+    const command = commandsByName.get(required.name)
+    if (command === undefined || command.blocking !== true || command.exitCode !== 0) {
+      return `blocking heavy command ${required.name} is missing or did not pass`
+    }
+  }
+  return null
+}
+
+function failedCommandProblem(result) {
+  const failed = result.commands.find((command) => command?.blocking === true && command.exitCode !== 0)
+  if (failed !== undefined) return `blocking heavy command ${String(failed.name)} did not pass`
+  if (Array.isArray(result.reasons) && result.reasons.length > 0) {
+    return `heavy result carries blocking reasons: ${result.reasons.join('; ')}`
+  }
+  return null
+}
+
+function heavyCommandProblem(result) {
+  if (!Array.isArray(result.commands) || result.commands.length === 0) {
+    return 'heavy result commands must be a non-empty array'
+  }
+  return requiredCommandProblem(result) ?? failedCommandProblem(result)
+}
+
+function heavyIdentityProblem({ cwd, head, currentMain, result, ensure }) {
+  try {
+    ensure(cwd, head)
+    ensure(cwd, currentMain)
+    ensure(cwd, result.base)
+    if (!isAncestor(cwd, result.base, head)) {
+      return `heavy base ${result.base} is not an ancestor of PR head ${head}`
+    }
+    if (!isAncestor(cwd, result.base, currentMain)) {
+      return `heavy base ${result.base} is not an ancestor of current main ${currentMain}`
+    }
+    const currentDiff = binaryDiffSha(cwd, result.base, head)
+    return currentDiff === result.diffSha256
+      ? null
+      : `heavy diff SHA-256 ${result.diffSha256} does not match current authored diff ${currentDiff}`
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+/**
+ * Validate the heavy result identity against the current PR head and main.
+ *
+ * @param {{cwd: string, head: string, currentMain: string, status: object|null,
+ *   result: object|null, ensure?: (cwd: string, sha: string) => void}} input
+ *   Heavy status/result and repository identity.
+ * @returns {{value: object|null, error: string|null}} Validated result or a named blocking reason.
+ */
+export function validateHeavyResult({ cwd, head, currentMain, status, result, ensure = ensureCommit }) {
+  const problem = heavyStatusProblem(status)
+    ?? heavyResultHeaderProblem(result, head)
+    ?? heavyResultLineageProblem(result)
+    ?? heavyCommandProblem(result)
+    ?? heavyIdentityProblem({ cwd, head, currentMain, result, ensure })
+  return problem === null
+    ? { value: result, error: null }
+    : { value: null, error: `heavy-gate blocked: ${problem}` }
+}
 
 /**
  * Return the newest review-verdict marker for one head.
@@ -100,7 +269,8 @@ export function overlapPaths(left, right) {
  *
  * @param {{ prGate: object|null, preMerge: object|null, preMergeError?: string|null,
  *   reviewError?: string|null, metadataError?: string|null, diffError?: string|null,
- *   overlap?: string[], currentMain: string }} input Validated inputs.
+ *   overlap?: string[], currentMain: string, heavy?: object|null, heavyError?: string|null,
+ *   docsOnly?: boolean, docsOnlyError?: string|null }} input Validated inputs.
  * @returns {{ pass: boolean, reasons: string[] }} Gate decision.
  */
 export function decideGate(input) {
@@ -114,6 +284,13 @@ export function decideGate(input) {
   if (input.reviewError) reasons.push(input.reviewError)
   if (input.metadataError) reasons.push(input.metadataError)
   if (input.diffError) reasons.push(input.diffError)
+  if (input.docsOnlyError) reasons.push(input.docsOnlyError)
+  if (input.docsOnly !== true) {
+    if (input.heavyError) reasons.push(input.heavyError)
+    else if (input.heavy === null || input.heavy === undefined) {
+      reasons.push('heavy-gate has not succeeded on the PR head')
+    }
+  }
   if (input.overlap !== undefined && input.overlap.length > 0) {
     reasons.push(`delta review required: main changed reviewed paths (${input.overlap.join(', ')}); merge current main into the PR branch and review the new head`)
   }
@@ -416,8 +593,15 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
       apiUrl,
       path: `/repos/${repository}/commits/${head}/check-runs?per_page=100`,
     })).check_runs
+    const statuses = await github({
+      token,
+      apiUrl,
+      path: `/repos/${repository}/commits/${head}/statuses?per_page=100`,
+    })
     const prGate = checks.find((check) => check.name === 'pr-gate' && check.conclusion === 'success') ?? null
     const preMerge = readPreMerge(checks, head)
+    const heavyStatus = readHeavyStatus(statuses, head)
+    const heavyResult = readHeavyResult(checks, head)
 
     let legacyReviewError = null
     try {
@@ -447,6 +631,28 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
       review: modernReview,
     })
 
+    let docsOnly = false
+    let docsOnlyError = null
+    try {
+      docsOnly = classifyPrDocsOnly({ cwd, head, currentMain, ensure: () => {} }).docsOnly
+    } catch (error) {
+      docsOnlyError = `could not classify PR paths: ${error instanceof Error ? error.message : String(error)}`
+    }
+
+    let heavy = null
+    let heavyError = heavyStatus.error ?? heavyResult.error
+    if (heavyError === null && !docsOnly) {
+      const validated = validateHeavyResult({
+        cwd,
+        head,
+        currentMain,
+        status: heavyStatus.value,
+        result: heavyResult.value,
+      })
+      heavy = validated.value
+      heavyError = validated.error
+    }
+
     const legacy = decideLegacyGate({
       reviewError: legacyReviewError,
       prGate,
@@ -462,6 +668,10 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
       metadataError,
       diffError: identity.diffError,
       overlap: identity.overlap,
+      heavy,
+      heavyError,
+      docsOnly,
+      docsOnlyError,
     })
     const required = requiredGateDecision(mode, legacy, modern)
     // Re-read main at the write boundary. A gate that started before a main
@@ -484,6 +694,17 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
       head,
       currentMain,
       currentMainAfterEvaluation: mainAfterEvaluation,
+      docsOnly,
+      docsOnlyError,
+      heavy: docsOnly ? { skipped: true } : heavy === null ? null : {
+        head: heavy.head,
+        base: heavy.base,
+        currentMain: heavy.currentMain,
+        diffSha256: heavy.diffSha256,
+        clean: heavy.clean,
+        result: heavy.result,
+      },
+      heavyError,
       review: modernReview === null ? null : {
         markerVersion: modernReview.markerVersion,
         base: modernReview.baseSha,

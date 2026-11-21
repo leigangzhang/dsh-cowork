@@ -56,7 +56,7 @@
     },
     {
       "pattern": "docs/heavy-runner.md",
-      "reason": "maintainer runbook for the local heavy runner: manual dispatch, head-bound observe result checks, and the green cycle before derived-gate integration; not user-facing guidance"
+      "reason": "maintainer runbook for the local heavy runner: automatic and manual triggers, head-bound result checks, derived-gate consumption, and rollback; not user-facing guidance"
     },
     {
       "pattern": "docs/design/*",

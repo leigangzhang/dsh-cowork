@@ -14,7 +14,7 @@ One home for how dsh-cowork decides that something is verified.
 | Versioned E2E | `npm run test:e2e` | Keyless real-host sessions, tools, stores, and panel routes from the manifest; a local scripted endpoint replaces the provider. `npm run test:e2e:live` is the observational real-model lane | `tests/e2e/**`, `scripts/evidence/e2e.mjs`, `tools/e2e-coverage.mjs`, and every version change (the committed evidence is checked) |
 | PR gate | GitHub Actions `pr-gate` | Documentation conventions on every PR; the source coverage lane additionally runs for non-docs changes | Every PR to `main` |
 | Pre-merge | GitHub Actions `pre-merge` | A temporary merge of the current `main` and PR head passes the path-selected tests | Every PR before merge; rerun after `main` advances |
-| Local build gate | Heavy lane | `typecheck`, `build`, host smoke, browser, keyless E2E, and observational host-bash where DSH or Chromium exists | Every affected source/client change; publish head-bound observe results for one green cycle before gate integration |
+| Local build gate | Heavy lane | `typecheck`, `build`, host smoke, browser, keyless E2E, and observational host-bash where DSH or Chromium exists | Every affected same-repo PR after CI; non-docs PRs need the head-bound result for `gate-artifact` |
 | Derived gate | GitHub Actions `gate-artifact` status (required) | Review, `pr-gate`, current-main identity; `gate-artifact-v2` is display-only | Report mode uses legacy; block uses v2 + pre-merge. |
 
 A same-process value is not evidence for a cross-process claim: session waking, workspace attach, and worktree merge need a real DSH run; host smoke proves loading, not transactions.
@@ -25,7 +25,7 @@ Coverage discovery is mechanical: contract, gap report, heavy gate, review. `npm
 
 `npm run coverage:gaps -- --base <verified-base>` reuses reports whose gate-artifact identity matches HEAD/base/diff/porcelain, otherwise runs the layered lane, then prints changed-file uncovered lines and changed public keys absent from scenario `covers` in [the E2E manifest](../tests/e2e/manifest.json). It writes only gitignored coverage data.
 
-A new interactive surface names its browser scenario in the owning test or review evidence. Review judges assertion meaning, negative controls, mocks, and unrun lanes, not coverage discovery. In the derived gate, docs-only changes skip heavy; until that input is wired, `heavy-gate` stays observe-only and one green cycle must be recorded.
+A new interactive surface names its browser scenario in the owning test or review evidence. Review judges assertion meaning, negative controls, mocks, and unrun lanes, not coverage discovery. Docs-only changes are exempt; all other PRs need a `heavy-gate` success bound to the same head, while `gate-artifact` remains the only required context.
 
 ## Commands
 

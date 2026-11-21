@@ -168,18 +168,19 @@ test('writeHeavyResult writes one stable JSON artifact', () => {
   }
 })
 
-test('heavyStatusDescription names observe mode and stays within 140 characters', () => {
-  assert.equal(heavyStatusDescription({ pass: true, reasons: [] }), 'observe: heavy passed')
+test('heavyStatusDescription names the heavy verdict and stays within 140 characters', () => {
+  assert.equal(heavyStatusDescription({ pass: true, reasons: [] }), 'heavy: passed')
   const blocked = heavyStatusDescription({ pass: false, reasons: ['x'.repeat(200)] })
-  assert.match(blocked, /^observe: blocked: /)
+  assert.match(blocked, /^blocked: /)
   assert.equal(blocked.length, 140)
 })
 
 test('the heavy workflow runs every command, keeps host-bash observational, and always publishes', () => {
   const workflow = readFileSync(resolve(repoRoot, '.github/workflows/heavy.yml'), 'utf8')
   assert.match(workflow, /workflow_dispatch:/)
-  assert.doesNotMatch(workflow, /pull_request(?:_target)?:/)
-  assert.match(workflow, /group: heavy-\$\{\{ github\.sha \}\}/)
+  assert.match(workflow, /workflow_run:/)
+  assert.match(workflow, /pull_request_target:/)
+  assert.match(workflow, /group: heavy-\$\{\{ github\.event\.workflow_run\.head_sha \|\| github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/)
   assert.match(workflow, /statuses: write/)
   assert.match(workflow, /checks: write/)
   assert.match(workflow, /HEAVY_BEFORE_ARTIFACT/)
@@ -231,7 +232,7 @@ async function createPublisherFixture(project) {
   }
 }
 
-function makeHandler({ fixture, requests, mainSha }) {
+function makeHandler({ fixture, requests, mainSha, failCheck = false }) {
   return async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1')
     let raw = ''
@@ -250,6 +251,7 @@ function makeHandler({ fixture, requests, mainSha }) {
       return json({ state: body.state })
     }
     if (request.method === 'POST' && url.pathname === '/repos/owner/repo/check-runs') {
+      if (failCheck) return json({ message: 'checks unavailable' }, 503)
       return json({ id: 7 })
     }
     return json({ error: `${request.method} ${url.pathname}` }, 404)
@@ -346,6 +348,34 @@ test('the publisher writes a failure status for a dirty tree and leaves the work
     const status = requests.find((request) => request.method === 'POST' && request.path.includes('/statuses/'))
     assert.equal(status.body.context, HEAVY_GATE_CONTEXT)
     assert.equal(status.body.state, 'failure')
+  } finally {
+    if (server !== undefined) await stopServer(server)
+    Object.assign(prFixture, { repo: '', baseSha: '', headSha: '', beforeArtifact: null })
+    rmSync(project, { recursive: true, force: true })
+  }
+})
+
+test('a missing structured display check turns the published status into an error', async () => {
+  const project = mkdtempSync(join(tmpdir(), 'cowork-heavy-publish-check-fail-'))
+  const requests = []
+  let server
+  try {
+    const fixture = await createPublisherFixture(project)
+    Object.assign(prFixture, fixture)
+    const started = await startServer(makeHandler({
+      fixture,
+      requests,
+      mainSha: fixture.baseSha,
+      failCheck: true,
+    }))
+    server = started.server
+    const result = await runPublisher({ GITHUB_API_URL: started.baseUrl })
+    assert.equal(result.code, 1)
+    assert.match(result.stderr, /display check not published/)
+    const statuses = requests.filter((request) =>
+      request.method === 'POST' && request.path.includes('/statuses/'))
+    assert.equal(statuses.at(-1).body.state, 'error')
+    assert.match(statuses.at(-1).body.description, /publisher failed/)
   } finally {
     if (server !== undefined) await stopServer(server)
     Object.assign(prFixture, { repo: '', baseSha: '', headSha: '', beforeArtifact: null })

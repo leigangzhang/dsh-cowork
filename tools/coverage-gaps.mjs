@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseArgs } from 'node:util'
+import { isDeepStrictEqual, parseArgs } from 'node:util'
 import { collectChangeScope } from '../scripts/review/change-scope.mjs'
 import { collectGateArtifact } from '../scripts/review/gate-artifact.mjs'
 import { CLIENT_BROWSER_BLOCKED } from '../scripts/evidence/client-coverage.mjs'
@@ -52,17 +52,8 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'))
 }
 
-/** Stable JSON for identity comparison; key order must not decide evidence. */
-export function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
-  }
-  return JSON.stringify(value)
-}
-
 function sameJson(left, right) {
-  return canonicalJson(left) === canonicalJson(right)
+  return isDeepStrictEqual(left, right)
 }
 
 function readOptionalJson(path) {
@@ -75,6 +66,31 @@ function readOptionalJson(path) {
 
 function normalizePaths(paths) {
   return [...new Set(paths.map((path) => String(path).trim()).filter((path) => path !== ''))].sort()
+}
+
+function floorEntryFailures(file, floor, byPath, path) {
+  if (byPath.get(file)?.lane !== 'browser') {
+    return [`${path}: floor names no browser source file: ${file}`]
+  }
+  if (floor === null || typeof floor !== 'object' || Array.isArray(floor)) {
+    return [`${path}: floor for ${file} must be an object`]
+  }
+  return Object.entries(floor).flatMap(([key, value]) => {
+    if (!FLOOR_KEYS.has(key)) return [`${path}: floor for ${file} has unknown key ${key}`]
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) {
+      return [`${path}: floor ${file}.${key} must be a number in 0..100`]
+    }
+    return []
+  })
+}
+
+function missingFloorFailures(files, byPath, blocked, path) {
+  const failures = []
+  for (const [file, entry] of byPath) {
+    if (entry.lane !== 'browser' || blocked[file] !== undefined) continue
+    if (files[file] === undefined) failures.push(`${path}: reviewed browser floors are missing ${file}`)
+  }
+  return failures
 }
 
 /**
@@ -93,33 +109,14 @@ function normalizePaths(paths) {
 export function browserFloorFileProblems(parsed, byPath, options = {}) {
   const path = options.path ?? COVERAGE_GAP_PATHS.floors
   const blocked = options.blocked ?? CLIENT_BROWSER_BLOCKED
-  const failures = []
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)
     || parsed.version !== 1 || parsed.files === null || typeof parsed.files !== 'object' || Array.isArray(parsed.files)) {
     return { files: null, failures: [`${path} must be an object with version 1 and a files map`] }
   }
   const files = parsed.files
-  for (const [file, floor] of Object.entries(files)) {
-    if (byPath.get(file)?.lane !== 'browser') {
-      failures.push(`${path}: floor names no browser source file: ${file}`)
-      continue
-    }
-    if (floor === null || typeof floor !== 'object' || Array.isArray(floor)) {
-      failures.push(`${path}: floor for ${file} must be an object`)
-      continue
-    }
-    for (const [key, value] of Object.entries(floor)) {
-      if (!FLOOR_KEYS.has(key)) {
-        failures.push(`${path}: floor for ${file} has unknown key ${key}`)
-      } else if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) {
-        failures.push(`${path}: floor ${file}.${key} must be a number in 0..100`)
-      }
-    }
-  }
-  for (const [file, entry] of byPath) {
-    if (entry.lane !== 'browser' || blocked[file] !== undefined) continue
-    if (files[file] === undefined) failures.push(`${path}: reviewed browser floors are missing ${file}`)
-  }
+  const failures = Object.entries(files)
+    .flatMap(([file, floor]) => floorEntryFailures(file, floor, byPath, path))
+  failures.push(...missingFloorFailures(files, byPath, blocked, path))
   return { files, failures }
 }
 
@@ -168,28 +165,41 @@ export function coverageContractProblems(cwd = REPO_ROOT) {
  *
  * @returns {Promise<{keys: string[], byFile: Map<string, string[]>}>} Surface keys and file owners.
  */
+function addSurfaceOwner(byFile, file, key) {
+  const owned = byFile.get(file) ?? []
+  owned.push(key)
+  byFile.set(file, owned)
+}
+
+function addToolOwners(byFile, domains) {
+  for (const [file, tools] of domains) {
+    for (const tool of tools) addSurfaceOwner(byFile, file, `tool:${tool}`)
+  }
+}
+
+function addPanelOwners(byFile, routes) {
+  for (const file of PANEL_CONTRACT_FILES) {
+    for (const [route, method] of routes) addSurfaceOwner(byFile, file, `route:${route} ${method}`)
+  }
+}
+
+function addStateOwners(byFile, keys) {
+  for (const key of keys) {
+    if (key.startsWith('preset:')) addSurfaceOwner(byFile, PRESET_FILE, key)
+    else if (key.startsWith('topic-status:') || key.startsWith('review-status:') || key.startsWith('work-item-status:')) {
+      addSurfaceOwner(byFile, SCHEMA_FILE, key)
+    }
+  }
+}
+
 async function surfaceOwners() {
   const publicSurface = await import(new URL('../tests/support/public-surface.mjs', import.meta.url))
   const { collectSurfaceKeys } = await import(new URL('./e2e-coverage.mjs', import.meta.url))
   const keys = await collectSurfaceKeys()
   const byFile = new Map()
-  const add = (file, key) => {
-    const owned = byFile.get(file) ?? []
-    owned.push(key)
-    byFile.set(file, owned)
-  }
-  for (const [file, tools] of publicSurface.TOOL_DOMAINS) {
-    for (const tool of tools) add(file, `tool:${tool}`)
-  }
-  for (const file of PANEL_CONTRACT_FILES) {
-    for (const [route, method] of publicSurface.PANEL_ROUTES) add(file, `route:${route} ${method}`)
-  }
-  for (const key of keys) {
-    if (key.startsWith('preset:')) add(PRESET_FILE, key)
-    else if (key.startsWith('topic-status:') || key.startsWith('review-status:') || key.startsWith('work-item-status:')) {
-      add(SCHEMA_FILE, key)
-    }
-  }
+  addToolOwners(byFile, publicSurface.TOOL_DOMAINS)
+  addPanelOwners(byFile, publicSurface.PANEL_ROUTES)
+  addStateOwners(byFile, keys)
   for (const owned of byFile.values()) owned.sort()
   return { keys, byFile }
 }
