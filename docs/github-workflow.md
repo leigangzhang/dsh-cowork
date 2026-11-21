@@ -83,6 +83,7 @@ flowchart TD
 | `Policy V2 / policy-gate` | PR 更新、review 事件、CI/Pre-Merge/Heavy 完成 | GitHub 提供的 Ubuntu 运行器；从受信任的 `main` 执行脚本 | 是；由它发布唯一 required `gate-artifact` commit status | report mode 校验 legacy review、`pr-gate`、main ancestor；block mode 校验 v2 review、`pre-merge`、非 docs 的 heavy 身份、metadata 和 reviewed paths；docs-only 豁免 heavy |
 | `gate-artifact-v2`（display check） | 同一 Policy V2 运行 | 同上 | 否，永不加入 required checks | 镜像 required 决策；report mode 同时记录 v2 would-fail 原因 |
 | `Heavy / heavy-gate` | 同仓库 `agent/*` PR 的 CI 成功后自动触发；`heavy` label 或 `workflow_dispatch` 也可触发 | 标记为 `self-hosted, heavy` 的本机运行器；fork PR 跳过；docs-only head 只做分类 | 仅作为 `gate-artifact` 的输入；非 docs PR 缺少有效 heavy 会 blocked | 非 docs head 运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash；从可信 main 树发布 head-bound `heavy-gate` 状态和 `heavy-result.json`；不审查代码 |
+| `Heavy Comment / heavy-comment` | `Heavy` 完成后由 `workflow_run` 触发 | GitHub 提供的 Ubuntu 运行器；checkout 受信任的 `main`，不执行 PR 代码 | 否 | 解析 head 对应的 open PR，读取已发布的 heavy status/check，创建或原地更新一条带 marker 的摘要评论；无 PR 或 docs-only 无结果时跳过；失败运行也写摘要 |
 
 `gate-artifact-v2` 只做展示，永不加入 required checks。required context 始终是 `gate-artifact`，由 commit status 承载：report mode 用 legacy 校验，block mode 用 v2 + pre-merge + 非 docs 的 heavy 身份校验。commit status 按 context 原地覆盖，因此重复运行不会在同一 head 上留下多个同名 required check。切换到 block mode 前，必须先验证 `pre-merge` 能稳定发布当前 base，且 base-recheck 能把旧绿色 gate 标成 stale。
 
@@ -311,7 +312,7 @@ publisher job 的 display name 是 `pre-merge-publish`，不能与它发布的 `
 
 **GitHub 的 review 不要求审查者把所有测试不加选择地重跑一遍。审查者按 [code-review](../.agents/skills/code-review/SKILL.md) 选择最小但完整的验证：文档改动运行 `npm run check`；行为变更运行覆盖率、构建和 host smoke；交付、浏览器或 E2E 变更再核对分层覆盖率和 heavy 的 E2E 结果，并检查当前版本证据。**AgentTeams 的独立验证任务会另外运行仓库检查，见 [agent-teams.md](agent-teams.md)。
 
-审查结论通过 GitHub review 评论提交。当前使用评论形式的标记，不使用 GitHub 的批准（`Approve`）：
+PR 创建后，交付方立即派发一个独立 review，不要等用户发现 gate 被 blocked 后再要求；新提交会让旧结论失效，必须在新 head 上重新派发 review。审查结论通过 GitHub review 评论提交，当前使用评论形式的标记，不使用 GitHub 的批准（`Approve`）：
 
 ```text
 <!-- review-verdict:v2 head=<40 位提交 SHA> base=<40 位 merge-base SHA> diffSha=<64 位 diff SHA-256> verdict=pass reviewer=agentteam model=<模型名> -->
@@ -396,11 +397,13 @@ npm run test:e2e
 npm run test:e2e:bash
 ```
 
-workflow 从 `repo_path` 指向的本地仓库 clone 目标 `HEAD_SHA`；先从该仓库刷新 `refs/remotes/origin/*` 并记录当前 main SHA。手动传 base 时在同一个本地仓库解析该分支/SHA，未传时使用刷新后的 main 与 head 的 merge-base。base 会解析成一个固定 SHA，贯穿 pre-run identity、layered coverage 和 publisher。workflow 另外把 `refs/remotes/origin/main` 导出到临时目录，docs-only classifier、pre-run identity 记录和 publisher 都从这份可信 main 树执行；PR checkout 只运行测试和提供 git 数据。首次合入前 main 还没有这些脚本，手动 dispatch 可以用 `trusted_ref` 显式选择一个已审阅的 ref 作为 bootstrap；自动触发没有该输入，始终使用默认分支。
+workflow 从 `repo_path` 指向的本地仓库 clone 目标 `HEAD_SHA`；先从该仓库刷新 `refs/remotes/origin/*` 并记录当前 main SHA。手动传 base 时在同一个本地仓库解析该分支/SHA，未传时使用刷新后的 main 与 head 的 merge-base。base 会解析成一个固定 SHA，贯穿 pre-run identity、layered coverage 和 publisher。workflow 另外把 `refs/remotes/origin/main` 导出到临时目录，docs-only classifier、pre-run identity 记录和 publisher 都从这份可信 main 树执行；PR checkout 只运行测试和提供 git 数据。运行日志会回显实际使用的 `trusted_sha`，没有从 PR checkout 选择可信脚本的入口。
 
 每条命令的退出码写入临时 JSONL，最后的 publisher 重新计算 `base..HEAD` 的 gate artifact，与运行前捕获的身份比较，读取当前 `main`，写出 gitignored 的 `heavy-result.json`，并在目标 head 上发布 `heavy-gate` commit status 与 `heavy-gate-result` display check。结果文件记录 head、base、current main、diff SHA-256、porcelain 和每个命令的退出码。工作区脏、head/diff 不匹配、base 不再是 head 的祖先、packaging/runtime 阻塞命令缺失或失败时，状态是 failure；host-bash 的失败只记录、不阻断。可信 classifier 判断为 docs-only 时，workflow 在安装依赖前结束，不占用完整 heavy lane。
 
 `gate-artifact` 在非 docs PR 上读取同一 head 的 `heavy-gate` success 和 `heavy-gate-result` summary，校验 base 同时是 head 与 current main 的祖先、diff SHA 匹配、worktree clean、blocking 命令全绿。docs-only PR 豁免 heavy。`Heavy` 完成后也会触发派生 gate 重算，避免 CI 先完成、heavy 后完成造成永久 blocked。ruleset 仍只要求 `gate-artifact`，不直接要求 `heavy-gate`。
+
+`Heavy Comment` 是独立 workflow，在 `Heavy` 完成后从受信任的 `main` checkout 运行 `scripts/ci/publish-heavy-comment.mjs`，只持有 `pull-requests: write`，不执行 PR 代码。它按 head 解析唯一的 open PR，读取已发布的 `heavy-gate` status 和 `heavy-gate-result`，用 `<!-- heavy-gate-summary -->` 标记创建或更新一条评论；无 open PR、docs-only 成功但无结果时跳过，失败运行也写摘要。评论是 PR 可读的审计摘要，不参与 gate 判定。
 
 `heavy-gate` 覆盖 `typecheck`、构建、打包后 host smoke、分层覆盖率、keyless E2E 和主机 bash 检查。它不运行 `pr-gate`，不审查代码，也不判断测试断言是否有效。需要本机 DSH 环境、Chromium 或 bash sandbox 才能发现的构建、加载和浏览器问题，只能由 heavy 本机测试或等价的真实环境提供证据。
 
@@ -542,6 +545,7 @@ workflow、脚本或 ruleset 改动后，同步更新本文，并按 [tools/work
 | PR 标题和正文结构 | [pr-metadata.mjs](../scripts/ci/pr-metadata.mjs)、[pr-description](../.agents/skills/pr-description/SKILL.md) |
 | 本地证据记录 | [gate-artifact.mjs](../scripts/review/gate-artifact.mjs)、[change-scope.mjs](../scripts/review/change-scope.mjs) |
 | heavy 本机测试 | [.github/workflows/heavy.yml](../.github/workflows/heavy.yml)、[heavy-runner.md](heavy-runner.md) |
+| heavy 摘要评论 | [.github/workflows/heavy-comment.yml](../.github/workflows/heavy-comment.yml)、[publish-heavy-comment.mjs](../scripts/ci/publish-heavy-comment.mjs)、[heavy-runner.md](heavy-runner.md) |
 | 版本化 E2E 和 host-bash | [.github/workflows/heavy.yml](../.github/workflows/heavy.yml)、[tests/e2e/manifest.json](../tests/e2e/manifest.json)、`tests/e2e/scenarios/topic-bash.mjs`、`tests/e2e/evidence/<version>.json`、[package.json](../package.json)、[testing.md](testing.md) |
 | 测试分层和命令 | [testing.md](testing.md) |
 | 审查流程和独立审查 | [agent-teams.md](agent-teams.md)、[code-review](../.agents/skills/code-review/SKILL.md) |

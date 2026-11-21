@@ -72,6 +72,7 @@ Before pushing, load [pre-push-checks](.agents/skills/pre-push-checks/SKILL.md),
 ## AgentTeams
 
 - Before creating a plan, read [docs/agent-teams.md](docs/agent-teams.md); it owns the DAG, impact scan, gate artifact, worktree, review, and delivery rules.
+- Opening a PR starts a fresh independent review task on the current head; do not wait for the user to ask. A new commit needs a new verdict; never reuse the old one.
 - Use a configured profile and its tool policies; do not recreate the roster in task prose. Verification/review depend on `integration-ready`; docs-only changes skip E2E.
 - Browser/panel verification follows R8/R9: fix host health and overview API before driving the UI, reuse one browser session, isolate fixtures, and never use sleeps as readiness.
 

@@ -65,6 +65,7 @@ For panel fixtures:
 ## Review, repair, final integration, and delivery (R10)
 
 - Reviewer method: load [code-review](../.agents/skills/code-review/SKILL.md) before opening the diff; it owns `change-scope`, evidence selection, review priorities, and finding format. This section owns the DAG and verdict only.
+- PR open starts review. When delivery opens a PR, the captain immediately creates a fresh independent `review` task on the current head; do not wait for the user to request it. The reviewer posts `review-verdict:v2` on the PR. A new commit creates a new review task; an old verdict is not reused.
 - Review and requirements tasks complete only with `verdict=pass`. `needs_revision` and `reject` fail with findings. Each finding names a relative path and line and the required fix.
 - Batch all review findings into one repair task. Do not derive a repair task from each low-risk comment, and do not trigger a full re-review for each finding.
 - If the repair batch changes behavior, restart at `integration-ready`, then repeat verification and review. If it changes only comments or documentation, run `npm run check`, the owning targeted tests, and a delta review.
