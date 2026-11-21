@@ -1,7 +1,7 @@
 /**
  * @dsh-external/dsh-cowork host plugin entry point.
  *
- * This module assembles the business surface — the panel API, the twenty-two
+ * This module assembles the business surface — the panel API, the twenty-three
  * cowork tools, the three presets, and the project-memory prompt section — and
  * starts the opt-in dev surface when `Config.enableDevRoutes` is true. The
  * configuration schema and its one defaults table live in `src/app/config.ts`; the
@@ -36,6 +36,11 @@ import type { HostLlmLike } from '../platform/llm-port.js'
 import { NoopTopicNoticePort, TopicNoticeDispatcher } from '../domains/notices/notices.js'
 import type { CoworkToolDeps, CurrentModelRoute } from '../platform/tool-runtime.js'
 import { registerCoworkTools } from './tools.js'
+import { ArtifactRuntimeManager } from '../platform/artifact-runtime.js'
+import { ArtifactPresenceRegistry, createArtifactWriteGuard } from '../platform/artifact-presence.js'
+import { createDispatchDisposedListener, createDispatchPromptPort, createDispatchSessionListener } from '../platform/artifact-dispatch.js'
+import { ARTIFACT_PRESENCE_TTL_MS } from '../panel/artifact-contract.js'
+import type { HostFileSystem } from '../platform/artifact-files.js'
 import { TopicEvents } from '../platform/topic-events.js'
 import type { TopicEventLike, TopicEventSession } from '../platform/topic-events.js'
 import { repairCoworkWorkspaces } from '../platform/workspace-repair.js'
@@ -248,6 +253,7 @@ function createPanelPorts(
   assembly: CoworkAssemblyHost,
   settings: Config,
   notices: { port: NoopTopicNoticePort; kick(repoPath: string): void },
+  artifacts: ArtifactRuntimeManager,
 ): CoworkApiPorts {
   return {
     // Metadata only: `inspect` also reads the session event log and hung the
@@ -284,6 +290,9 @@ function createPanelPorts(
     ),
     noticePort: notices.port,
     kickNotices: (repoPath) => notices.kick(repoPath),
+    // The work-item routes resolve one runtime per repository; the manager owns
+    // the cache and disposes the event hubs with the plugin fiber.
+    artifact: { runtimeFor: (repoPath) => artifacts.runtimeFor(repoPath) },
     log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
   }
 }
@@ -300,7 +309,7 @@ export function apply(ctx: Context, config: Config): void {
       `${PLUGIN_NAME}: reviewer.reclaim must be '${CONFIG_DEFAULTS.reviewer.reclaim}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
     )
   }
-  // M1 assembly services: one dependency bag for the presets and the twenty-two tools.
+  // M1 assembly services: one dependency bag for the presets and the twenty-three tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: the dev surface canonicalizes its own copy, because
   // only it compares paths against a host session cwd.
@@ -320,6 +329,34 @@ export function apply(ctx: Context, config: Config): void {
   const noticeRuntime = {
     port: noticePort,
     kick: (repoPath: string) => noticeDispatcher.kick(repoPath),
+  }
+
+  // Work-item runtimes: one per project, created on first use. A host without
+  // `ctx.fs` still gets the records/comments/SSE half and answers file reads
+  // with `artifact/fs-unavailable`.
+  const artifactPresence = new ArtifactPresenceRegistry({ ttlMs: ARTIFACT_PRESENCE_TTL_MS })
+  // Annotation delivery rides the host session queue: the request id is the
+  // dispatch id, so a retry after a restart cannot duplicate a turn.
+  const dispatchPrompt = createDispatchPromptPort(
+    assembly.sessionController as unknown as Parameters<typeof createDispatchPromptPort>[0],
+    settings.promptTimeoutMs,
+  )
+  const artifactRuntimes = new ArtifactRuntimeManager({
+    hostFs: hostService<HostFileSystem>(ctx, 'fs'),
+    log: (message) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
+    presence: artifactPresence,
+    prompt: dispatchPrompt,
+  })
+  ctx.effect(() => () => artifactRuntimes.dispose(), 'dsh-cowork: artifact runtimes')
+
+  // The editing guard refuses a model write overlapping the lines a browser
+  // user is editing. It covers `write`, `edit`, and `str_replace_editor`; bash
+  // is the recorded, unfixable gap. A host without `tools.guard` keeps loading.
+  const toolsService = (ctx as unknown as {
+    tools?: { guard?: (guard: (execution: never) => string | undefined) => () => void }
+  }).tools
+  if (typeof toolsService?.guard === 'function') {
+    ctx.effect(() => toolsService.guard!(createArtifactWriteGuard(artifactPresence)), 'dsh-cowork: artifact tool guard')
   }
 
   const coworkDeps: CoworkToolDeps = {
@@ -342,12 +379,13 @@ export function apply(ctx: Context, config: Config): void {
     llmRoutingPort: createLlmRoutingPort(hostService<HostLlmLike>(ctx, 'llm')),
     currentModelRoute: hostCurrentModelRoute(ctx),
     notices: noticeRuntime,
+    artifactRuntime: { runtimeFor: (repoPath) => artifactRuntimes.runtimeFor(repoPath) },
   }
 
   // M11 panel: four read routes and six write routes over the host connection
   // service (the request inbox adds its read, resolve, and open routes). The project root is derived from the session's own cwd, never from
   // the request.
-  const panelPorts = createPanelPorts(ctx, assembly, settings, noticeRuntime)
+  const panelPorts = createPanelPorts(ctx, assembly, settings, noticeRuntime, artifactRuntimes)
   registerCoworkApi(ctx as unknown as CoworkApiHost, panelPorts)
 
   // M8.2: the session event stream keeps topic activity fresh and reopens a
@@ -412,6 +450,27 @@ export function apply(ctx: Context, config: Config): void {
     }
   }, 'dsh-cowork: workspace repair')
 
+  // The work-item dispatcher follows the same session event stream: turn and
+  // tool events advance queued annotation batches through sent/thinking/
+  // working, a turn that ends without a reply fails the batch honestly, and a
+  // disposed owner session blocks its in-flight batches.
+  const dispatchListenerOptions = {
+    resolveRepoPath: (cwd: string) => findProjectRoot(cwd),
+    runtimeFor: (repoPath: string) => artifactRuntimes.runtimeFor(repoPath),
+    log: (message: string) => ctx.logger?.warn?.(`[${PLUGIN_NAME}] ${message}`),
+  }
+  const onHost = (ctx as unknown as {
+    on(name: string, handler: (...args: never[]) => void): () => void
+  }).on
+  ctx.effect(
+    () => onHost.call(ctx, 'session/event', createDispatchSessionListener(dispatchListenerOptions)),
+    'dsh-cowork: artifact dispatch events',
+  )
+  ctx.effect(
+    () => onHost.call(ctx, 'session/disposed', createDispatchDisposedListener(dispatchListenerOptions)),
+    'dsh-cowork: artifact dispatch dispose',
+  )
+
   // The dev surface is opt-in: an installed profile never exposes it.
   if (settings.enableDevRoutes) {
     registerDevSurfaces(ctx, {
@@ -421,7 +480,7 @@ export function apply(ctx: Context, config: Config): void {
     })
   }
 
-  // M1: the three runtime presets and the twenty-two cowork tools, owned by this fiber.
+  // M1: the three runtime presets and the twenty-three cowork tools, owned by this fiber.
   ctx.effect(() => registerPresets(coworkDeps.agentPresets).then((disposers) => async () => {
     for (const dispose of disposers) await dispose()
   }), 'dsh-cowork: cowork presets')

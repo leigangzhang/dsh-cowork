@@ -1,6 +1,6 @@
 # Cowork 工作项前端设计与开发方案
 
-Status: draft（frontend design，2026-11-10；待实现；后端设计见 [work-item-backend.md](work-item-backend.md)）
+Status: implementing（frontend design，2026-11-10；阶段 0–3 已落地 2026-11-19，阶段 4–5 未开始；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)；后端设计见 [work-item-backend.md](work-item-backend.md)）
 
 本方案把[工作项多模态交付物查看器设计](work-item-artifact-viewer.md)和[V1–V16 核实报告](work-item-artifact-verification.md)落成前端实现计划。页面结构、类型和交互以查看器设计为准；依赖体积、编辑器和限制以核实报告为准。决策和取舍见[前端开发提案](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-frontend.md)。
 
@@ -28,10 +28,10 @@ Cowork 右栏（session scope）
    └─ 底部：附件条 / 模型活动摘要
 ```
 
-- 右栏工作项列表挂在 Cowork 面板的内部标签里；当前 `panel.tsx` 只有主题列表/详情，需要先加内部标签壳。主题内容迁入第一个标签；活动记录、项目记忆先占位或未启用。
-- 查看器是 root `main` 的 keyed panel，key 用 `cowork-work-item`；从列表打开时把 `{sessionId, artifactId}` 写进客户端 store，再 `ctx.layout.selectPanel('cowork-work-item')`。
+- 右栏工作项列表挂在 Cowork 面板的内部标签里。当前 `src/client/panel.tsx` 是主题页 v2 + 收件箱：宽面板（内容宽 ≥620px）为 318px 主题列 + 独立滚动的收件箱列，窄面板为单列主题列表 + “需要你处理”横幅；没有 `TopicDetail`，也没有内部标签。阶段 0 要在这层壳上加标签壳，把主题页（含收件箱）迁入第一个标签；活动记录、项目记忆先占位或未启用。
+- 查看器注册为 root `main` 的 keyed panel（`ctx.slots.register({ name: 'main', key: 'cowork-work-item' }, …)`）；从列表打开时把 `{sessionId, artifactId}` 写进客户端 store，再 `ctx.layout.selectPanel('cowork-work-item')`。`selectPanel` 只接受已注册的 main key，未注册会抛错。
 - 顶部“返回会话”调用 `selectPanel(null)`，回到当前会话；关闭查看器不清空工作项状态，也不删除未保存草稿。
-- 左侧栏切换会话时，查看器自动关闭；如果宿主没有可订阅的会话切换事件，第一版在查看器可见时检查当前会话 id，不一致则关闭并提示。
+- 左侧栏切换会话时，查看器自动关闭。宿主没有单独的“当前选中会话”事件服务，但 `ctx.sessions.retainInfo(sessionId)` 暴露 `retainedBy.mainView`：ui-workspace 打开会话时以 `source:'mainView'` retain，切换会话会释放旧会话。查看器订阅打开时 `sessionId` 的 retain info，`mainView` 归零即关闭并提示。
 - 宿主没有 `layout` 服务时，列表卡片不打开主区域，显示“当前宿主无法打开主区域”；不降级成右栏全屏查看器，避免两套布局。
 - 不在 `sidebar.panellist` 再注册一个入口；工作项列表是 Cowork 面板内的标签。
 
@@ -45,7 +45,7 @@ src/client/work-item/
 ├─ model.ts               纯视图模型：筛选、分组、标签、活动/保存文案
 ├─ store.ts               打开上下文、选中项、订阅（useSyncExternalStore）
 ├─ api.ts                 列表/详情/文件/批注/保存/事件/上传
-├─ contracts.ts           客户端侧 wire 类型（与 api-contract.ts 对齐）
+├─ contracts.ts           客户端侧服务/槽位类型（wire 类型复用 panel/artifact-contract.ts）
 ├─ styles.ts              页面样式和 token
 ├─ hooks/useArtifact.ts   详情 + 文件内容 + 版本
 ├─ hooks/useComments.ts   线程、批注定位、状态
@@ -75,8 +75,8 @@ src/client/work-item/
 └─ lazy.ts                Excalidraw / Doc / 表格 / 图表按需加载
 ```
 
-- 当前 `panel.tsx` 的 `TopicList`/`TopicDetail` 保留在主题标签；工作项列表作为兄弟标签，不修改主题列表的数据逻辑。
-- `index.tsx` 在现有 client 入口中注册；`inject` 增加可选的 `layout`、`uiWorkspace`，缺失时只退化打开/返回，不阻止插件加载。
+- 当前 `src/client/panel.tsx` 由 `TopicList`/`TopicStates`（`src/client/list.tsx`）和 `InboxPanel`（`src/client/inbox.tsx`）组成；主题页与收件箱的数据逻辑不改，只把它们放进第一个标签，工作项列表作为兄弟标签。
+- 查看器入口在现有 `src/client/index.tsx` 里注册；当前 `export const inject = ['slots']`，可选服务用 `ctx.inject([...])`，`uiWorkspace` 已在用。`layout` 也按可选服务处理：新增 `ctx.inject(['layout'], …)` 和 `ClientContext` 类型片段，宿主没有 `layout` 时只退化打开/返回，不阻止插件加载。`dsh.client.inject` 是包级依赖的排序信息，不是服务注入，不改变这个降级。
 - `store.ts` 只存“打开上下文 + 当前选中项”，不引入全局状态库；跨组件用 `useSyncExternalStore`。
 - 纯函数放 `model.ts`，React-free，沿用 `node --test` 的类型剥离测试方式。
 
@@ -105,7 +105,7 @@ interface ArtifactRecord {
 
 ### 列表/详情/文件/批注/保存
 
-以下路径是拟议接口，全部走 `connection.fetch.register` 的 exact route，沿用 Host/Origin 和浏览器认证；实现时以 `src/panel/api-contract.ts` 的类型为准。
+以下路径是拟议接口，全部走 `connection.fetch.register` 的 exact route，沿用 Host/Origin 和浏览器认证。当前面板有 10 条 exact route（`src/panel/api.ts:970-1029`），wire 常量/类型在 `src/panel/api-contract.ts` 与 `inbox-contract.ts`；artifact 路由应新增同层 `src/panel/artifact-contract.ts` 并被客户端直接复用（现有 `src/client/api.ts` 已直接 import 两个 contract），不要手写第二份。
 
 | 方法/路径 | 用途 | 关键输入/输出 |
 |---|---|---|
@@ -231,7 +231,7 @@ queued → sent → thinking → working → replied
 
 ## 性能
 
-- 首屏只加载列表和查看器壳；CodeMirror/TipTap/Pele/表格按需加载；Excalidraw 独立 chunk，打开画布才下载。
+- 首屏只加载列表和查看器壳；CodeMirror/TipTap/Pele/表格按需加载；Excalidraw 独立 chunk，打开画布才下载。当前单文件 CJS 构建不能分块，CodeMirror 随主包加载（[WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)）；构建支持按需 chunk 后再改懒加载。
 - 大文件分块/Range 读取；超过 2 MB 的文本不整篇塞进 DOM，按需分页或只读预览。
 - 列表最多 200 条，分组渲染；评论线程超过 200 条折叠“加载更多”。
 - 编辑器输入不触发整页重渲染；保存状态和活动状态用局部 store。
@@ -240,19 +240,20 @@ queued → sent → thinking → working → replied
 ## 构建与依赖
 
 - 依赖进 `package.json` 并提交锁文件；全部 MIT/Apache-2.0 兼容。
-- 客户端构建从单文件 CJS 扩展为“主包 + 按需 chunk”：Excalidraw 独立 chunk，Doc/表格/图表可同 chunk 或独立；loader 用包内相对路径加载，不请求外部 CDN。
+- 客户端构建从单文件 CJS 扩展为“主包 + 按需 chunk”：Excalidraw 独立 chunk，Doc/表格/图表可同 chunk 或独立；loader 用包内相对路径加载，不请求外部 CDN。当前 `scripts/build/build-client.mjs` 用 esbuild 打一个 CJS 闭包（externals 为 react/react-dom/@deepseek-ai/*）；esbuild 的代码分割只支持 ESM 输出，宿主 `client-modules` 的 `require.async` 分块由 tsdown 构建消费，所以分块方案要先改构建并在真实宿主验证，不能只加 `--splitting`。
 - Excalidraw 的 CSS、字体和资源走同源授权路由；`EXCALIDRAW_ASSET_PATH` 用绝对 URL；不带 Xiaolai，中文回退。
 - TipTap 所有包锁同一版本；表格扩展不能漏。
-- 客户端上限 100 MB（5 MB 不设硬门槛）；包体按 10 MB 控制。当前核心约 2.4 MB min，含 Excalidraw 约 11 MB min，符合客户端上限。
+- 客户端上限 100 MB（5 MB 不设硬门槛）；包体按 10 MB 控制。接入 CodeMirror 6 后当前客户端 build 输出 1,197,447 B（gzip 303,538 B）；交接时（2026-11-19）为 138,237 B（gzip 29,206 B）。核实报告的核心合计约 2.4 MB min，含 Excalidraw 约 11 MB min，符合客户端上限。
 
 ## 测试与验收
 
-- 纯函数：列表筛选/分组、状态文案、活动状态、保存状态、锚点重定位降级；`node --test`。
-- 宿主契约：列表/详情/文件/批注/保存/事件路由的认证、路径守卫、版本冲突、幂等；`node --test`。
-- 前端交互：用 fixture 跑列表、查看器、批注、保存冲突、失败回滚；能跑浏览器检查就跑一次真实主题标签 + 主区域。
+- 纯函数：列表筛选/分组、状态文案、活动状态、保存状态、锚点重定位降级；`node --test` + `tests/support/ts-hook.mjs` 的类型剥离。
+- 宿主契约：列表/详情/文件/批注/保存/事件路由的认证、路径守卫、版本冲突、幂等；`node --test`，沿用 `tests/panel/api-*.test.mjs` 的临时仓库和 connection probe。
+- 前端交互：用 fixture 跑列表、查看器、批注、保存冲突、失败回滚；客户端 TSX 走真实宿主 + Chromium 的 `npm run test:browser` 与 layered coverage（见 [testing.md](../../testing.md)）。
 - 端到端：真实主题会话里投递批注 → SSE 状态 → 模型回复 → 文档定位；真实模型 E2E 单独记录。
 - 画布：打开、编辑保存、模型改元素、整文件锁；单独浏览器检查。
-- 工程：`npm run check`、`npm run typecheck`、`npm run build`、`npm test` 全部通过；`npm pack` 检查包体。
+- 工程：文档改动跑 `npm run check`；实现改动按 `tools/workflow.json` 的 source/browser surface 跑 `npm run test:coverage`、`npm run typecheck`、`npm run build`、`npm run test:host-smoke`，客户端另跑 `npm run test:browser` 与 `npm run test:coverage:layered -- --base <verified-base>`；`npm pack` 检查包体。
+- 公开面：新增路由/工具要同步 `tests/support/public-surface.mjs` 的 `PANEL_ROUTES`/`BUSINESS_TOOL_ORDER`/`TOOL_DOMAINS`；工具预算 `tests/guards/tool-schema-budget.test.mjs` 当前固定为 22 个/16,523 B，新增工具必须显式提高。
 - 文档：设计、核实报告、提案、demo 截图互相链接。
 
 ## 开发阶段
@@ -261,7 +262,7 @@ queued → sent → thinking → working → replied
 2. **文本编辑与实时。** CodeMirror 编辑、自动保存、版本/409/三方合并、脏行上报、工具守卫；SSE、dispatcher、`cowork_artifact_reply`、多模态附件；可演示：用户改一段、模型改另一段自动合并、同行冲突被锁。
 3. **图表与表格。** Pele 六类图 + 源码编辑；自建表格 + excel 导入导出 + 筛选/排序；区域/节点批注。
 4. **Doc、PDF 与画布。** TipTap + docx 导入导出；PDF 查看/按页评论；Excalidraw 懒加载、元素级工具、整文件锁、导出。
-5. **收口。** 窄屏/键盘/空错态/性能/包体、真实模型 E2E、文档和截图同步、旧详情入口迁移。
+5. **收口。** 窄屏/键盘/空错态/性能/包体、真实模型 E2E、文档和截图同步。
 
 每阶段可独立合并；阶段 1 先证明“列表 → 主区域 → 批注”的主链路，再扩类型。
 
@@ -271,8 +272,9 @@ queued → sent → thinking → working → replied
 - **Excalidraw 资源和 chunk 接入未原型。** 客户端上限已放宽到 100 MB，但 CJS/chunk、CSS/字体授权路由、`EXCALIDRAW_ASSET_PATH` 仍是实现期第一风险。
 - **SSE/并发/模型回复未真机验证。** 源码支持不代表端到端可用；阶段 2 必须先在真实宿主跑通再扩类型。
 - **同行锁可被 bash 绕过。** 工具守卫只覆盖结构化写工具；需要提示词约束 + 保存后二次校验，不能宣称完全阻止。
+- **会话切换感知。** 自动关闭依赖 `ctx.sessions.retainInfo(sessionId).retainedBy.mainView` 由正变零；这是宿主 ui-workspace 的会话选择保留语义，不是专门的切换事件，升级宿主时要回归。
 - **TipTap/Excalidraw 依赖版本。** TipTap 表格扩展不在 StarterKit，当前版本解析有偏差；Excalidraw 锁定 0.18.1，升级要重跑体积和字体检查。
-- **主题页/活动流依赖。** 右栏内部标签壳会碰主题页；如果主题页前端并行改造，先约定标签壳接口，避免两边重写 `panel.tsx`。
+- **主题页/收件箱已实现。** 右栏当前是主题页 v2 + 收件箱（宽面板两列、窄面板横幅入口；`src/client/panel.tsx`、`list.tsx`、`inbox.tsx`）；工作项标签壳要在现有 Cowork tab body 上加，改动集中在壳这一处，避免重写主题列表和收件箱的数据逻辑。
 - **旧 `workItems` 语义。** 新功能用 `artifacts` 记录；不复用代码隔离工作项的字段和状态，避免语义混淆。
 - **附件和路径安全。** 上传、预览、HTML/ SVG 内联都必须过路径守卫和净化；沙箱 iframe 不能拿到宿主权限。
 
@@ -288,3 +290,4 @@ queued → sent → thinking → working → replied
 - 设计：[work-item-artifact-viewer.md](work-item-artifact-viewer.md)
 - 研究与核实：[work-item-artifact-embedding-research.md](work-item-artifact-embedding-research.md)、[work-item-artifact-verification.md](work-item-artifact-verification.md)
 - 提案：[2026-11-10-work-item-page-frontend.md](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-frontend.md)
+- 实现交接：[WORK_ITEM_HANDOFF.md](../../handoff/WORK_ITEM_HANDOFF.md)

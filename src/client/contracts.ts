@@ -57,6 +57,30 @@ export interface SidebarRightService {
   openTab(kind: string): void
 }
 
+/** One session's retention snapshot: who currently holds it. */
+export interface SessionRetainSnapshot {
+  readonly retainedBy: Readonly<Record<string, number | undefined>>
+}
+
+/** The observable retain-info object for one session (`ctx.sessions.retainInfo`). */
+export interface SessionRetainInfo {
+  getSnapshot(): SessionRetainSnapshot
+  subscribe(listener: () => void): () => void
+}
+
+/** The host session service slice the work-item viewer observes. */
+export interface SessionsService {
+  retainInfo(sessionId: string): SessionRetainInfo
+}
+
+/**
+ * The host main-area layout controller. `selectPanel(key)` shows one registered
+ * keyed `main` panel and `selectPanel(null)` returns to the conversation.
+ */
+export interface LayoutService {
+  selectPanel(key: string | null): void
+}
+
 /** Workspace navigation: selects a Session and shows its Conversation. */
 export interface UiWorkspaceService {
   openSession(sessionId: string): void
@@ -108,6 +132,8 @@ export interface ClientContext {
   readonly sidebarRight?: SidebarRightService
   readonly sidebarRightTabs?: SidebarRightTabsService
   readonly uiWorkspace?: UiWorkspaceService
+  readonly layout?: LayoutService
+  readonly sessions?: SessionsService
   readonly sessionNotices?: SessionNoticesService
   /** Optional dependency injection: runs `callback` only once `services` exist. */
   inject(services: readonly string[], callback: (scope: ClientContext) => void | (() => void)): void
@@ -139,6 +165,10 @@ export interface PanelErrorInfo {
 export interface ClientServices {
   sidebarRight?: SidebarRightService
   uiWorkspace?: UiWorkspaceService
+  /** Main-area layout; absent hosts cannot open the work-item viewer. */
+  layout?: LayoutService
+  /** Session retention; absent hosts cannot auto-close the viewer on switch. */
+  sessions?: SessionsService
 }
 
 let currentServices: ClientServices = {}

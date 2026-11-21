@@ -19,6 +19,8 @@
 import { execFile } from 'node:child_process'
 import { requestResolvedActivity, statusChangedActivity, topicArchivedActivity } from '../store/activity.js'
 import { CLONE_ISOLATION_PROVIDER } from '../domains/isolation/checkout.js'
+import { ArtifactDomainError } from '../domains/artifact/errors.js'
+import type { ArtifactRuntime } from './artifact-runtime.js'
 import type { GitResult, GitRunner } from '../domains/isolation/checkout.js'
 import { describeError } from '../domains/isolation/checkout-teardown.js'
 import { Inbox, InboxMarkError } from '../store/inbox.js'
@@ -116,6 +118,8 @@ export interface CoworkToolDeps {
   currentModelRoute?: () => CurrentModelRoute | null
   /** Notice delivery runtime; absent means the ledger is written but not drained. */
   notices?: TopicNoticeRuntime
+  /** Per-project work-item runtime; absent on embeds without the artifact feature. */
+  artifactRuntime?: { runtimeFor(repoPath: string): ArtifactRuntime }
 }
 
 /** The notice port plus the per-project kick the tools call after a write. */
@@ -458,6 +462,9 @@ export function isFailure(value: unknown): value is ToolFailure {
 
 /** Map a thrown error onto the model-facing failure envelope. */
 export function mapError(error: unknown): ToolFailure {
+  if (error instanceof ArtifactDomainError) {
+    return failure(error.code, error.message, error.path === undefined ? undefined : { path: error.path })
+  }
   if (error instanceof StoreError) {
     if (error.code === 'store/corrupt') {
       return failure(ERROR_CODES.storeCorrupt, error.message, { filePath: error.filePath })

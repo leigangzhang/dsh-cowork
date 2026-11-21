@@ -39,12 +39,14 @@ import { createHostClient } from '../../tests/e2e/support/host-client.mjs'
 import { createScenarioContext } from '../../tests/e2e/support/context.mjs'
 import { createFixture, removeFixture } from '../../tests/e2e/support/fixture.mjs'
 import { startScriptedModel } from '../../tests/e2e/support/scripted-model.mjs'
+import { scenarioTimeoutOf } from '../../tests/e2e/support/lane-timeouts.mjs'
 import { hostSupport } from '../../tests/e2e/support/versions.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 const manifestPath = join(root, 'tests/e2e/manifest.json')
 const STRICT = process.env.DSH_E2E_STRICT === '1'
+/** Flat budget for a scenario that does not declare a per-turn one. */
 const SCENARIO_TIMEOUT_MS = 300_000
 
 function readJson(path, label) {
@@ -215,7 +217,17 @@ async function main() {
         routing: false,
         idleAfterMs: 1,
         extraEntries: hasLive
-          ? ['- id: session-title-llm', '  disabled: true']
+          ? [
+              // The live lane is a latency-bounded smoke. Reasoning effort stays
+              // off so one thinking turn cannot starve the later turns of the
+              // same scenario; the keyless lane covers reasoning-free behavior.
+              '- id: llm-deepseek',
+              '  config:',
+              '    thinking: disabled',
+              '    reasoningEffort: off',
+              '- id: session-title-llm',
+              '  disabled: true',
+            ]
           : [
               '- id: llm-deepseek',
               '  config:',
@@ -223,6 +235,9 @@ async function main() {
               '    models:',
               '      - id: deepseek-flash',
               '        name: scripted-e2e-flash',
+              '        contextWindow: 200000',
+              '      - id: deepseek-pro',
+              '        name: scripted-e2e-pro',
               '        contextWindow: 200000',
               '- id: session-title-llm',
               '  disabled: true',
@@ -237,6 +252,9 @@ async function main() {
 
     for (const entry of selected) {
       const scenario = loadScenario(entry)
+      // A live scenario budgets one timeout per model turn; a keyless one keeps
+      // the flat lane budget. Validate before the fixture and host work.
+      const scenarioTimeoutMs = scenarioTimeoutOf(scenario, SCENARIO_TIMEOUT_MS)
       const fixture = await createFixture(runRoot)
       model.reset()
       const context = createScenarioContext({ scenarioId: entry.id, fixture, client, model })
@@ -245,10 +263,10 @@ async function main() {
       let error = null
       let timedOut = false
       try {
-        const outcome = await withTimeout(scenario.run(context), SCENARIO_TIMEOUT_MS, entry.id)
+        const outcome = await withTimeout(scenario.run(context), scenarioTimeoutMs, entry.id)
         if (outcome !== undefined && outcome?.__timeout !== undefined) {
           timedOut = true
-          error = `scenario ${entry.id} exceeded ${String(SCENARIO_TIMEOUT_MS)}ms; the run stops here and never lets a stray scenario share the next fixture`
+          error = `scenario ${entry.id} exceeded its ${String(scenarioTimeoutMs)}ms budget; the run stops here and never lets a stray scenario share the next fixture`
         }
       } catch (caught) {
         error = caught instanceof Error ? caught.message : String(caught)
@@ -261,13 +279,20 @@ async function main() {
         } else if (values.keep) console.log(`kept fixture ${fixture.path}`)
         else await removeFixture(fixture.path)
       }
+      // Live scenarios observe each real-model turn separately; a failed turn
+      // fails the scenario, but the remaining independent turns already ran.
+      const turnStats = context.turns.stats()
+      const turnFailure = error === null && turnStats.failed > 0
+        ? `${String(turnStats.failed)} live turn(s) failed`
+        : null
       const result = {
         id: entry.id,
         mode: entry.mode,
         summary: entry.summary,
-        passed: error === null,
-        error,
+        passed: error === null && turnStats.failed === 0,
+        error: error ?? turnFailure,
         checks: context.checks,
+        ...(turnStats.turns.length === 0 ? {} : { turns: turnStats }),
         startedAt: scenarioStartedAt,
         durationMs: Date.now() - scenarioStartMs,
         modelCalls: model.calls.slice(-40).map((call) => ({
@@ -286,8 +311,11 @@ async function main() {
         `${JSON.stringify({ ...result, evidence: sanitizeEvidenceText(result) }, null, 2)}\n`,
         'utf8',
       )
-      if (error === null) console.log(`PASS ${entry.id}: ${result.checks.length} checks`)
-      else console.log(`FAIL ${entry.id}: ${error}`)
+      const turnNote = turnStats.turns.length === 0
+        ? ''
+        : `, turns ${String(turnStats.passed)}/${String(turnStats.attempted)}${turnStats.skipped === 0 ? '' : ` (+${String(turnStats.skipped)} skipped)`}${turnStats.rate === null ? '' : `, rate ${(turnStats.rate * 100).toFixed(1)}%`}`
+      if (result.passed) console.log(`PASS ${entry.id}: ${result.checks.length} checks${turnNote}`)
+      else console.log(`FAIL ${entry.id}: ${result.error}${turnNote}`)
       if (timedOut) break
     }
   } finally {
@@ -345,7 +373,17 @@ async function main() {
     throw new Error(`e2e failed: ${failed.join(', ')}`)
   }
   const lane = mode === 'keyless' ? 'e2e' : `${mode} e2e (observational)`
-  console.log(`PASS ${lane}: ${results.length} scenarios, ${checkCount} checks, plugin ${packageJson.version} on DSH ${dshVersion}`)
+  const withTurns = results.filter((result) => result.turns !== undefined)
+  const turnTotals = withTurns.reduce((totals, result) => ({
+    attempted: totals.attempted + result.turns.attempted,
+    passed: totals.passed + result.turns.passed,
+    failed: totals.failed + result.turns.failed,
+    skipped: totals.skipped + result.turns.skipped,
+  }), { attempted: 0, passed: 0, failed: 0, skipped: 0 })
+  const turnSummary = withTurns.length === 0
+    ? ''
+    : `, turns ${String(turnTotals.passed)}/${String(turnTotals.attempted)} (failed ${String(turnTotals.failed)}, skipped ${String(turnTotals.skipped)})`
+  console.log(`PASS ${lane}: ${results.length} scenarios, ${checkCount} checks${turnSummary}, plugin ${packageJson.version} on DSH ${dshVersion}`)
 }
 
 main().catch((error) => {

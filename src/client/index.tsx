@@ -12,6 +12,8 @@
  * keeps no in-list reminder cards.
  */
 import { ensurePanelStyles } from './styles.ts'
+import { ensureWorkItemStyles } from './work-item/styles.ts'
+import { WorkItemViewer } from './work-item/panel.tsx'
 import { CoworkColorGlyph, CoworkFooterAction, CoworkPanel, CoworkPanelTitle } from './panel.tsx'
 import { registerNoticeRenderer } from './notice.tsx'
 import {
@@ -26,6 +28,15 @@ export const inject = ['slots']
 
 export function apply(ctx: ClientContext): void {
   ensurePanelStyles()
+  ensureWorkItemStyles()
+
+  // The work-item viewer is a keyed root `main` panel: the right-rail list
+  // opens it through `layout.selectPanel('cowork-work-item')`. Registering the
+  // slot key does not require the layout service; only opening does.
+  ctx.slots.inject('main', () => ctx.slots.register({
+    name: 'main',
+    key: 'cowork-work-item',
+  }, WorkItemViewer))
 
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab',
@@ -70,6 +81,19 @@ export function apply(ctx: ClientContext): void {
   ctx.inject(['uiWorkspace'], (scope) => {
     setClientService('uiWorkspace', scope.uiWorkspace)
     return () => { setClientService('uiWorkspace', undefined) }
+  })
+
+  // Work-item navigation dependencies. Both are optional: without `layout` the
+  // list explains it cannot open the main area, and without `sessions` the
+  // viewer simply does not auto-close on a session switch.
+  ctx.inject(['layout'], (scope) => {
+    setClientService('layout', scope.layout)
+    return () => { setClientService('layout', undefined) }
+  })
+
+  ctx.inject(['sessions'], (scope) => {
+    setClientService('sessions', scope.sessions)
+    return () => { setClientService('sessions', undefined) }
   })
 
   // A2 only: the optional injection never fires on a host without
