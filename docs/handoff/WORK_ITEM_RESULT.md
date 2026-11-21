@@ -70,10 +70,10 @@
 - `npm run typecheck`：exit 0。
 - `npm test`：1541/1541 通过，0 skipped。
 - `npm run test:coverage`：80 个 owner 模块，行覆盖 100%（31118/31118）。
-- `npm run build`：exit 0（client bundle 1,197,393 B，gzip 303,519 B）。
+- `npm run build`：exit 0（client bundle 1,197,447 B，gzip 303,538 B）。
 - `npm run test:host-smoke`：5/5 通过。
-- `npm run test:browser`：通过；报告含 19 个 client 源文件（18 个 counted；`src/client/notice.tsx` 因宿主无 `ctx.sessionNotices` 被标 blocked，KI-40）。`src/client/work-item/editor.tsx` 行/函数覆盖 100%，列表 SSE 断线/重试/实时计数与 CodeMirror 行号、高亮、批注行装饰、插入行后标记跟随、加载最新后标记重建均在真实 Chromium 中执行。
-- `npm run test:coverage:layered -- --base 26141dd`：通过；89 个 counted 文件，行覆盖 99.88%（33814/33855），reviewed browser floors 全部通过。
+- `npm run test:browser`：通过；报告含 19 个 client 源文件（18 个 counted；`src/client/notice.tsx` 因宿主无 `ctx.sessionNotices` 被标 blocked，KI-40）。`src/client/work-item/editor.tsx` 行/函数覆盖 100%，列表 SSE 断线/重试/实时计数与 CodeMirror 行号、高亮、批注行装饰、插入行后标记跟随（该断言在未 map 的旧 handler 上先红、修复后绿）、加载最新后标记重建均在真实 Chromium 中执行。
+- `npm run test:coverage:layered -- --base 26141dd`：通过；89 个 counted 文件，行覆盖 99.88%（33815/33856），reviewed browser floors 全部通过。
 
 ## 偏离与未核实
 

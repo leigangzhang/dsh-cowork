@@ -243,7 +243,7 @@ queued → sent → thinking → working → replied
 - 客户端构建从单文件 CJS 扩展为“主包 + 按需 chunk”：Excalidraw 独立 chunk，Doc/表格/图表可同 chunk 或独立；loader 用包内相对路径加载，不请求外部 CDN。当前 `scripts/build/build-client.mjs` 用 esbuild 打一个 CJS 闭包（externals 为 react/react-dom/@deepseek-ai/*）；esbuild 的代码分割只支持 ESM 输出，宿主 `client-modules` 的 `require.async` 分块由 tsdown 构建消费，所以分块方案要先改构建并在真实宿主验证，不能只加 `--splitting`。
 - Excalidraw 的 CSS、字体和资源走同源授权路由；`EXCALIDRAW_ASSET_PATH` 用绝对 URL；不带 Xiaolai，中文回退。
 - TipTap 所有包锁同一版本；表格扩展不能漏。
-- 客户端上限 100 MB（5 MB 不设硬门槛）；包体按 10 MB 控制。接入 CodeMirror 6 后当前客户端 build 输出 1,197,393 B（gzip 303,519 B）；交接时（2026-11-19）为 138,237 B（gzip 29,206 B）。核实报告的核心合计约 2.4 MB min，含 Excalidraw 约 11 MB min，符合客户端上限。
+- 客户端上限 100 MB（5 MB 不设硬门槛）；包体按 10 MB 控制。接入 CodeMirror 6 后当前客户端 build 输出 1,197,447 B（gzip 303,538 B）；交接时（2026-11-19）为 138,237 B（gzip 29,206 B）。核实报告的核心合计约 2.4 MB min，含 Excalidraw 约 11 MB min，符合客户端上限。
 
 ## 测试与验收
 
