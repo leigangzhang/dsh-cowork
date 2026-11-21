@@ -1,7 +1,7 @@
 # 工作项页阶段 0–3 交付结果
 
 - 日期：2026-11-19
-- 状态：阶段 0–3 已实现并提交；阶段 4（图表/表格/Doc/PDF/画布）与阶段 5（收口）未开始
+- 状态：阶段 0–3 已实现并提交；KI-51/KI-52 已于 2026-11-20 在 `agent/ki-51-52`（基于 `main` `26141dd`）补修；阶段 4（图表/表格/Doc/PDF/画布）与阶段 5（收口）未开始
 - 执行分支：`agent/work-item-docs-facts`（沿用交接文档指定的工作流分支）
 - 交接：[WORK_ITEM_HANDOFF.md](WORK_ITEM_HANDOFF.md)；设计状态已同步为 implementing
 
@@ -23,7 +23,7 @@
 
 - 修订快照（每文件最近 20 个）、`POST /edit`（直接写 + 409 冲突体）、行级三方合并 `src/domains/artifact/merge.ts`、写后事件与快照。
 - `POST /presence`、`src/platform/artifact-presence.ts`、`tools.guard` 对 `write`/`edit`/`str_replace_editor` 的行范围拒绝（bash 缺口保持）。
-- 前端：文本编辑器（受控 textarea，见 KI-51）、800ms 防抖自动保存、保存状态、脏行 300ms 上报、409 冲突条（查看差异/加载最新/保留我的）；保存失败后重新进入编辑保留草稿，模型修改文件后只读视图重取内容、脏草稿保留旧保存基准。
+- 前端：文本编辑器（Stage 2 为受控 textarea，2026-11-20 补为 CodeMirror 6）、800ms 防抖自动保存、保存状态、脏行 300ms 上报、409 冲突条（查看差异/加载最新/保留我的）；保存失败后重新进入编辑保留草稿，模型修改文件后只读视图重取内容、脏草稿保留旧保存基准。
 
 阶段 3（投递、回复与多模态）
 
@@ -43,6 +43,12 @@
 
 仍未做（已记 KI）：模型回复不能携带新附件（KI-54，宿主无二进制读取）、附件无删除/重命名（KI-55）；进程级重启/失败注入、真实模型 guard 拒绝重试见 KI-53。
 
+## KI-51 / KI-52 补修（2026-11-20）
+
+- **KI-51（编辑器）**：`src/client/work-item/editor.tsx` 用 CodeMirror 6 取代受控 textarea。Markdown 语法高亮、行号 gutter、括号匹配、默认键位与历史键位、受控值同步（只有外部值与编辑器文档不同才替换，未变化的草稿不重置编辑状态），以及未解决批注的逐行装饰（标记随文本映射，不按固定行号重算）；失焦仍触发一次保存，编辑器卸载时的失焦不再重复保存。deps `@codemirror/{state,view,language,commands,lang-markdown}` 以精确版本进 devDependencies 与 `package-lock.json`（官方 registry）。构建仍是单文件 CJS 闭包，CodeMirror 随主包加载（当前构建不能分块），client bundle 从约 196 KB 增至 1.17 MB（未压缩），仍在 100 MB 客户端上限与 10 MB 包体预算内。
+- **KI-52（列表实时）**：`src/client/work-item/list.tsx` 订阅同一项目 SSE 流，250 ms 合并窗口触发一次列表读取；卡片评论数、状态 chip、投递摘要与筛选计数随事件更新，分组折叠状态不重置；连续 3 次连接失败后保留已加载列表并显示“实时更新中断，点击重试”，重试重新建立 EventSource。
+- **测试**：浏览器 lane 新增 CodeMirror 行号/高亮/批注行装饰断言，以及列表 SSE 断线→重试→实时评论计数链路；`npm run test:browser` 通过（19 个报告文件，1 个 blocked）。
+
 ## 验证证据
 
 均在最终代码树上实际运行（`agent/work-item-docs-facts` HEAD）：
@@ -58,12 +64,22 @@
 - `npm run test:e2e`：6 个 keyless 场景、137 checks 通过。`artifact-chain`（23 checks）覆盖登记 → 列表/详情/文件 → 批注 → 投递 → 模型回复 → 直接保存 → 非重叠三方自动合并 → SSE 回放 → 上传/附件 → `tools.guard` 拒绝重叠模型写入；`artifact-recovery`（10 checks）在真实宿主里从预置的 dispatch 日志执行恢复：in-flight → `stale` 且不再提示，queued 重新投递并由脚本化模型回复，failed 批次经 `POST /api/cowork.artifact.dispatch.retry` 重新投递并得到回复。
 - `npm run test:e2e:live -- --scenario live-master-chain --scenario live-artifact-chain`：2 个真实模型场景、21 checks 通过。`live-artifact-chain` 观测到：master 与 routed topic 各自登记工作项；两条批注同时处于投递中（`overlap=true`）并都到达 `replied`；红色图片批注的模型回复包含「红」，证明图片 prompt 已到达模型；两个线程的回复均为 `author:"model"`。
 
+### KI-51/52 补修证据（`agent/ki-51-52`，基于 `26141dd`）
+
+- `npm run check`：`check-invariants: ok`。
+- `npm run typecheck`：exit 0。
+- `npm test`：1541/1541 通过，0 skipped。
+- `npm run test:coverage`：80 个 owner 模块，行覆盖 100%（31118/31118）。
+- `npm run build`：exit 0（client bundle 1,197,447 B，gzip 303,538 B）。
+- `npm run test:host-smoke`：5/5 通过。
+- `npm run test:browser`：通过；报告含 19 个 client 源文件（18 个 counted；`src/client/notice.tsx` 因宿主无 `ctx.sessionNotices` 被标 blocked，KI-40）。`src/client/work-item/editor.tsx` 行/函数覆盖 100%，列表 SSE 断线/重试/实时计数与 CodeMirror 行号、高亮、批注行装饰、插入行后标记跟随（该断言在未 map 的旧 handler 上先红、修复后绿）、加载最新后标记重建均在真实 Chromium 中执行。
+- `npm run test:coverage:layered -- --base 26141dd`：通过；89 个 counted 文件，行覆盖 99.88%（33815/33856），reviewed browser floors 全部通过。
+
 ## 偏离与未核实
 
-- 编辑器为受控 textarea，不是 CodeMirror（KI-51）；保存/合并/冲突契约不受影响。
-- 右栏列表卡不订阅 SSE（KI-52），查看器实时。
 - 真实模型 E2E 已跑通核心链路（KI-53 已收窄）：两个会话并行投递、图片 prompt、回复工具采用均通过。恢复路径由 keyless `artifact-recovery` 覆盖“预置日志 → 真实宿主启动恢复”，但仍未做同一 `DSH_HOME` 的进程级重启；真实模型回合被 `tools.guard` 拒绝后的重试、prompt 拒绝触发的退避重试、队列满与 SSE 重连仍只有单测/浏览器片段证据，bash 绕过保持。
 - `tools.guard` 的重叠拒绝已由 keyless `artifact-chain` 在真实宿主 + 脚本化模型回合中观测；仍未在一次真实模型回合里观测拒绝后重试。
+- 保存请求在途时的并发编辑与“退出编辑”双发保存是 textarea 时代既有竞态，本轮未改（KI-56）。
 - 阶段 4/5 未开始：图表/表格/Doc/PDF/画布、`open`/字节 Range、rebind、事件裁剪、列表缓存与旧隔离 workItems 入口（KI-41）。
 
 ## 回滚

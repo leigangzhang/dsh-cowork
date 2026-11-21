@@ -102,10 +102,14 @@ export const WORK_ITEM_CSS = `
 .cwi-composer-hint { font-size: 11px; color: var(--dsw-alias-label-secondary, #5b6470); }
 .cwi-receipt { font-size: 11px; color: var(--dsw-alias-state-error-primary, #d93026); }
 .cwi-viewer-empty { padding: 30px 16px; text-align: center; font-size: 12px; color: var(--dsw-alias-label-secondary, #5b6470); }
-.cwi-editor-wrap { display: flex; min-height: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 20px; }
-.cwi-gutter { flex: none; width: 52px; margin: 0; padding: 6px 6px 24px 0; text-align: right; color: var(--dsw-alias-label-secondary, #9aa3ad); overflow: hidden; user-select: none; font: inherit; line-height: 20px; }
-.cwi-editor { flex: 1; min-width: 0; min-height: 70vh; border: none; outline: none; resize: none; padding: 6px 12px 24px; font: inherit; line-height: 20px; background: transparent; color: inherit; white-space: pre; overflow: auto; }
-.cwi-editor:focus-visible { outline: 1px solid var(--dsw-alias-brand-primary, #3457d5); outline-offset: -1px; }
+.cwi-editor-host { min-height: 70vh; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 20px; }
+.cwi-editor-host .cm-editor { min-height: 70vh; background: transparent; color: inherit; }
+.cwi-editor-host .cm-editor.cm-focused { outline: 1px solid var(--dsw-alias-brand-primary, #3457d5); outline-offset: -1px; }
+.cwi-editor-host .cm-scroller { font-family: inherit; font-size: 12px; line-height: 20px; }
+.cwi-editor-host .cm-content { padding: 6px 12px 24px; }
+.cwi-editor-host .cm-gutters { background: transparent; color: var(--dsw-alias-label-secondary, #9aa3ad); border-right: none; }
+.cwi-editor-host .cm-lineNumbers .cm-gutterElement { padding: 0 8px 0 12px; }
+.cwi-editor-host .cm-line.cwi-editor-anchored { background: var(--dsw-alias-state-business-tertiary, #eaf0ff); box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary, #3457d5); }
 .cwi-conflict { border-bottom: 1px solid var(--dsw-alias-state-warn-primary, #b26a00); background: var(--cw-surface-muted, #f2f4f7); color: var(--dsw-alias-label-primary, #1f2329); padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 .cwi-conflict-diff { display: flex; flex-direction: column; gap: 4px; }
 .cwi-attachment-thumb { max-width: 220px; max-height: 160px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1, #e3e6ea); display: block; }

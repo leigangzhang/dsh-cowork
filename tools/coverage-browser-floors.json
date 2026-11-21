@@ -21,13 +21,17 @@
       "lineCoverage": 95.89,
       "functionCoverage": 97.37
     },
+    "src/client/work-item/editor.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
+    },
     "src/client/work-item/list.tsx": {
-      "lineCoverage": 96,
-      "functionCoverage": 95
+      "lineCoverage": 97.7,
+      "functionCoverage": 96.77
     },
     "src/client/work-item/panel.tsx": {
-      "lineCoverage": 92,
-      "functionCoverage": 84
+      "lineCoverage": 98.59,
+      "functionCoverage": 93.69
     }
   }
 }

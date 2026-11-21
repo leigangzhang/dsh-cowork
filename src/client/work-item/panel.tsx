@@ -24,6 +24,7 @@ import {
 } from '../../panel/artifact-contract.js'
 import { useClientServices } from '../contracts.ts'
 import { WorkItemApiError, workItemApi, type SaveConflict } from './api.ts'
+import { TextEditor } from './editor.tsx'
 import {
   activeDispatchSummary,
   anchorLabel,
@@ -255,10 +256,8 @@ export function WorkItemViewer(): ReactElement {
   const editingRef = useRef(false)
   const dirtyRef = useRef(false)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
-  const editorRef = useRef<HTMLTextAreaElement | null>(null)
   const persistDraftRef = useRef<() => void>(() => {})
   const contextKeyRef = useRef<string | null>(null)
-  const gutterRef = useRef<HTMLPreElement | null>(null)
   const dirty = editing && data !== null && data.file !== null && editDraft !== savedContent
   const layout = services.layout
   const canReturn = layout !== undefined && typeof layout.selectPanel === 'function'
@@ -687,11 +686,6 @@ export function WorkItemViewer(): ReactElement {
     }
   }, [context, data])
 
-  const syncEditorScroll = useCallback(() => {
-    if (editorRef.current === null || gutterRef.current === null) return
-    gutterRef.current.scrollTop = editorRef.current.scrollTop
-  }, [])
-
   const lines = useMemo(() => contentLines(data?.file?.content ?? ''), [data?.file?.content])
   const threads = useMemo(() => sortThreads(foldThreads(data?.events ?? [])), [data?.events])
   const focusThread = useCallback((thread: WorkItemThread) => {
@@ -715,6 +709,10 @@ export function WorkItemViewer(): ReactElement {
     }
     return values
   }, [threads])
+  const anchoredLineList = useMemo(
+    () => [...anchoredLines].sort((left, right) => left - right),
+    [anchoredLines],
+  )
 
   const attachmentRows = useMemo(() => {
     const rows: AttachmentRefV1[] = []
@@ -1005,25 +1003,17 @@ export function WorkItemViewer(): ReactElement {
           )}
           <div className="cwi-doc-view" data-testid="cwi-doc-view" hidden={viewTab !== 'document'} data-mode={readMode ? 'read' : 'source'}>
           {editing ? (
-            <div className="cwi-editor-wrap">
-              <pre className="cwi-gutter" ref={gutterRef} aria-hidden="true">
-                {contentLines(editDraft).map((_text, index) => String(index + 1)).join('\n')}
-              </pre>
-              <textarea
-                ref={editorRef}
-                className="cwi-editor"
-                data-testid="cwi-editor"
-                aria-label="编辑文件内容"
-                value={editDraft}
-                spellCheck={false}
-                onChange={(event) => {
-                  setEditDraft(event.target.value)
-                  setBackArmed(false)
-                }}
-                onScroll={syncEditorScroll}
-                onBlur={() => { if (dirty && conflict === null) void saveDraft() }}
-              />
-            </div>
+            <TextEditor
+              value={editDraft}
+              ariaLabel="编辑文件内容"
+              anchoredLines={anchoredLineList}
+              anchorsAuthoritative={!dirty}
+              onChange={(content) => {
+                setEditDraft(content)
+                setBackArmed(false)
+              }}
+              onBlur={() => { if (dirty && conflict === null) void saveDraft() }}
+            />
           ) : (
             <>
               {selection === null ? null : (

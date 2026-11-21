@@ -7,7 +7,13 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import { ARTIFACT_STATUS_LABELS, type ArtifactListResponse, type ArtifactSummaryV1 } from '../../panel/artifact-contract.js'
+import {
+  ARTIFACT_EVENTS_PATH,
+  ARTIFACT_EVENT_TYPES,
+  ARTIFACT_STATUS_LABELS,
+  type ArtifactListResponse,
+  type ArtifactSummaryV1,
+} from '../../panel/artifact-contract.js'
 import { useClientServices } from '../contracts.ts'
 import { WorkItemApiError, workItemApi } from './api.ts'
 import {
@@ -23,6 +29,11 @@ import {
   type WorkItemFilter,
 } from './model.ts'
 import { workItemOpenStore } from './store.ts'
+
+/** Coalesce a burst of project events into one list read. */
+const LIST_REFRESH_DEBOUNCE_MS = 250
+/** EventSource retries on its own; after this many failed opens the rail stops. */
+const SSE_MAX_FAILURES = 3
 
 /** Who opens the main-area viewer. */
 interface WorkItemListProps {
@@ -116,6 +127,8 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
   const [refreshToken, setRefreshToken] = useState(0)
   const [filter, setFilter] = useState<WorkItemFilter>('all')
   const [openError, setOpenError] = useState<string | null>(null)
+  const [sseNotice, setSseNotice] = useState<string | null>(null)
+  const [sseToken, setSseToken] = useState(0)
   const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
@@ -135,6 +148,60 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
     return () => { active = false }
   }, [sessionId, refreshToken])
 
+  // The list subscribes to the same project event route as the viewer (one
+  // EventSource per surface), so comment counts, status chips, and delivery
+  // summaries change without reopening the tab. A burst of events (one comment
+  // appends two) is coalesced into one read; the current rows stay visible
+  // while that read is in flight.
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') return
+    let closed = false
+    let failures = 0
+    let timer: number | null = null
+    let source: EventSource | null = null
+    const scheduleRefresh = (): void => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        timer = null
+        setRefreshToken(token => token + 1)
+      }, LIST_REFRESH_DEBOUNCE_MS)
+    }
+    const connect = (): void => {
+      source = new EventSource(`${ARTIFACT_EVENTS_PATH}?sessionId=${encodeURIComponent(sessionId)}`)
+      source.onopen = () => {
+        if (closed) return
+        failures = 0
+        setSseNotice(null)
+      }
+      const onFrame = (): void => {
+        if (closed) return
+        scheduleRefresh()
+      }
+      for (const type of ARTIFACT_EVENT_TYPES) {
+        source.addEventListener(type, onFrame)
+      }
+      source.onerror = () => {
+        if (closed) return
+        failures += 1
+        if (failures >= SSE_MAX_FAILURES) {
+          source?.close()
+          setSseNotice('实时更新中断，点击重试')
+        }
+      }
+    }
+    connect()
+    return () => {
+      closed = true
+      if (timer !== null) window.clearTimeout(timer)
+      source?.close()
+    }
+  }, [sessionId, sseToken])
+
+  const retryLive = useCallback(() => {
+    setSseNotice(null)
+    setSseToken(token => token + 1)
+  }, [])
+
   const open = useCallback((item: ArtifactSummaryV1) => {
     const layout = services.layout
     if (layout === undefined || typeof layout.selectPanel !== 'function') {
@@ -148,9 +215,21 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
 
   const retry = useCallback(() => { setRefreshToken(token => token + 1) }, [])
 
+  // The stream can stop while the rail is loading, empty, or failed; the retry
+  // must stay reachable in every one of those states, not only with rows.
+  const liveNotice = sseNotice === null ? null : (
+    <div className="cwi-receipt" data-testid="cwi-list-sse">
+      {sseNotice}{' '}
+      <button type="button" className="cwi-secondary" data-testid="cwi-list-sse-retry" onClick={retryLive}>
+        重试
+      </button>
+    </div>
+  )
+
   if (phase === 'loading') {
     return (
       <div className="cwi-list" data-testid="cwi-list" data-phase="loading" aria-busy="true">
+        {liveNotice}
         {[0, 1, 2].map((index) => (
           <div key={index} className="cwi-skeleton-card" data-testid="cwi-skeleton">
             <div className="cwi-skeleton cwi-skeleton-title" />
@@ -163,6 +242,7 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
   if (data === null) {
     return (
       <div className="cwi-list" data-testid="cwi-list" data-phase="error">
+        {liveNotice}
         <div className="cwi-error" data-testid="cwi-list-error">
           无法加载工作项：{messageOf(error)}
           <div><button type="button" className="cwi-secondary" onClick={retry}>重试</button></div>
@@ -173,6 +253,7 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
   if (data.items.length === 0) {
     return (
       <div className="cwi-list" data-testid="cwi-list" data-phase="empty">
+        {liveNotice}
         <div className="cwi-empty" data-testid="cwi-list-empty">
           还没有工作项。让主题会话用 cowork_artifact_create 登记项目里的交付物后，
           它们会出现在这里。
@@ -201,6 +282,7 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
         ))}
       </div>
       {openError === null ? null : <div className="cwi-error" role="alert">{openError}</div>}
+      {liveNotice}
       {phase === 'error' ? (
         <div className="cwi-error" role="alert" data-testid="cwi-list-error">
           刷新失败：{messageOf(error)}
