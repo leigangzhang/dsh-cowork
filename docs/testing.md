@@ -14,10 +14,18 @@ One home for how dsh-cowork decides that something is verified.
 | Versioned E2E | `npm run test:e2e` | Keyless real-host sessions, tools, stores, and panel routes from the manifest; a local scripted endpoint replaces the provider. `npm run test:e2e:live` is the observational real-model lane | `tests/e2e/**`, `scripts/evidence/e2e.mjs`, `tools/e2e-coverage.mjs`, and every version change (the committed evidence is checked) |
 | PR gate | GitHub Actions `pr-gate` | Documentation conventions on every PR; the source coverage lane additionally runs for non-docs changes | Every PR to `main` |
 | Pre-merge | GitHub Actions `pre-merge` | A temporary merge of the current `main` and PR head passes the path-selected tests | Every PR before merge; rerun after `main` advances |
-| Local build gate | Heavy lane | `npm run typecheck`, `npm run build`, host smoke, browser, keyless E2E, and the observational host-bash check where the DSH source/app or Chromium exists | Every affected source/client change until the local heavy runner is stable enough to be required |
+| Local build gate | Heavy lane | `typecheck`, `build`, host smoke, browser, keyless E2E, and observational host-bash where DSH or Chromium exists | Every affected source/client change; publish head-bound observe results for one green cycle before gate integration |
 | Derived gate | GitHub Actions `gate-artifact` status (required) | Review, `pr-gate`, current-main identity; `gate-artifact-v2` is display-only | Report mode uses legacy; block uses v2 + pre-merge. |
 
 A same-process value is not evidence for a cross-process claim: session waking, workspace attach, and worktree merge need a real DSH run; host smoke proves loading, not transactions.
+
+## Coverage contract
+
+Coverage discovery is mechanical: contract, gap report, heavy gate, review. `npm run check` requires every non-blocked browser-owned TSX to have a reviewed floor in [tools/coverage-browser-floors.json](../tools/coverage-browser-floors.json), and every live public surface to have a keyless E2E scenario or reviewed debt entry.
+
+`npm run coverage:gaps -- --base <verified-base>` reuses reports whose gate-artifact identity matches HEAD/base/diff/porcelain, otherwise runs the layered lane, then prints changed-file uncovered lines and changed public keys absent from scenario `covers` in [the E2E manifest](../tests/e2e/manifest.json). It writes only gitignored coverage data.
+
+A new interactive surface names its browser scenario in the owning test or review evidence. Review judges assertion meaning, negative controls, mocks, and unrun lanes, not coverage discovery. Docs-only changes skip heavy; other changes need a head-bound `heavy-gate` after one green observe cycle.
 
 ## Commands
 
@@ -28,6 +36,7 @@ npm test                   # node:test contract and behavior tests
 npm run test:coverage      # deterministic per-file unit coverage gate
 npm run test:coverage:layered -- --base <ref>  # unit + browser lanes, one artifact identity
 npm run coverage:check     # re-check existing reports without running tests
+npm run coverage:gaps -- --base <ref>  # changed uncovered lines + missing covers
 npm run test:e2e           # pack current lib/, boot a temporary host, run the keyless E2E scenarios
 npm run test:browser       # pack current lib/, boot a temporary host, drive Chromium
 npm run test:host-smoke    # pack current lib/ and boot a temporary DSH profile
@@ -38,17 +47,17 @@ npm run check:clean        # run the executable conventions in a copy without .d
 npm run gate-artifact -- --base <verified-base>  # record HEAD, binary diff SHA-256, porcelain, and scope groups
 ```
 
-`npm test` runs `tests/**/*.test.mjs`; the glob is quoted so Node expands it recursively. `test:coverage` uses the same recursive discovery from [scripts/evidence/test-coverage.mjs](../scripts/evidence/test-coverage.mjs), so a test moved into a subdirectory cannot be silently skipped on either lane.
+`npm test` and `test:coverage` share recursive `tests/**/*.test.mjs` discovery from [test-coverage.mjs](../scripts/evidence/test-coverage.mjs), so a moved test cannot be skipped on either lane.
 
-`test:coverage` runs every test file in its own process, writes one LCOV report per process, and merges the reports by union. The aggregate `node --test` report is not used: it intermittently dropped a test file. The gate is [coverage-check.mjs](../scripts/evidence/coverage-check.mjs) and its policy data is `tools/coverage-map.json` plus `tools/coverage-debt.json`.
+`test:coverage` runs every test file in its own process and merges the LCOV reports by union; the aggregate `node --test` report intermittently dropped a file. The gate is [coverage-check.mjs](../scripts/evidence/coverage-check.mjs) with `tools/coverage-map.json` plus `tools/coverage-debt.json`.
 
-Every `src/**/*.ts` and `src/client/**/*.tsx` is owned by exactly one lane: `unit`, `browser`, or `dev`. Ownership is exclusive. No source file currently uses the `dev` lane; the owner map and checker still support it for an opt-in surface. `src/client/notice.tsx` is a blocked browser entry until the host exposes `ctx.sessionNotices` (KI-40). A file with only type declarations is allowed to be absent from the coverage report; a file with runtime statements that no test loads fails.
+Each source file has exactly one owner: `unit`, `browser`, or `dev`; no file uses `dev` now. `notice.tsx` stays blocked until `ctx.sessionNotices` exists (KI-40). Type-only files need no report; a runtime file no test loads fails.
 
-Line coverage is per file: every owner-mapped unit module must be at 100%. `tools/coverage-debt.json` is the reviewed exception list for an intentional gap; it is empty, and an entry that grows or goes stale is red. `--update-debt` is its only writer; it refuses newly uncovered lines unless `--accept-regression` is explicit. `coverage:check` rejects a report whose recorded HEAD or porcelain no longer matches. Reports live in gitignored `coverage/`.
+Every owner-mapped unit module must be at 100% line coverage. `tools/coverage-debt.json` is the reviewed exception list and is empty; `--update-debt` refuses new uncovered lines unless `--accept-regression` is explicit, and a stale report is red.
 
-The unit loader strips TypeScript in line-preserving mode; every `src` TypeScript file must be strip-compatible, because Node's transform-mode source-map remapping is not precise enough for a per-line gate. A transform fallback exists for future syntax but turns the coverage guard red. The mapping fixture in [tests/guards/coverage-policy.test.mjs](../tests/guards/coverage-policy.test.mjs) pins an executed line and an unexecuted line through the real loader and proves the transform fallback misattributes the latter.
+The unit loader strips TypeScript in line-preserving mode; every `src` TypeScript file must remain strip-compatible because transform-mode source-map attribution is not line-exact. [coverage-policy.test.mjs](../tests/guards/coverage-policy.test.mjs) pins that difference.
 
-`test:coverage:layered` rebuilds `lib/`, runs both lanes under one `gate-artifact` identity, and refuses a missing lane, mismatched identity, incomplete browser surface, or browser LCOV without an owned file. `tools/coverage-browser-floors.json` must cover every non-blocked browser-owned file and fails a file below its floor; missing, partial, or malformed is red. Coverage is collected in two phases around the reload, and an undeclared navigation is red. Standalone `npm run test:browser` is diagnostic; release evidence runs from a clean commit.
+`test:coverage:layered` rebuilds `lib/`, binds both lanes to one `gate-artifact`, and rejects missing lanes, a mismatched identity, incomplete browser surfaces, floor violations, and undeclared navigation. Standalone `npm run test:browser` is diagnostic; release evidence runs from a clean commit.
 
 `lib/` is local build output and is gitignored. After changing `src/`, run `npm run build` before packaging, `test:browser`, or `test:host-smoke`; both consumers read the current local `lib/`. A stale local `lib/` is not detected by a source hash, so the build step is part of the evidence.
 
