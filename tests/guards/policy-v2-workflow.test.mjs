@@ -7,12 +7,14 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
 
-test('derived gate recalculates from PR, review, CI/pre-merge, and heavy events', () => {
+test('derived gate recalculates from PR, review, and CI/pre-merge events', () => {
   const workflow = read('.github/workflows/gate-artifact-v2.yml')
   assert.match(workflow, /^name: Policy V2$/m)
   assert.match(workflow, /^  pull_request_target:/m)
   assert.match(workflow, /^  pull_request_review:/m)
-  assert.match(workflow, /^  workflow_run:\n    workflows: \[CI, Pre-Merge, Heavy\]\n    types: \[completed\]$/m)
+  assert.match(workflow, /^  workflow_run:\n    workflows: \[CI, Pre-Merge\]\n    types: \[completed\]$/m)
+  assert.match(workflow, /^  workflow_dispatch:\n    inputs:\n      pr_number:$/m)
+  assert.match(workflow, /INPUT_PR_NUMBER: \$\{\{ github\.event\.inputs\.pr_number \}\}/)
   assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read\n  checks: write\n  statuses: write$/m)
   assert.match(workflow, /^  policy-gate:\n    name: policy-gate$/m)
   assert.match(workflow, /ref: main/)

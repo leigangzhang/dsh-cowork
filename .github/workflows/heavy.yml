@@ -11,10 +11,6 @@ on:
         description: Local checkout path on the heavy runner
         required: false
         default: /Users/ray/Workspace/dsh-cowork
-      trusted_ref:
-        description: Optional trusted ref/SHA for publisher bootstrap; empty uses origin/main
-        required: false
-        default: ''
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -103,19 +99,12 @@ jobs:
       - name: Prepare trusted source
         env:
           LOCAL_REPO: ${{ inputs.repo_path || '/Users/ray/Workspace/dsh-cowork' }}
-          TRUSTED_INPUT: ${{ inputs.trusted_ref }}
         run: |
           TRUSTED_ROOT="$RUNNER_TEMP/heavy-trusted"
           rm -rf "$TRUSTED_ROOT"
           mkdir -p "$TRUSTED_ROOT"
-          if [ -n "$TRUSTED_INPUT" ]; then
-            # Manual bootstrap only: the operator explicitly chooses the source
-            # before the publisher exists on the default branch.
-            trusted_sha="$(git -C "$LOCAL_REPO" rev-parse "${TRUSTED_INPUT}^{commit}" 2>/dev/null || \
-              git -C "$LOCAL_REPO" rev-parse "refs/remotes/origin/${TRUSTED_INPUT}^{commit}")"
-          else
-            trusted_sha="$(git -C "$LOCAL_REPO" rev-parse refs/remotes/origin/main)"
-          fi
+          trusted_sha="$(git -C "$LOCAL_REPO" rev-parse refs/remotes/origin/main)"
+          echo "trusted_sha=$trusted_sha"
           git -C "$LOCAL_REPO" archive --format=tar "$trusted_sha" | tar -x -C "$TRUSTED_ROOT"
           test -f "$TRUSTED_ROOT/scripts/ci/publish-heavy.mjs" || {
             echo "::error::trusted publisher source is missing"

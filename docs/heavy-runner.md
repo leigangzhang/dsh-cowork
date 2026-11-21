@@ -31,7 +31,7 @@ gh workflow run heavy.yml \
 
 `--ref` 决定手动运行的 `HEAD_SHA`。workflow 先从 `repo_path` 对应的 checkout fetch `refs/heads/*` 到 `refs/remotes/origin/*`，并记录 `refs/remotes/origin/main` 的 SHA；不传 `base` 时用这个 SHA 与 `HEAD_SHA` 的 merge-base，显式传 `-f base=<branch-or-sha>` 时在同一个 checkout 中解析成固定 SHA。`repo_path` 必须指向包含 `.git`、且 `origin` 指向仓库的本地 checkout；workflow 再从本地 clone 目标 head，不下载任何 action。这样自动触发的同仓库 PR head 不要求事先手工更新本地 checkout，base 也不会取到本地未刷新的 `main` 分支。
 
-publisher、pre-run 身份记录和 classifier 默认从 `refs/remotes/origin/main` 导出。首次合入前 `main` 还没有这些脚本；手动验证时可以用 `-f trusted_ref=<branch-or-sha>` 显式选择一个已审阅的 ref，这只影响 `workflow_dispatch`。自动触发没有该输入，始终使用默认分支。
+publisher、pre-run 身份记录和 classifier 从 `refs/remotes/origin/main` 导出；workflow 会把实际使用的 `trusted_sha` 写进运行日志。没有从 PR checkout 选择可信脚本的入口。
 
 查看最近一次运行：
 
@@ -57,6 +57,12 @@ gh api "repos/leigangzhang/dsh-cowork/commits/$HEAD_SHA/check-runs" \
 
 `heavy-result.json` 在 runner workspace 中生成、被 `.gitignore` 忽略；workflow 的 `Show coverage evidence` 步骤会把内容打印到日志。不要提交这个文件，也不要把它当 release evidence。
 
+## PR 摘要评论
+
+`Heavy Comment` workflow 在 `Heavy` 完成后触发，从受信任的 `main` checkout 运行 `scripts/ci/publish-heavy-comment.mjs`，持有 `pull-requests: write` 和 `actions: write`，不执行 PR 代码。它按 head 解析唯一的 open PR，读取 `heavy-gate` status 和 `heavy-gate-result`，用 `<!-- heavy-gate-summary -->` marker 创建或原地更新一条摘要评论，内容包含 head、base、current main、diff SHA-256、worktree 状态、命令退出码、失败原因和 run 链接。
+
+无 open PR 或 docs-only 成功但没有 heavy 结果时跳过；heavy 失败也发摘要。评论只用于审计和排查，不参与 `gate-artifact` 决策。发布后 workflow 用 `workflow_dispatch` 把 PR 号传给 `Policy V2`，由唯一 gate publisher 重算 required status；这个 gate 请求即使评论步骤失败也会尝试执行。
+
 ## gate 如何消费结果
 
 `publish-gate.mjs` 读取 head 上最新的 `heavy-gate` status 和 `heavy-gate-result` 的 JSON summary，并验证：
@@ -67,7 +73,7 @@ gh api "repos/leigangzhang/dsh-cowork/commits/$HEAD_SHA/check-runs" \
 - base 同时是 head 和 current main 的祖先；
 - 用 base..head 重新计算的 diff SHA-256 与 summary 一致。
 
-docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 docs-only 时 heavy workflow 只做 refresh、checkout、base、classify，不安装依赖、不跑测试、不发布 heavy 结果。任何一项不满足，`gate-artifact` 都会 blocked 并给出具名原因。`Heavy` workflow 完成后也会触发派生 gate 重算，避免 CI 先跑、heavy 后跑造成永久 pending。
+docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 docs-only 时 heavy workflow 只做 refresh、checkout、base、classify，不安装依赖、不跑测试、不发布 heavy 结果。任何一项不满足，`gate-artifact` 都会 blocked 并给出具名原因。`Heavy Comment` 在 Heavy 完成后用 `workflow_dispatch` 触发 `Policy V2`，由唯一 gate publisher 重算 required status；`Policy V2` 不再直接监听 `Heavy`。
 
 ## 判定绿色周期
 
@@ -83,8 +89,8 @@ docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 d
 
 因为 `heavy-gate` 不在 ruleset 中，回滚不需要改规则：
 
-1. 回退 `.github/workflows/heavy.yml`、`.github/workflows/gate-artifact-v2.yml`、`scripts/ci/publish-gate.mjs`、`scripts/ci/publish-heavy.mjs` 或相关测试；
-2. 在同一 head 上重新运行 publisher 会原地覆盖 `heavy-gate` status；
+1. 回退 `.github/workflows/heavy.yml`、`.github/workflows/heavy-comment.yml`、`.github/workflows/gate-artifact-v2.yml`、`scripts/ci/publish-gate.mjs`、`scripts/ci/publish-heavy.mjs`、`scripts/ci/publish-heavy-comment.mjs` 或相关测试；
+2. 在同一 head 上重新运行 publisher 会原地覆盖 `heavy-gate` status；摘要评论按 marker 原地更新；
 3. 如果只需撤销某个错误状态，重新 dispatch 该 head，不要删除 ruleset。
 
 ## 常见错误
@@ -95,4 +101,5 @@ docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 d
 - **只看 commit status 不看 result check**：status 是粗粒度裁决，base/diff/porcelain 身份在 `heavy-gate-result` summary 中。
 - **工作区不干净**：runner 上的未跟踪文件会进入 `porcelain`，publisher 必须发布 failure。
 - **让 PR checkout 执行 publisher**：分支可以改写 `publish-heavy.mjs` 来伪造 success；publisher、pre-run 身份记录和 classifier 必须从可信 main 树的临时导出执行。
+- **把评论 workflow 当成 gate**：`heavy-comment` 只写审计评论，失败或延迟不影响 `gate-artifact`；也不要给执行 PR 代码的 job 加 `pull-requests: write`。
 - **在默认分支还没有新 workflow 时期待自动触发**：`workflow_run` 使用默认分支上的 workflow 文件；合并前只能手动 dispatch。
