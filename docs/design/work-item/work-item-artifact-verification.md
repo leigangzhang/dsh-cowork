@@ -6,7 +6,7 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 
 核对对象是[多类型文件嵌入研究](work-item-artifact-embedding-research.md)里的 V1–V16。方法分三类：
 
-- **源码核对**：DSH 源码 checkout（`~/Workspace/deepseek-harness`）和本仓库源码，确认 API、事件、工具名和限制条件。
+- **源码核对**：DSH 源码 checkout（`~/Workspace/deepseek-harness`，`dsh-v0.2.2-rc.2`）和本仓库源码，确认 API、事件、工具名和限制条件；本机运行宿主是 `0.2.1-rc.2`，行号以 checkout 为准。
 - **依赖核对**：在 `/tmp` 建独立目录安装候选包，用 esbuild 打包称重，跑最小的读写/渲染脚本；不修改本仓库依赖。
 - **浏览器核对**：用本机 headless Chromium 打开 Excalidraw 测试页，确认挂载、元素和字体资源。
 
@@ -73,9 +73,9 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 - 工具名和参数：
   - `write`：`packages/fs/tool-fs/src/write.ts:73`，参数 `file_path`、`content`，整篇覆盖。
   - `edit`：`packages/fs/tool-fs/src/edit.ts:85`，参数 `file_path`、`old_string`、`new_string`、`replace_all`。
-  - `str_replace_editor`：`packages/fs/tool-str-replace-editor/src/app/apply.ts:430`，命令 `create` / `str_replace` / `insert`。
-- `tools.guard` 类型和注册：`packages/core/tools/src/app/apply.ts:731`、`:1136`；执行上下文带 `name`、`arguments`、`agent`（`:326-352`、`:393-398`）。
-- 拒绝结果：`packages/core/tools/src/app/apply.ts:1519-1530`，返回 `Error: <reason>`，`isError: true`，模型能看到原因。
+  - `str_replace_editor`：`packages/fs/tool-str-replace-editor/src/index.ts:434` 注册，命令 `create` / `str_replace` / `insert`。
+- `tools.guard` 类型和注册：`packages/core/tools/src/index.ts:384-400`（`guard`/`checkGuards`）、`contracts.ts:410-420`（`ToolGuard`）；执行上下文带 `name`、`arguments`、`agent`（`contracts.ts:175-220`）。
+- 拒绝结果：`packages/core/tools/src/pipeline.ts:214-222`，返回 `Error: <reason>`，`isError: true`，模型能看到原因。
 - 工作项相关的主题会话确实有 `tool-fs` 和 `tool-bash`（`src/platform/presets.ts` 的 `topicRows`）；master 没有 `tool-fs`，reviewer 没有 `tool-fs`、只有 bash。
 - 缺口：topic 的 `tool-bash` 可以改文件，`tools.guard` 看不到 bash 内部的写入。第一版只能在提示词里要求用 `edit`/`write`，并在文件变化后做冲突/范围校验，不能完全阻止 bash 绕过。
 
@@ -83,7 +83,7 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 
 ### V5 编辑范围上报与三方合并
 
-- `fs.writeText` 支持 `{ kind: 'replaceIfVersion', version }`（`packages/fs/fs/src/types.ts:123-126`）；`fs.editText` 支持 `expected.version`（`:147-154`）。
+- `fs.writeText` 支持 `{ kind: 'replaceIfVersion', version }`（`packages/fs/fs/src/types.ts:123-126`）；`fs.editText` 支持 `expected.version`（`:147-156`）；服务方法在 `packages/fs/fs/src/index.ts:283,304`。
 - 编辑范围从 CodeMirror transaction 的 changes 取行区间是可行路径；当前仓库没有三方合并实现。
 - 本次只做源码核对，没有合并算法原型；重叠判定、误报和冲突 UI 需要在实现期验证。
 
@@ -128,17 +128,17 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 
 ### V10 SSE/EventSource
 
-- 连接层把 `Response.body` 逐块写给 HTTP 响应（`packages/client/connection/src/http-bridge.ts:103`）。
-- 浏览器认证是签名 cookie：`HttpOnly; SameSite=Strict; Path=/`（`packages/client/connection/src/browser-auth.ts:120-123`），`isAuthenticated` 校验 Host 绑定和过期（`:287-300`）。
-- 连接层 exact Fetch 路由会经过 Host/Origin 和浏览器认证（`packages/client/connection/src/rpc-host.ts:96-100`）。
+- 连接层把 `Response.body` 逐块写给 HTTP 响应（`packages/client/connection/src/http-bridge.ts:106-113`）。
+- 浏览器认证是签名 cookie：`HttpOnly; SameSite=Strict; Path=/`（`packages/client/connection/src/browser-auth.ts:138`），`isAuthenticated` 校验 Host 绑定和过期（`:356`）。
+- 连接层 exact Fetch 路由会经过 Host/Origin 和浏览器认证（`packages/client/connection/src/rpc-host.ts:166`）。
 - EventSource 同源请求会自动携带 cookie；真实宿主上的 SSE 认证、心跳、`Last-Event-ID` 续传还没跑。
 
 结论：传输层可行；实现期先做一个最小 SSE 路由，在真实 GUI 里验证认证和断线重连。
 
 ### V11 会话并发与恢复
 
-- `sessionController.prompt` 的 `mode: 'queue'` 走 `agent.followup`，`steer` 走 `agent.steer`（`packages/api/session-controller/src/commands.ts:364-366`）。
-- 每个 Agent 有独立 inbox；待处理输入从持久化 inbox 重建（`packages/core/agent/src/types.ts:42-65`）。
+- `sessionController.prompt` 的 `mode: 'queue'` 走 `agent.followup`，`steer` 走 `agent.steer`（`packages/api/session-controller/src/commands.ts:321-374`）。
+- 每个 Agent 有独立 inbox；待处理输入从持久化 inbox 重建（`packages/core/agent/src/types.ts:43-65`）。
 - 同一会话按 inbox 队列串行；不同会话是不同 Agent，没有共享队列。
 - 本次没有启动真实宿主做“两个会话同时投递”的 E2E；模型提供方限流、宿主重启后的投递恢复也还没有实测。
 
@@ -155,7 +155,7 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 | Pele（六类图） | 301 KB | 114 KB |
 | read/write-excel-file | 123 KB | 34 KB |
 | docx + mammoth | 906 KB | 275 KB |
-| 现有客户端 | 96 KB | 约 30 KB |
+| 现有客户端（当前 build，esbuild min） | 89 KB | 22 KB |
 | **核心合计（不含 Excalidraw）** | **约 2.4 MB** | **约 0.78 MB** |
 | Excalidraw JS（全部 chunk） | 8.19 MB | 2.55 MB |
 | Excalidraw CSS | 141 KB | 23 KB |
@@ -177,14 +177,14 @@ Status: verification（2026-11-10；开发前核实，结论见文末门禁）
 
 ### V14 PDF 页内批注
 
-- 宿主文档预览已经用 `pdfjs-dist` 的 `TextLayerBuilder` 和 `PageViewport` 渲染文本层（`packages/client/ui-sidebar-documentpreview/src/client/pdf/text.ts:2-30`），页内坐标和选区是现成能力。
+- 宿主文档预览已经用 `pdfjs-dist` 的 `TextLayerBuilder` 和 `PageViewport` 渲染文本层（`packages/client/ui-sidebar-documentpreview/src/client/pdf/text.ts:4-35`），页内坐标和选区是现成能力。
 - 叠加批注可用 `pdf-lib` 画矩形/文本；本版本不做，作为后续项。
 - 结论：技术可行，但不是第一版交付；PDF 第一版保持“查看 + 整体/按页评论”。
 
 ### V15 模型回复工具与多模态
 
-- 会话 prompt 支持 `image` content part（`packages/api/session-controller/src/types.ts:89-97`），带图片时校验模型输入能力（`src/commands.ts:336-348`）。
-- 图片可以持久保存（`ctx.attachments.saveImages`，`packages/attachment/attachment/src/app/apply.ts:98`）。
+- 会话 prompt 支持 `image` content part（`packages/api/session-controller/src/types.ts:80-90`），带图片时校验模型输入能力（`packages/api/session-controller/src/commands.ts:344-357`）。
+- 图片可以持久保存（`ctx.attachments.saveImages`，`packages/attachment/attachment/src/index.ts:116`）。
 - 回复工具本身还没实现；“模型是否稳定调用回复工具、是否按批注编号回复”必须等实现后用真实模型跑 E2E；这次不能验证。
 - 结论：输入侧和存储侧有依据；模型行为是剩余风险。
 

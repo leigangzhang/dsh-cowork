@@ -27,6 +27,7 @@ const root = resolve(here, '../..')
 /** Wire contracts the browser bundle and every layer may import. */
 const CONTRACT_MODULES = new Set([
   'src/panel/api-contract.ts',
+  'src/panel/artifact-contract.ts',
   'src/panel/inbox-contract.ts',
   'src/panel/notice-contract.ts',
 ])

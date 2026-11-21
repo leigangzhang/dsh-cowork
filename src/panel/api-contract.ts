@@ -2,9 +2,9 @@
  * Wire contract for the Cowork panel API v2 (`/api/cowork.*`).
  *
  * The host serves these shapes and the browser bundle consumes them, so this
- * module stays browser-safe: no node builtins, and its only import is the pure
- * inbox vocabulary (`src/panel/inbox-contract.ts`), which owns the inbox error codes
- * and their HTTP statuses. The status unions are restated here as the wire
+ * module stays browser-safe: no node builtins, and its only imports are the pure
+ * inbox and artifact vocabularies (`inbox-contract.ts`, `artifact-contract.ts`),
+ * which own their error codes and HTTP statuses. The status unions are restated here as the wire
  * schema; `tests/panel/api-contract.test.mjs` pins them to the canonical lists in
  * `src/store/schema.ts`, and the host maps index records into these shapes.
  *
@@ -12,6 +12,8 @@
  * whole responses and a hand-edited index must not be able to ship the browser
  * an unbounded payload.
  */
+import { ARTIFACT_ERROR_STATUS } from './artifact-contract.js'
+import type { ArtifactErrorCode } from './artifact-contract.js'
 import { INBOX_ERROR_STATUS } from './inbox-contract.js'
 import type { InboxErrorCode } from './inbox-contract.js'
 
@@ -342,6 +344,7 @@ export type PanelErrorCode =
   | 'project/not-initialized'
   | 'store/corrupt'
   | InboxErrorCode
+  | ArtifactErrorCode
   | 'internal'
 
 /**
@@ -374,6 +377,7 @@ export const PANEL_ERROR_STATUS: Readonly<Record<PanelErrorCode, number>> = {
   'project/not-initialized': 404,
   'store/corrupt': 500,
   ...INBOX_ERROR_STATUS,
+  ...ARTIFACT_ERROR_STATUS,
   internal: 500,
 }
 

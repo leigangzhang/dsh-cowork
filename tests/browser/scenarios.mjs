@@ -1,6 +1,8 @@
 /** User-outcome scenarios for the real DSH browser panel lane. */
 import assert from 'node:assert/strict'
-import { BROWSER_REQUESTS, BROWSER_TOPICS } from './fixtures.mjs'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { BROWSER_ARTIFACT, BROWSER_REQUESTS, BROWSER_SPEC, BROWSER_SPEC_PATH, BROWSER_TOPICS } from './fixtures.mjs'
 
 const PATH_RESOLVE = '/api/cowork.topic.resolve'
 const PATH_REOPEN = '/api/cowork.topic.reopen'
@@ -8,6 +10,9 @@ const PATH_INBOX = '/api/cowork.inbox'
 const PATH_INBOX_RESOLVE = '/api/cowork.inbox.resolve'
 const PATH_INBOX_OPEN = '/api/cowork.inbox.open'
 const PATH_OVERVIEW = '/api/cowork.overview'
+
+/** Thread id created by the chain scenario; resolved cards hide their body. */
+let chainThreadId = null
 
 /** Wait for one POST response by pathname. */
 function waitForPost(page, path) {
@@ -416,6 +421,14 @@ async function scenarioSessionSwitch(page, fixtures) {
   const primaryFilter = page.locator(`.cw-card[data-topic-id="${BROWSER_TOPICS.running}"] [data-testid="cw-topic-filter"]`)
   if ((await primaryFilter.getAttribute('aria-pressed')) !== 'true') await primaryFilter.click()
 
+  // Open the work-item viewer; selecting another session must close it. The
+  // viewer owns the main area and closes the panel, so do panel work first.
+  await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+  const workCard = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await workCard.waitFor({ timeout: 15_000 })
+  await workCard.click()
+  await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+
   await page.locator(`[data-row-key="workspace:${fixtures.secondaryWorkspaceId}"]`).hover()
   const createButton = page.locator('button[aria-label*="secondary-repo"][aria-label*="新建会话"]')
   await createButton.waitFor({ state: 'visible', timeout: 10_000 })
@@ -432,6 +445,9 @@ async function scenarioSessionSwitch(page, fixtures) {
   const selectedSessionId = (await created.json()).result.value.sessionId
   const secondary = await fixtures.prepareSecondarySession(selectedSessionId)
 
+  // The session switch released the old session's main view, so the viewer
+  // must have closed itself instead of showing an idle work-item panel.
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 15_000 })
   await ensurePanel(page)
   // The new session may have read the panel before the fixture landed. Force
   // one overview read after seeding and bind it to the selected session id.
@@ -462,6 +478,14 @@ async function scenarioSessionSwitch(page, fixtures) {
   // The card's topic is the session already selected, so opening it exercises
   // the real navigation path without leaving the app on a session that the
   // host does not know.
+  // A different project has its own index but no work items: the rail shows
+  // the empty surface, not the previous project's card.
+  await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+  await page.getByTestId('cwi-list-empty').waitFor({ timeout: 15_000 })
+  assert.equal(await page.getByTestId('cwi-card').count(), 0)
+  await page.locator('[data-testid="cw-tab"][data-tab="topics"]').click()
+  await waitForOverview(page)
+
   await ensureTopicList(page)
   await page.locator(`.cw-card[data-topic-id="${secondary.topic.topicId}"] .cw-card-open`).click()
   await page.locator('.cw-receipt[data-kind="ok"]').filter({ hasText: '已切换到主题' }).waitFor({ timeout: 10_000 })
@@ -550,6 +574,625 @@ async function scenarioNoteOpen(page) {
   await page.unroute(`**${PATH_INBOX_OPEN}`)
 }
 
+/** The two placeholder tabs render their names and return to the topic tab. */
+async function scenarioPanelTabs(page) {
+  await ensurePanel(page)
+  await page.locator('[data-testid="cw-tab"][data-tab="activity"]').click()
+  const placeholder = page.getByTestId('cw-tab-placeholder')
+  await placeholder.waitFor({ timeout: 10_000 })
+  assert.match(await placeholder.innerText(), /活动记录/)
+  await page.locator('[data-testid="cw-tab"][data-tab="memory"]').click()
+  assert.match(await page.getByTestId('cw-tab-placeholder').innerText(), /项目记忆/)
+  await page.locator('[data-testid="cw-tab"][data-tab="topics"]').click()
+  await waitForOverview(page)
+}
+
+/** Open the work-item tab and return the rail locator. */
+async function openWorkItemTab(page) {
+  await ensurePanel(page)
+  await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+  const list = page.getByTestId('cwi-list')
+  await list.waitFor({ timeout: 15_000 })
+  return list
+}
+
+/** Leave the work-item tab for the topic tab the next scenario expects. */
+async function backToTopicTab(page) {
+  await ensurePanel(page)
+  await page.locator('[data-testid="cw-tab"][data-tab="topics"]').click()
+  await waitForOverview(page)
+}
+
+/**
+ * The read-only work-item chain: rail → main viewer → line selection → anchored
+ * comment → thread resolve → reopen. The server persists every row, so the
+ * reopen also proves the list and detail do not live only in memory.
+ */
+async function scenarioWorkItemChain(page) {
+  // Delay the first list read so the rail's loading surface is observable
+  // rather than a sleep.
+  let delayed = false
+  await page.route('**/api/cowork.artifact.list*', async (route) => {
+    if (!delayed) {
+      delayed = true
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    await route.continue()
+  })
+  await ensurePanel(page)
+  await ensureTopicList(page)
+  await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+  const loading = page.getByTestId('cwi-list')
+  await loading.waitFor({ timeout: 10_000 })
+  assert.equal(await loading.getAttribute('data-phase'), 'loading')
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await page.unroute('**/api/cowork.artifact.list*')
+
+  // Filters keep the one seeded item visible and count it.
+  const allFilter = page.locator('[data-testid="cwi-filter"][data-filter="all"]')
+  assert.match(await allFilter.innerText(), /全部 1/)
+  await page.locator('[data-testid="cwi-filter"][data-filter="confirmed"]').click()
+  await page.getByTestId('cwi-list').getByText('这个筛选下没有工作项。').waitFor()
+  await allFilter.click()
+  await card.waitFor()
+
+  await card.click()
+  const viewer = page.getByTestId('cwi-viewer')
+  await viewer.waitFor({ timeout: 15_000 })
+  assert.equal(await page.getByTestId('cwi-title').innerText(), '浏览器交付物')
+  assert.match(await page.getByTestId('cwi-status').innerText(), /需反馈/)
+  const existing = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '已有的浏览器批注' })
+  await existing.waitFor({ timeout: 10_000 })
+  assert.equal(await existing.getAttribute('data-resolved'), 'false')
+
+  // A line and a shift-extended range become one anchored comment.
+  await page.locator('[data-testid="cwi-line"][data-line="4"]').click()
+  await page.locator('[data-testid="cwi-line"][data-line="5"]').click({ modifiers: ['Shift'] })
+  await page.getByTestId('cwi-annotate').click()
+  const composer = page.getByTestId('cwi-composer')
+  await composer.fill('浏览器 lane 的新批注')
+  await page.getByTestId('cwi-submit').click()
+  const created = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '浏览器 lane 的新批注' })
+  await created.waitFor({ timeout: 10_000 })
+  assert.equal(await created.getAttribute('data-resolved'), 'false')
+  chainThreadId = await created.getAttribute('data-thread-id')
+
+  // Resolve it: the server appends one resolve row and the card folds.
+  await created.getByTestId('cwi-thread-toggle').click()
+  const resolvedCard = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
+  await page.waitForFunction((threadId) => {
+    const thread = document.querySelector(`[data-testid="cwi-thread"][data-thread-id="${threadId}"]`)
+    return thread?.getAttribute('data-resolved') === 'true'
+  }, chainThreadId)
+
+  // Back to the conversation, then reopen: the server serves the same thread.
+  await page.getByTestId('cwi-back').click()
+  const list = await openWorkItemTab(page)
+  await list.waitFor()
+  await card.click()
+  const reopened = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
+  await reopened.waitFor({ timeout: 10_000 })
+  assert.equal(await reopened.getAttribute('data-resolved'), 'true')
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
+/**
+ * The text save path: edit, autosave, verify the file on disk, then merge a
+ * concurrent external change, resolve an overlapping conflict both ways, and
+ * prove an unsaved draft is not lost silently when leaving.
+ */
+async function scenarioWorkItemEdit(page, fixtures) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-edit').click()
+  const editor = page.getByTestId('cwi-editor')
+  await editor.waitFor({ timeout: 10_000 })
+  assert.match(await editor.inputValue(), /第一段：逐行批注。/)
+  const waitForEdit = () => page.waitForResponse((response) => {
+    try {
+      return new URL(response.url()).pathname === '/api/cowork.artifact.edit'
+        && response.request().method() === 'POST'
+    } catch {
+      return false
+    }
+  })
+
+  // 1) Direct save.
+  const firstSaved = `${BROWSER_SPEC}\n第四段：浏览器保存。\n`
+  const saveResponse = waitForEdit()
+  await editor.fill(firstSaved)
+  assert.equal((await saveResponse).status(), 200)
+  await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 10_000 })
+  assert.equal(await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8'), firstSaved)
+
+  // 2) A non-overlapping concurrent append must auto-merge with the user's
+  // edit to a different line.
+  const mergedDraft = firstSaved.replace('# 浏览器交付物', '# 浏览器交付物 (user)')
+  await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${firstSaved}模型合并行。\n`, 'utf8')
+  const mergeResponse = waitForEdit()
+  await editor.fill(mergedDraft)
+  assert.equal((await mergeResponse).status(), 200)
+  await page.getByText('已合并模型修改并保存').waitFor({ timeout: 10_000 })
+  const mergedSaved = await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8')
+  assert.match(mergedSaved, /\(user\)/)
+  assert.match(mergedSaved, /模型合并行。/)
+  await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 10_000 })
+
+  // 3) An overlapping external write becomes a real 409 and "load latest".
+  let injected = false
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    if (!injected) {
+      injected = true
+      await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${mergedSaved}模型并发行。\n`, 'utf8')
+    }
+    await route.continue()
+  })
+  const conflictResponse = waitForEdit()
+  await editor.fill(`${mergedSaved}第五段：我的草稿。\n`)
+  assert.equal((await conflictResponse).status(), 409)
+  await page.unroute('**/api/cowork.artifact.edit*')
+  await page.getByTestId('cwi-conflict').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-conflict-diff').click()
+  await page.getByTestId('cwi-conflict-latest').waitFor({ timeout: 10_000 })
+  assert.match(await page.getByTestId('cwi-conflict-latest').innerText(), /模型并发行。/)
+  await page.getByTestId('cwi-conflict-load').click()
+  await page.getByTestId('cwi-conflict').waitFor({ state: 'detached', timeout: 10_000 })
+  assert.match(await editor.inputValue(), /模型并发行。/)
+  await page.getByTestId('cwi-edit').click()
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+  assert.match(await page.getByTestId('cwi-lines').innerText(), /模型并发行。/)
+
+  // 4) A second conflict resolved with "keep mine" overwrites with the draft.
+  await page.getByTestId('cwi-edit').click()
+  const latest = await editor.inputValue()
+  let injectedAgain = false
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    if (!injectedAgain) {
+      injectedAgain = true
+      await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${latest}模型第二次并发行。\n`, 'utf8')
+    }
+    await route.continue()
+  })
+  const keepConflict = waitForEdit()
+  const keepDraft = `${latest}我的保留行。\n`
+  await editor.fill(keepDraft)
+  assert.equal((await keepConflict).status(), 409)
+  await page.unroute('**/api/cowork.artifact.edit*')
+  await page.getByTestId('cwi-conflict').waitFor({ timeout: 10_000 })
+  const keepResponse = waitForEdit()
+  await page.getByTestId('cwi-conflict-keep').click()
+  assert.equal((await keepResponse).status(), 200)
+  await page.getByTestId('cwi-conflict').waitFor({ state: 'detached', timeout: 10_000 })
+  const kept = await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8')
+  assert.match(kept, /我的保留行。/)
+
+  // 5) A failed save keeps the draft when editing is reopened, and leaving
+  // with that unsaved draft needs a second back click.
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'fixture edit boom' } }),
+    })
+  })
+  const failedDraft = `${kept}失败后仍需保留的草稿`
+  await editor.fill(failedDraft)
+  await page.getByText(/保存失败/).first().waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-edit').click()
+  await page.getByTestId('cwi-edit').click()
+  await editor.waitFor({ timeout: 10_000 })
+  assert.match(await editor.inputValue(), /失败后仍需保留的草稿/)
+  // Let the retained draft save so later scenarios open this work item read-only.
+  await page.unroute('**/api/cowork.artifact.edit*')
+  const recoveredSave = waitForEdit()
+  assert.equal((await recoveredSave).status(), 200)
+  await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
+/**
+ * Draft safety and viewer controls: a failed save survives a close/reopen,
+ * then the toolbar tabs, mode toggle, rail toggle, pins, and thread focus work.
+ */
+async function scenarioWorkItemDraft(page) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  let injectFailedDispatch = true
+  await page.route('**/api/cowork.artifact.detail*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    if (!injectFailedDispatch) {
+      await route.fulfill({ response })
+      return
+    }
+    body.dispatches = [...(body.dispatches ?? []), {
+      dispatchId: 'dispatch-browser-failed',
+      state: 'failed',
+      commentIds: [chainThreadId],
+      errorCode: 'artifact/dispatch-unavailable',
+      updatedAt: '2099-01-01T00:00:00.000Z',
+    }]
+    await route.fulfill({ status: response.status(), contentType: 'application/json', body: JSON.stringify(body) })
+  })
+  await page.route('**/api/cowork.artifact.dispatch.retry*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        dispatch: {
+          version: 1, dispatchId: 'dispatch-browser-retry', artifactId: BROWSER_ARTIFACT,
+          sessionId: 'session-browser-running', commentIds: [chainThreadId], state: 'queued',
+          attempts: 0, promptRequestId: 'prompt-browser-retry', errorCode: null,
+          createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:01.000Z',
+        },
+        record: {},
+      }),
+    })
+  })
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-edit').click()
+  const editor = page.getByTestId('cwi-editor')
+  await editor.waitFor({ timeout: 10_000 })
+
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'draft save boom' } }),
+    })
+  })
+  await editor.fill(`${await editor.inputValue()}未保存草稿恢复验证\n`)
+  await page.getByText(/保存失败/).first().waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-back').click()
+  await page.getByText('还有未保存内容').waitFor({ timeout: 5_000 })
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.edit*')
+
+  await openWorkItemTab(page)
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+  assert.match(await page.getByTestId('cwi-editor').inputValue(), /未保存草稿恢复验证/)
+  const saveResponse = page.waitForResponse((response) => {
+    try {
+      return new URL(response.url()).pathname === '/api/cowork.artifact.edit'
+        && response.request().method() === 'POST'
+    } catch {
+      return false
+    }
+  })
+  assert.equal((await saveResponse).status(), 200)
+  await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-edit').click()
+
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '版本' }).click()
+  await page.getByTestId('cwi-versions').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '附件' }).click()
+  await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '文档' }).click()
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+
+  const mode = page.getByTestId('cwi-mode')
+  const before = await mode.getAttribute('data-mode')
+  await mode.click()
+  assert.notEqual(await mode.getAttribute('data-mode'), before)
+
+  await page.getByTestId('cwi-rail-toggle').click()
+  assert.equal(await page.getByTestId('cwi-rail').isVisible(), false)
+  await page.getByTestId('cwi-rail-toggle').click()
+  await page.getByTestId('cwi-rail').waitFor({ timeout: 10_000 })
+
+  await page.getByTestId('cwi-line-pin').first().waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-thread-focus').first().click()
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+
+  // A failed batch exposes retry; the mocked route proves the request and the
+  // optimistic state path without enqueueing a real model turn.
+  await page.getByTestId('cwi-dispatch-retry').first().click()
+  await page.getByText('已重新投递').waitFor({ timeout: 10_000 })
+
+  // Confirmation carries both failure and success receipts; the real record is
+  // left unchanged so later scenarios still see the same status.
+  await page.route('**/api/cowork.artifact.status*', async (route) => {
+    await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'status boom' } }) })
+  })
+  await page.getByTestId('cwi-confirm').click()
+  await page.getByText(/确认失败/).waitFor({ timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.status*')
+  await page.route('**/api/cowork.artifact.status*', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, record: {} }) })
+  })
+  await page.getByTestId('cwi-confirm').click()
+  await page.getByText('已确认完成').waitFor({ timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.status*')
+  injectFailedDispatch = false
+  await page.unroute('**/api/cowork.artifact.detail*')
+  await page.unroute('**/api/cowork.artifact.dispatch.retry*')
+
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
+/** The attachment tab lists uploaded image/text metadata and download links. */
+async function scenarioWorkItemAttachments(page) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '附件' }).click()
+  await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
+  const rows = page.getByTestId('cwi-attachment-row')
+  assert.ok(await rows.count() >= 2, 'image and text attachments are listed')
+  assert.match(await page.getByTestId('cwi-attachments').innerText(), /shot\.png/)
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
+/**
+ * Interaction edges the happy paths cannot reach: a thread reply, a failed
+ * upload with its removable pending chip, a failed file read notice, a failed
+ * "load latest" after a real conflict, and the stream interruption notice.
+ */
+async function scenarioWorkItemEdges(page, fixtures) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+
+  // Three consecutive stream failures stop the viewer and offer a retry; the
+  // retry reconnects once the route no longer refuses the stream.
+  await page.route('**/api/cowork.artifact.events*', (route) => route.abort())
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  const sseNotice = page.getByTestId('cwi-sse-notice')
+  await sseNotice.waitFor({ timeout: 25_000 })
+  assert.match(await sseNotice.innerText(), /实时更新中断/)
+  await page.unroute('**/api/cowork.artifact.events*')
+  await page.getByTestId('cwi-sse-retry').click()
+  await sseNotice.waitFor({ state: 'detached', timeout: 10_000 })
+
+  // Reply inside a thread: cancel first, then commit a real reply.
+  const textThread = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '这张文本附件说明问题' }).first()
+  await textThread.waitFor({ timeout: 15_000 })
+  const replyTarget = page.getByTestId('cwi-reply-target')
+  await textThread.getByTestId('cwi-thread-reply').click()
+  await replyTarget.waitFor({ timeout: 10_000 })
+  assert.match(await replyTarget.innerText(), /回复/)
+  await replyTarget.getByRole('button', { name: '取消回复' }).click()
+  await replyTarget.waitFor({ state: 'detached', timeout: 10_000 })
+  await textThread.getByTestId('cwi-thread-reply').click()
+  await replyTarget.waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-composer').fill('浏览器线程回复')
+  await page.getByTestId('cwi-submit').click()
+  await replyTarget.waitFor({ state: 'detached', timeout: 10_000 })
+  await page.locator('[data-testid="cwi-thread"]').filter({ hasText: '浏览器线程回复' }).first().waitFor({ timeout: 15_000 })
+
+  // A refused upload surfaces its receipt and leaves no pending chip.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+  await page.route('**/api/cowork.artifact.upload*', (route) => route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'upload fixture boom' } }),
+  }))
+  await page.getByTestId('cwi-file-input').setInputFiles({ name: 'boom.png', mimeType: 'image/png', buffer: png })
+  await page.getByText(/附件上传失败/).first().waitFor({ timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.upload*')
+
+  // A successful pick can be removed again before it is submitted.
+  await page.getByTestId('cwi-file-input').setInputFiles({ name: 'remove-me.txt', mimeType: 'text/plain', buffer: Buffer.from('x') })
+  const pending = page.getByTestId('cwi-pending-attachments')
+  await pending.waitFor({ timeout: 15_000 })
+  await page.getByRole('button', { name: '移除附件 remove-me.txt' }).click()
+  await pending.waitFor({ state: 'detached', timeout: 10_000 })
+
+  // A text attachment renders as a named download link.
+  const link = textThread.getByTestId('cwi-attachment-link').first()
+  await link.waitFor({ timeout: 10_000 })
+  assert.equal(await link.getAttribute('download'), 'note.md')
+  assert.match(await link.getAttribute('href') ?? '', /\/api\/cowork\.artifact\.attachment\?/)
+
+  // A real overlapping save conflict, then a failed "load latest" keeps the
+  // conflict card and reports the failure instead of dropping the draft.
+  await page.getByTestId('cwi-edit').click()
+  const editor = page.getByTestId('cwi-editor')
+  await editor.waitFor({ timeout: 10_000 })
+  const current = await editor.inputValue()
+  let injected = false
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    if (!injected) {
+      injected = true
+      await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${current}外部冲突行。\n`, 'utf8')
+    }
+    await route.continue()
+  })
+  await editor.fill(`${current}我的冲突草稿。\n`)
+  await page.getByTestId('cwi-conflict').waitFor({ timeout: 15_000 })
+  await page.unroute('**/api/cowork.artifact.edit*')
+  await page.route('**/api/cowork.artifact.file*', (route) => route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'file fixture boom' } }),
+  }))
+  await page.getByTestId('cwi-conflict-load').click()
+  await page.getByText(/加载失败/).first().waitFor({ timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.file*')
+  await page.getByTestId('cwi-conflict-keep').click()
+  await page.getByTestId('cwi-conflict').waitFor({ state: 'detached', timeout: 15_000 })
+  await page.getByTestId('cwi-edit').click()
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+
+  // A failed file read still opens the viewer and names the missing file.
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await page.route('**/api/cowork.artifact.file*', (route) => route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'file fixture boom' } }),
+  }))
+  // Closing the viewer leaves the right panel on the topic tab; re-open the
+  // work-item rail before clicking the row again.
+  await openWorkItemTab(page)
+  await card.click()
+  await page.getByTestId('cwi-file-notice').waitFor({ timeout: 15_000 })
+  await page.unroute('**/api/cowork.artifact.file*')
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
+/**
+ * Live updates and attachments: a comment created from the page context appears
+ * through the project SSE stream without a reload, and an uploaded PNG renders
+ * as a thumbnail in its thread.
+ */
+async function scenarioWorkItemLive(page, fixtures) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+
+  // A model edit arrives through the file.changed SSE event; the read-only
+  // viewer must reload the content instead of keeping stale lines.
+  const refreshed = await page.evaluate(async ({ sessionId, artifactId, path }) => {
+    const query = `sessionId=${encodeURIComponent(sessionId)}&artifactId=${encodeURIComponent(artifactId)}&path=${encodeURIComponent(path)}`
+    const file = await (await fetch(`/api/cowork.artifact.file?${query}`)).json()
+    return (await fetch('/api/cowork.artifact.edit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        artifactId,
+        path,
+        baseRevision: file.revision,
+        baseVersion: file.fsVersion,
+        content: `${file.content}模型刷新行\n`,
+      }),
+    })).json()
+  }, { sessionId: fixtures.primarySessionId, artifactId: BROWSER_ARTIFACT, path: BROWSER_SPEC_PATH })
+  assert.equal(refreshed.ok, true)
+  await page.getByTestId('cwi-lines').filter({ hasText: '模型刷新行' }).waitFor({ timeout: 15_000 })
+
+  // Create the comment in the page's own origin, so EventSource and fetch share
+  // the browser cookie and the stream is the only reason the rail updates.
+  await page.evaluate(async ({ sessionId, artifactId }) => {
+    await fetch('/api/cowork.artifact.comment', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId, artifactId, body: '来自 SSE 的评论' }),
+    })
+  }, { sessionId: fixtures.primarySessionId, artifactId: BROWSER_ARTIFACT })
+  await page.locator('[data-testid="cwi-thread"]').filter({ hasText: '来自 SSE 的评论' })
+    .waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-activity').waitFor({ timeout: 10_000 })
+
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  await page.getByTestId('cwi-file-input').setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: png })
+  await page.getByTestId('cwi-pending-attachments').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-composer').fill('这张截图说明问题')
+  await page.getByTestId('cwi-submit').click()
+  const attached = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '这张截图说明问题' })
+  await attached.waitFor({ timeout: 15_000 })
+  const thumb = attached.getByTestId('cwi-attachment-thumb')
+  await thumb.waitFor({ timeout: 15_000 })
+  assert.match(await thumb.getAttribute('src'), /\/api\/cowork\.artifact\.attachment\?/)
+
+  // A text attachment renders as a download link, not a thumbnail.
+  await page.getByTestId('cwi-file-input').setInputFiles({
+    name: 'note.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('# note\n'),
+  })
+  await page.getByTestId('cwi-pending-attachments').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-composer').fill('这张文本附件说明问题')
+  await page.getByTestId('cwi-submit').click()
+  const linked = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '这张文本附件说明问题' })
+  await linked.waitFor({ timeout: 15_000 })
+  const link = linked.getByTestId('cwi-attachment-link')
+  await link.waitFor({ timeout: 15_000 })
+  assert.match(await link.innerText(), /note\.md/)
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
+/** A failed detail read paints the viewer error; retry recovers to the record. */
+async function scenarioWorkItemError(page) {
+  // The rail reports a failed read and its retry recovers the list.
+  let listFailed = false
+  await page.route('**/api/cowork.artifact.list*', async (route) => {
+    if (listFailed) {
+      await route.continue()
+      return
+    }
+    listFailed = true
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'list fixture boom' } }),
+    })
+  })
+  await openWorkItemTab(page)
+  await page.getByTestId('cwi-list-error').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-list-error').getByRole('button', { name: '重试' }).click()
+  await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).waitFor({ timeout: 15_000 })
+  await page.unroute('**/api/cowork.artifact.list*')
+
+  let failed = false
+  await page.route('**/api/cowork.artifact.detail*', async (route) => {
+    if (failed) {
+      await route.continue()
+      return
+    }
+    failed = true
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'detail fixture boom' } }),
+    })
+  })
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.click()
+  await page.getByTestId('cwi-viewer-error').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-viewer').getByRole('button', { name: '重试' }).click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.unroute('**/api/cowork.artifact.detail*')
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
+/**
+ * After the single reload: the work item, its comment, and its resolved flag
+ * all come back from the host, not from browser memory.
+ */
+async function scenarioWorkItemRestore(page) {
+  const list = await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  // Read the rail before opening the viewer: selecting the main panel may
+  // unmount the session-scoped tab body.
+  assert.match(await list.innerText(), /浏览器交付物/)
+  await card.click()
+  const thread = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
+  await thread.waitFor({ timeout: 10_000 })
+  assert.equal(await thread.getAttribute('data-resolved'), 'true')
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
 /** A session with no Cowork project renders the empty surface, not an error. */
 async function scenarioEmptyProject(page, fixtures) {
   const row = page.locator(`[data-row-key="workspace:${fixtures.emptyWorkspaceId}"]`)
@@ -571,6 +1214,11 @@ async function scenarioEmptyProject(page, fixtures) {
   const notice = page.locator('.cw-notice[data-notice]').filter({ hasText: /这个仓库还没有 Cowork 项目|这个项目还没有主题/ })
   await notice.waitFor({ timeout: 20_000 })
   assert.equal(await page.locator('.cw-group').count(), 0)
+  // The work-item tab has no project to read: it reports the failure and a
+  // retry instead of showing an empty list that pretends there are no items.
+  await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+  await page.getByTestId('cwi-list-error').waitFor({ timeout: 15_000 })
+  await page.locator('[data-testid="cw-tab"][data-tab="topics"]').click()
 }
 
 /** The overview error surface retries into the normal four-group list. */
@@ -613,12 +1261,21 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioInboxError(page)
   await scenarioNoteOpen(page)
   await scenarioOverviewRetry(page)
+  await scenarioPanelTabs(page)
+  await scenarioWorkItemChain(page)
+  await scenarioWorkItemEdit(page, fixtures)
+  await scenarioWorkItemDraft(page)
+  await scenarioWorkItemLive(page, fixtures)
+  await scenarioWorkItemAttachments(page)
+  await scenarioWorkItemEdges(page, fixtures)
+  await scenarioWorkItemError(page)
   await scenarioFilterSetup(page)
 }
 
 /** The filtered-list persistence reload, then the other workspace sessions. */
 export async function runReloadScenarios(page, fixtures) {
   await scenarioFilterRestore(page)
+  await scenarioWorkItemRestore(page)
   await scenarioSessionSwitch(page, fixtures)
   await scenarioEmptyProject(page, fixtures)
 }

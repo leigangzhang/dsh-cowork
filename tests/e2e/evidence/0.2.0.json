@@ -2,16 +2,16 @@
   "formatVersion": 1,
   "pluginVersion": "0.2.0",
   "dshVersion": "0.2.1-rc.2",
-  "catalogSha256": "ab815eee3588ac04a1568d249c4a06bba516deb2b609497de7bb3eaab63d6309",
+  "catalogSha256": "99b9a08ec7b5adf4a11aba1d7e5cc4e1e710eef794a00af94fbf2acec320bbd2",
   "nodeVersion": "v22.22.1",
   "command": "npm run test:e2e -- --record",
-  "recordedAt": "2026-11-20T01:07:07.733Z",
+  "recordedAt": "2026-11-21T03:38:33.611Z",
   "result": "pass",
   "artifact": {
-    "head": "2b82e1e152b65a38f4a0ad730fd56426f9fc201e",
+    "head": "045e52935dae6ed6f1c7b1c3bae496bc3f86c3ce",
     "dirty": false,
     "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "tarballSha256": "82cebd0ae19056b40df4d4c837da4f446ce8f6a6372a4eb036f02a1bcfd1e68f"
+    "tarballSha256": "25ea17f7eea970ff383481d793c906523548ccedf681e3900aae6ebafd50c208"
   },
   "scenarios": [
     {
@@ -68,59 +68,59 @@
           "passed": true
         },
         {
-          "name": "session session-95c9503f-a… runs in the fixture",
+          "name": "session session-8837936a-9… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-95c9503f-a… is not running",
+          "name": "session session-8837936a-9… is not running",
           "passed": true
         },
         {
-          "name": "session session-75a61cd8-1… runs in the fixture",
+          "name": "session session-89f06d96-7… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-75a61cd8-1… is not running",
+          "name": "session session-89f06d96-7… is not running",
           "passed": true
         },
         {
-          "name": "session session-50d71ed0-f… runs in the fixture",
+          "name": "session session-b4acf66b-2… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-50d71ed0-f… is not running",
+          "name": "session session-b4acf66b-2… is not running",
           "passed": true
         },
         {
-          "name": "session session-80831e0e-4… runs in the fixture",
+          "name": "session session-926eb1aa-6… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-80831e0e-4… is not running",
+          "name": "session session-926eb1aa-6… is not running",
           "passed": true
         },
         {
-          "name": "topic session-75a61cd8-1… is a real session",
+          "name": "topic session-89f06d96-7… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-75a61cd8-1… mounted cowork-topic",
+          "name": "topic session-89f06d96-7… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-50d71ed0-f… is a real session",
+          "name": "topic session-b4acf66b-2… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-50d71ed0-f… mounted cowork-topic",
+          "name": "topic session-b4acf66b-2… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-80831e0e-4… is a real session",
+          "name": "topic session-926eb1aa-6… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-80831e0e-4… mounted cowork-topic",
+          "name": "topic session-926eb1aa-6… mounted cowork-topic",
           "passed": true
         },
         {
@@ -454,6 +454,164 @@
         },
         {
           "name": "the clone head is the second reviewed commit",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "artifact-chain",
+      "mode": "keyless",
+      "passed": true,
+      "checks": [
+        {
+          "name": "artifact_create returned an id",
+          "passed": true
+        },
+        {
+          "name": "the rail lists the new work item",
+          "passed": true
+        },
+        {
+          "name": "detail serves the record",
+          "passed": true
+        },
+        {
+          "name": "the file route serves the text",
+          "passed": true
+        },
+        {
+          "name": "first view moves the status to pending-confirm",
+          "passed": true
+        },
+        {
+          "name": "presence reports its TTL",
+          "passed": true
+        },
+        {
+          "name": "the SSE route answers text/event-stream",
+          "passed": true
+        },
+        {
+          "name": "the session accepts a model and effort selection",
+          "passed": true
+        },
+        {
+          "name": "the comment is queued for delivery",
+          "passed": true
+        },
+        {
+          "name": "the model reply closed the dispatch",
+          "passed": true
+        },
+        {
+          "name": "the dispatched reply inherits the session model",
+          "passed": true
+        },
+        {
+          "name": "the dispatched reply inherits the session reasoning effort",
+          "passed": true
+        },
+        {
+          "name": "the reply landed in the thread",
+          "passed": true
+        },
+        {
+          "name": "the comments tool sees the thread",
+          "passed": true
+        },
+        {
+          "name": "resolve toggles the thread",
+          "passed": true
+        },
+        {
+          "name": "the save appends a revision",
+          "passed": true
+        },
+        {
+          "name": "the save reached the file",
+          "passed": true
+        },
+        {
+          "name": "a non-overlapping stale save merges",
+          "passed": true
+        },
+        {
+          "name": "the merged file keeps both edits",
+          "passed": true
+        },
+        {
+          "name": "the replay serves persisted events",
+          "passed": true
+        },
+        {
+          "name": "upload returns an attachment ref",
+          "passed": true
+        },
+        {
+          "name": "the attachment is referenced by a comment",
+          "passed": true
+        },
+        {
+          "name": "the attachment route serves the bytes",
+          "passed": true
+        },
+        {
+          "name": "presence is again active for the guard",
+          "passed": true
+        },
+        {
+          "name": "the guard denied the overlapping model edit",
+          "passed": true
+        },
+        {
+          "name": "the denied edit left the file unchanged",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "artifact-recovery",
+      "mode": "keyless",
+      "passed": true,
+      "checks": [
+        {
+          "name": "the recovery project has an index",
+          "passed": true
+        },
+        {
+          "name": "the seeded work items list",
+          "passed": true
+        },
+        {
+          "name": "recovery turned the in-flight batch stale",
+          "passed": true
+        },
+        {
+          "name": "recovery rescheduled the queued batch to replied",
+          "passed": true
+        },
+        {
+          "name": "the rescheduled batch has a model reply",
+          "passed": true
+        },
+        {
+          "name": "the failed batch still has its comment",
+          "passed": true
+        },
+        {
+          "name": "the failed batch is accepted for retry",
+          "passed": true
+        },
+        {
+          "name": "the retried batch reached replied",
+          "passed": true
+        },
+        {
+          "name": "the stale batch prompted no new turn",
+          "passed": true
+        },
+        {
+          "name": "the queued batch prompted exactly once",
           "passed": true
         }
       ]

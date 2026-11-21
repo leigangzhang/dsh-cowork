@@ -100,6 +100,55 @@
         "tool:cowork_work_item_create",
         "work-item-status:active"
       ]
+    },
+    {
+      "id": "artifact-chain",
+      "mode": "keyless",
+      "summary": "A master session registers README.md as a work item; the panel routes list, read, annotate, save, report presence, upload and serve an attachment, and consume the live SSE stream; the dispatched annotation is replied to by the scripted model and the reply closes the batch.",
+      "covers": [
+        "tool:cowork_artifact_create",
+        "tool:cowork_artifact_comments",
+        "tool:cowork_artifact_reply",
+        "route:/api/cowork.artifact.list GET",
+        "route:/api/cowork.artifact.detail GET",
+        "route:/api/cowork.artifact.file GET",
+        "route:/api/cowork.artifact.comments GET",
+        "route:/api/cowork.artifact.comment POST",
+        "route:/api/cowork.artifact.comment.resolve POST",
+        "route:/api/cowork.artifact.status POST",
+        "route:/api/cowork.artifact.edit POST",
+        "route:/api/cowork.artifact.presence POST",
+        "route:/api/cowork.artifact.upload POST",
+        "route:/api/cowork.artifact.attachment GET",
+        "route:/api/cowork.artifact.events GET",
+        "preset:cowork-master"
+      ]
+    },
+    {
+      "id": "live-artifact-chain",
+      "mode": "live-model",
+      "summary": "The real provider registers a work item from the master and another from a routed topic, answers an annotation carrying a solid-red image (the colour word proves the image prompt), and honours cowork_artifact_reply for both dispatches so two sessions are in flight together. Requires DEEPSEEK_API_KEY and --mode live.",
+      "covers": [
+        "tool:cowork_artifact_create",
+        "tool:cowork_artifact_reply",
+        "route:/api/cowork.artifact.list GET",
+        "route:/api/cowork.artifact.detail GET",
+        "route:/api/cowork.artifact.comment POST",
+        "route:/api/cowork.artifact.comments GET",
+        "route:/api/cowork.artifact.upload POST"
+      ]
+    },
+    {
+      "id": "artifact-recovery",
+      "mode": "keyless",
+      "summary": "A project already holds a previous run's dispatch logs (one in-flight and one queued) before the work-item runtime exists; the first artifact read runs recovery, which marks the in-flight batch stale without a new prompt and reschedules the queued batch until the scripted model replies.",
+      "covers": [
+        "tool:cowork_artifact_reply",
+        "route:/api/cowork.artifact.list GET",
+        "route:/api/cowork.artifact.detail GET",
+        "route:/api/cowork.artifact.comments GET",
+        "route:/api/cowork.artifact.dispatch.retry POST"
+      ]
     }
   ]
 }

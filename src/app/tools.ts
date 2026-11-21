@@ -1,7 +1,7 @@
 /**
  * The cowork tool assembly (M10.4b): registration orchestration only.
  *
- * The twenty-two tools live in their domain modules:
+ * The twenty-three tools live in their domain modules:
  *
  * - `project-tools.ts` — project_init, project_status
  * - `route-tools.ts` — route
@@ -27,6 +27,7 @@
  * (KI-18); this assembly writes canonical v2 state only.
  */
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { registerArtifactTools } from '../tools/artifact.js'
 import { registerCheckoutTools, registerWorkItemTools } from '../tools/isolation.js'
 import { registerMemoryTools } from '../tools/memory.js'
 import { registerProjectTools } from '../tools/project.js'
@@ -52,7 +53,7 @@ interface ToolHost {
 }
 
 /**
- * Register the twenty-two cowork tools and return their disposers. The caller owns
+ * Register the twenty-three cowork tools and return their disposers. The caller owns
  * the effect scope; this function only composes the domain registrars, in the
  * documented order (the review tools before memory, merge last).
  */
@@ -76,6 +77,7 @@ export function registerCoworkTools(ctx: unknown, deps: CoworkToolDeps): Array<(
     }),
     ...registerMemoryTools(host, deps),
     ...registerCheckoutTools(host, deps),
+    ...registerArtifactTools(host, deps),
   ]
   return disposers
 }

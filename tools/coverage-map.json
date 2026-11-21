@@ -66,7 +66,55 @@
       "lane": "unit"
     },
     {
+      "path": "src/client/work-item/api.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/list.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/panel.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/store.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/styles.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/dev/panel-probe.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/artifact/anchor.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/artifact/errors.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/artifact/attachments.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/artifact/merge.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/artifact/paths.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/domains/artifact/state.ts",
       "lane": "unit"
     },
     {
@@ -154,6 +202,14 @@
       "lane": "unit"
     },
     {
+      "path": "src/panel/artifact-api.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/artifact-contract.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/panel/inbox-api.ts",
       "lane": "unit"
     },
@@ -167,6 +223,26 @@
     },
     {
       "path": "src/panel/probe-model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/artifact-dispatch.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/artifact-events.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/artifact-files.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/artifact-presence.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/artifact-runtime.ts",
       "lane": "unit"
     },
     {
@@ -214,6 +290,14 @@
       "lane": "unit"
     },
     {
+      "path": "src/store/artifact-schema.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/store/artifact-store.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/store/atomic-json.ts",
       "lane": "unit"
     },
@@ -239,6 +323,10 @@
     },
     {
       "path": "src/store/schema.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/tools/artifact.ts",
       "lane": "unit"
     },
     {

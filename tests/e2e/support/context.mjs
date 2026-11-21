@@ -10,6 +10,7 @@
 
 import { waitUntil } from './host-client.mjs'
 import { readActivity, readIndex, readInbox, readJsonDirectory, readText } from './fixture.mjs'
+import { createTurnLedger } from './turns.mjs'
 
 /** Parse a tool result's JSON payload; renders may wrap it in prose. */
 export function parseToolPayload(resultText) {
@@ -38,12 +39,22 @@ export function parseToolPayload(resultText) {
  */
 export function createScenarioContext({ scenarioId, fixture, client, model }) {
   const checks = []
+  const turns = createTurnLedger()
   const context = {
     scenarioId,
     fixture,
     client,
     model,
     checks,
+    turns,
+
+    /**
+     * Observe one real-model turn; a failed turn is recorded and its dependants
+     * are skipped, while independent turns keep running.
+     */
+    turn(name, options, operation) {
+      return turns.run(name, options, operation)
+    },
 
     /** Record one passing check; a false claim fails the scenario. */
     check(name, condition, detail = '') {

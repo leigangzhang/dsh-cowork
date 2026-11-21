@@ -1,6 +1,6 @@
 # Cowork 工作项后端：调研、架构与实现设计
 
-Status: draft（backend design，2026-11-10；仅设计，未实现）
+Status: implementing（backend design，2026-11-10；阶段 0–3 已落地 2026-11-19，阶段 4–5 未开始；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)）
 
 本方案把[工作项前端设计与开发方案](work-item-frontend.md)和[工作项查看器设计](work-item-artifact-viewer.md)落成后端实现设计。范围是 artifacts 记录、文件、批注、版本、保存冲突、模型投递、SSE 和工具；不含前端代码、编辑器依赖和旧 `workItems` 改造。决策和备选见[后端提案](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-backend.md)。
 
@@ -40,18 +40,20 @@ Status: draft（backend design，2026-11-10；仅设计，未实现）
 
 ## 宿主调研
 
+以下 DSH 行号按本地源码 checkout `~/Workspace/deepseek-harness`（`dsh-v0.2.2-rc.2`）；本机运行宿主是 `0.2.1-rc.2`，两版行号不同，实现期以运行宿主为准。
+
 | 能力 | 依据 | 结论 / 限制 |
 |---|---|---|
-| exact fetch 路由 | `src/panel/api.ts:935-1004`：`connection.fetch.register`；`serve()` 先做 `assertSameOrigin` | 新路由沿用同样注册、错误 envelope 和 Host/Origin 校验 |
-| SSE | DSH `packages/client/connection/src/http-bridge.ts:103` 逐块写 `Response.body`；`browser-auth.ts:120-123` 是 HttpOnly/SameSite=Strict cookie | 可走 `connection.fetch`；EventSource 同源带 cookie。真实宿主认证/心跳/续传仍待 E2E（V10） |
-| prompt 队列 | `packages/api/session-controller/src/commands.ts:364-366`：`queue` → `followup`；inbox 持久化（`packages/core/agent/src/types.ts:42-65`） | 同一主题会话天然串行；投递用 `mode:'queue'`，不打断当前回合 |
-| 会话事件 | DSH `packages/core/session/src/types.ts:281-361`：`turn/start`、`turn/end`、`tool/call`、`tool/result`、`assistant/message` | 投递状态机监听 `session/event`，不轮询 |
-| 文件版本 | `packages/fs/fs/src/types.ts:123-154`：`replaceIfVersion`、`expected.version`；`resolve/readText/writeText` | 文本保存可做乐观并发；写失败返回 stale version |
-| 工具守卫 | DSH `packages/core/tools/src/app/apply.ts:731,1136`；`src/platform/tool-model.ts:117-134` 的 `readCaller` 从 `exec.agent.session.header.cwd` 取 cwd | 同行锁可同步解析相对路径；`write/edit/str_replace_editor` 可拦，bash 不可拦 |
-| 图片/附件 | `packages/attachment/attachment/src/app/apply.ts:98`；prompt content 支持 `image`/`file`（`session-controller/src/types.ts:89-97`） | 用户图片可持久化；模型回复附件需工具参数校验 |
-| 在应用中打开 | `session-controller/src/app/apply.ts:319-382`：`canOpenWorkspacePath`/`openWorkspacePath`/`workspacePathApplications` | 宿主校验路径；浏览器不传任意路径 |
-| 存储写模式 | `src/store/project-store.ts:1-12`：`withFileLock` + `writeFileAtomic`，读无锁 | artifacts 用独立目录和独立锁，避免改 index v2 |
-| 旧 workItems | `src/domains/isolation/work-item.ts`、`src/store/schema.ts:118-152`：clone + 评审状态 | 新 artifacts 完全独立 |
+| exact fetch 路由 | `src/panel/api.ts:970-1029`：`registerCoworkApi` 用 `connection.fetch.register` 注册 10 条 exact route；`serve()`（945-960）先做 `assertSameOrigin` | 新路由沿用同样注册、错误 envelope 和 Host/Origin 校验；路由常量/类型在 `src/panel/api-contract.ts` 与 `inbox-contract.ts` |
+| SSE | DSH `packages/client/connection/src/http-bridge.ts:106-113` 逐块写 `Response.body`；`browser-auth.ts:138` 是 HttpOnly/SameSite=Strict cookie；HMR 的 `/plugins/events` 是现成先例（`packages/client/hmr/src/index.ts:158-171`） | 可走 `connection.fetch`；EventSource 同源带 cookie。真实宿主认证/心跳/续传仍待 E2E（V10） |
+| prompt 队列 | `packages/api/session-controller/src/commands.ts:321-374`：`queue` → `followup`；inbox 持久化（`packages/core/agent/src/types.ts:43-65`） | 同一主题会话天然串行；投递用 `mode:'queue'`，不打断当前回合 |
+| 会话事件 | DSH `packages/core/session/src/types.ts:287-383`：`turn/start`、`turn/end`、`tool/call`、`tool/result`、`assistant/message` | 投递状态机监听 `session/event`，不轮询 |
+| 文件版本 | `packages/fs/fs/src/types.ts:123-126`（`replaceIfVersion`）与 `:147-156`（`editText` 的 `expected.version`）；`fs` 服务提供 `resolve/readText/writeText/editText/watch`（`packages/fs/fs/src/index.ts:117-304`） | 文本保存可做乐观并发；写失败返回 stale version |
+| 工具守卫 | DSH `packages/core/tools/src/index.ts:384-400`（`guard`/`checkGuards`）、`contracts.ts:410-420`（`ToolGuard`）、`pipeline.ts:214-222`（拒绝为 `Error: <reason>`）；`src/platform/tool-model.ts:119-136` 的 `readCaller` 从 `exec.agent.session.header.cwd` 取 cwd | 同行锁可同步解析相对路径；`write/edit/str_replace_editor` 可拦，bash 不可拦 |
+| 图片/附件 | `packages/attachment/attachment/src/index.ts:116`（`saveImages`）；prompt content 支持 `image`/`file`（`packages/api/session-controller/src/types.ts:80-90`） | 用户图片可持久化；模型回复附件需工具参数校验 |
+| 在应用中打开 | `packages/api/session-controller/src/index.ts:353-403`：`canOpenWorkspacePath`/`openWorkspacePath`/`workspacePathApplications` | 宿主校验路径；浏览器不传任意路径 |
+| 存储写模式 | `src/store/project-store.ts:1-19` 与 `src/store/atomic-json.ts:68`：`withProjectLock`（`withFileLock`）+ `writeFileAtomic`，读无锁 | artifacts 用独立目录和独立锁，避免改 index v2 |
+| 旧 workItems | `src/domains/isolation/work-item.ts`、`src/store/schema.ts:174-185`（`WorkItemRecordV2`）与 `:201`（`ProjectIndexV2.workItems`）：clone + 评审状态 | 新 artifacts 完全独立 |
 
 **未核实（实现期 E2E 门禁）：**
 
@@ -69,33 +71,37 @@ Status: draft（backend design，2026-11-10；仅设计，未实现）
 ├─ 主区域 WorkItemPanel ──POST comment/edit/presence──┤
 └─ EventSource ──GET artifact.events (SSE)────────────┤
                                                        ▼
-src/artifact-api.ts（exact fetch、Host/Origin、错误 envelope）
-   ├─ src/artifact-store.ts（记录/评论/修订/事件日志）
-   ├─ src/artifact-files.ts（路径守卫、读取/Range、上传、保存）
-   ├─ src/artifact-presence.ts（编辑范围、TTL、守卫判定）
-   ├─ src/artifact-events.ts（事件 hub、SSE 回放）
-   └─ src/artifact-dispatch.ts（队列、合并、prompt、重试、恢复）
+src/panel/artifact-api.ts（exact fetch、Host/Origin、错误 envelope）
+   ├─ src/store/artifact-store.ts（记录/评论/修订/事件日志）
+   ├─ src/store/artifact-schema.ts（记录/评论/锚点/投递/事件校验）
+   ├─ src/platform/artifact-files.ts（ctx.fs 读写、Range、上传落盘、保存）
+   ├─ src/platform/artifact-presence.ts（编辑范围 registry、TTL、工具守卫适配）
+   ├─ src/platform/artifact-events.ts（事件 hub、SSE 回放）
+   ├─ src/domains/artifact/（三方合并、锚点重定位、范围重叠纯规则）
+   └─ src/platform/artifact-dispatch.ts（队列、合并、prompt、重试、恢复）
           ├─ sessionController.prompt / session/event
-          └─ src/artifact-tools.ts（create/comments/reply）
+          └─ src/tools/artifact.ts（create/comments/reply）
 ```
 
 ### 模块与文件
 
-拟新增（实现期）：
+拟新增（实现期，位置按当前 `src/` 分层；`tests/guards/architecture.test.mjs` 执行 import 方向）：
 
 | 文件 | 职责 |
 |---|---|
-| `src/artifact-contract.ts` | 路由常量、wire 类型、错误码、上限 |
-| `src/artifact-schema.ts` | 记录/评论/锚点/投递/事件校验与归一化 |
-| `src/artifact-store.ts` | `.dsh-cowork/artifacts/` 布局、锁、原子写、列表/详情/评论/修订 |
-| `src/artifact-files.ts` | 路径守卫、文本读取/Range、保存合并、上传落盘、类型检查 |
-| `src/artifact-events.ts` | 项目事件 hub，SSE 格式化、seq 回放、裁剪 |
-| `src/artifact-presence.ts` | 内存编辑范围、TTL、`tools.guard` 纯判定 |
-| `src/artifact-dispatch.ts` | 队列/合并/状态机/prompt/重试/重启恢复 |
-| `src/artifact-api.ts` | exact fetch handler 和端口 |
-| `src/artifact-tools.ts` | `cowork_artifact_create`、`cowork_artifact_comments`、`cowork_artifact_reply` |
+| `src/panel/artifact-contract.ts` | 路由常量、wire 类型、错误码、上限 |
+| `src/store/artifact-schema.ts` | 记录/评论/锚点/投递/事件校验与归一化 |
+| `src/store/artifact-store.ts` | `.dsh-cowork/artifacts/` 布局、锁、原子写、列表/详情/评论/修订 |
+| `src/platform/artifact-files.ts` | `ctx.fs` 读写/Range、上传落盘、类型检查；路径与合并规则由 `domains/artifact/` 提供 |
+| `src/platform/artifact-events.ts` | 项目事件 hub，SSE 格式化、seq 回放、裁剪 |
+| `src/platform/artifact-presence.ts` | 内存编辑范围、TTL、`tools.guard` 适配 |
+| `src/platform/artifact-dispatch.ts` | 队列/合并/状态机/prompt/重试/重启恢复 |
+| `src/domains/artifact/` | 三方合并、锚点重定位、范围重叠等纯规则 |
+| `src/panel/artifact-api.ts` | exact fetch handler 和端口 |
+| `src/tools/artifact.ts` | `cowork_artifact_create`、`cowork_artifact_comments`、`cowork_artifact_reply` |
 
-接线：`src/app/apply.ts` 构造 store/hub/dispatcher、注册路由和工具、订阅 `session/event`、注册 `tools.guard`；`src/app/tools.ts` 只增加 artifact 工具注册；不修改 `src/panel/api.ts`、`src/panel/api-contract.ts` 和 `src/store/project-store.ts` 的现有行为。
+- `src/` 根只有入口 `src/index.ts`，新增模块不能再平铺到根；每个新文件还要守 50 KiB 读上限（`tests/guards/source-budget.test.mjs`）。`src/panel/artifact-contract.ts` 需要登记到 `tests/guards/architecture.test.mjs` 的 `CONTRACT_MODULES` 纯叶白名单，本仓库 client 才能直接 import 它（现有 `src/client/api.ts` 已直接 import `api-contract.ts`/`inbox-contract.ts`）。
+- 接线：`src/app/apply.ts` 构造 store/hub/dispatcher、注册路由和工具、订阅 `session/event`、注册 `tools.guard`；`src/app/tools.ts` 只增加 artifact 工具注册；不修改 `src/panel/api.ts`、`src/panel/api-contract.ts` 和 `src/store/project-store.ts` 的现有行为。
 
 ## 存储
 
@@ -363,6 +369,8 @@ working ──cowork_artifact_reply 成功──▶ replied
 - `dispatchTimeoutMs` 600000、`dispatchMaxRetries` 3
 - `eventLogMaxLines` 2000
 
+按现有 `src/app/config.ts` 的 schemastery 结构与 `CONFIG_DEFAULTS` 落地；默认值只写在该表，不在调用点写死。
+
 日志点：artifact 创建、评论/投递状态、守卫拒绝、保存冲突、文件对账失败、SSE 连接/断开；结构化、带 id，不带正文。
 
 ## 失败与恢复
@@ -382,12 +390,14 @@ working ──cowork_artifact_reply 成功──▶ replied
 ## 测试计划
 
 - 单测：schema/上限、路径守卫、锚点重定位、三方合并、presence 范围、守卫判定、dispatch 状态机/合并/重试、事件 seq/裁剪。
-- 路由测试：沿用 `tests/api.test.mjs` 的临时仓库和私有 connection probe；覆盖认证、项目解析、列表/详情/文件/Range、评论、保存 409、上传、错误码。
+- 路由测试：沿用 `tests/panel/api-read.test.mjs`/`api-write.test.mjs`/`api-auth.test.mjs` 的临时仓库和 `tests/support/api-fixtures.mjs` 的私有 connection probe（原 `tests/api.test.mjs` 已拆成这三个套件）；覆盖认证、项目解析、列表/详情/文件/Range、评论、保存 409、上传、错误码。
 - 守护测试：`tools.guard` 对 write/edit/str_replace_editor 的允许/拒绝/未知 cwd/缓存缺失。
 - 投递测试：fake session port 推进 sent/thinking/working/replied/failed；重启恢复；队列满/超时/重试。
 - 真实宿主 E2E：SSE 认证/心跳/Last-Event-ID、真实工具守卫、图片 prompt、双主题并行、重启 stale。
-- 拟新增：`tests/artifact-schema.test.mjs`、`artifact-store.test.mjs`、`artifact-api.test.mjs`、`artifact-presence.test.mjs`、`artifact-dispatch.test.mjs`、`artifact-tools.test.mjs`。
-- 验收命令：`npm run check`、`npm run typecheck`、`npm run build`、`npm test`；真机 E2E 单独记录。
+- 拟新增（按层镜像）：`tests/store/artifact-schema.test.mjs`、`tests/store/artifact-store.test.mjs`、`tests/domains/artifact/*.test.mjs`、`tests/platform/artifact-presence.test.mjs`、`tests/platform/artifact-dispatch.test.mjs`、`tests/panel/artifact-api.test.mjs`、`tests/tools/artifact.test.mjs`。
+- 公开面：新增路由要登记到 `tests/support/public-surface.mjs` 的 `PANEL_ROUTES`；新增工具要登记到 `BUSINESS_TOOL_ORDER`/`TOOL_DOMAINS`，并显式提高 `tests/guards/tool-schema-budget.test.mjs` 当前固定的 22 个工具/16,523 B 预算。
+- 覆盖率：新增源文件要在 `tools/coverage-map.json` 登记唯一 owner，并按 100% 行覆盖门禁补测试；确实覆盖不到的走 [tools/coverage-debt.json](../../../tools/coverage-debt.json) 审核，不静默放宽。
+- 验收命令：设计阶段 `npm run check`；实现阶段按 [tools/workflow.json](../../../tools/workflow.json) 的 source/browser surface 跑 `npm run test:coverage`、`npm run typecheck`、`npm run build`、`npm run test:host-smoke`，客户端另跑 `npm run test:browser` 与 `npm run test:coverage:layered -- --base <verified-base>`；真机 E2E 单独记录。
 
 ## 分阶段实现
 
@@ -414,3 +424,4 @@ working ──cowork_artifact_reply 成功──▶ replied
 - [工作项多模态交付物查看器设计](work-item-artifact-viewer.md)
 - [V1–V16 核实报告](work-item-artifact-verification.md)
 - [后端提案](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-backend.md)
+- [前后端实现交接](../../handoff/WORK_ITEM_HANDOFF.md)

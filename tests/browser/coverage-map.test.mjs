@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import {
   CLIENT_BROWSER_BLOCKED,
   CLIENT_BROWSER_TSX,
@@ -211,10 +212,15 @@ test('completeness requires every expected TSX and a blocked notice entry', () =
 })
 
 test('browser TSX expectation matches the directory and carries the KI-40 trigger', () => {
-  const actual = readdirSync(new URL('../../src/client/', import.meta.url))
-    .filter(name => name.endsWith('.tsx'))
-    .map(name => `src/client/${name}`)
-    .sort()
+  const clientRoot = new URL('../../src/client/', import.meta.url)
+  const walk = (directory) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, directory)
+    if (entry.isDirectory()) return walk(child)
+    return entry.name.endsWith('.tsx')
+      ? [`src/client/${fileURLToPath(child).slice(fileURLToPath(clientRoot).length)}`]
+      : []
+  })
+  const actual = walk(clientRoot).sort()
   assert.deepEqual([...CLIENT_BROWSER_TSX].sort(), actual)
   const blocked = CLIENT_BROWSER_BLOCKED['src/client/notice.tsx']
   assert.equal(blocked.issue, 'KI-40')

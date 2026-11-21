@@ -8,16 +8,27 @@
  * proves both directions of that mapping.
  */
 
-import { liveMasterChainId, runLiveMasterChain } from './live-master-chain.mjs'
+import { artifactChainId, runArtifactChain } from './artifact-chain.mjs'
+import { artifactRecoveryId, runArtifactRecovery } from './artifact-recovery.mjs'
+import { liveArtifactChainId, runLiveArtifactChain, timeoutMs as liveArtifactChainTimeoutMs } from './live-artifact-chain.mjs'
+import { liveMasterChainId, runLiveMasterChain, timeoutMs as liveMasterChainTimeoutMs } from './live-master-chain.mjs'
 import { masterChainId, runMasterChain } from './master-chain.mjs'
 import { reviewMergeId, runReviewMerge } from './review-merge.mjs'
 import { reviewRevisionId, runReviewRevision } from './review-revision.mjs'
 import { topicBashId, runTopicBash } from './topic-bash.mjs'
 import { topicPanelId, runTopicPanel } from './topic-panel.mjs'
 
-/** Every scenario module, keyed by the id the manifest declares. */
+/**
+ * Every scenario module, keyed by the id the manifest declares.
+ *
+ * A live-model scenario carries its own per-turn budget; a keyless scenario
+ * keeps the lane's flat budget.
+ */
 export const SCENARIOS = new Map([
-  [liveMasterChainId, { id: liveMasterChainId, run: runLiveMasterChain }],
+  [artifactChainId, { id: artifactChainId, run: runArtifactChain }],
+  [artifactRecoveryId, { id: artifactRecoveryId, run: runArtifactRecovery }],
+  [liveArtifactChainId, { id: liveArtifactChainId, run: runLiveArtifactChain, timeoutMs: liveArtifactChainTimeoutMs }],
+  [liveMasterChainId, { id: liveMasterChainId, run: runLiveMasterChain, timeoutMs: liveMasterChainTimeoutMs }],
   [masterChainId, { id: masterChainId, run: runMasterChain }],
   [reviewMergeId, { id: reviewMergeId, run: runReviewMerge }],
   [reviewRevisionId, { id: reviewRevisionId, run: runReviewRevision }],
