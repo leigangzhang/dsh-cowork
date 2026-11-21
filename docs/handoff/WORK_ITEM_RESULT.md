@@ -73,7 +73,7 @@
 - `npm run build`：exit 0（client bundle 1,169 KB）。
 - `npm run test:host-smoke`：5/5 通过。
 - `npm run test:browser`：通过；18 个 counted client 文件、19 个报告文件（1 个 blocked），`src/client/work-item/editor.tsx` 行/函数覆盖 100%，列表 SSE 断线/重试/实时计数与 CodeMirror 行号、高亮、批注行装饰均在真实 Chromium 中执行。
-- `npm run test:coverage:layered -- --base 26141dd`：通过（reviewed browser floors 已按 measured 值更新）。
+- `npm run test:coverage:layered -- --base 26141dd`：通过；89 个 counted 文件，行覆盖 99.88%（33795/33836），reviewed browser floors 全部通过。
 
 ## 偏离与未核实
 
