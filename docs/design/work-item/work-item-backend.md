@@ -1,6 +1,6 @@
 # Cowork 工作项后端：调研、架构与实现设计
 
-Status: implementing（backend design，2026-11-10；阶段 0–3 已落地 2026-11-19，阶段 4–5 未开始；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)）
+Status: implementing（backend design，2026-11-10；阶段 0–3 已落地 2026-11-19；阶段 4 于 2026-11-21 调整为图表/画布/HTML，Doc/表格/PDF/图片后置；阶段 5 未开始；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)）
 
 本方案把[工作项前端设计与开发方案](work-item-frontend.md)和[工作项查看器设计](work-item-artifact-viewer.md)落成后端实现设计。范围是 artifacts 记录、文件、批注、版本、保存冲突、模型投递、SSE 和工具；不含前端代码、编辑器依赖和旧 `workItems` 改造。决策和备选见[后端提案](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-backend.md)。
 
@@ -33,9 +33,10 @@ Status: implementing（backend design，2026-11-10；阶段 0–3 已落地 2026
 | 文本编辑、自动保存、冲突合并 | fs version + revisions + merge | 阶段 2 |
 | 编辑范围上报、同行锁 | presence + tools.guard | 阶段 2 |
 | 图片/文件上传、模型回复附件 | upload + attachment refs | 阶段 2 |
-| 图表/表格/Doc 查看与编辑 | 复用文本保存和文件路由 | 阶段 3–4 |
+| 图表查看与编辑 | 复用文本保存和文件路由 | 阶段 4 |
+| HTML 查看与编辑 | 复用文本保存和文件路由 | 阶段 4 |
 | 画布编辑、整文件锁 | canvas presence + text JSON save | 阶段 4 |
-| PDF/图片字节、在应用中打开 | file route + open route | 阶段 4 |
+| 表格/Doc、PDF/图片字节、在应用中打开 | file route + open route | 后置，未排期 |
 | 文件缺失/重新绑定 | reconcile + rebind | 阶段 5 |
 
 ## 宿主调研
@@ -404,7 +405,7 @@ working ──cowork_artifact_reply 成功──▶ replied
 1. **阶段 1：只读闭环。** 记录/存储、列表/详情/文件路由、评论/锚点/线程、SSE 基础、`cowork_artifact_create`；fixture + 路由测试。对应前端阶段 1。
 2. **阶段 2：编辑与投递。** 修订/保存/三方合并、presence、工具守卫、dispatch/重试/恢复、`cowork_artifact_reply`、上传/多模态；真实宿主 E2E。对应前端阶段 2。
 3. **阶段 3：图表/表格。** 复用文本保存和文件路由；图片/SVG 上传/导出；无新的核心存储。对应前端阶段 3。
-4. **阶段 4：Doc/PDF/画布。** 字节/Range、在应用中打开、画布整文件锁、docx/xlsx 原件/下载；对应前端阶段 4。
+4. **阶段 4：图表/画布/HTML。** 三种类型的文件都是文本：复用文件路由、文本保存和行范围锚点；新增画布整文件锁（presence 覆盖整个文件）。`POST /open`、字节/Range、docx/xlsx 和 PDF/图片预览按范围调整后置。对应前端阶段 4。
 5. **阶段 5：收口。** 事件裁剪、重启恢复、rebind、性能缓存、路径/上传安全、完整 E2E。对应前端阶段 5。
 
 ## 风险与未核实

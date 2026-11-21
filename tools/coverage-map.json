@@ -94,6 +94,26 @@
       "lane": "unit"
     },
     {
+      "path": "src/client/work-item/viewers/canvas.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewers/diagram.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewers/document.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/viewers/html.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewers/source-lines.tsx",
+      "lane": "browser"
+    },
+    {
       "path": "src/dev/panel-probe.ts",
       "lane": "unit"
     },
@@ -102,11 +122,11 @@
       "lane": "unit"
     },
     {
-      "path": "src/domains/artifact/errors.ts",
+      "path": "src/domains/artifact/attachments.ts",
       "lane": "unit"
     },
     {
-      "path": "src/domains/artifact/attachments.ts",
+      "path": "src/domains/artifact/errors.ts",
       "lane": "unit"
     },
     {

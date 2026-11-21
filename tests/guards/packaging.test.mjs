@@ -19,7 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 
 /** The published file list, exactly — npm's `files` whitelist is a set. */
-const PUBLISHED_FILES = ['lib', 'cordis.patch.yml', 'README.md', 'LICENSE']
+const PUBLISHED_FILES = ['lib/**/*.js', 'lib/client.js.map', 'lib/**/*.d.ts', 'cordis.patch.yml', 'README.md', 'LICENSE']
 
 /** Paths the tarball must never contain: build/test/docs inputs and artifacts. */
 const FORBIDDEN_PACK_PREFIXES = ['src/', 'tests/', 'docs/', '.dsh-cowork/', '.agents/', 'scripts/', 'tools/']
@@ -54,7 +54,7 @@ test('dsh.bundle.patch names the tracked patch file that ships in the tarball', 
   assert.ok(existsSync(resolve(root, 'cordis.patch.yml')), 'cordis.patch.yml must exist at the package root')
 })
 
-test('the published file list is exactly lib/, the patch, README and LICENSE', () => {
+test('the published file list is exactly the runtime Javascript, declarations, patch, README and LICENSE', () => {
   assert.ok(Array.isArray(pkg.files), 'package.json must declare a files whitelist')
   assert.deepEqual(
     [...pkg.files].sort(),
@@ -110,6 +110,10 @@ test('npm pack ships only the runtime files, never sources, tests, docs or artif
         FORBIDDEN_PACK_EXTENSIONS.some((extension) => path.endsWith(extension)),
     )
     assert.deepEqual(forbidden, [], `npm pack included development paths: ${forbidden.join(', ')}`)
+    const maps = paths.filter((path) => path.endsWith('.map'))
+    // CI runs this test on a checkout without a local lib/ build; when lib is
+    // present, only the client map may ship.
+    assert.deepEqual(maps.filter((path) => path !== 'lib/client.js.map'), [], 'only the client source map may ship')
 
     for (const entry of manifest.files) {
       assert.ok(entry.size > 0, `${entry.path} must not be empty in the tarball`)
