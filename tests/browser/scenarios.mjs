@@ -779,8 +779,11 @@ async function scenarioWorkItemEdit(page, fixtures) {
   await anchoredLine.waitFor({ timeout: 10_000 })
   assert.match(await anchoredLine.innerText(), /第一段：逐行批注。/)
   // The marker follows its text, not the old line number: inserting a line at
-  // the top moves the annotated line and the marker with it. Undo restores the
-  // exact base so the save steps below keep their expected content.
+  // the top moves the annotated line and the marker with it. Block the save
+  // route during this check so no autosave can relocate anchors on the server;
+  // the editor's own mapping must keep the marker on its text. Undo restores
+  // the exact base so the save steps below keep their expected content.
+  await page.route('**/api/cowork.artifact.edit*', route => route.abort())
   await editor.locator('.cm-line').first().click({ position: { x: 2, y: 5 } })
   await page.keyboard.press('Home')
   await page.keyboard.insertText('前插行\n')
@@ -793,6 +796,7 @@ async function scenarioWorkItemEdit(page, fixtures) {
     await page.keyboard.press('ControlOrMeta+Z')
   }
   assert.equal(await editorText(page), BROWSER_SPEC)
+  await page.unroute('**/api/cowork.artifact.edit*')
   const waitForEdit = () => page.waitForResponse((response) => {
     try {
       return new URL(response.url()).pathname === '/api/cowork.artifact.edit'

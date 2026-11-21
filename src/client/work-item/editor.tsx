@@ -49,11 +49,12 @@ function anchoredLineMarkers(lines: readonly number[]) {
     create: state => anchoredDecorations(lines, state.doc),
     update: (decorations, transaction) => {
       if (!transaction.docChanged) return decorations
-      // Line decorations must start at a line start. Mapping can land on the
-      // position after an inserted character at the line start (or drop the
-      // decoration when lines merge); re-anchor every surviving marker.
+      // Map first so a marker follows its text, then re-anchor it to a line
+      // start: mapping can land on the position after an inserted character at
+      // the line start, and a merged line drops the marker.
+      const mapped = decorations.map(transaction.changes)
       const ranges: Range<Decoration>[] = []
-      decorations.between(0, transaction.state.doc.length, (from) => {
+      mapped.between(0, transaction.state.doc.length, (from) => {
         ranges.push(anchoredLineDecoration.range(transaction.state.doc.lineAt(from).from))
       })
       return Decoration.set(ranges, true)
