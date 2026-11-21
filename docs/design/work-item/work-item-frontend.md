@@ -1,6 +1,6 @@
 # Cowork 工作项前端设计与开发方案
 
-Status: implementing（frontend design，2026-11-10；阶段 0–3 已落地 2026-11-19，阶段 4–5 未开始；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)；后端设计见 [work-item-backend.md](work-item-backend.md)）
+Status: implementing（frontend design，2026-11-10；阶段 0–3 已落地 2026-11-19；阶段 4 于 2026-11-21 调整为图表/画布/HTML，Doc/表格/PDF/图片后置；阶段 5 未开始；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)；后端设计见 [work-item-backend.md](work-item-backend.md)）
 
 本方案把[工作项多模态交付物查看器设计](work-item-artifact-viewer.md)和[V1–V16 核实报告](work-item-artifact-verification.md)落成前端实现计划。页面结构、类型和交互以查看器设计为准；依赖体积、编辑器和限制以核实报告为准。决策和取舍见[前端开发提案](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-frontend.md)。
 
@@ -231,7 +231,7 @@ queued → sent → thinking → working → replied
 
 ## 性能
 
-- 首屏只加载列表和查看器壳；CodeMirror/TipTap/Pele/表格按需加载；Excalidraw 独立 chunk，打开画布才下载。当前单文件 CJS 构建不能分块，CodeMirror 随主包加载（[WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)）；构建支持按需 chunk 后再改懒加载。
+- 当前客户端构建仍是单文件 CJS 闭包：CodeMirror、Pele、Excalidraw 都随主包加载，首屏成本由整个闭包决定；构建改为可加载的 ESM chunk 后再做按需加载（[WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)）。
 - 大文件分块/Range 读取；超过 2 MB 的文本不整篇塞进 DOM，按需分页或只读预览。
 - 列表最多 200 条，分组渲染；评论线程超过 200 条折叠“加载更多”。
 - 编辑器输入不触发整页重渲染；保存状态和活动状态用局部 store。
@@ -240,10 +240,10 @@ queued → sent → thinking → working → replied
 ## 构建与依赖
 
 - 依赖进 `package.json` 并提交锁文件；全部 MIT/Apache-2.0 兼容。
-- 客户端构建从单文件 CJS 扩展为“主包 + 按需 chunk”：Excalidraw 独立 chunk，Doc/表格/图表可同 chunk 或独立；loader 用包内相对路径加载，不请求外部 CDN。当前 `scripts/build/build-client.mjs` 用 esbuild 打一个 CJS 闭包（externals 为 react/react-dom/@deepseek-ai/*）；esbuild 的代码分割只支持 ESM 输出，宿主 `client-modules` 的 `require.async` 分块由 tsdown 构建消费，所以分块方案要先改构建并在真实宿主验证，不能只加 `--splitting`。
-- Excalidraw 的 CSS、字体和资源走同源授权路由；`EXCALIDRAW_ASSET_PATH` 用绝对 URL；不带 Xiaolai，中文回退。
-- TipTap 所有包锁同一版本；表格扩展不能漏。
-- 客户端上限 100 MB（5 MB 不设硬门槛）；包体按 10 MB 控制。接入 CodeMirror 6 后当前客户端 build 输出 1,197,447 B（gzip 303,538 B）；交接时（2026-11-19）为 138,237 B（gzip 29,206 B）。核实报告的核心合计约 2.4 MB min，含 Excalidraw 约 11 MB min，符合客户端上限。
+- 当前 `scripts/build/build-client.mjs` 仍用 esbuild 打一个 CJS 闭包（externals 为 react、react/jsx-runtime、react-dom、react-dom/client、@deepseek-ai/*）。分块需要 ESM 输出和宿主可加载的 chunk，先改构建并在真实宿主验证，不能只加 `--splitting`。
+- Excalidraw 样式用 `--loader:.css=text` 以字符串进入闭包，首次挂载时注入一个 `<style>`；构建因此要带 `--conditions=production`。字体资源没有随包发布：宿主 package-asset 路由只接受 svg/png/webp/jpg/jpeg，Excalidraw 文本字体走上游回退，离线时回退系统字体；不带 Xiaolai。
+- Pele 渲染 Mermaid 源码，主入口包含全部图表类型；链接和图片在查看器里关闭，SVG 不发起网络请求。
+- 客户端上限 100 MB（5 MB 不设硬门槛）；包体按 10 MB 控制。当前客户端 build 输出 15,468,590 B（gzip 3,681,225 B），`npm pack --dry-run` 报告 10,009,548 B（unpacked 43,152,856 B），十进制略高于 10 MB、低于 10 MiB；分块方案落地后应回落。
 
 ## 测试与验收
 
@@ -260,11 +260,11 @@ queued → sent → thinking → working → replied
 
 1. **基础与只读。** 工作项记录/列表/详情/文件路由、Cowork 内部标签壳、主区域壳、`WorkItemList`、文本阅读、批注线程、fixture；不做编辑和投递。可演示：从右栏打开一份 Markdown，逐行批注。
 2. **文本编辑与实时。** CodeMirror 编辑、自动保存、版本/409/三方合并、脏行上报、工具守卫；SSE、dispatcher、`cowork_artifact_reply`、多模态附件；可演示：用户改一段、模型改另一段自动合并、同行冲突被锁。
-3. **图表与表格。** Pele 六类图 + 源码编辑；自建表格 + excel 导入导出 + 筛选/排序；区域/节点批注。
-4. **Doc、PDF 与画布。** TipTap + docx 导入导出；PDF 查看/按页评论；Excalidraw 懒加载、元素级工具、整文件锁、导出。
+3. **图表。** Pele 渲染 Mermaid 源码 + CodeMirror 源码编辑；阅读/源码切换；行范围批注。节点级批注留到后续。
+4. **画布与 HTML。** Excalidraw 内建（当前单文件闭包构建随主包加载，不单独分块）、整文件锁、自动保存；HTML 静态沙箱预览、可切换交互预览，CodeMirror 源码编辑。Doc、表格、PDF、图片按 2026-11-21 的范围调整后置。
 5. **收口。** 窄屏/键盘/空错态/性能/包体、真实模型 E2E、文档和截图同步。
 
-每阶段可独立合并；阶段 1 先证明“列表 → 主区域 → 批注”的主链路，再扩类型。
+每阶段可独立合并；阶段 1 先证明“列表 → 主区域 → 批注”的主链路，再扩类型。阶段 4 的三种类型都是文本文件，复用既有文件路由、保存与批注锚点，不新增存储。
 
 ## 风险
 

@@ -716,6 +716,208 @@ async function scenarioWorkItemChain(page) {
 }
 
 /**
+ * The stage-4 renderers: one seeded work item is opened three times with a
+ * mocked detail/file response, once per new type. The mocks keep the rail's
+ * count assertions untouched while exercising the real host routes around the
+ * viewer.
+ */
+async function scenarioWorkItemTypes(page) {
+  await ensurePanel(page)
+  await ensureTopicList(page)
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+
+  const diagramSource = 'flowchart LR\n  A[开始] --> B[结束]\n'
+  const htmlSource = '<!doctype html><html><body><h1 id="title">静态标题</h1><script>document.getElementById("title").textContent = "脚本已运行"</script></body></html>'
+  const canvasSource = JSON.stringify({
+    type: 'excalidraw',
+    version: 2,
+    source: 'cowork-browser-fixture',
+    elements: [{
+      id: 'rect-browser-1', type: 'rectangle', x: 20, y: 20, width: 140, height: 80,
+      angle: 0, strokeColor: '#1e1e1e', backgroundColor: 'transparent', fillStyle: 'hachure',
+      strokeWidth: 2, strokeStyle: 'solid', roughness: 1, opacity: 100, groupIds: [],
+      frameId: null, roundness: null, seed: 1, version: 1, versionNonce: 1, isDeleted: false,
+      boundElements: null, updated: 1, link: null, locked: false,
+    }],
+    appState: { viewBackgroundColor: '#ffffff' },
+    files: {},
+  })
+  const cases = [
+    { type: 'diagram', path: 'docs/browser-diagram.mmd', mediaType: 'text/plain', content: diagramSource, title: '浏览器图表' },
+    { type: 'html', path: 'docs/browser-page.html', mediaType: 'text/html', content: htmlSource, title: '浏览器网页' },
+    { type: 'canvas', path: 'docs/browser-canvas.excalidraw', mediaType: 'application/json', content: canvasSource, title: '浏览器画布' },
+  ]
+  let current = cases[0]
+  let currentRecord = null
+
+  await page.route('**/api/cowork.artifact.detail*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.record.type = current.type
+    body.record.title = current.title
+    body.record.primaryPath = current.path
+    body.record.files = [{
+      ...body.record.files[0],
+      path: current.path,
+      mediaType: current.mediaType,
+      editable: true,
+      size: Buffer.byteLength(current.content, 'utf8'),
+      sha256: '',
+    }]
+    currentRecord = body.record
+    await route.fulfill({ response, json: body })
+  })
+  await page.route('**/api/cowork.artifact.file*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        artifactId: BROWSER_ARTIFACT,
+        path: current.path,
+        mediaType: current.mediaType,
+        content: current.content,
+        size: Buffer.byteLength(current.content, 'utf8'),
+        sha256: '',
+        revision: 1,
+        fsVersion: 'fixture-version',
+      }),
+    })
+  })
+
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    const body = route.request().postDataJSON()
+    const bytes = Buffer.byteLength(body.content, 'utf8')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        path: body.path,
+        content: body.content,
+        revision: 2,
+        fsVersion: 'fixture-edit',
+        merged: false,
+        record: {
+          ...currentRecord,
+          revision: 2,
+          updatedAt: new Date().toISOString(),
+          files: (currentRecord?.files ?? []).map(file => ({
+            ...file,
+            revision: 2,
+            size: bytes,
+          })),
+        },
+      }),
+    })
+  })
+
+  try {
+    // 图表: SVG preview, source lines, and the plain source editor.
+    current = cases[0]
+    await card.click()
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    assert.equal(await page.getByTestId('cwi-doc-view').getAttribute('data-kind'), 'diagram')
+    const diagram = page.getByTestId('cwi-diagram')
+    await diagram.waitFor({ timeout: 15_000 })
+    assert.match(await diagram.evaluate(element => element.textContent ?? ''), /开始/)
+    assert.equal(await diagram.locator('svg').count(), 1)
+    await page.getByTestId('cwi-mode').click()
+    await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor()
+    assert.match(await page.getByTestId('cwi-lines').innerText(), /flowchart LR/)
+    await page.getByTestId('cwi-edit').click()
+    await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-edit').click()
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
+    await openWorkItemTab(page)
+
+    // Invalid Mermaid keeps the source reachable and names the failing position.
+    current = { type: 'diagram', path: 'docs/browser-broken.mmd', mediaType: 'text/plain', content: 'flowchart LR\n  A -->\n', title: '损坏图表' }
+    await card.click()
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    await page.getByTestId('cwi-diagram-error').waitFor({ timeout: 15_000 })
+    assert.match(await page.getByTestId('cwi-diagram-error').innerText(), /图表无法渲染/)
+    await page.getByTestId('cwi-mode').click()
+    await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor()
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
+    await openWorkItemTab(page)
+
+    // HTML: static preview does not run the page script; interactive preview does.
+    current = cases[1]
+    await card.click()
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    assert.equal(await page.getByTestId('cwi-doc-view').getAttribute('data-kind'), 'html')
+    await page.getByTestId('cwi-html-frame').waitFor()
+    assert.equal(await page.getByTestId('cwi-html-frame').getAttribute('data-interactive'), 'false')
+    const staticFrame = page.frameLocator('[data-testid="cwi-html-frame"]')
+    await staticFrame.locator('#title').waitFor({ timeout: 10_000 })
+    assert.equal(await staticFrame.locator('#title').innerText(), '静态标题')
+    await page.getByTestId('cwi-html-interactive').click()
+    assert.equal(await page.getByTestId('cwi-html-frame').getAttribute('data-interactive'), 'true')
+    assert.equal(await page.getByTestId('cwi-html-frame').getAttribute('sandbox'), 'allow-scripts')
+    const interactiveFrame = page.frameLocator('[data-testid="cwi-html-frame"]')
+    await interactiveFrame.locator('#title').filter({ hasText: '脚本已运行' }).waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-edit').click()
+    await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-edit').click()
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
+    await openWorkItemTab(page)
+
+    // 画布: Excalidraw mounts read-only, switches to edit, and the JSON source stays readable.
+    current = cases[2]
+    await card.click()
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    assert.equal(await page.getByTestId('cwi-doc-view').getAttribute('data-kind'), 'canvas')
+    const canvas = page.getByTestId('cwi-canvas')
+    await canvas.waitFor({ timeout: 15_000 })
+    assert.equal(await canvas.getAttribute('data-editable'), 'false')
+    await canvas.locator('.excalidraw').waitFor({ timeout: 15_000 })
+    await page.getByTestId('cwi-edit').click()
+    assert.equal(await page.getByTestId('cwi-canvas').getAttribute('data-editable'), 'true')
+    // A rectangle drawn by hand is a user edit: the scene serializes, saves,
+    // and the revision changes without an explicit save click.
+    const canvasBox = await page.getByTestId('cwi-canvas').boundingBox()
+    assert.notEqual(canvasBox, null)
+    await page.mouse.click(canvasBox.x + 80, canvasBox.y + 80)
+    await page.keyboard.press('r')
+    await page.mouse.move(canvasBox.x + 120, canvasBox.y + 120)
+    await page.mouse.down()
+    await page.mouse.move(canvasBox.x + 240, canvasBox.y + 200, { steps: 6 })
+    await page.mouse.up()
+    await page.getByTestId('cwi-save-state').filter({ hasText: '已保存 · r2' }).waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-edit').click()
+    await page.getByTestId('cwi-mode').click()
+    await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor()
+    assert.match(await page.getByTestId('cwi-lines').innerText(), /excalidraw/)
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
+    await openWorkItemTab(page)
+
+    // A broken scene explains itself and falls back to the source editor.
+    current = { type: 'canvas', path: 'docs/browser-broken.excalidraw', mediaType: 'application/json', content: '{"type":"excalidraw"}', title: '损坏画布' }
+    await card.click()
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    await page.getByTestId('cwi-canvas-error').waitFor({ timeout: 15_000 })
+    assert.match(await page.getByTestId('cwi-canvas-error').innerText(), /elements/)
+    await page.getByTestId('cwi-edit').click()
+    await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-edit').click()
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
+  } finally {
+    await page.unroute('**/api/cowork.artifact.detail*')
+    await page.unroute('**/api/cowork.artifact.file*')
+    await page.unroute('**/api/cowork.artifact.edit*')
+  }
+  await backToTopicTab(page)
+}
+
+/**
  * The rail consumes the project SSE stream itself: a comment created outside
  * the list changes its count without remounting the tab, and a stopped stream
  * keeps the loaded rows and offers a retry instead of going stale silently.
@@ -1372,6 +1574,7 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioOverviewRetry(page)
   await scenarioPanelTabs(page)
   await scenarioWorkItemChain(page)
+  await scenarioWorkItemTypes(page)
   await scenarioWorkItemListLive(page, fixtures)
   await scenarioWorkItemEdit(page, fixtures)
   await scenarioWorkItemDraft(page)

@@ -39,6 +39,10 @@ const BROWSER_SOURCES = [
   'src/client/work-item/editor.tsx',
   'src/client/work-item/list.tsx',
   'src/client/work-item/panel.tsx',
+  'src/client/work-item/viewers/canvas.tsx',
+  'src/client/work-item/viewers/diagram.tsx',
+  'src/client/work-item/viewers/html.tsx',
+  'src/client/work-item/viewers/source-lines.tsx',
 ]
 
 function writeJson(path, value) {
@@ -197,10 +201,10 @@ test('the owner map classifies every source file exactly once', () => {
   const map = JSON.parse(read('tools/coverage-map.json'))
   const result = validateOwnershipMap(map, sources)
   assert.deepEqual(result.failures, [])
-  assert.equal(sources.length, 90)
+  assert.equal(sources.length, 95)
   const byLane = { unit: 0, browser: 0, dev: 0 }
   for (const entry of map.files) byLane[entry.lane] += 1
-  assert.deepEqual(byLane, { unit: 81, browser: 9, dev: 0 })
+  assert.deepEqual(byLane, { unit: 82, browser: 13, dev: 0 })
   assert.deepEqual(
     map.files.filter((entry) => entry.lane === 'dev').map((entry) => entry.path).sort(),
     DEV_DRIVERS,

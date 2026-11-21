@@ -30,8 +30,24 @@
       "functionCoverage": 96.77
     },
     "src/client/work-item/panel.tsx": {
-      "lineCoverage": 98.59,
-      "functionCoverage": 93.69
+      "lineCoverage": 98.5,
+      "functionCoverage": 94.0
+    },
+    "src/client/work-item/viewers/canvas.tsx": {
+      "lineCoverage": 100.0,
+      "functionCoverage": 100.0
+    },
+    "src/client/work-item/viewers/diagram.tsx": {
+      "lineCoverage": 100.0,
+      "functionCoverage": 100.0
+    },
+    "src/client/work-item/viewers/html.tsx": {
+      "lineCoverage": 100.0,
+      "functionCoverage": 100.0
+    },
+    "src/client/work-item/viewers/source-lines.tsx": {
+      "lineCoverage": 100.0,
+      "functionCoverage": 100.0
     }
   }
 }
