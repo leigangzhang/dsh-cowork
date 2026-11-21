@@ -108,6 +108,16 @@ export async function runArtifactChain(ctx) {
   }
   await readUntil(': ready', 'the stream replays and becomes ready')
 
+  // The Session owns the model and reasoning effort. A dispatched annotation
+  // must run the reply turn with that same selection, not a dispatch default.
+  const selection = { provider: 'deepseek-official', model: 'deepseek-pro', reasoningEffort: 'max' }
+  const selected = await ctx.client.rpc('session/selectModel', { sessionId: masterId, ...selection })
+  ctx.check(
+    'the session accepts a model and effort selection',
+    selected?.selected?.model === selection.model && selected?.selected?.reasoningEffort === selection.reasoningEffort,
+    JSON.stringify(selected),
+  )
+
   const comment = await ctx.client.panelPost('/api/cowork.artifact.comment', {
     sessionId: masterId,
     artifactId,
@@ -124,6 +134,10 @@ export async function runArtifactChain(ctx) {
     return current.body?.record?.activeDispatch?.state === 'replied' ? current.body : undefined
   }, { timeoutMs: 30_000 })
   ctx.check('the model reply closed the dispatch', replied.record.activeDispatch.state === 'replied', replied.record.activeDispatch.state)
+
+  const dispatchTurn = ctx.model.calls.find((call) => call.sessionId === masterId && call.prompt.includes('cowork_artifact_reply'))
+  ctx.check('the dispatched reply inherits the session model', dispatchTurn?.model === selection.model, dispatchTurn?.model)
+  ctx.check('the dispatched reply inherits the session reasoning effort', dispatchTurn?.effort === selection.reasoningEffort, dispatchTurn?.effort)
 
   const comments = await ctx.client.panelGet(`/api/cowork.artifact.comments?sessionId=${encodeURIComponent(masterId)}&artifactId=${encodeURIComponent(artifactId)}`)
   const reply = comments.body?.events?.find((event) => event.type === 'reply' && event.body === 'E2E 模型回复')

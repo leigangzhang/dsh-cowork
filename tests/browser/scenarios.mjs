@@ -941,6 +941,120 @@ async function scenarioWorkItemAttachments(page) {
 }
 
 /**
+ * Interaction edges the happy paths cannot reach: a thread reply, a failed
+ * upload with its removable pending chip, a failed file read notice, a failed
+ * "load latest" after a real conflict, and the stream interruption notice.
+ */
+async function scenarioWorkItemEdges(page, fixtures) {
+  await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+
+  // Three consecutive stream failures stop the viewer and offer a retry; the
+  // retry reconnects once the route no longer refuses the stream.
+  await page.route('**/api/cowork.artifact.events*', (route) => route.abort())
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  const sseNotice = page.getByTestId('cwi-sse-notice')
+  await sseNotice.waitFor({ timeout: 25_000 })
+  assert.match(await sseNotice.innerText(), /实时更新中断/)
+  await page.unroute('**/api/cowork.artifact.events*')
+  await page.getByTestId('cwi-sse-retry').click()
+  await sseNotice.waitFor({ state: 'detached', timeout: 10_000 })
+
+  // Reply inside a thread: cancel first, then commit a real reply.
+  const textThread = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '这张文本附件说明问题' }).first()
+  await textThread.waitFor({ timeout: 15_000 })
+  const replyTarget = page.getByTestId('cwi-reply-target')
+  await textThread.getByTestId('cwi-thread-reply').click()
+  await replyTarget.waitFor({ timeout: 10_000 })
+  assert.match(await replyTarget.innerText(), /回复/)
+  await replyTarget.getByRole('button', { name: '取消回复' }).click()
+  await replyTarget.waitFor({ state: 'detached', timeout: 10_000 })
+  await textThread.getByTestId('cwi-thread-reply').click()
+  await replyTarget.waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-composer').fill('浏览器线程回复')
+  await page.getByTestId('cwi-submit').click()
+  await replyTarget.waitFor({ state: 'detached', timeout: 10_000 })
+  await page.locator('[data-testid="cwi-thread"]').filter({ hasText: '浏览器线程回复' }).first().waitFor({ timeout: 15_000 })
+
+  // A refused upload surfaces its receipt and leaves no pending chip.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+  await page.route('**/api/cowork.artifact.upload*', (route) => route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'upload fixture boom' } }),
+  }))
+  await page.getByTestId('cwi-file-input').setInputFiles({ name: 'boom.png', mimeType: 'image/png', buffer: png })
+  await page.getByText(/附件上传失败/).first().waitFor({ timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.upload*')
+
+  // A successful pick can be removed again before it is submitted.
+  await page.getByTestId('cwi-file-input').setInputFiles({ name: 'remove-me.txt', mimeType: 'text/plain', buffer: Buffer.from('x') })
+  const pending = page.getByTestId('cwi-pending-attachments')
+  await pending.waitFor({ timeout: 15_000 })
+  await page.getByRole('button', { name: '移除附件 remove-me.txt' }).click()
+  await pending.waitFor({ state: 'detached', timeout: 10_000 })
+
+  // A text attachment renders as a named download link.
+  const link = textThread.getByTestId('cwi-attachment-link').first()
+  await link.waitFor({ timeout: 10_000 })
+  assert.equal(await link.getAttribute('download'), 'note.md')
+  assert.match(await link.getAttribute('href') ?? '', /\/api\/cowork\.artifact\.attachment\?/)
+
+  // A real overlapping save conflict, then a failed "load latest" keeps the
+  // conflict card and reports the failure instead of dropping the draft.
+  await page.getByTestId('cwi-edit').click()
+  const editor = page.getByTestId('cwi-editor')
+  await editor.waitFor({ timeout: 10_000 })
+  const current = await editor.inputValue()
+  let injected = false
+  await page.route('**/api/cowork.artifact.edit*', async (route) => {
+    if (!injected) {
+      injected = true
+      await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${current}外部冲突行。\n`, 'utf8')
+    }
+    await route.continue()
+  })
+  await editor.fill(`${current}我的冲突草稿。\n`)
+  await page.getByTestId('cwi-conflict').waitFor({ timeout: 15_000 })
+  await page.unroute('**/api/cowork.artifact.edit*')
+  await page.route('**/api/cowork.artifact.file*', (route) => route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'file fixture boom' } }),
+  }))
+  await page.getByTestId('cwi-conflict-load').click()
+  await page.getByText(/加载失败/).first().waitFor({ timeout: 10_000 })
+  await page.unroute('**/api/cowork.artifact.file*')
+  await page.getByTestId('cwi-conflict-keep').click()
+  await page.getByTestId('cwi-conflict').waitFor({ state: 'detached', timeout: 15_000 })
+  await page.getByTestId('cwi-edit').click()
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+
+  // A failed file read still opens the viewer and names the missing file.
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await page.route('**/api/cowork.artifact.file*', (route) => route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'file fixture boom' } }),
+  }))
+  // Closing the viewer leaves the right panel on the topic tab; re-open the
+  // work-item rail before clicking the row again.
+  await openWorkItemTab(page)
+  await card.click()
+  await page.getByTestId('cwi-file-notice').waitFor({ timeout: 15_000 })
+  await page.unroute('**/api/cowork.artifact.file*')
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
+/**
  * Live updates and attachments: a comment created from the page context appears
  * through the project SSE stream without a reload, and an uploaded PNG renders
  * as a thumbnail in its thread.
@@ -1153,6 +1267,7 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioWorkItemDraft(page)
   await scenarioWorkItemLive(page, fixtures)
   await scenarioWorkItemAttachments(page)
+  await scenarioWorkItemEdges(page, fixtures)
   await scenarioWorkItemError(page)
   await scenarioFilterSetup(page)
 }

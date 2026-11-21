@@ -149,6 +149,12 @@ export async function startScriptedModel() {
         index: calls.length,
         sessionId,
         role,
+        // The wire model and reasoning effort prove which selection the agent
+        // loop resolved; a scenario can assert inheritance from the Session.
+        model: typeof payload.model === 'string' ? payload.model : '',
+        effort: typeof payload.output_config?.effort === 'string'
+          ? payload.output_config.effort
+          : (payload.thinking?.type === 'disabled' ? 'off' : ''),
         compact: request.headers['x-deepseek-harness-compact'] === '1',
         prompt: prompt.slice(0, 500),
         toolResults,

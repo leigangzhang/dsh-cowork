@@ -396,6 +396,9 @@ test('the host prompt port forwards the queue request under a timeout signal', a
   assert.equal(calls[0].request.requestId, 'dispatch-1')
   assert.equal(calls[0].request.mode, 'queue')
   assert.ok(calls[0].signal instanceof AbortSignal)
+  // No model or effort override: the host applies the Session's own selection,
+  // so a dispatched reply inherits that model and reasoning effort.
+  assert.deepEqual(Object.keys(calls[0].request).sort(), ['content', 'mode', 'requestId', 'sessionId'])
 
   const refusing = createDispatchPromptPort({ async prompt() { return { accepted: false } } }, 50)
   assert.equal((await refusing.prompt({ requestId: 'r', sessionId: 's', mode: 'queue', content: [] })).accepted, false)
