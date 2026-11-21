@@ -1,139 +1,98 @@
 # Heavy runner 运维手册
 
-本文只回答两件事：怎么确认 heavy run 的连续 green 次数，以及累计到 20 次后怎么把 `heavy-gate` 加入 `main` 的 ruleset。流程背景见 [pr-gate-flow.md](design/github-flow/pr-gate-flow.md)。
+本文回答 heavy 的触发方式、head-bound 结果如何进入 `gate-artifact`，以及失败时怎么排查和回滚。流程背景见 [pr-gate-flow.md](design/github-flow/pr-gate-flow.md)。
 
 ## 前提
 
-- heavy 是 **manual-only**：只通过 `workflow_dispatch` 启动，不接 PR 事件。
-- 只有连续 green 才算数；出现 `failure` 或 `cancelled` 就从下一次重新计数。
-- 当前 `heavy-gate` 还不是 PR head 上的 required check。**不要直接把它加进 ruleset**；先完成本文“head-bound check publisher”检查。
+- heavy 有三个入口：同仓库 `agent/*` PR 的 CI 成功后由 `workflow_run` 自动触发，维护者给同仓库 PR 加 `heavy` label，或用 `workflow_dispatch` 手动触发。fork PR 永远跳过 self-hosted job。
+- workflow 在目标 `HEAD_SHA` 上发布 `heavy-gate` commit status 和 `heavy-gate-result` display check；`heavy-result.json` 记录 head、base、current main、diff SHA-256、porcelain 和每个命令的退出码。
+- 结果 publisher、pre-run 身份记录和 docs-only classifier 都从本地 checkout 的 `refs/remotes/origin/main` 导出到临时目录后执行，不执行 PR checkout 里的同名脚本；PR checkout 只用于测试命令和 git 身份读取。
+- `gate-artifact` 现在是唯一 required context；docs-only PR 豁免 heavy，其他 PR 需要同 head 的 `heavy-gate` success 才能通过。
+- ruleset 仍不直接要求 `heavy-gate`。它是 `gate-artifact` 的输入，不是第二个 required check。
+- 新 commit 必须在新的 head 上重新产生结果；旧 status 不会自动迁移。
 
-## 触发一次 heavy run
+## 触发方式
 
-在本机 runner 已在线时执行：
+自动触发在 workflow 文件进入默认分支后才会生效；首次落地前用 `workflow_dispatch` 验证。
+
+给同仓库 PR 加标签：
+
+```sh
+gh pr edit <pr-number> --add-label heavy
+```
+
+手动触发：
 
 ```sh
 gh workflow run heavy.yml \
-  --ref main \
-  -f base=main \
+  --ref agent/<topic> \
   -f repo_path="$HOME/Workspace/dsh-cowork"
 ```
 
-`repo_path` 必须指向包含 `.git` 的本地 checkout；workflow 会从该路径 clone 当前 `$GITHUB_SHA`，不下载任何 action。
+`--ref` 决定手动运行的 `HEAD_SHA`。workflow 先从 `repo_path` 对应的 checkout fetch `refs/heads/*` 到 `refs/remotes/origin/*`，并记录 `refs/remotes/origin/main` 的 SHA；不传 `base` 时用这个 SHA 与 `HEAD_SHA` 的 merge-base，显式传 `-f base=<branch-or-sha>` 时在同一个 checkout 中解析成固定 SHA。`repo_path` 必须指向包含 `.git`、且 `origin` 指向仓库的本地 checkout；workflow 再从本地 clone 目标 head，不下载任何 action。这样自动触发的同仓库 PR head 不要求事先手工更新本地 checkout，base 也不会取到本地未刷新的 `main` 分支。
+
+publisher、pre-run 身份记录和 classifier 默认从 `refs/remotes/origin/main` 导出。首次合入前 `main` 还没有这些脚本；手动验证时可以用 `-f trusted_ref=<branch-or-sha>` 显式选择一个已审阅的 ref，这只影响 `workflow_dispatch`。自动触发没有该输入，始终使用默认分支。
 
 查看最近一次运行：
 
 ```sh
 gh run list --workflow=heavy.yml --limit 5 \
-  --json databaseId,status,conclusion,headBranch,createdAt \
-  --jq '.[] | [.databaseId,.status,.conclusion,.headBranch,.createdAt] | @tsv'
+  --json databaseId,status,conclusion,headBranch,headSha,createdAt \
+  --jq '.[] | [.databaseId,.status,.conclusion,.headBranch,.headSha,.createdAt] | @tsv'
 ```
 
-## 查看累计次数
+## 查看结果
 
-列出已完成运行的明细：
+先取运行对应的 head：
 
 ```sh
-gh run list --workflow=heavy.yml --limit 50 --status completed \
-  --json databaseId,conclusion,headBranch,createdAt \
-  --jq '.[] | [.databaseId,.conclusion,.headBranch,.createdAt] | @tsv'
+HEAD_SHA="$(gh api repos/leigangzhang/dsh-cowork/actions/runs/<database-id> --jq .head_sha)"
+gh api "repos/leigangzhang/dsh-cowork/commits/$HEAD_SHA/statuses" \
+  --jq '.[] | select(.context == "heavy-gate")
+    | {context, state, description, target_url, created_at}'
+gh api "repos/leigangzhang/dsh-cowork/commits/$HEAD_SHA/check-runs" \
+  --jq '.check_runs[] | select(.name == "heavy-gate-result")
+    | {name, app_id: .app.id, status, conclusion, output}'
 ```
 
-直接计算“从最新一次往回数，连续 success 的次数”：
+`heavy-result.json` 在 runner workspace 中生成、被 `.gitignore` 忽略；workflow 的 `Show coverage evidence` 步骤会把内容打印到日志。不要提交这个文件，也不要把它当 release evidence。
 
-```sh
-gh run list --workflow=heavy.yml --limit 50 --status completed \
-  --json conclusion \
-  --jq '[.[].conclusion]
-    | reduce .[] as $c ({streak: 0, stop: false};
-        if .stop or $c != "success" then .stop = true
-        else .streak += 1
-        end)
-    | .streak'
-```
+## gate 如何消费结果
 
-输出就是当前连续 green 次数；遇到第一个非 `success` 停止。若 streak 超过 50，提高 `--limit`。计数到 20 时，把 20 个 `databaseId`、`headBranch`、`createdAt` 记录下来，确认没有 failure/cancelled 混在中间。
+`publish-gate.mjs` 读取 head 上最新的 `heavy-gate` status 和 `heavy-gate-result` 的 JSON summary，并验证：
 
-## 达到 20 次后先验证 publisher
+- status 是 `success`，summary 的 `result` 是 `pass`；
+- summary head 等于当前 PR head；
+- `porcelain` 为空、`clean: true`，所有 blocking 命令退出码为 0；
+- base 同时是 head 和 current main 的祖先；
+- 用 base..head 重新计算的 diff SHA-256 与 summary 一致。
 
-`workflow_dispatch` 的 job check 不绑定 PR head，不能直接作为 required check。先确认存在一个受信任的 publisher，能在 PR head 上创建名为 `heavy-gate` 的 check：
+docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 docs-only 时 heavy workflow 只做 refresh、checkout、base、classify，不安装依赖、不跑测试、不发布 heavy 结果。任何一项不满足，`gate-artifact` 都会 blocked 并给出具名原因。`Heavy` workflow 完成后也会触发派生 gate 重算，避免 CI 先跑、heavy 后跑造成永久 pending。
 
-```sh
-gh api repos/leigangzhang/dsh-cowork/commits/<pr-head-sha>/check-runs \
-  --jq '.check_runs[] | select(.name == "heavy-gate")
-    | {name, app_id: .app.id, status, conclusion}'
-```
+## 判定绿色周期
 
-只有以下条件全部满足才继续：
+以下条件必须同时满足：
 
-- 测试 PR 的 head 上能看到 `heavy-gate`；
-- docs-only PR 也能得到明确的 `success`（`not-needed`）或策略允许的状态，不能因为 check 不存在而阻塞；
-- 新 commit 后旧 check 失效，新 head 会重新发布；
-- `app.id` 是实际发布者的 integration id。
-
-如果 publisher 还不存在，停在 manual-only，不要改 ruleset。
-
-## 加入 ruleset
-
-先备份当前 ruleset：
-
-```sh
-RULESET_ID="$(gh api repos/leigangzhang/dsh-cowork/rulesets \
-  --jq '.[] | select(.name == "main-pr-gate") | .id')"
-gh api "repos/leigangzhang/dsh-cowork/rulesets/$RULESET_ID" > /tmp/main-pr-gate.json
-```
-
-确认 publisher 的 integration id，再用 `jq` 追加 `heavy-gate`：
-
-```sh
-HEAVY_APP_ID=15368   # 替换为 publisher 的 app.id
-jq --argjson app "$HEAVY_APP_ID" '
-  .rules |= map(
-    if .type == "required_status_checks"
-    then .parameters.required_status_checks |=
-      (if any(.[]; .context == "heavy-gate")
-       then .
-       else . + [{"context": "heavy-gate", "integration_id": $app}]
-       end)
-    else . end
-  )
-' /tmp/main-pr-gate.json > /tmp/main-pr-gate-heavy.json
-
-diff -u /tmp/main-pr-gate.json /tmp/main-pr-gate-heavy.json
-```
-
-确认 diff 只增加 `heavy-gate` 后应用：
-
-```sh
-gh api --method PUT \
-  "repos/leigangzhang/dsh-cowork/rulesets/$RULESET_ID" \
-  --input /tmp/main-pr-gate-heavy.json
-```
-
-验证：
-
-```sh
-gh api "repos/leigangzhang/dsh-cowork/rulesets/$RULESET_ID" \
-  --jq '.rules[] | select(.type == "required_status_checks")
-    | .parameters.required_status_checks'
-```
+- 运行是 `success`，且 `heavy-gate` 在同一个 `HEAD_SHA` 上发布 `state: success`；
+- `heavy-gate-result` 是 `success`，其 summary 可以被 gate 解析并通过上面的身份检查；
+- 所有 blocking 命令退出码为 0；`e2e-bash` 可以非 0，但必须作为 observational 结果保留；
+- `base` 仍是 head 的祖先，`currentMain` 已记录；
+- 新 commit 后旧 status 不能沿用，必须自动或手动重新产生。
 
 ## 回滚
 
-恢复备份即可：
+因为 `heavy-gate` 不在 ruleset 中，回滚不需要改规则：
 
-```sh
-gh api --method PUT \
-  "repos/leigangzhang/dsh-cowork/rulesets/$RULESET_ID" \
-  --input /tmp/main-pr-gate.json
-```
-
-回滚后确认 `heavy-gate` 已从 required checks 消失。不要用删除 ruleset 作为常规回滚，除非同时准备好恢复 `pr-gate` 和 `gate-artifact`。
+1. 回退 `.github/workflows/heavy.yml`、`.github/workflows/gate-artifact-v2.yml`、`scripts/ci/publish-gate.mjs`、`scripts/ci/publish-heavy.mjs` 或相关测试；
+2. 在同一 head 上重新运行 publisher 会原地覆盖 `heavy-gate` status；
+3. 如果只需撤销某个错误状态，重新 dispatch 该 head，不要删除 ruleset。
 
 ## 常见错误
 
-- **把 20 次 total success 当成连续 20 次**：必须从最新一次往回数，中间有 failure 就重置。
-- **publisher 未覆盖 docs-only PR**：required check 缺失会阻塞所有 PR；先验证 `not-needed` 策略。
-- **直接把 workflow_dispatch 的 job check 加进 ruleset**：它不是 PR head 状态，会让所有 PR 一直等待。
-- **使用错误 integration id**：同名 check 可能来自其他集成；用实际 `check_runs[].app.id`。
-- **只验证 source PR，不验证新 commit**：新 head 必须重新发布 `heavy-gate`，否则证据会过期。
+- **把 job 绿色当成 heavy 绿色**：测试失败时 publisher 仍可能发布一个失败 state；job 退出码和 status 是两件事。
+- **把 `heavy-gate` 加进 ruleset**：它会变成所有 PR 的无条件 required check，违背 docs-only 豁免和单 required context 设计。
+- **依赖旧 head 的绿色结果**：新 commit 没有 `heavy-gate`，gate 会 blocked；必须重新运行。
+- **只看 commit status 不看 result check**：status 是粗粒度裁决，base/diff/porcelain 身份在 `heavy-gate-result` summary 中。
+- **工作区不干净**：runner 上的未跟踪文件会进入 `porcelain`，publisher 必须发布 failure。
+- **让 PR checkout 执行 publisher**：分支可以改写 `publish-heavy.mjs` 来伪造 success；publisher、pre-run 身份记录和 classifier 必须从可信 main 树的临时导出执行。
+- **在默认分支还没有新 workflow 时期待自动触发**：`workflow_run` 使用默认分支上的 workflow 文件；合并前只能手动 dispatch。

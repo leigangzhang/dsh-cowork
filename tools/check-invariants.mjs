@@ -28,6 +28,7 @@ import {
   selectChecks,
   selfTest as engineSelfTest,
 } from './doc-gate-engine.mjs'
+import { browserFloorFileProblems, coverageContractProblems } from './coverage-gaps.mjs'
 import { collectSurfaceKeys, e2eEvidenceProblems, e2eManifestProblems } from './e2e-coverage.mjs'
 import { catalogSha256 } from '../tests/e2e/support/catalog.mjs'
 
@@ -682,6 +683,22 @@ function projectSelfTest() {
   const cases = [
     ...e2eSelfTestCases(),
     {
+      name: 'coverage contract: a browser-owned TSX without a reviewed floor is red',
+      fail: () => browserFloorFileProblems(
+        { version: 1, files: {} },
+        new Map([['src/client/new.tsx', { lane: 'browser' }]]),
+        { path: 'floors.json', blocked: {} },
+      ).failures.some((error) => error.includes('reviewed browser floors are missing src/client/new.tsx')),
+    },
+    {
+      name: 'coverage contract: a malformed floor value is red',
+      fail: () => browserFloorFileProblems(
+        { version: 1, files: { 'src/client/new.tsx': { lineCoverage: 101 } } },
+        new Map([['src/client/new.tsx', { lane: 'browser' }]]),
+        { path: 'floors.json', blocked: {} },
+      ).failures.some((error) => error.includes('must be a number in 0..100')),
+    },
+    {
       name: 'implemented record without alternatives',
       fail: () => noteErrors(
         '.agents/notes/implemented/architecture/2026-01-01-x.md',
@@ -937,6 +954,14 @@ if (!args.changed) {
     violations += catalogErrors.length
   } else {
     console.log('PASS e2e-catalog')
+  }
+  const coverageContractErrors = coverageContractProblems(root)
+  if (coverageContractErrors.length > 0) {
+    console.log('FAIL coverage-contract')
+    for (const error of coverageContractErrors) console.log(`  ${error}`)
+    violations += coverageContractErrors.length
+  } else {
+    console.log('PASS coverage-contract')
   }
 }
 

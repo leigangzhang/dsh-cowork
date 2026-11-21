@@ -100,12 +100,14 @@
         "scripts/evidence/browser-evidence.mjs",
         "scripts/evidence/client-coverage.mjs",
         "scripts/evidence/dsh-host-session.mjs",
-        "scripts/evidence/evidence-sanitize.mjs"
+        "scripts/evidence/evidence-sanitize.mjs",
+        "tools/coverage-gaps.mjs"
       ],
       "evidence": [
         "npm run build",
         "npm run test:browser",
         "npm run test:coverage:layered -- --base <verified-base>",
+        "npm run coverage:gaps -- --base <verified-base>",
         "npm run check"
       ],
       "why": "The installed client bundle and the real host sidebar are the only honest place to execute React TSX and panel interactions. The standalone lane is diagnostic; the layered command binds both lanes to one artifact and applies the reviewed per-file floors in tools/coverage-browser-floors.json, so a missing lane, a page error, a missing host or Chromium, or a file below its floor is red before delivery."

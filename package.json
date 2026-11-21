@@ -47,6 +47,7 @@
     "test:coverage": "node scripts/evidence/test-coverage.mjs",
     "test:coverage:layered": "node scripts/evidence/coverage-layered.mjs",
     "coverage:check": "node scripts/evidence/coverage-check.mjs",
+    "coverage:gaps": "node tools/coverage-gaps.mjs",
     "test:host-smoke": "node scripts/evidence/host-smoke.mjs",
     "test:e2e": "node scripts/evidence/e2e.mjs",
     "test:e2e:live": "node scripts/evidence/e2e.mjs --mode live",

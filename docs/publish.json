@@ -56,7 +56,7 @@
     },
     {
       "pattern": "docs/heavy-runner.md",
-      "reason": "maintainer runbook for the local heavy runner: manual dispatch, consecutive-green counting, and ruleset rollout; not user-facing guidance"
+      "reason": "maintainer runbook for the local heavy runner: automatic and manual triggers, head-bound result checks, derived-gate consumption, and rollback; not user-facing guidance"
     },
     {
       "pattern": "docs/design/*",

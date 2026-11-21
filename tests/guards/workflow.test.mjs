@@ -98,7 +98,7 @@ function assertKinds(kinds) {
 }
 
 function assertPackageScripts(pkg) {
-  for (const script of ['test', 'test:browser', 'test:coverage', 'test:host-smoke', 'check:clean', 'change-scope', 'typecheck', 'build']) {
+  for (const script of ['test', 'test:browser', 'test:coverage', 'test:host-smoke', 'coverage:gaps', 'check:clean', 'change-scope', 'typecheck', 'build']) {
     assert.equal(typeof pkg.scripts?.[script], 'string', `package.json is missing script ${script}`)
   }
 }
@@ -122,6 +122,8 @@ function assertBrowserSurface(workflow) {
   assert.ok(browser.patterns.includes('src/client/**/*.tsx'), 'the browser surface must own TSX')
   assert.ok(browser.evidence.includes('npm run test:browser'), 'browser evidence is missing the lane command')
   assert.ok(browser.evidence.includes('npm run test:coverage:layered -- --base <verified-base>'), 'browser evidence is missing the layered command')
+  assert.ok(browser.evidence.includes('npm run coverage:gaps -- --base <verified-base>'), 'browser evidence is missing the gap report')
+  assert.ok(browser.patterns.includes('tools/coverage-gaps.mjs'), 'the browser surface must own the gap report tool')
   assert.ok(existsSync(resolve(root, 'tools/coverage-browser-floors.json')), 'a blocking browser surface needs reviewed per-file floors')
 }
 

@@ -25,16 +25,16 @@
 | 默认分支 | `main` |
 | 分支约定 | 一个工作流使用一个 `agent/<topic>` 分支；GitHub 不强制分支名 |
 | 合并方式 | 人工合并提交（merge commit）；不使用 merge queue |
-| 合并前必需检查 | 当前 `main` ruleset 要求 `pr-gate`（check run）和 `gate-artifact`（commit status，GitHub Actions 来源）。`gate-artifact` 只由 `Policy V2` 发布；block mode 用 v2 + `pre-merge` 校验。`gate-artifact-v2` 是非 required 的展示 check |
+| 合并前必需检查 | 当前 `main` ruleset 要求 `pr-gate`（check run）和 `gate-artifact`（commit status，GitHub Actions 来源）。`gate-artifact` 只由 `Policy V2` 发布；block mode 用 v2 + `pre-merge` + 非 docs 的 `heavy-gate` 身份校验。`gate-artifact-v2` 是非 required 的展示 check |
 | GitHub 自动测试 | `pr-gate` 的 docs lane 运行 `check`；非 docs 改动再运行 `test:coverage`。`npm test` 不再在 `pr-gate` 中重复执行 |
 | 合并结果测试 | `Pre-Merge` 在 `pull_request_target` 中把当前 `main` 合到 PR HEAD，运行路径相关检查，并发布 `pre-merge` 检查 |
 | Base 前进 | 不更新 PR 分支；`Policy Base` 把旧 `gate-artifact` 写成 `pending`，并把 `gate-artifact-v2` 标成 `action_required`，维护者给 PR 加 `recheck` 标签后重新运行 pre-merge |
-| 本机扩展测试 | `heavy-gate` 手动运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash |
+| 本机扩展测试 | 同仓库 `agent/*` PR 在 CI 成功后自动运行，维护者也可加 `heavy` label 或手动 dispatch；docs-only head 在安装依赖前结束，其他 head 运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash，并从可信 main 树发布 `heavy-gate` 身份和 `heavy-result.json` |
 | E2E 证据 | `npm run test:e2e -- --record` 在干净工作区录制；`docs/**` 和 `README.md` 的后续改动不会使证据失效；`test:e2e:live` 和 `test:e2e:bash` 只做观测 |
 | 代码审查 | 独立 review 给出 `review-verdict:v2`；required `gate-artifact` 在 report mode 校验 legacy 身份，在 block mode 校验 v2 + pre-merge |
 | 自动发布 | 无；详见第 7 节 |
 
-**当前状态（2026-11-19）：** block mode 已激活（`MERGE_POLICY_MODE=block`）。publisher `publish-gate.mjs` 已在 `main`，旧 `gate-artifact.yml` 已删除。required `gate-artifact` 由 `Policy V2` 写成 commit status；`gate-artifact-v2` 是非 required 的展示 check。ruleset 已移除 strict up-to-date。publisher 在 blocked 决策下保持 job success，由 required status 表达状态。详见 §4.7 和 §4.8。
+**当前状态（2026-11-20）：** block mode 已激活（`MERGE_POLICY_MODE=block`）。publisher `publish-gate.mjs` 已在 `main`，旧 `gate-artifact.yml` 已删除。required `gate-artifact` 由 `Policy V2` 写成 commit status；block mode 对非 docs PR 同时校验 head-bound `heavy-gate` 身份，docs-only 豁免。`Heavy` 完成后会触发派生 gate 重算；ruleset 仍只要求 `gate-artifact`。`gate-artifact-v2` 是非 required 的展示 check。publisher 在 blocked 决策下保持 job success，由 required status 表达状态。详见 §4.7 和 §4.8。
 
 **待验证（2026-11-19）：** status-only ruleset acceptance 尚未在合并后的 Policy V2 run 上验证。首个合并后运行应确认 `gate-artifact` status 的 creator 是 `github-actions[bot]`，且 merge box 接受它；在此之前不要把这条当作已验证事实。
 
@@ -69,22 +69,22 @@ flowchart TD
   N -- 是 --> O["维护者核对后人工 merge commit"]
   O --> R["main 增加合并提交，来源分支自动删除"]
 
-  D -. 需要本机环境时手动运行测试 .-> X["Heavy / heavy-gate<br/>当前不参与合并判定"]
+  F -. 同仓库 agent/* PR 自动触发 .-> X["Heavy / heavy-gate<br/>发布 head-bound 结果；非 docs 的 gate-artifact 消费它"]
 ```
 
 图 1 把 review 和测试拆成两个身份：PR HEAD 上的 review 绑定作者改动；pre-merge 绑定当前 main 的临时合并结果。`main` 前进不会改变 PR HEAD，也不会自动让 review 失效；旧 `gate-artifact` 会被标成 stale，重新运行 pre-merge 后再由派生 gate 重算。
 
-### 3.1 三个自动检查
+### 3.1 自动检查与展示
 
 | 检查 | 触发方式 | 运行位置 | 是否阻止合并 | 测试和审查范围 |
 |---|---|---|---|---|
 | `CI / pr-gate` | PR 创建或更新，目标为 `main` | GitHub 提供的 Ubuntu 运行器 | 是 | `docs-check` 始终运行 `npm run check`；非 docs 改动再运行 `npm run test:coverage`。不运行 `npm test`、`typecheck`、`build`、host smoke、browser 或分层覆盖率 |
 | `Pre-Merge / pre-merge` | PR 创建、更新、ready 或 `recheck` 标签 | GitHub 提供的 Ubuntu 运行器；`pull_request_target` | 否，供派生 gate 使用 | 把当前 `main` merge 到 PR HEAD，在临时合并结果上运行 `check` 和按路径选择的 coverage |
-| `Policy V2 / policy-gate` | PR 更新、review 事件、CI/Pre-Merge 完成 | GitHub 提供的 Ubuntu 运行器；从受信任的 `main` 执行脚本 | 是；由它发布唯一 required `gate-artifact` commit status | report mode 校验 legacy review、`pr-gate`、main ancestor；block mode 校验 v2 review、`pre-merge`、metadata 和 reviewed paths |
+| `Policy V2 / policy-gate` | PR 更新、review 事件、CI/Pre-Merge/Heavy 完成 | GitHub 提供的 Ubuntu 运行器；从受信任的 `main` 执行脚本 | 是；由它发布唯一 required `gate-artifact` commit status | report mode 校验 legacy review、`pr-gate`、main ancestor；block mode 校验 v2 review、`pre-merge`、非 docs 的 heavy 身份、metadata 和 reviewed paths；docs-only 豁免 heavy |
 | `gate-artifact-v2`（display check） | 同一 Policy V2 运行 | 同上 | 否，永不加入 required checks | 镜像 required 决策；report mode 同时记录 v2 would-fail 原因 |
-| `Heavy / heavy-gate` | 有写权限的人手动启动 | 标记为 `self-hosted, heavy` 的本机运行器 | 否 | 运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash；不审查代码 |
+| `Heavy / heavy-gate` | 同仓库 `agent/*` PR 的 CI 成功后自动触发；`heavy` label 或 `workflow_dispatch` 也可触发 | 标记为 `self-hosted, heavy` 的本机运行器；fork PR 跳过；docs-only head 只做分类 | 仅作为 `gate-artifact` 的输入；非 docs PR 缺少有效 heavy 会 blocked | 非 docs head 运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash；从可信 main 树发布 head-bound `heavy-gate` 状态和 `heavy-result.json`；不审查代码 |
 
-`gate-artifact-v2` 只做展示，永不加入 required checks。required context 始终是 `gate-artifact`，由 commit status 承载：report mode 用 legacy 校验，block mode 用 v2 + pre-merge 校验。commit status 按 context 原地覆盖，因此重复运行不会在同一 head 上留下多个同名 required check。切换到 block mode 前，必须先验证 `pre-merge` 能稳定发布当前 base，且 base-recheck 能把旧绿色 gate 标成 stale。
+`gate-artifact-v2` 只做展示，永不加入 required checks。required context 始终是 `gate-artifact`，由 commit status 承载：report mode 用 legacy 校验，block mode 用 v2 + pre-merge + 非 docs 的 heavy 身份校验。commit status 按 context 原地覆盖，因此重复运行不会在同一 head 上留下多个同名 required check。切换到 block mode 前，必须先验证 `pre-merge` 能稳定发布当前 base，且 base-recheck 能把旧绿色 gate 标成 stale。
 
 `pr-gate` 变绿只表示它选中的 hosted 命令在当前提交上运行成功，不表示所有行为都已被测试覆盖。测试是否覆盖了目标行为、断言是否验证外部结果，仍要由审查者检查。
 
@@ -117,9 +117,9 @@ sequenceDiagram
   PM-->>G: pre-merge check
   C-->>A: 失败时返回日志
   opt 改动需要本机环境
-    A->>H: 手动 workflow_dispatch
+    C->>H: 同仓库 agent/* PR 成功后 workflow_run
     H->>H: typecheck、build、host smoke、分层覆盖率、keyless E2E、host-bash
-    H-->>A: 本机测试结果
+    H-->>G: head-bound heavy-gate 结果
   end
   opt 版本或 E2E 范围变化
     A->>E: npm run test:e2e -- --record
@@ -128,8 +128,8 @@ sequenceDiagram
   A->>R: 请求审查，并提供测试证据
   R->>R: 读需求、差异和测试设计；核对断言和 E2E 证据；必要时复跑
   R->>G: 对 PR 当前提交给出 review-verdict:v2
-  G->>P: PR/review/CI/pre-merge 事件触发
-  P->>P: 校验 review、pr-gate、pre-merge、metadata 和 reviewed paths
+  G->>P: PR/review/CI/pre-merge/heavy 事件触发
+  P->>P: 校验 review、pr-gate、pre-merge、heavy 身份、metadata 和 reviewed paths
   P-->>G: required gate-artifact 结果
   M->>G: 核对测试证据、审查结果和规则后人工 merge commit
 ```
@@ -185,9 +185,9 @@ flowchart LR
 | `pr-gate` | docs 改动运行 `check`；非 docs 改动再运行 `test:coverage` | 不审查代码和测试质量 | GitHub check 结果和运行日志 | 是 |
 | `pre-merge` | 把当前 `main` merge 到 PR HEAD，运行路径选择的测试 | 不审查代码 | `pre-merge` 检查的 JSON summary | report mode 否；block mode 供 gate 使用 |
 | 独立审查 | 审查者读测试设计，核对断言和证据，并按改动范围复跑针对性检查 | 给出审查意见或 pass 结论；实现者不能做最终审查 | PR review 评论和 `review-verdict:v2` | review 标记和对话解决是；测试是否实际复跑不是 |
-| `heavy-gate` | 手动运行 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash | 不审查代码 | workflow 日志；PR 的 `Not run` | 否 |
+| `heavy-gate` | 同仓库 `agent/*` PR 在 CI 后自动运行；label 或手动 dispatch 可补跑 `typecheck`、`build`、host smoke、分层覆盖率、keyless E2E 和 host-bash；host-bash 只作观测 | 不审查代码 | 目标 head 上的 `heavy-gate` commit status、`heavy-gate-result` display check、`heavy-result.json`、workflow 日志；PR 的 `Not run` | 间接：非 docs 的 `gate-artifact` 消费它 |
 | 本机 E2E | heavy 运行 keyless E2E；版本或 E2E 范围变化时，作者另外用 `--record` 录制证据；host-bash 只作观测 | 审查者核对场景清单和证据 | `tests/e2e/evidence/<version>.json`；PR 的 `Testing`、`Not run` | 否；`npm run check` 校验清单和证据 |
-| `gate-artifact` | 不运行测试 | report mode 校验 legacy review、`pr-gate`、main ancestor；block mode 校验 review v2、`pr-gate`、当前 base 的 `pre-merge`、PR metadata 和 reviewed paths | GitHub commit status | 是 |
+| `gate-artifact` | 不运行测试 | report mode 校验 legacy review、`pr-gate`、main ancestor；block mode 校验 review v2、`pr-gate`、当前 base 的 `pre-merge`、非 docs 的 heavy 身份、PR metadata 和 reviewed paths | GitHub commit status | 是 |
 | `gate-artifact-v2` | 不运行测试 | 镜像 required 决策；report mode 同时给出 v2 advisory 结果 | GitHub check run | 否，永不 required |
 
 测试范围由改动路径决定。文档改动运行 `npm run check`；源码、测试、客户端、打包和覆盖率策略改动要按 [tools/workflow.json](../tools/workflow.json) 与 [testing.md](testing.md) 选择对应测试。版本或 E2E 范围变化还要运行 `npm run test:e2e`，并在干净工作区用 `--record` 更新当前版本的证据。heavy 会运行 keyless E2E 和 host-bash，但不负责写版本证据；正式证据仍要单独录制。E2E 证据绑定录制时的提交；`docs/**` 和 `README.md` 的后续改动不再使证据失效，其他文件变化仍会要求重新录制。不要把“本地测试通过”写成 `pr-gate` 通过，也不要把 `pr-gate` 通过写成“测试范围内所有行为都已覆盖”。
@@ -232,7 +232,7 @@ npm run change-scope -- --base origin/main
 > - **源码和测试改动按 [testing.md](testing.md) 选择单元测试、覆盖率和相关检查；**
 > - **客户端、打包、构建或 host 相关改动还要在具备环境时运行 browser、host smoke 或分层覆盖率；**
 > - **版本或 E2E 范围变化要按 [testing.md](testing.md) 运行 `npm run test:e2e`，并在干净工作区更新当前版本的证据；**
-> - **需要本机 DSH 环境、Chromium 或 bash sandbox 的测试，当前通过 heavy 本机测试手动运行；其中 host-bash 和 `test:e2e:live` 只作观测，不能替代 keyless E2E 证据。**
+> - **需要本机 DSH 环境、Chromium 或 bash sandbox 的测试由 heavy 运行：同仓库 `agent/*` PR 自动触发，其他同仓库 PR 用 `heavy` label 或手动 dispatch；其中 host-bash 和 `test:e2e:live` 只作观测，不能替代 keyless E2E 证据。**
 
 **测试失败时先修复或补测试，不要通过放宽断言、跳过测试或删除覆盖来变绿。无法运行时，要在 PR 里写明原因，不能写成通过。**
 
@@ -321,7 +321,7 @@ publisher job 的 display name 是 `pre-merge-publish`，不能与它发布的 `
 
 ### 4.7 `gate-artifact`：commit status + 展示 check
 
-派生 gate 在 `.github/workflows/gate-artifact-v2.yml` 中运行，从受信任的 `main` 检出脚本，不执行 PR 代码。required context 是 `gate-artifact` commit status；同一个 publisher 另发非 required 的 `gate-artifact-v2` 展示 check。transport 从 check run 改为 commit status 的原因和取舍见[决策记录](../.agents/notes/implemented/process/2026-11-19-gate-artifact-commit-status.md)。它监听 PR 更新、review 事件，以及 `CI`/`Pre-Merge` 完成事件，因此 review 早于 CI 不会永久卡住。对同一个仓库的分支，`workflow_run.pull_requests` 直接给出 PR；fork PR 该字段可能为空，workflow 会用 `head_sha` 查唯一 open PR，无法唯一解析时 fail closed。当前流程默认使用同仓库的 `agent/<topic>` 分支；fork PR 需要先转成同仓库分支。
+派生 gate 在 `.github/workflows/gate-artifact-v2.yml` 中运行，从受信任的 `main` 检出脚本，不执行 PR 代码。required context 是 `gate-artifact` commit status；同一个 publisher 另发非 required 的 `gate-artifact-v2` 展示 check。transport 从 check run 改为 commit status 的原因和取舍见[决策记录](../.agents/notes/implemented/process/2026-11-19-gate-artifact-commit-status.md)。它监听 PR 更新、review 事件，以及 `CI`/`Pre-Merge`/`Heavy` 完成事件，因此 review 早于 CI 或 heavy 晚于 CI 都不会永久卡住。对同一个仓库的分支，`workflow_run.pull_requests` 直接给出 PR；fork PR 该字段可能为空，workflow 会用 `head_sha` 查唯一 open PR，无法唯一解析时 fail closed。当前流程默认使用同仓库的 `agent/<topic>` 分支；fork PR 需要先转成同仓库分支。
 
 它检查：
 
@@ -383,7 +383,7 @@ publisher 在评估前先把 `gate-artifact` 写成 `pending`，再用 `success`
 
 ## 5. Heavy 本机测试
 
-`Heavy` workflow 是独立的本机测试流程，不会在 PR 创建或更新时自动运行。它只接受 `workflow_dispatch`，运行在标签为 `self-hosted` 和 `heavy` 的机器上，主要步骤是：
+`Heavy` workflow 在本机运行，有三个入口：同仓库 `agent/*` PR 的 CI 成功后由 `workflow_run` 自动触发；维护者给同仓库 PR 加 `heavy` label；有写权限的人手动 `workflow_dispatch`。fork PR 不进入 self-hosted job。主要步骤是：
 
 ```text
 npm ci
@@ -391,25 +391,20 @@ npx playwright install chromium
 npm run typecheck
 npm run build
 DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke
-npm run test:coverage:layered -- --base origin/<base>
+npm run test:coverage:layered -- --base <resolved-base>
 npm run test:e2e
 npm run test:e2e:bash
 ```
 
-workflow 会从 `repo_path` 指向的本地仓库目录克隆 `$GITHUB_SHA`，检查 Node 是否匹配 `.node-version`，并使用临时环境运行。默认 `repo_path` 是维护者本机路径，换机器时要显式传入正确路径。
+workflow 从 `repo_path` 指向的本地仓库 clone 目标 `HEAD_SHA`；先从该仓库刷新 `refs/remotes/origin/*` 并记录当前 main SHA。手动传 base 时在同一个本地仓库解析该分支/SHA，未传时使用刷新后的 main 与 head 的 merge-base。base 会解析成一个固定 SHA，贯穿 pre-run identity、layered coverage 和 publisher。workflow 另外把 `refs/remotes/origin/main` 导出到临时目录，docs-only classifier、pre-run identity 记录和 publisher 都从这份可信 main 树执行；PR checkout 只运行测试和提供 git 数据。首次合入前 main 还没有这些脚本，手动 dispatch 可以用 `trusted_ref` 显式选择一个已审阅的 ref 作为 bootstrap；自动触发没有该输入，始终使用默认分支。
 
-`heavy-gate` 覆盖 `typecheck`、构建、打包后 host smoke、分层覆盖率、keyless E2E 和主机 bash 检查。它不运行 `pr-gate`，不审查代码，也不判断测试断言是否有效。它不能替代 `pr-gate`；`pr-gate` 也不能替代它。需要本机 DSH 环境、Chromium 或 bash sandbox 才能发现的构建、加载和浏览器问题，只能由 heavy 本机测试或等价的真实环境提供证据。
+每条命令的退出码写入临时 JSONL，最后的 publisher 重新计算 `base..HEAD` 的 gate artifact，与运行前捕获的身份比较，读取当前 `main`，写出 gitignored 的 `heavy-result.json`，并在目标 head 上发布 `heavy-gate` commit status 与 `heavy-gate-result` display check。结果文件记录 head、base、current main、diff SHA-256、porcelain 和每个命令的退出码。工作区脏、head/diff 不匹配、base 不再是 head 的祖先、packaging/runtime 阻塞命令缺失或失败时，状态是 failure；host-bash 的失败只记录、不阻断。可信 classifier 判断为 docs-only 时，workflow 在安装依赖前结束，不占用完整 heavy lane。
 
-E2E 在 heavy 中运行 `npm run test:e2e` 和观测性的 `npm run test:e2e:bash`；版本或 E2E 范围变化时，作者还要在干净工作区用 `npm run test:e2e -- --record` 录制当前版本的证据。keyless E2E 的当前版本证据由 `npm run check` 校验；`test:e2e:live` 和 host-bash 只作观测。
+`gate-artifact` 在非 docs PR 上读取同一 head 的 `heavy-gate` success 和 `heavy-gate-result` summary，校验 base 同时是 head 与 current main 的祖先、diff SHA 匹配、worktree clean、blocking 命令全绿。docs-only PR 豁免 heavy。`Heavy` 完成后也会触发派生 gate 重算，避免 CI 先完成、heavy 后完成造成永久 blocked。ruleset 仍只要求 `gate-artifact`，不直接要求 `heavy-gate`。
 
-审查者可以引用在目标提交上运行的 heavy 结果，但必须核对提交、命令和日志；如果 heavy 没有在目标提交上运行，就按 `Not run` 处理，不能引用在 `main` 或其他提交上的结果。
+`heavy-gate` 覆盖 `typecheck`、构建、打包后 host smoke、分层覆盖率、keyless E2E 和主机 bash 检查。它不运行 `pr-gate`，不审查代码，也不判断测试断言是否有效。需要本机 DSH 环境、Chromium 或 bash sandbox 才能发现的构建、加载和浏览器问题，只能由 heavy 本机测试或等价的真实环境提供证据。
 
-当前 `heavy-gate` 不是 PR 当前提交上的必需检查，也不能拿一次在 `main` 上的运行结果证明某个 PR。它要成为必需检查，需要先满足两个条件：
-
-1. 连续 20 次没有基础设施失败的 green 运行；
-2. 有一个能在 PR 当前提交上发布 `heavy-gate` check 的受信任机制。
-
-计数、升级和回滚步骤见 [heavy-runner.md](heavy-runner.md)。在它成为必需检查前，PR 的 `Not run` 必须如实列出没有运行的 heavy 检查。
+E2E 在 heavy 中运行 `npm run test:e2e` 和观测性的 `npm run test:e2e:bash`；版本或 E2E 范围变化时，作者还要在干净工作区用 `npm run test:e2e -- --record` 录制当前版本的证据。keyless E2E 的当前版本证据由 `npm run check` 校验；`test:e2e:live` 和 host-bash 只作观测。审查者引用 heavy 结果时，要核对 status 绑定的 head、base、current main、diff、命令退出码和日志；不能引用在 `main`、其他提交或另一个 diff 上的结果。触发、观察和回滚步骤见 [heavy-runner.md](heavy-runner.md)。
 
 ## 6. 合并前检查清单
 
@@ -507,12 +502,12 @@ stateDiagram-v2
 | 挑战 | 当前影响 | 可以做的处理 |
 |---|---|---|
 | 批准数为 0，独立审查是程序性要求 | GitHub 不会强制第二个账号批准；派生 gate 只校验 marker、提交、diff 和检查状态，不能证明审查者确实独立，也不能证明审查者运行了测试 | 坚持实现者不担任最终审查者；审查使用新上下文和只读方式；维护者合并前读 review 内容；对高风险改动增加独立验证 |
-| `pr-gate` 只运行 docs check 或 coverage lane | 类型检查、构建、host smoke、browser 和分层覆盖率可能没有在 PR 提交上运行 | 在需要的提交上手动运行 heavy 本机测试；PR 的 `Not run` 写清原因；满足稳定性条件后再把 heavy 检查升级为必需检查 |
+| `pr-gate` 只运行 docs check 或 coverage lane | 类型检查、构建、host smoke、browser 和分层覆盖率由 heavy 补充；runner 离线时非 docs gate 会等 heavy | 同仓库 agent PR 自动触发，必要时加 `heavy` label 或手动 dispatch；核对目标 head 的 status 和 identity；PR 的 `Not run` 写清原因 |
 | 测试通过不等于行为被覆盖 | 逐文件行覆盖率可以通过，但断言可能只检查实现细节，或者没有覆盖用户可见结果 | 审查者检查测试是否会在修复前失败、是否验证外部结果；维护者不要把覆盖率当成行为覆盖率的替代品 |
 | `review-verdict` 没有测试记录字段 | 审查标记只记录提交、base、diff、结论、审查者和模型，派生 gate 无法判断审查者是否运行过测试 | 审查者在 review 正文写实际运行命令和结论；维护者阅读 review；高风险改动使用 AgentTeams 独立验证；需要更强保证时再增加机器可校验的测试证据 |
 | PR 正文校验只检查四个一级标题 | `Testing` 和 `Evidence` 可能内容缺失或与当前提交不一致，派生 gate 不会判断文字是否真实 | 审查者对照实际命令和日志检查；维护者合并前阅读 PR；需要更强保证时增加可执行的内容校验 |
-| `heavy-gate` 不是必需检查 | 类型检查、构建、host smoke、分层覆盖率、keyless E2E 和 host-bash 可能在合并前没有运行 | 在需要的提交上手动运行；PR 的 `Not run` 写清原因；满足 20 次 green 和 PR 提交发布检查的条件后再升级 |
-| E2E 不在 GitHub 托管运行 | `pr-gate` 只读取 E2E 清单和证据，不重新运行场景；heavy 是本机手动流程，当前也不是必需检查；本地录制环境和 DSH 版本仍可能和审查者预期不同 | E2E 变化或版本变化时在目标提交上运行 `npm run test:e2e` 并更新证据；审查者核对证据；`test:e2e:live` 和 host-bash 只作观测 |
+| `heavy-gate` 不是 ruleset required context | 它是 `gate-artifact` 的输入，而不是第二个 required check；runner 离线或结果缺失会让非 docs PR blocked | 同仓库 agent PR 自动触发并核对 head-bound 身份；需要时手动 dispatch；不要把 `heavy-gate` 加进 ruleset |
+| E2E 不在 GitHub 托管运行 | `pr-gate` 只读取 E2E 清单和证据，不重新运行场景；heavy 在本机运行并作为非 docs gate 输入；本地录制环境和 DSH 版本仍可能和审查者预期不同 | heavy 自动运行 keyless E2E；版本或 E2E 范围变化时在目标提交上运行 `npm run test:e2e -- --record` 并更新证据；审查者核对证据；`test:e2e:live` 和 host-bash 只作观测 |
 | E2E 证据绑定运行时变更 | 在证据提交之后修改运行时文件，`npm run check` 会失败并要求重新录制；`docs/**` 和 `README.md` 不触发重录 | 把 E2E 录制放在最后；运行时改动后重新运行 `npm run test:e2e -- --record`；不要手工修改证据头部来绕过检查 |
 | host-bash 依赖本机 bash sandbox | 环境不可用时不能产生结果，而且它只作观测，不能替代 keyless E2E 证据 | 在 PR 里写明观测结果或 `Not run`；不要用 host-bash 替代 keyless E2E 证据 |
 | 本地测试和 CI 测试的环境不同 | 本地通过可能在 GitHub 托管环境中失败，或者 CI 通过但本机打包和浏览器路径没有运行 | 以 `pr-gate` 作为 GitHub 环境的测试结果；需要真实 host 或浏览器的行为用 heavy 本机测试补证据；不要互相替代 |
