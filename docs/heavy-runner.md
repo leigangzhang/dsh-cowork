@@ -31,6 +31,8 @@ gh workflow run heavy.yml \
 
 `--ref` 决定手动运行的 `HEAD_SHA`。workflow 先从 `repo_path` 对应的 checkout fetch `refs/heads/*` 到 `refs/remotes/origin/*`，并记录 `refs/remotes/origin/main` 的 SHA；不传 `base` 时用这个 SHA 与 `HEAD_SHA` 的 merge-base，显式传 `-f base=<branch-or-sha>` 时在同一个 checkout 中解析成固定 SHA。`repo_path` 必须指向包含 `.git`、且 `origin` 指向仓库的本地 checkout；workflow 再从本地 clone 目标 head，不下载任何 action。这样自动触发的同仓库 PR head 不要求事先手工更新本地 checkout，base 也不会取到本地未刷新的 `main` 分支。
 
+publisher、pre-run 身份记录和 classifier 默认从 `refs/remotes/origin/main` 导出。首次合入前 `main` 还没有这些脚本；手动验证时可以用 `-f trusted_ref=<branch-or-sha>` 显式选择一个已审阅的 ref，这只影响 `workflow_dispatch`。自动触发没有该输入，始终使用默认分支。
+
 查看最近一次运行：
 
 ```sh

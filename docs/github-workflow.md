@@ -396,7 +396,7 @@ npm run test:e2e
 npm run test:e2e:bash
 ```
 
-workflow 从 `repo_path` 指向的本地仓库 clone 目标 `HEAD_SHA`；先从该仓库刷新 `refs/remotes/origin/*` 并记录当前 main SHA。手动传 base 时在同一个本地仓库解析该分支/SHA，未传时使用刷新后的 main 与 head 的 merge-base。base 会解析成一个固定 SHA，贯穿 pre-run identity、layered coverage 和 publisher。workflow 另外把 `refs/remotes/origin/main` 导出到临时目录，docs-only classifier、pre-run identity 记录和 publisher 都从这份可信 main 树执行；PR checkout 只运行测试和提供 git 数据。
+workflow 从 `repo_path` 指向的本地仓库 clone 目标 `HEAD_SHA`；先从该仓库刷新 `refs/remotes/origin/*` 并记录当前 main SHA。手动传 base 时在同一个本地仓库解析该分支/SHA，未传时使用刷新后的 main 与 head 的 merge-base。base 会解析成一个固定 SHA，贯穿 pre-run identity、layered coverage 和 publisher。workflow 另外把 `refs/remotes/origin/main` 导出到临时目录，docs-only classifier、pre-run identity 记录和 publisher 都从这份可信 main 树执行；PR checkout 只运行测试和提供 git 数据。首次合入前 main 还没有这些脚本，手动 dispatch 可以用 `trusted_ref` 显式选择一个已审阅的 ref 作为 bootstrap；自动触发没有该输入，始终使用默认分支。
 
 每条命令的退出码写入临时 JSONL，最后的 publisher 重新计算 `base..HEAD` 的 gate artifact，与运行前捕获的身份比较，读取当前 `main`，写出 gitignored 的 `heavy-result.json`，并在目标 head 上发布 `heavy-gate` commit status 与 `heavy-gate-result` display check。结果文件记录 head、base、current main、diff SHA-256、porcelain 和每个命令的退出码。工作区脏、head/diff 不匹配、base 不再是 head 的祖先、packaging/runtime 阻塞命令缺失或失败时，状态是 failure；host-bash 的失败只记录、不阻断。可信 classifier 判断为 docs-only 时，workflow 在安装依赖前结束，不占用完整 heavy lane。
 
