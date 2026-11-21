@@ -8,9 +8,12 @@
  * with `--mode live`, and is never part of the keyless release evidence.
  */
 
+import { liveScenarioTimeout, LIVE_TURN_TIMEOUT_MS } from '../support/lane-timeouts.mjs'
+
 export const liveMasterChainId = 'live-master-chain'
 
-const LIVE_TIMEOUT_MS = 300_000
+/** Two bounded turns: project init and topic routing; each owns its timeout. */
+export const timeoutMs = liveScenarioTimeout(2)
 
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
 export async function runLiveMasterChain(ctx) {
@@ -22,7 +25,7 @@ export async function runLiveMasterChain(ctx) {
   const initialized = await ctx.waitUntil('the live model to initialize the project', async () => {
     const index = await ctx.index()
     return index?.masterSessionId === masterId ? index : undefined
-  }, { timeoutMs: LIVE_TIMEOUT_MS })
+  }, { timeoutMs: LIVE_TURN_TIMEOUT_MS })
   ctx.check('the live model called cowork_project_init', initialized.masterSessionId === masterId, initialized.masterSessionId)
 
   await ctx.client.prompt(
@@ -32,7 +35,7 @@ export async function runLiveMasterChain(ctx) {
   const routed = await ctx.waitUntil('the live model to route the topic', async () => {
     const index = await ctx.index()
     return index !== undefined && index.topics.length > 0 ? index : undefined
-  }, { timeoutMs: LIVE_TIMEOUT_MS })
+  }, { timeoutMs: LIVE_TURN_TIMEOUT_MS })
   const topic = routed.topics[0]
   ctx.check('the live model created exactly one topic', routed.topics.length === 1, String(routed.topics.length))
   ctx.check('the routed topic is a real session id', typeof topic.topicId === 'string' && topic.topicId.startsWith('session-'), topic.topicId)

@@ -14,10 +14,16 @@
  */
 
 import { deflateSync } from 'node:zlib'
+import { liveScenarioTimeout, LIVE_TURN_TIMEOUT_MS } from '../support/lane-timeouts.mjs'
 
 export const liveArtifactChainId = 'live-artifact-chain'
 
-const LIVE_TIMEOUT_MS = 300_000
+/**
+ * Turns this scenario waits on: master init, README registration, routing, the
+ * routed topic's brief, PLAN registration, and one reply turn per dispatched
+ * batch. Each turn owns its timeout; the scenario budget grows with the count.
+ */
+export const timeoutMs = liveScenarioTimeout(7)
 const PROJECT_INIT_PROMPT = 'Call cowork_project_init exactly once with no arguments. Then stop.'
 
 /** CRC-32 for the PNG chunks this scenario builds. */
@@ -75,24 +81,24 @@ function redPng() {
 export async function runLiveArtifactChain(ctx) {
   const master = await ctx.client.createSession({ cwd: ctx.fixture.path, agentPreset: 'cowork-master' })
   const masterId = master.sessionId
-  await ctx.client.promptAndWait(masterId, PROJECT_INIT_PROMPT, { timeoutMs: LIVE_TIMEOUT_MS })
+  await ctx.client.promptAndWait(masterId, PROJECT_INIT_PROMPT, { timeoutMs: LIVE_TURN_TIMEOUT_MS })
   const initialized = await ctx.waitUntil('the live model to initialize the project', async () => {
     const index = await ctx.index()
     return index?.masterSessionId === masterId ? index : undefined
-  }, { timeoutMs: LIVE_TIMEOUT_MS })
+  }, { timeoutMs: LIVE_TURN_TIMEOUT_MS })
   ctx.check('the live model initialized the project', initialized.masterSessionId === masterId, initialized.masterSessionId)
 
   // Artifact 1: the master registers README.md.
   await ctx.client.promptAndWait(
     masterId,
     'Call cowork_artifact_create exactly once with these arguments (JSON): {"path":"README.md","title":"Live 工作项"} . Then stop.',
-    { timeoutMs: LIVE_TIMEOUT_MS },
+    { timeoutMs: LIVE_TURN_TIMEOUT_MS },
   )
   const masterList = await ctx.waitUntil('the live model to register README.md', async () => {
     const list = await ctx.client.panelGet(`/api/cowork.artifact.list?sessionId=${encodeURIComponent(masterId)}`)
     const item = list.body?.items?.find((entry) => entry.primaryPath === 'README.md')
     return item === undefined ? undefined : item
-  }, { timeoutMs: LIVE_TIMEOUT_MS })
+  }, { timeoutMs: LIVE_TURN_TIMEOUT_MS })
   const masterArtifact = masterList.artifactId
   ctx.check('the live model registered README.md', typeof masterArtifact === 'string' && masterArtifact !== '', masterArtifact)
 
@@ -100,26 +106,26 @@ export async function runLiveArtifactChain(ctx) {
   await ctx.client.promptAndWait(
     masterId,
     'Call cowork_route exactly once with these arguments (JSON): {"intent":"Measure live work-item delivery","brief":"Live artifact brief.","forceCreate":true}. Then stop.',
-    { timeoutMs: LIVE_TIMEOUT_MS },
+    { timeoutMs: LIVE_TURN_TIMEOUT_MS },
   )
   const routed = await ctx.waitUntil('the live model to route a topic', async () => {
     const index = await ctx.index()
     return index !== undefined && index.topics.length > 0 ? index : undefined
-  }, { timeoutMs: LIVE_TIMEOUT_MS })
+  }, { timeoutMs: LIVE_TURN_TIMEOUT_MS })
   const topicId = routed.topics[0].topicId
   ctx.check('the routed topic is a real session', typeof topicId === 'string' && topicId.startsWith('session-'), topicId)
-  await ctx.client.waitIdle(topicId, { timeoutMs: LIVE_TIMEOUT_MS })
+  await ctx.client.waitIdle(topicId, { timeoutMs: LIVE_TURN_TIMEOUT_MS })
 
   await ctx.client.promptAndWait(
     topicId,
     'Call cowork_artifact_create exactly once with these arguments (JSON): {"path":"PLAN.md","title":"Live topic 工作项"} . Then stop.',
-    { timeoutMs: LIVE_TIMEOUT_MS },
+    { timeoutMs: LIVE_TURN_TIMEOUT_MS },
   )
   const topicList = await ctx.waitUntil('the topic to register PLAN.md', async () => {
     const list = await ctx.client.panelGet(`/api/cowork.artifact.list?sessionId=${encodeURIComponent(topicId)}`)
     const item = list.body?.items?.find((entry) => entry.primaryPath === 'PLAN.md')
     return item === undefined ? undefined : item
-  }, { timeoutMs: LIVE_TIMEOUT_MS })
+  }, { timeoutMs: LIVE_TURN_TIMEOUT_MS })
   const topicArtifact = topicList.artifactId
   const topicOwner = topicList.ownerSessionId
   ctx.check('the topic registered PLAN.md and owns it', topicOwner === topicId, `${String(topicOwner)}/${String(topicId)}`)
@@ -168,7 +174,7 @@ export async function runLiveArtifactChain(ctx) {
     const terminal = (state) => state === 'replied' || state === 'failed' || state === 'blocked' || state === 'stale'
     if (!terminal(masterState) || !terminal(topicState)) return undefined
     return { masterState, topicState }
-  }, { timeoutMs: LIVE_TIMEOUT_MS })
+  }, { timeoutMs: LIVE_TURN_TIMEOUT_MS })
   ctx.check('the master batch reached replied', settled.masterState === 'replied', settled.masterState)
   ctx.check('the topic batch reached replied', settled.topicState === 'replied', settled.topicState)
   ctx.check('both batches were in flight at the same time', overlap === true, String(overlap))

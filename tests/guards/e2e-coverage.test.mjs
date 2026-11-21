@@ -12,6 +12,13 @@ import {
 } from '../../tools/e2e-coverage.mjs'
 import { SCENARIOS } from '../../tests/e2e/scenarios/index.mjs'
 import { catalogSha256 } from '../../tests/e2e/support/catalog.mjs'
+import {
+  LIVE_SCENARIO_SETUP_MS,
+  LIVE_TURN_OBSERVATION_MS,
+  LIVE_TURN_TIMEOUT_MS,
+  liveScenarioTimeout,
+  scenarioTimeoutOf,
+} from '../../tests/e2e/support/lane-timeouts.mjs'
 import { hostSupport, parseHostVersion } from '../../tests/e2e/support/versions.mjs'
 
 /**
@@ -104,6 +111,27 @@ test('every manifest scenario id resolves to the same static module', () => {
     assert.equal(typeof module.run, 'function', `${entry.id} run function`)
   }
   for (const id of SCENARIOS.keys()) assert.ok(manifestIds.has(id), `${id} is declared in the manifest`)
+})
+
+test('a live scenario budget grows with its model turns', () => {
+  assert.equal(
+    liveScenarioTimeout(2),
+    2 * (LIVE_TURN_TIMEOUT_MS + LIVE_TURN_OBSERVATION_MS) + LIVE_SCENARIO_SETUP_MS,
+  )
+  assert.ok(liveScenarioTimeout(7) > liveScenarioTimeout(2) + 300_000, 'more turns need a larger budget')
+  assert.throws(() => liveScenarioTimeout(0), /positive integer/)
+  assert.equal(scenarioTimeoutOf({ id: 'keyless' }, 300_000), 300_000)
+  assert.equal(scenarioTimeoutOf({ id: 'live', timeoutMs: liveScenarioTimeout(7) }, 300_000), liveScenarioTimeout(7))
+  assert.throws(() => scenarioTimeoutOf({ id: 'bad', timeoutMs: 0 }, 300_000), /positive integer/)
+})
+
+test('the live scenarios declare their own per-turn budget', () => {
+  for (const id of ['live-master-chain', 'live-artifact-chain']) {
+    const scenario = SCENARIOS.get(id)
+    assert.ok(scenario !== undefined, `${id} is registered`)
+    assert.ok(Number.isSafeInteger(scenario.timeoutMs) && scenario.timeoutMs > 0, `${id} declares timeoutMs`)
+  }
+  assert.equal(SCENARIOS.get('artifact-chain').timeoutMs, undefined, 'a keyless scenario keeps the flat budget')
 })
 
 test('the committed evidence matches the current version and every keyless scenario', () => {

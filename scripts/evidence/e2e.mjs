@@ -39,12 +39,14 @@ import { createHostClient } from '../../tests/e2e/support/host-client.mjs'
 import { createScenarioContext } from '../../tests/e2e/support/context.mjs'
 import { createFixture, removeFixture } from '../../tests/e2e/support/fixture.mjs'
 import { startScriptedModel } from '../../tests/e2e/support/scripted-model.mjs'
+import { scenarioTimeoutOf } from '../../tests/e2e/support/lane-timeouts.mjs'
 import { hostSupport } from '../../tests/e2e/support/versions.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 const manifestPath = join(root, 'tests/e2e/manifest.json')
 const STRICT = process.env.DSH_E2E_STRICT === '1'
+/** Flat budget for a scenario that does not declare a per-turn one. */
 const SCENARIO_TIMEOUT_MS = 300_000
 
 function readJson(path, label) {
@@ -215,7 +217,17 @@ async function main() {
         routing: false,
         idleAfterMs: 1,
         extraEntries: hasLive
-          ? ['- id: session-title-llm', '  disabled: true']
+          ? [
+              // The live lane is a latency-bounded smoke. Reasoning effort stays
+              // off so one thinking turn cannot starve the later turns of the
+              // same scenario; the keyless lane covers reasoning-free behavior.
+              '- id: llm-deepseek',
+              '  config:',
+              '    thinking: disabled',
+              '    reasoningEffort: off',
+              '- id: session-title-llm',
+              '  disabled: true',
+            ]
           : [
               '- id: llm-deepseek',
               '  config:',
@@ -240,6 +252,9 @@ async function main() {
 
     for (const entry of selected) {
       const scenario = loadScenario(entry)
+      // A live scenario budgets one timeout per model turn; a keyless one keeps
+      // the flat lane budget. Validate before the fixture and host work.
+      const scenarioTimeoutMs = scenarioTimeoutOf(scenario, SCENARIO_TIMEOUT_MS)
       const fixture = await createFixture(runRoot)
       model.reset()
       const context = createScenarioContext({ scenarioId: entry.id, fixture, client, model })
@@ -248,10 +263,10 @@ async function main() {
       let error = null
       let timedOut = false
       try {
-        const outcome = await withTimeout(scenario.run(context), SCENARIO_TIMEOUT_MS, entry.id)
+        const outcome = await withTimeout(scenario.run(context), scenarioTimeoutMs, entry.id)
         if (outcome !== undefined && outcome?.__timeout !== undefined) {
           timedOut = true
-          error = `scenario ${entry.id} exceeded ${String(SCENARIO_TIMEOUT_MS)}ms; the run stops here and never lets a stray scenario share the next fixture`
+          error = `scenario ${entry.id} exceeded its ${String(scenarioTimeoutMs)}ms budget; the run stops here and never lets a stray scenario share the next fixture`
         }
       } catch (caught) {
         error = caught instanceof Error ? caught.message : String(caught)
