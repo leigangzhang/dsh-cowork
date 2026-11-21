@@ -9,6 +9,7 @@
  * cannot alter the comment publisher or run commands under the write token.
  */
 import { githubHeaders, readGithubResponse } from './github-response.mjs'
+import { HEAVY_DISPLAY_CHECK, HEAVY_GATE_CONTEXT } from './heavy-contract.mjs'
 import { readHeavyResult, readHeavyStatus } from './publish-gate.mjs'
 
 export const HEAVY_SUMMARY_MARKER = '<!-- heavy-gate-summary -->'
@@ -24,6 +25,21 @@ function api(config, path, init = {}) {
 
 async function apiJson(config, path, label, init = {}) {
   return readGithubResponse(await api(config, path, init), label)
+}
+
+async function listComments(config, prNumber) {
+  const comments = []
+  for (let page = 1; page <= 20; page += 1) {
+    const batch = await apiJson(
+      config,
+      `/repos/${config.repository}/issues/${String(prNumber)}/comments?per_page=100&page=${String(page)}`,
+      'listing pull request comments',
+    )
+    const rows = Array.isArray(batch) ? batch : []
+    comments.push(...rows)
+    if (rows.length < 100) break
+  }
+  return comments
 }
 
 async function resolvePullRequest(config) {
@@ -109,11 +125,15 @@ export async function publishHeavyComment(config) {
     apiJson(config, `/repos/${config.repository}/commits/${config.head}/statuses?per_page=100`, 'reading heavy status'),
     apiJson(config, `/repos/${config.repository}/commits/${config.head}/check-runs?per_page=100`, 'reading heavy checks'),
   ])
-  const status = readHeavyStatus(statuses, config.head)
-  const result = readHeavyResult(checks?.check_runs ?? [], config.head)
-  if (config.conclusion === 'success' && status.value === null && result.value === null) {
+  const statusRows = Array.isArray(statuses) ? statuses : []
+  const checkRows = Array.isArray(checks?.check_runs) ? checks.check_runs : []
+  const hasHeavyStatus = statusRows.some((entry) => entry?.context === HEAVY_GATE_CONTEXT)
+  const hasHeavyResult = checkRows.some((entry) => entry?.name === HEAVY_DISPLAY_CHECK)
+  if (config.conclusion === 'success' && !hasHeavyStatus && !hasHeavyResult) {
     return { skipped: 'no-heavy-result' }
   }
+  const status = readHeavyStatus(statusRows, config.head)
+  const result = readHeavyResult(checkRows, config.head)
 
   const body = formatHeavySummary({
     head: config.head,
@@ -124,12 +144,8 @@ export async function publishHeavyComment(config) {
     statusError: status.error,
     resultError: result.error,
   })
-  const comments = await apiJson(
-    config,
-    `/repos/${config.repository}/issues/${String(prNumber)}/comments?per_page=100`,
-    'listing pull request comments',
-  )
-  const existing = (Array.isArray(comments) ? comments : [])
+  const comments = await listComments(config, prNumber)
+  const existing = comments
     .find((comment) => String(comment?.body ?? '').includes(HEAVY_SUMMARY_MARKER))
   if (existing === undefined) {
     await apiJson(config, `/repos/${config.repository}/issues/${String(prNumber)}/comments`, 'creating heavy summary comment', {

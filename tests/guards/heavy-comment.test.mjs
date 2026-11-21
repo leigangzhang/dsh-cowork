@@ -74,7 +74,9 @@ async function fixtureServer({ prs = [], statuses = [], checks = [], comments = 
       return json(response, { total_count: checks.length, check_runs: checks })
     }
     if (request.method === 'GET' && url.pathname === '/repos/owner/repo/issues/7/comments') {
-      return json(response, comments)
+      const pages = Array.isArray(comments[0]) ? comments : [comments]
+      const page = Number(url.searchParams.get('page') ?? '1')
+      return json(response, pages[page - 1] ?? [])
     }
     if (request.method === 'POST' && url.pathname === '/repos/owner/repo/issues/7/comments') {
       return json(response, { id: 100, body: body.body })
@@ -174,6 +176,43 @@ test('a failed heavy run without a result still posts a failure summary', async 
     assert.ok(post !== undefined)
     assert.ok(post.body.body.includes('Heavy lane: failed'))
     assert.ok(post.body.body.includes(runUrl))
+  } finally {
+    await server.close()
+  }
+})
+
+test('a blocked heavy run with failure status and check still posts a summary', async () => {
+  const server = await fixtureServer({
+    prs: [{ number: 7, state: 'open', head: { sha: head } }],
+    statuses: [status('failure')],
+    checks: [check(summary({ result: 'fail', reasons: ['blocking command failed'] }), 'failure')],
+  })
+  try {
+    const outcome = await publishHeavyComment(config(server))
+    assert.deepEqual(outcome, { action: 'created', prNumber: 7 })
+    const post = server.requests.find((request) => request.method === 'POST')
+    assert.ok(post !== undefined)
+    assert.ok(post.body.body.includes('Status problem:'))
+    assert.ok(post.body.body.includes('Result problem:'))
+  } finally {
+    await server.close()
+  }
+})
+
+test('the heavy comment finds a marker beyond the first hundred comments', async () => {
+  const pageOne = Array.from({ length: 100 }, (_, index) => ({ id: index + 1, body: `comment ${String(index)}` }))
+  const server = await fixtureServer({
+    prs: [{ number: 7, state: 'open', head: { sha: head } }],
+    statuses: [status()],
+    checks: [check()],
+    comments: [pageOne, [{ id: 99, body: `${HEAVY_SUMMARY_MARKER}\nexisting` }]],
+  })
+  try {
+    const outcome = await publishHeavyComment(config(server))
+    assert.deepEqual(outcome, { action: 'updated', prNumber: 7 })
+    assert.equal(server.requests.filter((request) => request.method === 'POST').length, 0)
+    const pages = server.requests.filter((request) => request.path.endsWith('/issues/7/comments'))
+    assert.equal(pages.length, 2)
   } finally {
     await server.close()
   }
