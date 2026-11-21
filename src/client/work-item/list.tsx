@@ -148,10 +148,11 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
     return () => { active = false }
   }, [sessionId, refreshToken])
 
-  // The list shares the project event stream with the viewer so comment counts,
-  // status chips, and delivery summaries change without reopening the tab. A
-  // burst of events (one comment appends two) is coalesced into one read; the
-  // current rows stay visible while that read is in flight.
+  // The list subscribes to the same project event route as the viewer (one
+  // EventSource per surface), so comment counts, status chips, and delivery
+  // summaries change without reopening the tab. A burst of events (one comment
+  // appends two) is coalesced into one read; the current rows stay visible
+  // while that read is in flight.
   useEffect(() => {
     if (typeof EventSource === 'undefined') return
     let closed = false
@@ -214,9 +215,21 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
 
   const retry = useCallback(() => { setRefreshToken(token => token + 1) }, [])
 
+  // The stream can stop while the rail is loading, empty, or failed; the retry
+  // must stay reachable in every one of those states, not only with rows.
+  const liveNotice = sseNotice === null ? null : (
+    <div className="cwi-receipt" data-testid="cwi-list-sse">
+      {sseNotice}{' '}
+      <button type="button" className="cwi-secondary" data-testid="cwi-list-sse-retry" onClick={retryLive}>
+        重试
+      </button>
+    </div>
+  )
+
   if (phase === 'loading') {
     return (
       <div className="cwi-list" data-testid="cwi-list" data-phase="loading" aria-busy="true">
+        {liveNotice}
         {[0, 1, 2].map((index) => (
           <div key={index} className="cwi-skeleton-card" data-testid="cwi-skeleton">
             <div className="cwi-skeleton cwi-skeleton-title" />
@@ -229,6 +242,7 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
   if (data === null) {
     return (
       <div className="cwi-list" data-testid="cwi-list" data-phase="error">
+        {liveNotice}
         <div className="cwi-error" data-testid="cwi-list-error">
           无法加载工作项：{messageOf(error)}
           <div><button type="button" className="cwi-secondary" onClick={retry}>重试</button></div>
@@ -239,6 +253,7 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
   if (data.items.length === 0) {
     return (
       <div className="cwi-list" data-testid="cwi-list" data-phase="empty">
+        {liveNotice}
         <div className="cwi-empty" data-testid="cwi-list-empty">
           还没有工作项。让主题会话用 cowork_artifact_create 登记项目里的交付物后，
           它们会出现在这里。
@@ -267,14 +282,7 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
         ))}
       </div>
       {openError === null ? null : <div className="cwi-error" role="alert">{openError}</div>}
-      {sseNotice === null ? null : (
-        <div className="cwi-receipt" data-testid="cwi-list-sse">
-          {sseNotice}{' '}
-          <button type="button" className="cwi-secondary" data-testid="cwi-list-sse-retry" onClick={retryLive}>
-            重试
-          </button>
-        </div>
-      )}
+      {liveNotice}
       {phase === 'error' ? (
         <div className="cwi-error" role="alert" data-testid="cwi-list-error">
           刷新失败：{messageOf(error)}

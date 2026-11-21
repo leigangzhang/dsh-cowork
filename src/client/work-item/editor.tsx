@@ -7,8 +7,8 @@
  * response or a model refresh cannot move the cursor on an unchanged draft.
  *
  * Anchored (unresolved) comment lines are marked through a compartment: the
- * decoration set is rebuilt when the list of lines changes and re-derived on
- * every document change, so a shifted line keeps its marker.
+ * decoration set is rebuilt when the list of lines changes and mapped through
+ * document changes, so a shifted line keeps its marker.
  */
 import { Compartment, EditorState, StateField, Transaction, type Range, type Text } from '@codemirror/state'
 import { EditorView, Decoration, keymap, lineNumbers, type DecorationSet } from '@codemirror/view'
@@ -47,9 +47,17 @@ function anchoredDecorations(lines: readonly number[], doc: Text): DecorationSet
 function anchoredLineMarkers(lines: readonly number[]) {
   return StateField.define<DecorationSet>({
     create: state => anchoredDecorations(lines, state.doc),
-    update: (decorations, transaction) => transaction.docChanged
-      ? decorations.map(transaction.changes)
-      : decorations,
+    update: (decorations, transaction) => {
+      if (!transaction.docChanged) return decorations
+      // Line decorations must start at a line start. Mapping can land on the
+      // position after an inserted character at the line start (or drop the
+      // decoration when lines merge); re-anchor every surviving marker.
+      const ranges: Range<Decoration>[] = []
+      decorations.between(0, transaction.state.doc.length, (from) => {
+        ranges.push(anchoredLineDecoration.range(transaction.state.doc.lineAt(from).from))
+      })
+      return Decoration.set(ranges, true)
+    },
     provide: field => EditorView.decorations.from(field),
   })
 }
