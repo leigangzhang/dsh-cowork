@@ -243,7 +243,7 @@ queued → sent → thinking → working → replied
 - 当前 `scripts/build/build-client.mjs` 仍用 esbuild 打一个 CJS 闭包（externals 为 react、react/jsx-runtime、react-dom、react-dom/client、@deepseek-ai/*）。分块需要 ESM 输出和宿主可加载的 chunk，先改构建并在真实宿主验证，不能只加 `--splitting`。
 - Excalidraw 样式用 `--loader:.css=text` 以字符串进入闭包，首次挂载时注入一个 `<style>`；构建因此要带 `--conditions=production`。字体资源没有随包发布：宿主 package-asset 路由只接受 svg/png/webp/jpg/jpeg，Excalidraw 文本字体走上游回退，离线时回退系统字体；不带 Xiaolai。
 - Pele 渲染 Mermaid 源码，主入口包含全部图表类型；链接和图片在查看器里关闭，SVG 不发起网络请求。
-- 客户端上限 100 MB（5 MB 不设硬门槛）；包体按 10 MB 控制。当前客户端 build 输出 15,468,590 B（gzip 3,681,225 B），`npm pack --dry-run` 报告 10,009,548 B（unpacked 43,152,856 B），十进制略高于 10 MB、低于 10 MiB；分块方案落地后应回落。
+- 客户端上限 100 MB（5 MB 不设硬门槛）；包体按 10 MB 控制。当前客户端 build 输出 15,469,940 B（gzip 3,681,571 B）；`npm pack --dry-run` 报告 9,894,811 B（unpacked 42,467,588 B），低于 10 MB。包内只保留 `lib/client.js.map` 供浏览器覆盖映射，宿主模块的 sourcemap 留在本地构建。
 
 ## 测试与验收
 

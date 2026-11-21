@@ -55,16 +55,16 @@
 
 - 查看器分派：`src/client/work-item/viewers/document.ts` 的 `viewerKindOf` 与 `parseCanvasScene`；`panel.tsx` 按类型渲染，源码行列表抽到 `source-lines.tsx`。
 - 图表：`diagram.tsx` 用 Pele 把 Mermaid 源码渲染为 SVG；链接和图片关闭，不进网络；渲染失败显示行/列与源码片段。源码视图可编辑（CodeMirror `plain`），行批注照旧。
-- HTML：`html.tsx` 在 opaque iframe 中预览。默认静态模式 `sandbox=""`、CSP 禁止脚本和网络；切到交互模式后 `sandbox="allow-scripts"`，仍禁止同源、网络、表单、嵌套框架和 top navigation。源码视图用 CodeMirror `html` 高亮。
-- 画布：`canvas.tsx` 挂载 Excalidraw，阅读模式只读、编辑模式上报序列化场景；Excalidraw CSS 以文本进入客户端闭包并注入 `<style>`；`validateEmbeddable={false}` 阻止场景文件加载第三方框架。用户在画布编辑期间按整文件行范围上报 presence，结构化模型写入与范围重叠会被 `tools.guard` 拒绝。
+- HTML：`html.tsx` 在 opaque iframe 中预览。默认静态模式 `sandbox=""`、CSP 禁止脚本、外链资源和表单；切到交互模式后 `sandbox="allow-scripts"`，仍禁止同源、表单、嵌套框架和 top navigation，但 frame 自身导航无法被现行 CSP/sandbox 阻止（KI-60）。源码视图用 CodeMirror `html` 高亮。
+- 画布：`canvas.tsx` 挂载 Excalidraw，阅读模式只读、编辑模式上报序列化场景；Excalidraw CSS 以文本进入客户端闭包并注入 `<style>`；`validateEmbeddable={false}` 阻止场景文件加载第三方框架。用户在画布编辑期间（进入编辑即开始，不等到第一次修改）按整文件行范围上报 presence，结构化模型写入与范围重叠会被 `tools.guard` 拒绝；`src/panel/artifact-api.ts` 对 canvas 的过期底座直接 409，不做行级三方合并。自动保存使用稳定的编辑 key，不重建 Excalidraw 实例，撤销历史保留；只有 `加载最新` 或外部文件替换才显式重置场景。
 - 失败回退：无效 Mermaid 保留源码入口；无效 `.excalidraw` JSON 显示原因并回退到源码编辑器，避免把用户困在错误面板。
 
 ### 阶段 4 证据（`agent/work-item-stage4`，基于 `main` `c78a9cb`）
 
-- `npm run test:coverage`：81 个 owner 模块，行覆盖 100%（31287/31287）。
-- `npm run test:coverage:layered -- --base c78a9cb`：94 个 counted 文件，行覆盖 99.88%（34165/34206），reviewed browser floors 全部通过。
-- `npm run test:browser`：通过，23 个 counted client 文件、24 个报告文件（dirty worktree）；`diagram.tsx`、`html.tsx`、`source-lines.tsx`、`canvas.tsx` 行/函数覆盖 100%，`work-item/panel.tsx` 98.61%/94.5%。场景覆盖图表 SVG 与错误定位、HTML 静态/交互两种沙箱、画布阅读/编辑/手绘矩形后自动保存到 r2/源码、损坏画布的源码回退。
-- `npm run build`：exit 0；client 15,468,590 B（gzip 3,681,225 B）；`npm pack --dry-run` 10,009,548 B（unpacked 43,152,856 B）。
+- `npm run test:coverage`：81 个 owner 模块，行覆盖 100%（31338/31338）；`tests/panel/artifact-canvas-edit.test.mjs` 覆盖画布过期底座 409 与当前底座直接保存。
+- `npm run test:coverage:layered -- --base c78a9cb`：94 个 counted 文件，行覆盖 99.88%（34249/34290），reviewed browser floors 全部通过。
+- `npm run test:browser`：通过，23 个 counted client 文件、24 个报告文件（dirty worktree）；`diagram.tsx`、`html.tsx`、`source-lines.tsx`、`canvas.tsx` 行/函数覆盖 100%，`work-item/panel.tsx` 98.62%/93.69%。场景覆盖图表 SVG 与错误定位、HTML 静态/交互两种沙箱、画布进入编辑即上报 presence、手绘矩形自动保存到 r2、第二次保存保持同一 Excalidraw 实例后到 r3、源码、损坏画布源码回退。
+- `npm run build`：exit 0；client 15,469,940 B（gzip 3,681,571 B）；`npm pack --dry-run` 9,894,811 B（unpacked 42,467,588 B），只保留 `lib/client.js.map`。
 - `npm run test:host-smoke`：5/5 通过。
 - `npm run typecheck`：exit 0。`npm run check`：`check-invariants: ok`。
 
@@ -72,9 +72,9 @@
 
 - Doc、表格、PDF、图片没有渲染器，仍是编号源码行；图表节点级批注、画布元素级模型工具未实现（KI-57）。
 - Excalidraw 字体未随包发布，画布含文本时走上游 CDN 回退，离线回退系统字体（KI-58）。
-- 画布整文件锁用行范围表达，覆盖当前行数；bash 和末行之后的追加仍可能绕过（KI-59）。
+- 画布整文件锁用行范围表达，覆盖当前行数；bash 和末行之后的追加仍可能绕过（KI-59）。编辑会话从进入编辑到退出持续持有锁。
 - Excalidraw CSS/字体资源路由、画布元素工具、导出 PNG/SVG 与阶段 4 原设计相比未完成。图表导出按文本保留，HTML 导出不在本轮范围。
-- HTML 预览的 CSP 禁止外部网络：外链 CSS、图片、字体、脚本和 `eval` 都不加载/不执行；自包含的内联页面正常。交互模式只放开内联脚本。
+- HTML 预览的 CSP 阻止外链 CSS、图片、字体、脚本、表单和 `fetch`/XHR，`eval` 也不执行；自包含的内联页面正常。交互模式只放开内联脚本，但 iframe 仍可自行导航到外部 URL，只应打开可信页面（KI-60）。
 - 单文件 CJS 闭包不能做 Excalidraw 懒加载；分块方案仍需改构建并在真实宿主验证。
 
 ## 验证证据

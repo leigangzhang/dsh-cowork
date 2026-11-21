@@ -715,6 +715,27 @@ async function scenarioWorkItemChain(page) {
   await backToTopicTab(page)
 }
 
+/** Close the viewer and reopen the work-item rail for the next mocked type. */
+async function closeViewerAndReopenList(page) {
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
+  await openWorkItemTab(page)
+}
+
+/** Switch the viewer to its numbered source and assert the visible text. */
+async function assertSourceText(page, pattern) {
+  await page.getByTestId('cwi-mode').click()
+  await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor()
+  assert.match(await page.getByTestId('cwi-lines').innerText(), pattern)
+}
+
+/** Enter the text editor and leave it without changing the draft. */
+async function toggleTextEditing(page) {
+  await page.getByTestId('cwi-edit').click()
+  await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-edit').click()
+}
+
 /**
  * The stage-4 renderers: one seeded work item is opened three times with a
  * mocked detail/file response, once per new type. The mocks keep the rail's
@@ -787,9 +808,11 @@ async function scenarioWorkItemTypes(page) {
     })
   })
 
+  let editRevision = 1
   await page.route('**/api/cowork.artifact.edit*', async (route) => {
     const body = route.request().postDataJSON()
     const bytes = Buffer.byteLength(body.content, 'utf8')
+    editRevision += 1
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -797,16 +820,16 @@ async function scenarioWorkItemTypes(page) {
         ok: true,
         path: body.path,
         content: body.content,
-        revision: 2,
-        fsVersion: 'fixture-edit',
+        revision: editRevision,
+        fsVersion: `fixture-edit-${String(editRevision)}`,
         merged: false,
         record: {
           ...currentRecord,
-          revision: 2,
+          revision: editRevision,
           updatedAt: new Date().toISOString(),
           files: (currentRecord?.files ?? []).map(file => ({
             ...file,
-            revision: 2,
+            revision: editRevision,
             size: bytes,
           })),
         },
@@ -824,15 +847,9 @@ async function scenarioWorkItemTypes(page) {
     await diagram.waitFor({ timeout: 15_000 })
     assert.match(await diagram.evaluate(element => element.textContent ?? ''), /开始/)
     assert.equal(await diagram.locator('svg').count(), 1)
-    await page.getByTestId('cwi-mode').click()
-    await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor()
-    assert.match(await page.getByTestId('cwi-lines').innerText(), /flowchart LR/)
-    await page.getByTestId('cwi-edit').click()
-    await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
-    await page.getByTestId('cwi-edit').click()
-    await page.getByTestId('cwi-back').click()
-    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
-    await openWorkItemTab(page)
+    await assertSourceText(page, /flowchart LR/)
+    await toggleTextEditing(page)
+    await closeViewerAndReopenList(page)
 
     // Invalid Mermaid keeps the source reachable and names the failing position.
     current = { type: 'diagram', path: 'docs/browser-broken.mmd', mediaType: 'text/plain', content: 'flowchart LR\n  A -->\n', title: '损坏图表' }
@@ -861,12 +878,8 @@ async function scenarioWorkItemTypes(page) {
     assert.equal(await page.getByTestId('cwi-html-frame').getAttribute('sandbox'), 'allow-scripts')
     const interactiveFrame = page.frameLocator('[data-testid="cwi-html-frame"]')
     await interactiveFrame.locator('#title').filter({ hasText: '脚本已运行' }).waitFor({ timeout: 10_000 })
-    await page.getByTestId('cwi-edit').click()
-    await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
-    await page.getByTestId('cwi-edit').click()
-    await page.getByTestId('cwi-back').click()
-    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
-    await openWorkItemTab(page)
+    await toggleTextEditing(page)
+    await closeViewerAndReopenList(page)
 
     // 画布: Excalidraw mounts read-only, switches to edit, and the JSON source stays readable.
     current = cases[2]
@@ -877,10 +890,24 @@ async function scenarioWorkItemTypes(page) {
     await canvas.waitFor({ timeout: 15_000 })
     assert.equal(await canvas.getAttribute('data-editable'), 'false')
     await canvas.locator('.excalidraw').waitFor({ timeout: 15_000 })
+    // Entering edit mode holds the whole file: presence is reported before the
+    // user changes any scene content.
+    const presence = page.waitForRequest((request) => {
+      try {
+        return request.method() === 'POST' && new URL(request.url()).pathname === '/api/cowork.artifact.presence'
+      } catch {
+        return false
+      }
+    }, { timeout: 10_000 })
     await page.getByTestId('cwi-edit').click()
     assert.equal(await page.getByTestId('cwi-canvas').getAttribute('data-editable'), 'true')
-    // A rectangle drawn by hand is a user edit: the scene serializes, saves,
-    // and the revision changes without an explicit save click.
+    const presenceBody = (await presence).postDataJSON()
+    assert.equal(presenceBody.path, 'docs/browser-canvas.excalidraw')
+    assert.equal(presenceBody.ranges?.[0]?.startLine, 1)
+    assert.ok(presenceBody.ranges?.[0]?.endLine >= 1)
+
+    // A rectangle drawn by hand serializes and saves; a second save must keep
+    // the same Excalidraw instance (and its undo history).
     const canvasBox = await page.getByTestId('cwi-canvas').boundingBox()
     assert.notEqual(canvasBox, null)
     await page.mouse.click(canvasBox.x + 80, canvasBox.y + 80)
@@ -890,13 +917,17 @@ async function scenarioWorkItemTypes(page) {
     await page.mouse.move(canvasBox.x + 240, canvasBox.y + 200, { steps: 6 })
     await page.mouse.up()
     await page.getByTestId('cwi-save-state').filter({ hasText: '已保存 · r2' }).waitFor({ timeout: 10_000 })
+    await page.locator('.excalidraw').evaluate((element) => { element.dataset.cwiKeep = '1' })
+    await page.keyboard.press('r')
+    await page.mouse.move(canvasBox.x + 280, canvasBox.y + 120)
+    await page.mouse.down()
+    await page.mouse.move(canvasBox.x + 380, canvasBox.y + 200, { steps: 6 })
+    await page.mouse.up()
+    await page.getByTestId('cwi-save-state').filter({ hasText: '已保存 · r3' }).waitFor({ timeout: 10_000 })
+    assert.equal(await page.locator('.excalidraw').evaluate((element) => element.dataset.cwiKeep), '1')
     await page.getByTestId('cwi-edit').click()
-    await page.getByTestId('cwi-mode').click()
-    await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor()
-    assert.match(await page.getByTestId('cwi-lines').innerText(), /excalidraw/)
-    await page.getByTestId('cwi-back').click()
-    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
-    await openWorkItemTab(page)
+    await assertSourceText(page, /excalidraw/)
+    await closeViewerAndReopenList(page)
 
     // A broken scene explains itself and falls back to the source editor.
     current = { type: 'canvas', path: 'docs/browser-broken.excalidraw', mediaType: 'application/json', content: '{"type":"excalidraw"}', title: '损坏画布' }
@@ -904,9 +935,7 @@ async function scenarioWorkItemTypes(page) {
     await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
     await page.getByTestId('cwi-canvas-error').waitFor({ timeout: 15_000 })
     assert.match(await page.getByTestId('cwi-canvas-error').innerText(), /elements/)
-    await page.getByTestId('cwi-edit').click()
-    await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
-    await page.getByTestId('cwi-edit').click()
+    await toggleTextEditing(page)
     await page.getByTestId('cwi-back').click()
     await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
   } finally {

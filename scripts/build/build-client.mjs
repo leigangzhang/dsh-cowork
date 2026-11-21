@@ -128,11 +128,15 @@ if (!firstLine.includes(`window.__ModuleLoader__.load({ id: ${JSON.stringify(PAC
   problems.push('首行不是 window.__ModuleLoader__.load({ id: "@dsh-external/dsh-cowork" … 的加载器形态')
 }
 // Bundled dependencies may also export a binding named `inject`, so esbuild
-// can rename ours (for example to `inject2`). The export map keeps the public
-// name; assert that mapping and the declared slot dependency instead of a
-// particular local variable name.
-if (!/inject:\s*\(\)\s*=>/.test(output) || !output.includes('["slots"]')) {
-  problems.push('产物导出里找不到 inject → ["slots"]（host 注入前会读取这个导出）')
+// can rename ours (for example to `inject2`). The entry is the only module
+// exported as `index_exports`; assert its export map rather than a matching
+// line anywhere in the bundle.
+const exportAt = output.lastIndexOf('__export(index_exports')
+const entryBlock = exportAt === -1 ? '' : output.slice(exportAt, exportAt + 2048)
+const entryExports = /__export\(index_exports,\s*\{([\s\S]*?)\}\);/.exec(entryBlock)
+const entryMap = entryExports?.[1] ?? ''
+if (!/inject:\s*\(\)\s*=>/.test(entryMap) || !/apply:\s*\(\)\s*=>/.test(entryMap) || !output.includes('["slots"]')) {
+  problems.push('产物入口导出里找不到 inject → ["slots"] 与 apply（host 注入前会读取这两个导出）')
 }
 if (!/name:\s*["']sidebar\.right\.pane\.tab["']/.test(output)) problems.push('产物里找不到字面量 slot 名 sidebar.right.pane.tab')
 if (!/name:\s*["']sidebar\.footer\.action["']/.test(output)) problems.push('产物里找不到字面量 slot 名 sidebar.footer.action')

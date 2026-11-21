@@ -240,6 +240,9 @@ export function WorkItemViewer(): ReactElement {
   const [viewTab, setViewTab] = useState<'document' | 'versions' | 'attachments'>('document')
   const [readMode, setReadMode] = useState(true)
   const [showRail, setShowRail] = useState(true)
+  // Bumped when the editor must rebuild its scene from the stored file; a
+  // save alone must not remount Excalidraw (that would drop undo history).
+  const [canvasReset, setCanvasReset] = useState(0)
   const [receipt, setReceipt] = useState<string | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [now, setNow] = useState(() => new Date())
@@ -258,6 +261,8 @@ export function WorkItemViewer(): ReactElement {
   const [sseToken, setSseToken] = useState(0)
   const editingRef = useRef(false)
   const dirtyRef = useRef(false)
+  const canvasTypeRef = useRef(false)
+  const savedTextRef = useRef('')
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const persistDraftRef = useRef<() => void>(() => {})
   const contextKeyRef = useRef<string | null>(null)
@@ -482,11 +487,11 @@ export function WorkItemViewer(): ReactElement {
   // differs from the saved text. The server expires the report on its own.
   useEffect(() => {
     if (context === null || data?.file == null || !editing) return
-    // A canvas has no line concept: while the draft differs from the saved
-    // scene, the whole file is the user's edit range and structured model
-    // writes that overlap it are refused.
+    // A canvas has no line concept: the edit session holds the whole file, not
+    // only the lines that changed, so a model write is refused from the moment
+    // the user enters edit mode until they leave it.
     const ranges = data.record.type === 'canvas'
-      ? (editDraft === savedContent ? [] : canvasPresenceRanges(editDraft))
+      ? canvasPresenceRanges(editDraft)
       : changedLineRanges(savedContent, editDraft)
     if (ranges.length === 0) return
     const report = (): void => {
@@ -547,6 +552,7 @@ export function WorkItemViewer(): ReactElement {
       setShowConflictDiff(false)
       setDraftBase(null)
       clearPersistedDraft()
+      setCanvasReset(value => value + 1)
       setSavePhase('saved')
       setReceipt('已加载最新内容')
     } catch (error) {
@@ -565,7 +571,9 @@ export function WorkItemViewer(): ReactElement {
   useEffect(() => {
     editingRef.current = editing
     dirtyRef.current = editing && editDraft !== savedContent
-  }, [editDraft, editing, savedContent])
+    canvasTypeRef.current = data?.record.type === 'canvas'
+    savedTextRef.current = savedContent
+  }, [data?.record.type, editDraft, editing, savedContent])
 
   /**
    * Re-read the record and threads; optionally the file when it changed.
@@ -601,8 +609,12 @@ export function WorkItemViewer(): ReactElement {
         return file === null || keepDraft ? next : { ...next, file }
       })
       if (file !== null && !keepDraft) {
+        // A clean canvas editor still holds the old scene; rebuild it only when
+        // the file really changed (an own save replays as `file.changed` too).
+        const replaced = file.content !== savedTextRef.current
         setEditDraft(file.content)
         setSavedContent(file.content)
+        if (canvasTypeRef.current && editingRef.current && replaced) setCanvasReset(value => value + 1)
         if (!editingRef.current) setSavePhase('saved')
       } else if (file !== null && keepDraft && fileChanged) {
         setReceipt('模型已修改文件；保存时会自动合并，重叠则提示冲突')
@@ -1019,7 +1031,7 @@ export function WorkItemViewer(): ReactElement {
               <CanvasSurface
                 content={editDraft}
                 editable
-                sceneKey={`edit-${String(data.file?.revision ?? record.revision)}`}
+                sceneKey={`edit-${record.artifactId}-${String(canvasReset)}`}
                 onChange={(content) => {
                   setEditDraft(content)
                   setBackArmed(false)

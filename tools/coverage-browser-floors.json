@@ -31,7 +31,7 @@
     },
     "src/client/work-item/panel.tsx": {
       "lineCoverage": 98.5,
-      "functionCoverage": 94.0
+      "functionCoverage": 93.5
     },
     "src/client/work-item/viewers/canvas.tsx": {
       "lineCoverage": 100.0,

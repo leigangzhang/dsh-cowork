@@ -16,6 +16,9 @@ type DiagramState =
   | { readonly ok: true; readonly svg: string; readonly type: string }
   | { readonly ok: false; readonly message: string; readonly line: number; readonly column: number; readonly snippet: string }
 
+/** The failure branch of {@link DiagramState}. */
+type DiagramFailure = Extract<DiagramState, { readonly ok: false }>
+
 /** Validate-safe id prefix: Pele only accepts letters, digits, `-` and `_`. */
 function idPrefixOf(raw: string): string {
   const prefix = raw.replace(/[^A-Za-z0-9_-]/g, '')
@@ -41,6 +44,24 @@ function renderDiagram(source: string, idPrefix: string): DiagramState {
   }
 }
 
+/** Human position of a parse failure. */
+function errorPosition(line: number, column: number): string {
+  if (line <= 0) return '定位未知'
+  return column > 0 ? `第 ${String(line)} 行第 ${String(column)} 列` : `第 ${String(line)} 行`
+}
+
+/** The failure pane; the empty snippet is hidden by the stylesheet. */
+function DiagramError({ state }: { readonly state: DiagramFailure }): ReactElement {
+  return (
+    <div className="cwi-diagram cwi-diagram-error" data-testid="cwi-diagram-error" role="alert">
+      <div className="cwi-diagram-error-title">图表无法渲染（{errorPosition(state.line, state.column)}）</div>
+      <div className="cwi-diagram-error-message">{state.message}</div>
+      <pre className="cwi-diagram-error-snippet">{state.snippet}</pre>
+      <div className="cwi-hint">可以切到源码修改 Mermaid 文本，或把文件交给模型继续修改。</div>
+    </div>
+  )
+}
+
 /** Props of the read-only diagram pane. */
 export interface DiagramViewProps {
   /** Mermaid source from the registered file. */
@@ -56,29 +77,17 @@ export function DiagramView({ source }: DiagramViewProps): ReactElement {
   const rawId = useId()
   const idPrefix = useMemo(() => idPrefixOf(rawId), [rawId])
   const state = useMemo(() => renderDiagram(source, idPrefix), [idPrefix, source])
-  if (!state.ok) {
-    const position = state.line > 0
-      ? `第 ${String(state.line)} 行${state.column > 0 ? `第 ${String(state.column)} 列` : ''}`
-      : '定位未知'
-    return (
-      <div className="cwi-diagram cwi-diagram-error" data-testid="cwi-diagram-error" role="alert">
-        <div className="cwi-diagram-error-title">图表无法渲染（{position}）</div>
-        <div className="cwi-diagram-error-message">{state.message}</div>
-        {state.snippet === ''
-          ? null
-          : <pre className="cwi-diagram-error-snippet">{state.snippet}</pre>}
-        <div className="cwi-hint">可以切到源码修改 Mermaid 文本，或把文件交给模型继续修改。</div>
-      </div>
-    )
-  }
-  return (
-    <div
-      className="cwi-diagram"
-      data-testid="cwi-diagram"
-      data-diagram-type={state.type}
-      // Pele escapes label text and emits no scripts or event handlers; links
-      // and images are disabled above, so the SVG carries no network surface.
-      dangerouslySetInnerHTML={{ __html: state.svg }}
-    />
-  )
+  return state.ok
+    ? (
+        <div
+          className="cwi-diagram"
+          data-testid="cwi-diagram"
+          data-diagram-type={state.type}
+          // Pele escapes label text and emits no scripts or event handlers;
+          // links and images are disabled above, so the SVG carries no network
+          // surface.
+          dangerouslySetInnerHTML={{ __html: state.svg }}
+        />
+      )
+    : <DiagramError state={state} />
 }

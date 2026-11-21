@@ -74,6 +74,7 @@ export const WORK_ITEM_CSS = `
 .cwi-diagram-error { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; }
 .cwi-diagram-error-title { font-size: 13px; font-weight: 600; color: var(--dsw-alias-state-error-primary, #d93026); }
 .cwi-diagram-error-message { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cwi-diagram-error-snippet:empty { display: none; }
 .cwi-diagram-error-snippet { margin: 0; padding: 8px; border-left: 2px solid var(--dsw-alias-border-l2, #dfe3e8); background: var(--cw-surface-muted, #f2f4f7); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: pre-wrap; overflow: auto; }
 .cwi-html { display: flex; flex-direction: column; min-height: 0; }
 .cwi-html-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--dsw-alias-border-l1, #e3e6ea); }

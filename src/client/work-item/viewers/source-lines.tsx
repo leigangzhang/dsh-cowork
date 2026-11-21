@@ -23,6 +23,58 @@ export interface SourceLinesProps {
   readonly onPick: (line: number, extend: boolean) => void
 }
 
+/** One line's class and display text. */
+interface LineView {
+  readonly className: string
+  readonly text: string
+}
+
+/** Resolve one line's rendering without branching inside the React tree. */
+function lineView(text: string, markdown: boolean): LineView {
+  if (!markdown) return { className: 'cwi-line-text', text: text === '' ? ' ' : text }
+  const rendered = markdownLine(text)
+  return {
+    className: `cwi-line-text cwi-md-${rendered.kind}`,
+    text: rendered.text === '' ? ' ' : rendered.text,
+  }
+}
+
+/** The anchor bullet, or nothing when the line has no open annotation. */
+function LinePin({ visible }: { readonly visible: boolean }): ReactElement | null {
+  return visible
+    ? <span className="cwi-line-pin" data-testid="cwi-line-pin" title="这一行有批注">●</span>
+    : null
+}
+
+/** Props of one rendered source line. */
+interface SourceLineProps {
+  readonly text: string
+  readonly line: number
+  readonly selection: LineSelection | null
+  readonly anchored: boolean
+  readonly markdown: boolean
+  readonly onPick: (line: number, extend: boolean) => void
+}
+
+/** One focusable line row. */
+function SourceLine({ text, line, selection, anchored, markdown, onPick }: SourceLineProps): ReactElement {
+  const view = lineView(text, markdown)
+  return (
+    <div
+      className="cwi-line"
+      data-testid="cwi-line"
+      data-line={line}
+      data-selected={String(isSelected(selection, line))}
+      data-anchored={String(anchored)}
+      onClick={(event) => { onPick(line, event.shiftKey) }}
+    >
+      <span className="cwi-line-number">{line}</span>
+      <LinePin visible={anchored} />
+      <span className={view.className}>{view.text}</span>
+    </div>
+  )
+}
+
 /**
  * Render the annotated line list.
  * @param props - lines, selection, anchors, and the pick handler.
@@ -31,27 +83,17 @@ export interface SourceLinesProps {
 export function SourceLines({ lines, selection, anchoredLines, markdown, onPick }: SourceLinesProps): ReactElement {
   return (
     <div className="cwi-lines" data-testid="cwi-lines">
-      {lines.map((text, index) => {
-        const line = index + 1
-        const rendered = markdown ? markdownLine(text) : null
-        return (
-          <div
-            key={line}
-            className="cwi-line"
-            data-testid="cwi-line"
-            data-line={line}
-            data-selected={isSelected(selection, line) ? 'true' : 'false'}
-            data-anchored={anchoredLines.has(line) ? 'true' : 'false'}
-            onClick={(event) => { onPick(line, event.shiftKey) }}
-          >
-            <span className="cwi-line-number">{line}</span>
-            {anchoredLines.has(line) ? <span className="cwi-line-pin" data-testid="cwi-line-pin" title="这一行有批注">●</span> : null}
-            {rendered === null
-              ? <span className="cwi-line-text">{text === '' ? ' ' : text}</span>
-              : <span className={`cwi-line-text cwi-md-${rendered.kind}`}>{rendered.text === '' ? ' ' : rendered.text}</span>}
-          </div>
-        )
-      })}
+      {lines.map((text, index) => (
+        <SourceLine
+          key={index + 1}
+          text={text}
+          line={index + 1}
+          selection={selection}
+          anchored={anchoredLines.has(index + 1)}
+          markdown={markdown}
+          onPick={onPick}
+        />
+      ))}
     </div>
   )
 }
