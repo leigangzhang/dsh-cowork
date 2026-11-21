@@ -48,9 +48,16 @@ jobs:
 
       - name: Resolve base
         id: base
+        env:
+          BASE_INPUT: ${{ inputs.base }}
         run: |
-          git fetch --no-tags origin "${{ inputs.base }}"
-          echo "sha=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_OUTPUT"
+          if [[ "$BASE_INPUT" =~ ^[0-9a-f]{7,40}$ ]] && git cat-file -e "${BASE_INPUT}^{commit}" 2>/dev/null; then
+            sha="$(git rev-parse "${BASE_INPUT}^{commit}")"
+          else
+            git fetch --no-tags origin "$BASE_INPUT"
+            sha="$(git rev-parse FETCH_HEAD)"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Configure git defaults for temporary test repositories
         run: git config --global init.defaultBranch main
