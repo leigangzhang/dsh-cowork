@@ -32,7 +32,7 @@ import { workItemOpenStore } from './store.ts'
 
 /** Coalesce a burst of project events into one list read. */
 const LIST_REFRESH_DEBOUNCE_MS = 250
-/** EventSource retries on its own; after this many failures the rail stops. */
+/** EventSource retries on its own; after this many failed opens the rail stops. */
 const SSE_MAX_FAILURES = 3
 
 /** Who opens the main-area viewer. */

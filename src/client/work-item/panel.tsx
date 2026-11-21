@@ -1007,6 +1007,7 @@ export function WorkItemViewer(): ReactElement {
               value={editDraft}
               ariaLabel="编辑文件内容"
               anchoredLines={anchoredLineList}
+              anchorsAuthoritative={!dirty}
               onChange={(content) => {
                 setEditDraft(content)
                 setBackArmed(false)

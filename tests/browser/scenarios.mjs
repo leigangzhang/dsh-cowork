@@ -608,7 +608,12 @@ async function scenarioPanelTabs(page) {
   await waitForOverview(page)
 }
 
-/** Read the CodeMirror document text from its rendered lines. */
+/**
+ * Read the CodeMirror document text from its rendered lines.
+ *
+ * The lane's fixtures are short, so every line is rendered; CodeMirror
+ * virtualizes long documents and would only expose the viewport here.
+ */
 function editorText(page) {
   return page.getByTestId('cwi-editor').evaluate(element =>
     Array.from(element.querySelectorAll('.cm-line')).map(line => line.textContent ?? '').join('\n'))
@@ -838,6 +843,11 @@ async function scenarioWorkItemEdit(page, fixtures) {
   await page.getByTestId('cwi-conflict-load').click()
   await page.getByTestId('cwi-conflict').waitFor({ state: 'detached', timeout: 10_000 })
   assert.match(await editorText(page), /模型并发行。/)
+  // Loading the server content replaces the whole document; the anchored
+  // marker must be rebuilt from the anchors, not silently dropped by mapping.
+  const reloadedMarker = page.getByTestId('cwi-editor-host').locator('.cm-line.cwi-editor-anchored').first()
+  await reloadedMarker.waitFor({ timeout: 10_000 })
+  assert.match(await reloadedMarker.innerText(), /第一段：逐行批注。/)
   await page.getByTestId('cwi-edit').click()
   await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
   assert.match(await page.getByTestId('cwi-lines').innerText(), /模型并发行。/)

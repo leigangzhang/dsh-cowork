@@ -74,6 +74,12 @@ export interface TextEditorProps {
   readonly ariaLabel: string
   /** Unresolved comment lines to mark; line numbers are 1-based. */
   readonly anchoredLines: readonly number[]
+  /**
+   * True when `anchoredLines` addresses the editor document (the draft is
+   * clean). A dirty draft has its own line numbers, so server anchors only
+   * apply again after a save or "load latest".
+   */
+  readonly anchorsAuthoritative: boolean
 }
 
 /** The controlled CodeMirror editor used by the work-item viewer. */
@@ -83,17 +89,22 @@ export function TextEditor({
   onBlur,
   ariaLabel,
   anchoredLines,
+  anchorsAuthoritative,
 }: TextEditorProps): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const valueRef = useRef(value)
   const onChangeRef = useRef(onChange)
   const onBlurRef = useRef(onBlur)
+  const anchoredLinesRef = useRef(anchoredLines)
+  const anchorsAuthoritativeRef = useRef(anchorsAuthoritative)
   const [anchoredCompartment] = useState(() => new Compartment())
 
   valueRef.current = value
   onChangeRef.current = onChange
   onBlurRef.current = onBlur
+  anchoredLinesRef.current = anchoredLines
+  anchorsAuthoritativeRef.current = anchorsAuthoritative
 
   // The view is created once; props flow through refs so a parent render never
   // destroys the editor state (history, selection) mid-edit.
@@ -147,22 +158,30 @@ export function TextEditor({
     if (current === value) return
     // The replacement is an external fact, not a user edit; keeping it out
     // of the undo history prevents an undo from restoring stale server text.
+    // Mapping cannot preserve markers across a whole-document replacement, so
+    // rebuild them from the current anchors in the same transaction.
     view.dispatch({
       changes: { from: 0, to: current.length, insert: value },
       annotations: Transaction.addToHistory.of(false),
+      effects: anchoredCompartment.reconfigure(
+        anchoredLineMarkers(anchorsAuthoritativeRef.current ? anchoredLinesRef.current : []),
+      ),
     })
   }, [value])
 
   // Anchors change when a comment arrives or is resolved; rebuild the markers
-  // without touching the document or the cursor.
+  // without touching the document or the cursor. A dirty draft has shifted
+  // lines, so server line numbers are applied only when they address the
+  // document (clean draft or just-saved content).
   const anchoredKey = anchoredLines.join(',')
   useEffect(() => {
+    if (!anchorsAuthoritative) return
     const view = viewRef.current
     if (view === null) return
     view.dispatch({
       effects: anchoredCompartment.reconfigure(anchoredLineMarkers(anchoredLines)),
     })
-  }, [anchoredKey])
+  }, [anchoredKey, anchorsAuthoritative])
 
   return <div className="cwi-editor-host" data-testid="cwi-editor-host" ref={hostRef} />
 }
