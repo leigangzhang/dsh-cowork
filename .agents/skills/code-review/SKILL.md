@@ -33,13 +33,13 @@ Run this after the priority pass, before passing the change. A finding here is a
 - **Test split:** did the test and assertion counts actually stay the same, or were assertions copied to pad the split?
 - **Model text:** did persona, tool description, and error text follow the tool or preset change?
 - **Doc links:** do current docs point at existing files, and did historical records only change link targets, not conclusions?
-- **Dead or duplicated surface:** run `fallow dead-code --unused-types`; a new type export with no consumer, a duplicate value/type name, or an unowned `tools/*.mjs` is a finding. Keep `fallow health --baseline tools/fallow-health-baseline.json` at zero new findings: the baseline is reviewed existing state, not a waiver, and `fallow audit --base <verified-base>` gates introduced complexity, duplication, and dead code. A refresh is a separate maintenance PR naming CLI 3.43.0 and HEAD and reviewing each added entry; never refresh it inside a feature or cleanup PR.
+- **Dead or duplicated surface:** run `fallow dead-code --unused-types`; a new type export with no consumer, a duplicate value/type name, or an unowned `tools/*.mjs` is a finding. Keep `fallow health --baseline tools/fallow-health-baseline.json` at zero new findings: the baseline is reviewed existing state, not a waiver, and `fallow audit --base <verified-base> --worsened error` gates introduced and worsened complexity, duplication, and dead code. `complexity_introduced=0` alone is insufficient; `complexity_worsened` must also be zero. A refresh is a separate maintenance PR naming CLI 3.43.0 and HEAD and reviewing each added entry; never refresh it inside a feature or cleanup PR.
 
 ## Verification
 
 - Run `npm run change-scope -- --base <verified-base>` and confirm all four path groups are accounted for.
 - Run `npm run check`; for a skill or workflow change also run `npm run check:self-test`.
-- For a code change with `.fallowrc.jsonc` present, run `fallow audit --base <verified-base>` and confirm no new clone group or complexity finding; confirm `fallow health --baseline tools/fallow-health-baseline.json` reports zero new findings, and keep the local CLI version in the report.
+- For a code change with `.fallowrc.jsonc` present, run `fallow audit --base <verified-base> --worsened error` and confirm no introduced or worsened clone group or complexity finding; confirm `fallow health --baseline tools/fallow-health-baseline.json` reports zero new findings, and keep the local CLI version in the report.
 - Select the narrowest tests from `tools/workflow.json`. For a behavior change, run `npm run test:coverage`, `npm run build`, and `npm run test:host-smoke`; for delivery or a browser change add `npm run test:coverage:layered -- --base <verified-base>`. For a docs-only change, run `npm run check`.
 - Confirm the final report states commands and results, including checks that did not run.
 - After posting a review verdict, confirm `pre-merge` succeeds for the current main and the derived gate recomputes on the reviewed head. A new commit or conflict resolution invalidates the review; a base advance alone does not.

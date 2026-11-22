@@ -1,7 +1,7 @@
 # 工作项代码健康度回归修复交接
 
 - 日期：2026-11-21
-- 状态：P0/P1 在当前会话执行；P2/P3 待后续独立 PR
+- 状态：P0/P1 已在本分支完成；P2/P3 待后续独立 PR
 - 分支：`agent/work-item-health-followup`
 - 基线：`main` `178f216`（PR #74 合并后）
 - 隔离工作区：`/tmp/dsh-work-item-health`
@@ -23,6 +23,16 @@ PR #74 合并后的体检出现两个信号：
 - 当前基线是 `157` 个 file/category 计数条目，按文件和类别匹配，不按全局总数匹配。`remaining_findings` 非零就失败，不能把“当前总数少于基线总数”理解为通过。
 - PR #74 的真实回归是 4 条 worsened：`WorkItemViewer`、`handleEdit`、`refreshFromServer`、`panel.tsx` 的 presence effect 回调。`introduced=false` 只表示函数在 base 已存在，不表示没有变差。
 - `fallow audit` 默认 `worsened=warn`，所以 PR 里的 audit 仍以 exit 0 结束；CI 也没有执行 fallow。
+
+## 本次执行状态
+
+- P0 已完成：presence/refresh 纯 helper 与单测落在 [viewers/document.ts](../../src/client/work-item/viewers/document.ts)、[viewers/viewer-refresh.ts](../../src/client/work-item/viewers/viewer-refresh.ts)；document/chrome 展示分支拆到 [viewers/viewer-document.tsx](../../src/client/work-item/viewers/viewer-document.tsx)；edit 写路径拆到 [artifact-edit.ts](../../src/panel/artifact-edit.ts)。
+- 执行中发现并修复了一个 composer 竞态：SSE 先让线程出现时，首个提交的响应会清空用户刚输入的第二条草稿。提交现在只在状态仍等于提交时快照时清空。
+- `WorkItemViewer` 为 `CC 65 / cognitive 128 / 967` 行；`handleEdit` 为 `CC 13 / 63` 行；`refreshFromServer` 为 `CC 6 / 33` 行。
+- `fallow audit --base 6413911`（配置 `worsened=error`）为 exit 0，`introduced=0`、`worsened=0`。
+- health 仍为红：`83` 条 remaining、`12` 条 stale。P2 仍未执行，这是已知且有意保留的下一步。
+- P1 已完成：`.fallowrc.jsonc` 启用 `audit.worsened=error`；AGENTS、testing 与 code-review skill 已改为同时检查 introduced 和 worsened。
+- P3 的执行必须解析 `--format json` 的 `attribution.complexity_introduced` 与 `complexity_worsened`，不能只看 exit code；warn 级 finding 的 line-count 增长可能仍让命令 exit 0。
 
 ## 冻结决定
 
@@ -136,9 +146,12 @@ PR #74 合并后的体检出现两个信号：
 建议增加独立 fallow job：
 
 ```sh
-npx fallow audit --base "$BASE_SHA" --worsened error
+npx fallow audit --base "$BASE_SHA" --worsened error --format json > "$RUNNER_TEMP/fallow-audit.json"
+node -e 'const j=require(process.argv[1]); if (j.attribution.complexity_introduced !== 0 || j.attribution.complexity_worsened !== 0) process.exit(1)' "$RUNNER_TEMP/fallow-audit.json"
 npx fallow health --baseline tools/fallow-health-baseline.json
 ```
+
+`audit` 的 exit code 不能单独作为通过条件：当前 fallow 3.43.0 会把部分 warn 级 finding 的 line-count 增长仍算作 exit 0，但 JSON 的 `complexity_worsened` 会记录它。CI 必须解析并断言两个计数都为 0。
 
 执行方式二选一：
 

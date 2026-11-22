@@ -21,5 +21,8 @@
   // apply.ts:56 computes a repo-relative path with new URL(..., import.meta.url);
   // fallow treats it as a lazy module edge. architecture.test.mjs proves the
   // static import graph has no cycle.
-  "circularDependencies": { "ignoreLazyImports": true }
+  "circularDependencies": { "ignoreLazyImports": true },
+  // An existing function that grows is still a change-level regression. Keep
+  // the default audit gate from demoting it to a non-blocking warning.
+  "audit": { "worsened": "error" }
 }
