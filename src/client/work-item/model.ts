@@ -17,6 +17,7 @@ import {
   type ArtifactDetailResponse,
   type ArtifactDispatchSummary,
   type ArtifactFileV1,
+  type ArtifactRecordV1,
   type ArtifactStatus,
   type ArtifactSummaryV1,
   type ArtifactType,
@@ -256,6 +257,106 @@ export function fileSummary(file: ArtifactFileV1): string {
     ? `${String(file.size)} B`
     : `${(file.size / 1024).toFixed(1)} KB`
   return `${file.path} · ${size}`
+}
+
+/** One missing-file state the viewer can offer to repair. */
+export interface MissingFileState {
+  readonly path: string
+  readonly hint: string
+}
+
+/**
+ * The rebind state of a work item whose registered file vanished.
+ *
+ * The record's own `missing` flag is authoritative when the detail read
+ * succeeded; a failed file read supplies the same fact through its error code.
+ * @param record - the loaded record.
+ * @param fileErrorCode - the file read's failure code, if it failed.
+ * @returns the missing path and the hint, or null when the file is readable.
+ */
+export function missingFileState(record: ArtifactRecordV1, fileErrorCode: string | null): MissingFileState | null {
+  const primary = record.files.find((file) => file.path === record.primaryPath) ?? record.files[0]
+  const missing = fileErrorCode === 'artifact/file-missing' || primary?.missing === true
+  if (!missing) return null
+  return {
+    path: primary?.path ?? record.primaryPath,
+    hint: '文件已被移动或删除。填入它在项目中的新路径；批注和版本都保留在这个工作项上。',
+  }
+}
+
+/** A validated rebind target typed by the user. */
+export type RebindTarget =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly error: string }
+
+/**
+ * Validate one rebind path before sending it.
+ *
+ * The server still rejects an escaping path; this catches the obvious mistakes
+ * locally so the user gets the reason without a round trip.
+ * @param input - the raw path typed by the user.
+ * @returns the trimmed project-relative path, or the reason it is unusable.
+ */
+export function rebindTarget(input: string): RebindTarget {
+  const path = input.trim()
+  if (path === '') return { ok: false, error: '请输入文件在项目中的新路径。' }
+  if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) {
+    return { ok: false, error: '路径必须是项目内的相对路径。' }
+  }
+  if (path.split('/').includes('..')) return { ok: false, error: '路径不能包含 ..。' }
+  return { ok: true, path }
+}
+
+/** How one failed rebind is presented: a short title and the server's reason. */
+export function rebindFailure(
+  error: { readonly code?: string; readonly message?: string } | null,
+): { title: string; detail: string } {
+  const code = error?.code ?? 'internal'
+  const detail = error?.message ?? '重新绑定失败，请稍后重试。'
+  if (code === 'artifact/file-missing') return { title: '新路径不存在', detail }
+  if (code === 'artifact/path-not-allowed') return { title: '路径不可用', detail }
+  if (code === 'artifact/not-found') return { title: '工作项不存在', detail }
+  return { title: '重新绑定失败', detail }
+}
+
+/** The receipt after a successful rebind. */
+export function rebindReceipt(changed: boolean, path: string): string {
+  return changed ? `已重新绑定到 ${path}` : '路径没有变化，已刷新文件'
+}
+
+/** The cursor that asks the comments route for the page before the loaded one. */
+export function olderCursor(events: readonly CommentEventV1[]): string | null {
+  return events[0]?.eventId ?? null
+}
+
+/**
+ * Prepend an older comments page, dropping rows already loaded.
+ *
+ * The route pages by event id, so an overlap (a comment arriving between the
+ * two reads) is expected; the merged order stays chronological.
+ * @param current - the rows already shown.
+ * @param older - the older page, oldest first.
+ * @returns one chronological array without duplicate event ids.
+ */
+export function mergeOlderComments(
+  current: readonly CommentEventV1[],
+  older: readonly CommentEventV1[],
+): CommentEventV1[] {
+  const known = new Set(current.map((event) => event.eventId))
+  return [...older.filter((event) => !known.has(event.eventId)), ...current]
+}
+
+/** Whether the rail still offers "load older" after one page. */
+export function olderPageAvailable(
+  page: { readonly hasOlder?: boolean; readonly events: readonly CommentEventV1[] },
+): boolean {
+  return page.hasOlder === true && page.events.length > 0
+}
+
+/** Move the keyboard-active line within the document, clamped to its lines. */
+export function moveActiveLine(active: number, delta: number, total: number): number {
+  if (total <= 0) return 1
+  return Math.min(total, Math.max(1, active + delta))
 }
 
 /** One comment thread as the rail renders it. */

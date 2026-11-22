@@ -27,7 +27,11 @@ interface ThreadListProps {
   readonly retrying: boolean
   readonly filter: ThreadFilter
   readonly showResolved: boolean
-  readonly commentsTruncated: boolean
+  /** The comments route holds a page older than the loaded one. */
+  readonly hasOlder: boolean
+  readonly loadingOlder: boolean
+  /** Narrow layout: the rail is a drawer over the content. */
+  readonly drawer: boolean
   readonly children?: ReactNode
   readonly onFilter: (filter: ThreadFilter) => void
   readonly onToggleResolved: () => void
@@ -36,6 +40,8 @@ interface ThreadListProps {
   readonly onReply: (thread: WorkItemThread) => void
   readonly onRetry: (dispatch: ArtifactDispatchSummary) => void
   readonly onFocus: (thread: WorkItemThread) => void
+  readonly onLoadOlder: () => void
+  readonly onCloseDrawer: () => void
   readonly attachmentUrl: (attachmentId: string) => string
 }
 
@@ -95,6 +101,17 @@ export function ThreadList(props: ThreadListProps): ReactElement {
           <span className="cwi-count-pill">{props.threads.length}</span>
           <span className="cwi-rail-spacer" />
           <span className="cwi-rail-sort">按位置排序</span>
+          {props.drawer ? (
+            <button
+              type="button"
+              className="cwi-rail-close"
+              data-testid="cwi-rail-close"
+              aria-label="收起批注面板"
+              onClick={props.onCloseDrawer}
+            >
+              收起
+            </button>
+          ) : null}
         </div>
         <div className="cwi-rail-tools">
           <select
@@ -118,11 +135,21 @@ export function ThreadList(props: ThreadListProps): ReactElement {
             <span className="cwi-switch-track" aria-hidden="true"><span className="cwi-switch-thumb" /></span>
             只看待处理
           </label>
-          {props.commentsTruncated ? <span className="cwi-hint" data-testid="cwi-comments-truncated">仅最近 200 条</span> : null}
         </div>
       </div>
       {props.children}
       <div className="cwi-threads">
+        {props.hasOlder ? (
+          <button
+            type="button"
+            className="cwi-older"
+            data-testid="cwi-load-older"
+            disabled={props.loadingOlder}
+            onClick={props.onLoadOlder}
+          >
+            {props.loadingOlder ? '加载中…' : '加载更早的批注'}
+          </button>
+        ) : null}
         {view.emptyMessage === null ? null : <p className="cwi-rail-empty">{view.emptyMessage}</p>}
         {view.visible.map((thread) => card(thread, props, false))}
         {view.showSummary ? (
