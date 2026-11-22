@@ -88,23 +88,11 @@ export class ArtifactStore {
   private readonly lockFile: string
   private scanCache: ScanCache | null = null
   private writeVersion = 0
-  private scans = 0
-  private cacheHits = 0
 
   constructor(repoPath: string) {
     this.repoPath = repoPath
     this.root = join(repoPath, PROJECT_DIR_NAME, ARTIFACTS_DIR_NAME)
     this.lockFile = join(this.root, '.write.lock')
-  }
-
-  /** Full inventory scans performed; a cached read does not count. */
-  get scanCount(): number {
-    return this.scans
-  }
-
-  /** List reads answered from the inventory cache. */
-  get cacheHitCount(): number {
-    return this.cacheHits
   }
 
   /** The directory of one work item; the id is validated first. */
@@ -194,11 +182,9 @@ export class ArtifactStore {
   }> {
     const fingerprint = await this.inventoryFingerprint()
     if (this.scanCache !== null && this.scanCache.fingerprint === fingerprint) {
-      this.cacheHits += 1
       return this.scanCache
     }
     const records = await this.readInventory()
-    this.scans += 1
     this.scanCache = { fingerprint, ...records }
     return this.scanCache
   }

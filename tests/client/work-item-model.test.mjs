@@ -623,3 +623,116 @@ test('moveActiveLine clamps to the document', () => {
   assert.equal(model.moveActiveLine(3, 0, 5), 3)
   assert.equal(model.moveActiveLine(3, 1, 0), 1)
 })
+
+test('lineKeyIntent maps only the line-list keys', () => {
+  assert.equal(model.lineKeyIntent('ArrowDown'), 'next')
+  assert.equal(model.lineKeyIntent('ArrowUp'), 'previous')
+  assert.equal(model.lineKeyIntent('Enter'), 'annotate')
+  assert.equal(model.lineKeyIntent(' '), 'annotate')
+  assert.equal(model.lineKeyIntent('Escape'), null)
+  assert.equal(model.lineKeyIntent('a'), null)
+  assert.equal(model.lineMoveDelta('next'), 1)
+  assert.equal(model.lineMoveDelta('previous'), -1)
+})
+
+test('rebindCall validates the path against the loaded record', () => {
+  const context = { sessionId: 'session-1', artifactId: 'artifact-1' }
+  const record = { files: [{ path: 'docs/spec.md' }], primaryPath: 'docs/spec.md' }
+  assert.equal(model.rebindCall(null, { record }, 'docs/next.md'), null)
+  assert.equal(model.rebindCall(context, null, 'docs/next.md'), null)
+  const rejected = model.rebindCall(context, { record }, '/abs.md')
+  assert.equal(rejected.ok, false)
+  assert.deepEqual(model.rebindCall(context, { record }, ' docs/next.md '), {
+    ok: true,
+    input: { sessionId: 'session-1', artifactId: 'artifact-1', oldPath: 'docs/spec.md', newPath: 'docs/next.md' },
+  })
+})
+
+test('withRecord and withOlderPage keep the rest of the view', () => {
+  const record = { revision: 2 }
+  assert.equal(model.withRecord(null, record), null)
+  assert.deepEqual(model.withRecord({ record: { revision: 1 }, other: 1 }, record), { record, other: 1 })
+  const existing = [comment({ eventId: 'event-2' })]
+  const page = { events: [comment({ eventId: 'event-1' }), comment({ eventId: 'event-2' })], hasOlder: false }
+  assert.deepEqual(model.withOlderPage({ events: existing, hasOlder: true, other: 1 }, page), {
+    events: [page.events[0], existing[0]],
+    hasOlder: false,
+    other: 1,
+  })
+  assert.equal(model.withOlderPage(null, page), null)
+})
+
+test('olderCall carries the cursor only when the viewer is idle', () => {
+  const context = { sessionId: 'session-1', artifactId: 'artifact-1' }
+  assert.equal(model.olderCall(null, { events: [] }, false, 'event-1'), null)
+  assert.equal(model.olderCall(context, null, false, 'event-1'), null)
+  assert.equal(model.olderCall(context, { events: [] }, true, 'event-1'), null)
+  assert.deepEqual(model.olderCall(context, { events: [] }, false, 'event-1'), {
+    sessionId: 'session-1',
+    artifactId: 'artifact-1',
+    before: 'event-1',
+  })
+})
+
+test('lineRangeAnnotation clamps the range and falls back to the primary path', () => {
+  assert.equal(model.lineRangeAnnotation(['a'], null, 'docs/p.md', 2, 1), null)
+  assert.deepEqual(model.lineRangeAnnotation(['a', 'b'], null, 'docs/p.md', 1, 9), {
+    path: 'docs/p.md',
+    startLine: 1,
+    endLine: 2,
+    quote: 'a\nb',
+  })
+  assert.equal(model.lineRangeAnnotation(['a'], { path: 'docs/f.md' }, 'docs/p.md', 1, 1).path, 'docs/f.md')
+})
+
+test('olderEntryVisible and the Escape rules match the drawer state', () => {
+  assert.equal(model.olderEntryVisible(true, 'event-1'), true)
+  assert.equal(model.olderEntryVisible(true, null), false)
+  assert.equal(model.olderEntryVisible(false, 'event-1'), false)
+  assert.equal(model.isEscapeKey({ key: 'Escape', defaultPrevented: false }), true)
+  assert.equal(model.isEscapeKey({ key: 'Escape', defaultPrevented: true }), false)
+  assert.equal(model.isEscapeKey({ key: 'Enter', defaultPrevented: false }), false)
+  assert.equal(model.drawerClosesOnEscape(true, true, false), true)
+  assert.equal(model.drawerClosesOnEscape(true, false, false), false)
+  assert.equal(model.drawerClosesOnEscape(true, true, true), false)
+})
+
+test('line ranges, stale ranges, attachments, and pins fold from the threads', () => {
+  const threads = model.foldThreads([
+    comment({
+      commentId: 'c1',
+      threadId: 'c1',
+      eventId: 'e1',
+      anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 2, endLine: 3, quote: 'a\nb' },
+    }),
+    comment({
+      commentId: 'c2',
+      threadId: 'c2',
+      eventId: 'e2',
+      anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 5, endLine: 5, quote: 'c' },
+    }),
+    comment({
+      commentId: 'c2',
+      threadId: 'c2',
+      eventId: 'e3',
+      type: 'reply',
+      body: 'reply',
+      attachments: [{ attachmentId: 'a1', name: 'x.png', mediaType: 'image/png', size: 1, sha256: 'x' }],
+    }),
+    comment({
+      commentId: 'c2',
+      threadId: 'c2',
+      eventId: 'e4',
+      type: 'anchor-moved',
+      anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 5, endLine: 5, quote: 'c' },
+      anchorStatus: 'stale',
+    }),
+  ])
+  assert.deepEqual([...model.anchoredLineNumbers(threads)].sort((left, right) => left - right), [2, 3, 5])
+  assert.deepEqual([...model.staleLineNumbers(threads)], [5])
+  assert.deepEqual(model.attachmentRowsOf(threads).map((row) => row.attachmentId), ['a1'])
+  const pins = model.threadLinePins(threads)
+  assert.equal(model.pinThread(pins, threads, 2), threads[0])
+  assert.equal(model.pinThread(pins, threads, 99), null)
+  assert.equal(model.pinThread(new Map(), threads, 2), null)
+})

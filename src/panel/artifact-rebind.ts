@@ -9,16 +9,13 @@
  * and re-located against its text, or marked stale when the quote cannot be
  * found; the comment bodies are never dropped.
  */
-import { randomUUID } from 'node:crypto'
 import type { ArtifactApiPorts, ArtifactRouteKit } from './artifact-route-kit.js'
 import {
-  ARTIFACT_COMMENT_VERSION,
   MAX_ARTIFACTS_PER_PROJECT,
   type ArtifactAnchor,
   type ArtifactEventV1,
   type ArtifactRebindResponse,
   type ArtifactRecordV1,
-  type CommentEventV1,
 } from './artifact-contract.js'
 import { createEventRow } from '../platform/artifact-events.js'
 import { resolveInsideRepo } from '../platform/artifact-files.js'
@@ -26,7 +23,16 @@ import type { ArtifactRuntime } from '../platform/artifact-runtime.js'
 import { ArtifactDomainError } from '../domains/artifact/errors.js'
 import { normalizeArtifactPath } from '../domains/artifact/paths.js'
 import { relocateLineAnchor } from '../domains/artifact/anchor.js'
-import { nowOf, openRecord, publishAll, requireBodyString } from './artifact-records.js'
+import {
+  appendAnchorMovedUnlocked,
+  latestAnchors,
+  nowOf,
+  openRecordFromBody,
+  publishAll,
+  readRecordOrThrowUnlocked,
+  requireBodyString,
+  type AnchorStateEntry,
+} from './artifact-records.js'
 
 /** What one rebind observes and commits. */
 interface RebindInput {
@@ -44,29 +50,6 @@ interface RebindOutcome {
   readonly events: ArtifactEventV1[]
 }
 
-/** The latest anchor state of every comment that carries one. */
-async function anchorState(runtime: ArtifactRuntime, artifactId: string): Promise<
-  Map<string, { anchor: ArtifactAnchor; threadId: string; stale: boolean }>
-> {
-  const comments = await runtime.store.readComments(artifactId)
-  const anchors = new Map<string, { anchor: ArtifactAnchor; threadId: string; stale: boolean }>()
-  for (const event of comments) {
-    if (event.type === 'create' && event.anchor !== undefined) {
-      anchors.set(event.commentId, { anchor: event.anchor, threadId: event.threadId, stale: false })
-    } else if (event.type === 'anchor-moved') {
-      const existing = anchors.get(event.commentId)
-      if (existing !== undefined) {
-        anchors.set(event.commentId, {
-          anchor: event.anchor,
-          threadId: existing.threadId,
-          stale: event.anchorStatus === 'stale',
-        })
-      }
-    }
-  }
-  return anchors
-}
-
 /** The new file's text, or null when it cannot be read (binary or host limit). */
 async function textOf(runtime: ArtifactRuntime, path: string): Promise<string | null> {
   try {
@@ -74,6 +57,31 @@ async function textOf(runtime: ArtifactRuntime, path: string): Promise<string | 
   } catch {
     return null
   }
+}
+
+/** The rebased anchor and its status for one comment after its file moved. */
+function rebindAnchor(
+  entry: AnchorStateEntry,
+  newPath: string,
+  text: string | null,
+): { anchor: ArtifactAnchor; anchorStatus: 'moved' | 'stale' } {
+  const rebased: ArtifactAnchor = { ...entry.anchor, path: newPath }
+  if (rebased.kind !== 'line-range') {
+    return { anchor: rebased, anchorStatus: entry.stale ? 'stale' : 'moved' }
+  }
+  return rebindLineAnchor(entry.stale, rebased, text)
+}
+
+/** A line-range anchor re-locates its quote; unreadable or missing text is stale. */
+function rebindLineAnchor(
+  stale: boolean,
+  rebased: Extract<ArtifactAnchor, { kind: 'line-range' }>,
+  text: string | null,
+): { anchor: ArtifactAnchor; anchorStatus: 'moved' | 'stale' } {
+  if (text === null) return { anchor: rebased, anchorStatus: 'stale' }
+  const relocated = relocateLineAnchor(text, rebased)
+  if (relocated.status === 'stale') return { anchor: rebased, anchorStatus: 'stale' }
+  return { anchor: relocated.anchor, anchorStatus: stale ? 'stale' : 'moved' }
 }
 
 /**
@@ -91,7 +99,7 @@ async function remapAnchorsUnlocked(
   newPath: string,
   now: Date,
 ): Promise<ArtifactEventV1[]> {
-  const anchors = await anchorState(runtime, record.artifactId)
+  const anchors = latestAnchors(await runtime.store.readComments(record.artifactId))
   const candidates = [...anchors].filter(([, entry]) => entry.anchor.path === oldPath)
   if (candidates.length === 0) return []
   const text = candidates.some(([, entry]) => entry.anchor.kind === 'line-range')
@@ -99,28 +107,15 @@ async function remapAnchorsUnlocked(
     : null
   const events: ArtifactEventV1[] = []
   for (const [commentId, entry] of candidates) {
-    const rebased: ArtifactAnchor = { ...entry.anchor, path: newPath }
-    let anchor: ArtifactAnchor = rebased
-    let anchorStatus: 'moved' | 'stale' = entry.stale ? 'stale' : 'moved'
-    if (rebased.kind === 'line-range') {
-      const relocated = text === null ? null : relocateLineAnchor(text, rebased)
-      if (relocated === null || relocated.status === 'stale') anchorStatus = 'stale'
-      else anchor = relocated.anchor
-    }
-    const row: CommentEventV1 = {
-      version: ARTIFACT_COMMENT_VERSION,
-      eventId: `comment-event-${randomUUID()}`,
-      artifactId: record.artifactId,
+    const { anchor, anchorStatus } = rebindAnchor(entry, newPath, text)
+    events.push(await appendAnchorMovedUnlocked(
+      runtime,
+      record,
       commentId,
-      threadId: entry.threadId,
-      type: 'anchor-moved',
+      entry.threadId,
       anchor,
       anchorStatus,
-      createdAt: now.toISOString(),
-    }
-    await runtime.store.appendCommentUnlocked(row)
-    events.push(await runtime.store.appendEventUnlocked(
-      createEventRow(record.artifactId, 'comment.updated', now, { commentId, anchorStatus }),
+      now,
     ))
   }
   return events
@@ -183,14 +178,7 @@ async function rebindRecord(input: RebindInput): Promise<RebindOutcome> {
     throw new ArtifactDomainError('artifact/file-missing', `file does not exist: ${target}`, target)
   }
   const result = await runtime.store.withLock(async () => {
-    const current = await runtime.store.readRecord(record.artifactId)
-    if (current === null) {
-      throw new ArtifactDomainError(
-        'artifact/not-found',
-        `work item is missing: ${record.artifactId}`,
-        record.artifactId,
-      )
-    }
+    const current = await readRecordOrThrowUnlocked(runtime, record.artifactId)
     const source = current.files.find((file) => file.path === oldPath)
     if (source === undefined) {
       throw new ArtifactDomainError(
@@ -228,11 +216,9 @@ export async function handleRebind(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const body = await kit.readJsonBody(request)
-  const sessionId = requireBodyString(body, 'sessionId', kit)
-  const artifactId = requireBodyString(body, 'artifactId', kit)
   const oldPath = requireBodyString(body, 'oldPath', kit)
   const newPath = requireBodyString(body, 'newPath', kit)
-  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
   const outcome = await rebindRecord({ runtime, record, oldPath, newPath, now: nowOf(ports) })
   publishAll(runtime, outcome.events)
   const response: ArtifactRebindResponse = { ok: true, changed: outcome.changed, record: outcome.record }

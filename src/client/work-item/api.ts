@@ -136,14 +136,10 @@ export interface ArtifactRebindResult {
 }
 
 /**
- * One comments page: the shared response plus the stage-5 `hasOlder` flag.
- *
- * `hasOlder` is optional so a host that has not shipped backward paging yet
- * simply hides the "load older" entry instead of failing the response.
+ * One comments page. The wire contract owns the shape, including the stage-5
+ * `hasOlder` flag, so the browser half reuses it instead of restating fields.
  */
-export interface CommentsPage extends ArtifactCommentsResponse {
-  readonly hasOlder?: boolean
-}
+export type CommentsPage = ArtifactCommentsResponse
 
 /** One status action. */
 export interface StatusInput {

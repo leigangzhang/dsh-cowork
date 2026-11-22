@@ -1681,15 +1681,68 @@ function commentEvent({ eventId, threadId = eventId, body = '批注', line = nul
 const REBOUND_PATH = 'docs/rebound.md'
 const REBOUND_SPEC = '# 已重新绑定\n\n新文件内容。'
 
+/** Open the seeded work item viewer and wait for its first line. */
+async function openWorkItemViewer(page) {
+  await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
+  await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+  await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor({ timeout: 15_000 })
+}
+
+/** Assert a group of elements is reachable with Tab (tabIndex >= 0). */
+function assertTabbable(values, label) {
+  assert.ok(values.length > 0 && values.every(index => index >= 0), `${label} must be tabbable`)
+}
+
+/** The outline a focused element renders. */
+async function outlineOf(locator) {
+  return locator.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { style: style.outlineStyle, width: style.outlineWidth }
+  })
+}
+
+/** Assert one focused element shows an outline ring, not only a colour change. */
+function assertRing(ring, label) {
+  assert.notEqual(ring.style, 'none', `${label} needs an outline`)
+  assert.notEqual(ring.width, '0px')
+}
+
+/** Wait for one comments request with the given `before` cursor (null = first page). */
+function waitForCommentsPage(page, before, timeout = 15_000) {
+  return page.waitForRequest((request) => {
+    try {
+      const url = new URL(request.url())
+      return url.pathname === '/api/cowork.artifact.comments' && url.searchParams.get('before') === before
+    } catch {
+      return false
+    }
+  }, { timeout })
+}
+
+/** The mocked comment rows one `before` cursor returns. */
+function pagedComments(before) {
+  if (before === null) {
+    return [
+      commentEvent({ eventId: 'event-a', threadId: 'thread-a', line: 1 }),
+      commentEvent({ eventId: 'event-b', threadId: 'thread-b', line: 4 }),
+    ]
+  }
+  if (before === 'event-a') {
+    return [
+      commentEvent({ eventId: 'event-old', threadId: 'thread-old', line: 2 }),
+      commentEvent({ eventId: 'event-a', threadId: 'thread-a', line: 1 }),
+    ]
+  }
+  return []
+}
+
 /**
  * Keyboard and focus: the line list, thread cards, and pins are operable from
  * the keyboard with a visible ring, and Escape closes overlays without sending.
  */
 async function scenarioWorkItemKeyboard(page) {
   await openWorkItemTab(page)
-  await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
-  await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
-  await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor({ timeout: 15_000 })
+  await openWorkItemViewer(page)
 
   // Toolbar buttons, thread cards, and pins all sit in the tab order.
   const tabbable = await page.evaluate(() => {
@@ -1701,39 +1754,29 @@ async function scenarioWorkItemKeyboard(page) {
       pins: read('[data-testid="cwi-line-pin"]'),
     }
   })
-  assert.ok(tabbable.tabs.length > 0 && tabbable.tabs.every(index => index >= 0), 'view tabs must be tabbable')
-  assert.ok(tabbable.railToggle.length === 1 && tabbable.railToggle[0] >= 0, 'rail toggle must be tabbable')
-  assert.ok(tabbable.cards.length > 0 && tabbable.cards.every(index => index >= 0), 'thread cards must be tabbable')
-  assert.ok(tabbable.pins.length > 0 && tabbable.pins.every(index => index >= 0), 'line pins must be tabbable')
+  assertTabbable(tabbable.tabs, 'view tabs')
+  assertTabbable(tabbable.railToggle, 'rail toggle')
+  assertTabbable(tabbable.cards, 'thread cards')
+  assertTabbable(tabbable.pins, 'line pins')
   assert.equal(await page.getByTestId('cwi-line-pin').first().evaluate(element => element.tagName), 'BUTTON')
 
   // Focus is visible as a ring, not only as a colour change, for the toolbar,
   // a thread card, and a line pin. Tab into each one so :focus-visible applies.
-  const ringOf = (locator) => locator.evaluate((element) => {
-    const style = getComputedStyle(element)
-    return { style: style.outlineStyle, width: style.outlineWidth }
-  })
   await page.getByTestId('cwi-more').focus()
   await page.keyboard.press('Tab')
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-view-tab')
-  const tabRing = await ringOf(page.getByTestId('cwi-view-tab').first())
-  assert.notEqual(tabRing.style, 'none', 'a focused toolbar tab needs an outline')
-  assert.notEqual(tabRing.width, '0px')
+  assertRing(await outlineOf(page.getByTestId('cwi-view-tab').first()), 'a focused toolbar tab')
 
   await page.getByTestId('cwi-thread').first().focus()
   await page.keyboard.press('Shift+Tab')
   await page.keyboard.press('Tab')
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-thread')
-  const cardRing = await ringOf(page.getByTestId('cwi-thread').first())
-  assert.notEqual(cardRing.style, 'none', 'a focused thread card needs an outline')
-  assert.notEqual(cardRing.width, '0px')
+  assertRing(await outlineOf(page.getByTestId('cwi-thread').first()), 'a focused thread card')
 
   await page.getByTestId('cwi-lines').focus()
   await page.keyboard.press('Tab')
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-line-pin')
-  const pinRing = await ringOf(page.getByTestId('cwi-line-pin').first())
-  assert.notEqual(pinRing.style, 'none', 'a focused line pin needs an outline')
-  assert.notEqual(pinRing.width, '0px')
+  assertRing(await outlineOf(page.getByTestId('cwi-line-pin').first()), 'a focused line pin')
 
   // Arrow keys move the active line; Enter opens that line's comment entry.
   await page.getByTestId('cwi-lines').focus()
@@ -1788,9 +1831,7 @@ async function scenarioWorkItemNarrow(page) {
     assert.equal(listLayout.direction, 'column', 'the rail list must stay a single column')
     assert.ok(listLayout.overflow <= 1, `the rail list overflows horizontally by ${listLayout.overflow}px`)
 
-    await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
-    await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
-    await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor({ timeout: 15_000 })
+    await openWorkItemViewer(page)
     assert.equal(await page.getByTestId('cwi-rail').getAttribute('data-drawer'), 'true')
     const bodyDirection = await page.locator('.cwi-body').evaluate(element => getComputedStyle(element).flexDirection)
     assert.equal(bodyDirection, 'column')
@@ -1857,29 +1898,14 @@ async function scenarioWorkItemPaging(page) {
       })
       return
     }
-    const events = before === null
-      ? [commentEvent({ eventId: 'event-a', threadId: 'thread-a', line: 1 }), commentEvent({ eventId: 'event-b', threadId: 'thread-b', line: 4 })]
-      : before === 'event-a'
-        ? [
-            commentEvent({ eventId: 'event-old', threadId: 'thread-old', line: 2 }),
-            commentEvent({ eventId: 'event-a', threadId: 'thread-a', line: 1 }),
-          ]
-        : []
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ ok: true, events: events, truncated: false, hasOlder: before !== 'event-old' }),
+      body: JSON.stringify({ ok: true, events: pagedComments(before), truncated: false, hasOlder: before !== 'event-old' }),
     })
   })
   try {
-    const initialRequest = page.waitForRequest((request) => {
-      try {
-        const url = new URL(request.url())
-        return url.pathname === '/api/cowork.artifact.comments' && url.searchParams.get('before') === null
-      } catch {
-        return false
-      }
-    }, { timeout: 15_000 })
+    const initialRequest = waitForCommentsPage(page, null)
     await openWorkItemTab(page)
     await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
     const request = await initialRequest
@@ -1891,38 +1917,20 @@ async function scenarioWorkItemPaging(page) {
     await target.click()
     assert.equal(await target.getAttribute('data-selected'), 'true')
 
-    const failedRequest = page.waitForRequest((candidate) => {
-      try {
-        return new URL(candidate.url()).searchParams.get('before') === 'event-a'
-      } catch {
-        return false
-      }
-    }, { timeout: 15_000 })
+    const failedRequest = waitForCommentsPage(page, 'event-a')
     await page.getByTestId('cwi-load-older').click()
     assert.equal(new URL((await failedRequest).url()).searchParams.get('limit'), '200')
     await page.getByRole('status').filter({ hasText: '加载更早的批注失败' }).waitFor({ timeout: 10_000 })
     assert.equal(await page.getByTestId('cwi-load-older').count(), 1)
 
-    const olderRequest = page.waitForRequest((candidate) => {
-      try {
-        return new URL(candidate.url()).searchParams.get('before') === 'event-a'
-      } catch {
-        return false
-      }
-    }, { timeout: 15_000 })
+    const olderRequest = waitForCommentsPage(page, 'event-a')
     await page.getByTestId('cwi-load-older').click()
     assert.equal(new URL((await olderRequest).url()).searchParams.get('limit'), '200')
     await page.locator('[data-testid="cwi-thread"][data-thread-id="thread-old"]').waitFor({ timeout: 10_000 })
     assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 3)
     assert.equal(await target.getAttribute('data-selected'), 'true', 'loading older rows must keep the selection')
 
-    const emptyRequest = page.waitForRequest((candidate) => {
-      try {
-        return new URL(candidate.url()).searchParams.get('before') === 'event-old'
-      } catch {
-        return false
-      }
-    }, { timeout: 15_000 })
+    const emptyRequest = waitForCommentsPage(page, 'event-old')
     await page.getByTestId('cwi-load-older').click()
     await emptyRequest
     await page.getByTestId('cwi-load-older').waitFor({ state: 'detached', timeout: 10_000 })

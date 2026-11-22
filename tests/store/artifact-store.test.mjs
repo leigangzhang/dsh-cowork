@@ -305,26 +305,28 @@ test('the event window filters by artifact before the cap and reports a trimmed 
   })
 })
 
-test('the list cache reuses one scan until a write invalidates it', async () => {
+test('the list cache serves its snapshot until a write invalidates it', async () => {
   await withStore(async (store) => {
     await store.createRecord(makeRecord())
-    const base = store.scanCount
     const first = await store.listRecords()
-    const second = await store.listRecords()
-    assert.equal(store.scanCount, base + 1, 'the second read must not scan again')
-    assert.equal(store.cacheHitCount, 1)
-    assert.equal(first.total, second.total)
-    assert.deepEqual(first.records, second.records)
+    const recordPath = join(store.root, ARTIFACT, 'artifact.json')
+    // An outside write to a record does not change the artifacts directory
+    // mtime, so the cached inventory keeps serving the snapshot it took.
+    await writeFile(recordPath, JSON.stringify(makeRecord({ status: 'confirmed' })))
+    const cached = await store.listRecords()
+    assert.deepEqual(cached.records, first.records)
+    assert.equal(cached.records[0].status, 'pending-view')
 
+    // A record write invalidates: the next read sees the outside change.
     await store.mutateRecord(ARTIFACT, (record) => ({ ...record, status: 'confirmed' }))
-    const afterStatus = await store.listRecords()
-    assert.equal(store.scanCount, base + 2, 'a status/edit/rebind write must invalidate')
-    assert.equal(afterStatus.records[0].status, 'confirmed')
+    assert.equal((await store.listRecords()).records[0].status, 'confirmed')
 
+    // Comment and event appends invalidate for the same reason.
+    await writeFile(recordPath, JSON.stringify(makeRecord({ status: 'needs-feedback' })))
     await store.appendComment(makeComment())
-    await store.listRecords()
-    assert.equal(store.scanCount, base + 3, 'a comment append must invalidate')
+    assert.equal((await store.listRecords()).records[0].status, 'needs-feedback')
 
+    await writeFile(recordPath, JSON.stringify(makeRecord({ status: 'in-progress' })))
     await store.appendEvent({
       eventId: 'event-1',
       type: 'artifact.updated',
@@ -332,8 +334,7 @@ test('the list cache reuses one scan until a write invalidates it', async () => 
       time: '2026-02-01T00:00:00.000Z',
       data: {},
     })
-    await store.listRecords()
-    assert.equal(store.scanCount, base + 4, 'an event append must invalidate')
+    assert.equal((await store.listRecords()).records[0].status, 'in-progress')
   })
 })
 
@@ -353,9 +354,7 @@ test('a cached list keeps limit, total, and corrupt semantics', async () => {
     assert.equal(first.records.length, 2)
     assert.equal(first.total, 3)
     assert.deepEqual(first.corrupt, ['artifact-dddddddd-dddd-4ddd-8ddd-dddddddddddd'])
-    const scans = store.scanCount
     const cached = await store.listRecords(2)
-    assert.equal(store.scanCount, scans)
     assert.deepEqual(cached, first)
   })
 })

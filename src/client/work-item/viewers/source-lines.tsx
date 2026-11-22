@@ -11,6 +11,8 @@ import type { KeyboardEvent, ReactElement } from 'react'
 import {
   inlineMarkdown,
   isSelected,
+  lineKeyIntent,
+  lineMoveDelta,
   markdownLines,
   moveActiveLine,
   type LineSelection,
@@ -174,14 +176,14 @@ export function SourceLines({
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     // A pin is its own button: its Enter/Space belongs to the pin, not the list.
     if (event.target !== event.currentTarget) return
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      moveTo(moveActiveLine(activeLine, event.key === 'ArrowDown' ? 1 : -1, lines.length))
+    const intent = lineKeyIntent(event.key)
+    if (intent === null) return
+    event.preventDefault()
+    if (intent === 'annotate') {
+      onAnnotateLine(activeLine)
       return
     }
-    if (event.key !== 'Enter' && event.key !== ' ') return
-    event.preventDefault()
-    onAnnotateLine(activeLine)
+    moveTo(moveActiveLine(activeLine, lineMoveDelta(intent), lines.length))
   }
   const pick = (line: number, extend: boolean): void => {
     setActive(line)

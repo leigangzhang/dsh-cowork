@@ -24,6 +24,62 @@ const PNG_BYTES = Buffer.from(
   'base64',
 )
 
+
+/** The primary path one rebind response reports. */
+function reboundPath(response) {
+  return response.body?.record?.primaryPath
+}
+
+/** Whether one panel response answered 200. */
+function panelOk(response) {
+  return response.status === 200
+}
+
+/** Whether one rebind response reported a changed record. */
+function rebindChanged(response) {
+  return response.body?.changed === true
+}
+
+/** Check the response that moved the registered file to its new path. */
+function checkRebound(ctx, response, newPath) {
+  const ok = panelOk(response) && rebindChanged(response) && reboundPath(response) === newPath
+  ctx.check('rebind re-points the moved file', ok, `${response.status}:${reboundPath(response)}`)
+}
+
+/** Check the idempotent retry that re-sends the same old and new path. */
+function checkIdempotentRebind(ctx, response, path) {
+  const ok = panelOk(response) && rebindChanged(response) === false && reboundPath(response) === path
+  ctx.check('rebind is idempotent for the same path', ok, `${response.status}:${rebindChanged(response)}`)
+}
+
+/** Whether the rail list carries this work item at its rebound path. */
+function listedRebound(response, artifactId, path) {
+  return response.body?.items?.some(
+    (item) => item.artifactId === artifactId && item.primaryPath === path,
+  ) === true
+}
+
+/** Check the rail list after a rebind reports the new primary path. */
+function checkReboundListed(ctx, response, artifactId, path) {
+  const listed = listedRebound(response, artifactId, path)
+  ctx.check('the rail lists the rebound path', panelOk(response) && listed, String(response.status))
+}
+
+/** Move the registered file and prove the work item now points at its new path. */
+async function runRebindStep(ctx, masterId, artifactId) {
+  await rename(join(ctx.fixture.path, SPEC_PATH), join(ctx.fixture.path, REBOUND_PATH))
+  const rebind = (oldPath, newPath) => ctx.client.panelPost('/api/cowork.artifact.rebind', {
+    sessionId: masterId,
+    artifactId,
+    oldPath,
+    newPath,
+  })
+  checkRebound(ctx, await rebind(SPEC_PATH, REBOUND_PATH), REBOUND_PATH)
+  checkIdempotentRebind(ctx, await rebind(REBOUND_PATH, REBOUND_PATH), REBOUND_PATH)
+  const list = await ctx.client.panelGet(`/api/cowork.artifact.list?sessionId=${encodeURIComponent(masterId)}`)
+  checkReboundListed(ctx, list, artifactId, REBOUND_PATH)
+}
+
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
 export async function runArtifactChain(ctx) {
   ctx.model.setHandler(({ prompt, toolResults }) => {
@@ -245,37 +301,5 @@ export async function runArtifactChain(ctx) {
   const guarded = await ctx.readText(SPEC_PATH)
   ctx.check('the denied edit left the file unchanged', guarded?.includes('GUARD TEST') === false, guarded?.slice(0, 40))
 
-  // Move the registered file and re-point the work item at its new path.
-  await rename(join(ctx.fixture.path, SPEC_PATH), join(ctx.fixture.path, REBOUND_PATH))
-  const rebound = await ctx.client.panelPost('/api/cowork.artifact.rebind', {
-    sessionId: masterId,
-    artifactId,
-    oldPath: SPEC_PATH,
-    newPath: REBOUND_PATH,
-  })
-  ctx.check(
-    'rebind re-points the moved file',
-    rebound.status === 200 && rebound.body?.changed === true && rebound.body?.record?.primaryPath === REBOUND_PATH,
-    `${rebound.status}:${rebound.body?.record?.primaryPath}`,
-  )
-  const idempotentRebind = await ctx.client.panelPost('/api/cowork.artifact.rebind', {
-    sessionId: masterId,
-    artifactId,
-    oldPath: REBOUND_PATH,
-    newPath: REBOUND_PATH,
-  })
-  ctx.check(
-    'rebind is idempotent for the same path',
-    idempotentRebind.status === 200
-      && idempotentRebind.body?.changed === false
-      && idempotentRebind.body?.record?.primaryPath === REBOUND_PATH,
-    `${idempotentRebind.status}:${idempotentRebind.body?.changed}`,
-  )
-  const reboundList = await ctx.client.panelGet(`/api/cowork.artifact.list?sessionId=${encodeURIComponent(masterId)}`)
-  ctx.check(
-    'the rail lists the rebound path',
-    reboundList.status === 200
-      && reboundList.body?.items?.some((item) => item.artifactId === artifactId && item.primaryPath === REBOUND_PATH),
-    reboundList.status,
-  )
+  await runRebindStep(ctx, masterId, artifactId)
 }

@@ -26,10 +26,8 @@ import { relocateLineAnchor } from '../domains/artifact/anchor.js'
 
 /** A query parameter, or null when absent or blank. `GET` routes carry no body. */
 export function queryParam(request: Request, name: string): string | null {
-  const value = new URL(request.url).searchParams.get(name)
-  if (value === null) return null
-  const trimmed = value.trim()
-  return trimmed === '' ? null : trimmed
+  const value = new URL(request.url).searchParams.get(name)?.trim()
+  return value === undefined || value === '' ? null : value
 }
 
 /** A required query parameter. */
@@ -75,6 +73,35 @@ export function nowOf(ports: ArtifactApiPorts): Date {
 }
 
 /**
+ * Read one record inside a locked transaction; a vanished record is a stable
+ * not-found rather than a half-applied write.
+ */
+export async function readRecordOrThrowUnlocked(
+  runtime: ArtifactRuntime,
+  artifactId: string,
+): Promise<ArtifactRecordV1> {
+  const record = await runtime.store.readRecord(artifactId)
+  if (record === null) {
+    throw new ArtifactDomainError('artifact/not-found', `work item is missing: ${artifactId}`, artifactId)
+  }
+  return record
+}
+
+/**
+ * Read the work item a JSON body names; every body route starts with the same
+ * two required fields, so the pair is parsed once here.
+ */
+export async function openRecordFromBody(
+  ports: ArtifactApiPorts,
+  kit: ArtifactRouteKit,
+  body: Record<string, unknown>,
+): Promise<{ record: ArtifactRecordV1; runtime: ArtifactRuntime }> {
+  const sessionId = requireBodyString(body, 'sessionId', kit)
+  const artifactId = requireBodyString(body, 'artifactId', kit)
+  return openRecord(ports, kit, sessionId, artifactId)
+}
+
+/**
  * Read the work item a request names, after proving it belongs to the project
  * the session resolved to. A record from another project is refused instead of
  * served, so a copied id cannot cross project boundaries.
@@ -87,10 +114,7 @@ export async function openRecord(
 ): Promise<{ record: ArtifactRecordV1; runtime: ArtifactRuntime }> {
   const opened = await kit.openProject(sessionId)
   const runtime = ports.runtimeFor(opened.repoPath)
-  const record = await runtime.store.readRecord(artifactId)
-  if (record === null) {
-    throw new ArtifactDomainError('artifact/not-found', `work item is missing: ${artifactId}`, artifactId)
-  }
+  const record = await readRecordOrThrowUnlocked(runtime, artifactId)
   if (record.projectId !== opened.projectId) {
     throw new ArtifactDomainError(
       'artifact/session-mismatch',
@@ -126,10 +150,7 @@ export async function reconcileRecord(
     // Re-read inside the lock so a concurrent comment count or status update is
     // kept. A file is only replaced when the record still carries the revision
     // this scan observed; a newer save wins and this observation is discarded.
-    const current = await runtime.store.readRecord(record.artifactId)
-    if (current === null) {
-      throw new ArtifactDomainError('artifact/not-found', `work item is missing: ${record.artifactId}`, record.artifactId)
-    }
+    const current = await readRecordOrThrowUnlocked(runtime, record.artifactId)
     const applied: { path: string; revision: number; missing: boolean }[] = []
     const nextFiles = current.files.map((file) => {
       const observed = reconciled.get(file.path)
@@ -153,8 +174,7 @@ export async function reconcileRecord(
       ))
       const observed = files.find((candidate) => candidate.file.path === file.path)
       if (observed !== undefined && observed.text !== null) {
-        const relocated = await relocateAnchorsUnlocked(runtime, saved, file.path, observed.text, now)
-        events.push(...relocated.events)
+        events.push(...await relocateAnchorsUnlocked(runtime, saved, file.path, observed.text, now))
       }
     }
     events.push(await runtime.store.appendEventUnlocked(
@@ -197,6 +217,77 @@ export function registeredFile(
   return file
 }
 
+/** The latest anchor state of one comment. */
+export interface AnchorStateEntry {
+  readonly anchor: ArtifactAnchor
+  readonly threadId: string
+  readonly stale: boolean
+}
+
+/** Fold the comment log into the latest anchor state per comment. */
+export function latestAnchors(comments: readonly CommentEventV1[]): Map<string, AnchorStateEntry> {
+  const anchors = new Map<string, AnchorStateEntry>()
+  for (const event of comments) {
+    if (event.type === 'create' && event.anchor !== undefined) {
+      anchors.set(event.commentId, { anchor: event.anchor, threadId: event.threadId, stale: false })
+      continue
+    }
+    if (event.type !== 'anchor-moved') continue
+    const existing = anchors.get(event.commentId)
+    if (existing === undefined) continue
+    anchors.set(event.commentId, {
+      anchor: event.anchor,
+      threadId: existing.threadId,
+      stale: event.anchorStatus === 'stale',
+    })
+  }
+  return anchors
+}
+
+/** Append one anchor-moved row and its project event, inside the caller's lock. */
+export async function appendAnchorMovedUnlocked(
+  runtime: ArtifactRuntime,
+  record: ArtifactRecordV1,
+  commentId: string,
+  threadId: string,
+  anchor: ArtifactAnchor,
+  anchorStatus: 'moved' | 'stale',
+  now: Date,
+): Promise<ArtifactEventV1> {
+  const row: CommentEventV1 = {
+    version: ARTIFACT_COMMENT_VERSION,
+    eventId: `comment-event-${randomUUID()}`,
+    artifactId: record.artifactId,
+    commentId,
+    threadId,
+    type: 'anchor-moved',
+    anchor,
+    anchorStatus,
+    createdAt: now.toISOString(),
+  }
+  await runtime.store.appendCommentUnlocked(row)
+  return runtime.store.appendEventUnlocked(
+    createEventRow(record.artifactId, 'comment.updated', now, { commentId, anchorStatus }),
+  )
+}
+
+/** Whether one anchor state is a live line-range anchor on the changed path. */
+function lineAnchorAt(entry: AnchorStateEntry, path: string): boolean {
+  return !entry.stale && entry.anchor.kind === 'line-range' && entry.anchor.path === path
+}
+
+/** The relocation one changed file implies for an anchor, or null for no move. */
+function relocationOf(
+  entry: AnchorStateEntry,
+  path: string,
+  content: string,
+): { anchor: ArtifactAnchor; anchorStatus: 'moved' | 'stale' } | null {
+  if (!lineAnchorAt(entry, path)) return null
+  const relocated = relocateLineAnchor(content, entry.anchor)
+  if (relocated.status === 'unchanged') return null
+  return { anchor: relocated.anchor, anchorStatus: relocated.status }
+}
+
 /** Re-anchor every comment whose file changed, inside the caller's lock. */
 export async function relocateAnchorsUnlocked(
   runtime: ArtifactRuntime,
@@ -204,42 +295,21 @@ export async function relocateAnchorsUnlocked(
   path: string,
   content: string,
   now: Date,
-): Promise<{ rows: CommentEventV1[]; events: ArtifactEventV1[] }> {
-  const comments = await runtime.store.readComments(record.artifactId)
-  const anchors = new Map<string, { anchor: ArtifactAnchor; threadId: string; stale: boolean }>()
-  for (const event of comments) {
-    if (event.type === 'create' && event.anchor !== undefined) {
-      anchors.set(event.commentId, { anchor: event.anchor, threadId: event.threadId, stale: false })
-    } else if (event.type === 'anchor-moved') {
-      const existing = anchors.get(event.commentId)
-      if (existing !== undefined) {
-        anchors.set(event.commentId, { anchor: event.anchor, threadId: existing.threadId, stale: event.anchorStatus === 'stale' })
-      }
-    }
-  }
-  const rows: CommentEventV1[] = []
+): Promise<ArtifactEventV1[]> {
+  const anchors = latestAnchors(await runtime.store.readComments(record.artifactId))
   const events: ArtifactEventV1[] = []
   for (const [commentId, entry] of anchors) {
-    if (entry.stale) continue
-    if (entry.anchor.kind !== 'line-range' || entry.anchor.path !== path) continue
-    const relocated = relocateLineAnchor(content, entry.anchor)
-    if (relocated.status === 'unchanged') continue
-    const row: CommentEventV1 = {
-      version: ARTIFACT_COMMENT_VERSION,
-      eventId: `comment-event-${randomUUID()}`,
-      artifactId: record.artifactId,
+    const relocation = relocationOf(entry, path, content)
+    if (relocation === null) continue
+    events.push(await appendAnchorMovedUnlocked(
+      runtime,
+      record,
       commentId,
-      threadId: entry.threadId,
-      type: 'anchor-moved',
-      anchor: relocated.anchor,
-      anchorStatus: relocated.status,
-      createdAt: now.toISOString(),
-    }
-    await runtime.store.appendCommentUnlocked(row)
-    rows.push(row)
-    events.push(await runtime.store.appendEventUnlocked(
-      createEventRow(record.artifactId, 'comment.updated', now, { commentId, anchorStatus: relocated.status }),
+      entry.threadId,
+      relocation.anchor,
+      relocation.anchorStatus,
+      now,
     ))
   }
-  return { rows, events }
+  return events
 }

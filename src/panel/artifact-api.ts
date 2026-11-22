@@ -85,6 +85,7 @@ import type { ArtifactApiPorts, ArtifactRouteKit } from './artifact-route-kit.js
 import {
   nowOf,
   openRecord,
+  openRecordFromBody,
   publishAll,
   queryParam,
   reconcileRecord,
@@ -171,9 +172,7 @@ async function handleOpen(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const body = await kit.readJsonBody(request)
-  const sessionId = requireBodyString(body, 'sessionId', kit)
-  const artifactId = requireBodyString(body, 'artifactId', kit)
-  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
   if (ports.openWorkspacePath === undefined) {
     throw new ArtifactDomainError(
       ARTIFACT_OPEN_UNSUPPORTED_CODE,
@@ -387,8 +386,6 @@ async function handleComment(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const body = await kit.readJsonBody(request)
-  const sessionId = requireBodyString(body, 'sessionId', kit)
-  const artifactId = requireBodyString(body, 'artifactId', kit)
   const text = requireBodyString(body, 'body', kit)
   if (text.length > MAX_ARTIFACT_COMMENT_CHARS) {
     throw kit.fail('request/invalid-body', `body must be at most ${MAX_ARTIFACT_COMMENT_CHARS} characters`)
@@ -404,7 +401,8 @@ async function handleComment(
     }
     rootThreadId = body.threadId
   }
-  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
+  const artifactId = record.artifactId
   const now = nowOf(ports)
   if (rootThreadId !== null) {
     const comments = await runtime.store.readComments(artifactId)
@@ -486,15 +484,13 @@ async function handleDispatchRetry(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const body = await kit.readJsonBody(request)
-  const sessionId = requireBodyString(body, 'sessionId', kit)
-  const artifactId = requireBodyString(body, 'artifactId', kit)
   const dispatchId = requireBodyString(body, 'dispatchId', kit)
-  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
   if (runtime.dispatch === null) {
     throw new ArtifactDomainError('artifact/dispatch-unavailable', 'delivery is not configured for this host')
   }
   const dispatch = await runtime.dispatch.retry(record, dispatchId)
-  const current = await runtime.store.readRecord(artifactId) ?? record
+  const current = await runtime.store.readRecord(record.artifactId) ?? record
   const response: ArtifactDispatchRetryResponse = { ok: true, dispatch, record: current }
   return kit.jsonResponse(200, response)
 }
@@ -517,11 +513,10 @@ async function handleCommentResolve(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const body = await kit.readJsonBody(request)
-  const sessionId = requireBodyString(body, 'sessionId', kit)
-  const artifactId = requireBodyString(body, 'artifactId', kit)
   const commentId = requireBodyString(body, 'commentId', kit)
   const resolved = requireBodyBoolean(body, 'resolved', kit)
-  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
+  const artifactId = record.artifactId
   const now = nowOf(ports)
   const events = await runtime.store.readComments(artifactId)
   const root = events.find((event) => event.type === 'create' && event.commentId === commentId)
@@ -577,13 +572,12 @@ async function handleStatus(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const body = await kit.readJsonBody(request)
-  const sessionId = requireBodyString(body, 'sessionId', kit)
-  const artifactId = requireBodyString(body, 'artifactId', kit)
   const action = body.action
   if (action !== 'view' && action !== 'confirm') {
     throw kit.fail('request/invalid-body', "action must be 'view' or 'confirm'")
   }
-  const { runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
+  const artifactId = record.artifactId
   const now = nowOf(ports)
   const statusAction: ArtifactStatusAction = action
   const result = await runtime.store.withLock(async () => {
@@ -671,8 +665,7 @@ async function commitEdit(input: EditCommitInput): Promise<Response> {
         createEventRow(input.artifactId, 'file.changed', input.now, { path: input.path, revision: nextRevision, merged: input.merged }),
       ),
     ]
-    const relocated = await relocateAnchorsUnlocked(input.runtime, saved, input.path, input.content, input.now)
-    events.push(...relocated.events)
+    events.push(...await relocateAnchorsUnlocked(input.runtime, saved, input.path, input.content, input.now))
     events.push(await input.runtime.store.appendEventUnlocked(
       createEventRow(input.artifactId, 'artifact.updated', input.now, { revision: saved.revision }),
     ))
@@ -713,8 +706,6 @@ async function handleEdit(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const body = await kit.readJsonBody(request, MAX_ARTIFACT_TEXT_BYTES + 65_536)
-  const sessionId = requireBodyString(body, 'sessionId', kit)
-  const artifactId = requireBodyString(body, 'artifactId', kit)
   const path = requireBodyString(body, 'path', kit)
   if (typeof body.content !== 'string') throw kit.fail('request/invalid-body', 'body field content must be a string')
   const content = body.content
@@ -729,7 +720,8 @@ async function handleEdit(
   if (content.split('\n').length > MAX_ARTIFACT_TEXT_LINES) {
     throw new ArtifactDomainError('artifact/file-too-large', `file must be at most ${String(MAX_ARTIFACT_TEXT_LINES)} lines`, path)
   }
-  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
+  const artifactId = record.artifactId
   const registered = registeredFile(record, path)
   if (!registered.editable || !isTextMediaType(registered.mediaType)) {
     throw new ArtifactDomainError('artifact/not-editable', `file is not editable: ${path}`, path)
@@ -778,11 +770,9 @@ async function handlePresence(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const body = await kit.readJsonBody(request)
-  const sessionId = requireBodyString(body, 'sessionId', kit)
-  const artifactId = requireBodyString(body, 'artifactId', kit)
   const path = requireBodyString(body, 'path', kit)
   const ranges = parsePresenceRanges(body.ranges, kit)
-  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
   registeredFile(record, path)
   const ttlMs = runtime.presence.report(resolvePath(runtime.repoPath, path), ranges)
   const response: ArtifactPresenceResponse = { ok: true, ttlMs }

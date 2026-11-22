@@ -15,6 +15,7 @@ import {
   type ActiveDispatchV1,
   type ArtifactAnchor,
   type ArtifactDetailResponse,
+  type AttachmentRefV1,
   type ArtifactDispatchSummary,
   type ArtifactFileV1,
   type ArtifactRecordV1,
@@ -324,6 +325,63 @@ export function rebindReceipt(changed: boolean, path: string): string {
   return changed ? `已重新绑定到 ${path}` : '路径没有变化，已刷新文件'
 }
 
+/** The line range one thread anchors, when it is a line range and matches the filter. */
+function threadLineRange(
+  thread: WorkItemThread,
+  unresolvedOnly: boolean,
+): { readonly startLine: number; readonly endLine: number } | null {
+  if (unresolvedOnly && thread.resolved) return null
+  if (thread.anchor === null || thread.anchor.kind !== 'line-range') return null
+  return thread.anchor
+}
+
+/** Add every line of one range. */
+function addRange(values: Set<number>, range: { readonly startLine: number; readonly endLine: number }): void {
+  for (let line = range.startLine; line <= range.endLine; line += 1) values.add(line)
+}
+
+/** The line numbers of every unresolved thread's line-range anchor. */
+export function anchoredLineNumbers(threads: readonly WorkItemThread[]): Set<number> {
+  const values = new Set<number>()
+  for (const thread of threads) {
+    const range = threadLineRange(thread, true)
+    if (range !== null) addRange(values, range)
+  }
+  return values
+}
+
+/** The line numbers of every thread whose anchor was marked stale. */
+export function staleLineNumbers(threads: readonly WorkItemThread[]): Set<number> {
+  const values = new Set<number>()
+  for (const thread of threads) {
+    const range = thread.anchorStatus === 'stale' ? threadLineRange(thread, false) : null
+    if (range !== null) addRange(values, range)
+  }
+  return values
+}
+
+/** The attachments one comment or reply event carries. */
+function commentAttachments(event: CommentEventV1): AttachmentRefV1[] {
+  if (event.type !== 'create' && event.type !== 'reply') return []
+  return [...(event.attachments ?? [])]
+}
+
+/** Every attachment carried by the folded threads, in display order. */
+export function attachmentRowsOf(threads: readonly WorkItemThread[]): AttachmentRefV1[] {
+  return threads.flatMap((thread) => thread.comments.flatMap(commentAttachments))
+}
+
+/** The thread a line's pin numbers, or null when the line has no pin. */
+export function pinThread(
+  linePins: ReadonlyMap<number, ThreadPin>,
+  threads: readonly WorkItemThread[],
+  line: number,
+): WorkItemThread | null {
+  const pin = linePins.get(line)
+  if (pin === undefined) return null
+  return threads[pin.ordinal - 1] ?? null
+}
+
 /** The cursor that asks the comments route for the page before the loaded one. */
 export function olderCursor(events: readonly CommentEventV1[]): string | null {
   return events[0]?.eventId ?? null
@@ -357,6 +415,154 @@ export function olderPageAvailable(
 export function moveActiveLine(active: number, delta: number, total: number): number {
   if (total <= 0) return 1
   return Math.min(total, Math.max(1, active + delta))
+}
+
+/** What one line-list key press asks the viewer to do. */
+type LineKeyIntent = 'previous' | 'next' | 'annotate'
+
+/** One key press per intent; keys outside the map do nothing. */
+const LINE_KEY_INTENTS: Readonly<Record<string, LineKeyIntent>> = {
+  ArrowDown: 'next',
+  ArrowUp: 'previous',
+  Enter: 'annotate',
+  ' ': 'annotate',
+}
+
+/** The intent of one line-list key, or null when the key is not ours. */
+export function lineKeyIntent(key: string): LineKeyIntent | null {
+  return LINE_KEY_INTENTS[key] ?? null
+}
+
+/** The step a previous/next intent moves the keyboard cursor. */
+export function lineMoveDelta(intent: LineKeyIntent): number {
+  return intent === 'next' ? 1 : -1
+}
+
+/** One validated rebind call against the loaded record. */
+export interface RebindCallInput {
+  readonly sessionId: string
+  readonly artifactId: string
+  readonly oldPath: string
+  readonly newPath: string
+}
+
+export type RebindCall =
+  | {
+      readonly ok: true
+      readonly input: RebindCallInput
+    }
+  | { readonly ok: false; readonly error: string }
+
+/** The registered path a rebind starts from: the primary file's entry, else primaryPath. */
+export function rebindOldPath(record: ArtifactRecordV1): string {
+  return record.files.find((file) => file.path === record.primaryPath)?.path ?? record.primaryPath
+}
+
+/** Build a rebind call for a non-null context and record. */
+function rebindCallReady(
+  context: { readonly sessionId: string; readonly artifactId: string },
+  record: ArtifactRecordV1,
+  input: string,
+): RebindCall {
+  const target = rebindTarget(input)
+  if (!target.ok) return { ok: false, error: target.error }
+  return {
+    ok: true,
+    input: { sessionId: context.sessionId, artifactId: context.artifactId, oldPath: rebindOldPath(record), newPath: target.path },
+  }
+}
+
+/** Validate one typed rebind path against the loaded record, or null when idle. */
+export function rebindCall(
+  context: { readonly sessionId: string; readonly artifactId: string } | null,
+  data: { readonly record: ArtifactRecordV1 } | null,
+  input: string,
+): RebindCall | null {
+  if (context === null || data === null) return null
+  return rebindCallReady(context, data.record, input)
+}
+
+/** Replace the loaded record without touching the rest of the view. */
+export function withRecord<T extends { readonly record: ArtifactRecordV1 }>(
+  data: T | null,
+  record: ArtifactRecordV1,
+): T | null {
+  return data === null ? null : { ...data, record }
+}
+
+/** One older comment page as the route returns it, narrowed to what paging needs. */
+interface OlderCommentPage {
+  readonly events: readonly CommentEventV1[]
+  readonly hasOlder: boolean
+}
+
+/** Prepend an older page and adopt its `hasOlder` flag. */
+export function withOlderPage<T extends { readonly events: readonly CommentEventV1[]; readonly hasOlder: boolean }>(
+  data: T | null,
+  page: OlderCommentPage,
+): T | null {
+  if (data === null) return null
+  return { ...data, events: mergeOlderComments(data.events, page.events), hasOlder: olderPageAvailable(page) }
+}
+
+/** One load-older request, or null when the viewer is not ready for it. */
+export interface OlderCall {
+  readonly sessionId: string
+  readonly artifactId: string
+  readonly before: string
+}
+
+/** Build a load-older request, or null while the viewer is busy or idle. */
+export function olderCall(
+  context: { readonly sessionId: string; readonly artifactId: string } | null,
+  data: { readonly events: readonly CommentEventV1[] } | null,
+  pending: boolean,
+  before: string,
+): OlderCall | null {
+  if (context === null || data === null || pending) return null
+  return { sessionId: context.sessionId, artifactId: context.artifactId, before }
+}
+
+/** One validated line-range annotation, or null when the range is empty. */
+interface LineRangeAnnotation {
+  readonly path: string
+  readonly startLine: number
+  readonly endLine: number
+  readonly quote: string
+}
+
+/** Build the annotation one line range implies, or null for an empty range. */
+export function lineRangeAnnotation(
+  lines: readonly string[],
+  file: { readonly path: string } | null,
+  primaryPath: string,
+  startLine: number,
+  endLine: number,
+): LineRangeAnnotation | null {
+  const start = Math.max(1, startLine)
+  const end = Math.min(endLine, Math.max(1, lines.length))
+  if (end < start) return null
+  return {
+    path: file?.path ?? primaryPath,
+    startLine: start,
+    endLine: end,
+    quote: lines.slice(start - 1, end).join('\n'),
+  }
+}
+
+/** Whether the rail should offer one more older page. */
+export function olderEntryVisible(hasOlder: boolean, before: string | null): boolean {
+  return hasOlder && before !== null
+}
+
+/** Whether one key event is an unhandled Escape. */
+export function isEscapeKey(event: { readonly key: string; readonly defaultPrevented: boolean }): boolean {
+  return event.key === 'Escape' && !event.defaultPrevented
+}
+
+/** Whether Escape may close the narrow drawer (the header menu wins first). */
+export function drawerClosesOnEscape(narrow: boolean, showRail: boolean, menuOpen: boolean): boolean {
+  return narrow && showRail && !menuOpen
 }
 
 /** One comment thread as the rail renders it. */
