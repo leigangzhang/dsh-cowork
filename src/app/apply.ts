@@ -39,7 +39,7 @@ import { registerCoworkTools } from './tools.js'
 import { ArtifactRuntimeManager } from '../platform/artifact-runtime.js'
 import { ArtifactPresenceRegistry, createArtifactWriteGuard } from '../platform/artifact-presence.js'
 import { createDispatchDisposedListener, createDispatchPromptPort, createDispatchSessionListener } from '../platform/artifact-dispatch.js'
-import { ARTIFACT_PRESENCE_TTL_MS } from '../panel/artifact-contract.js'
+import { ARTIFACT_OPEN_UNSUPPORTED_CODE, ARTIFACT_PRESENCE_TTL_MS } from '../panel/artifact-contract.js'
 import type { HostFileSystem } from '../platform/artifact-files.js'
 import { TopicEvents } from '../platform/topic-events.js'
 import type { TopicEventLike, TopicEventSession } from '../platform/topic-events.js'
@@ -164,6 +164,7 @@ function renderProjectMemory(repoPath: string): MemoryRender | null {
 interface HostSessionListRow {
   sessionId: string
   cwd?: string
+  title?: string
 }
 
 /** The host default-model service slice (M9.3b). */
@@ -211,7 +212,8 @@ export const OPEN_WORKSPACE_PATH_TIMEOUT_MS = 10_000
 /**
  * The host session controller's desktop file-browser method (stage-0 probe 2).
  * Structural because the plugin cannot import the app's own session types; a
- * host without it answers `inbox/open-unsupported` at the open route.
+ * host without it makes the adapter throw `artifact/open-unsupported`; the inbox
+ * open route re-maps any throw to `inbox/open-unsupported`.
  *
  * The installed host (DSH 0.2.1-rc.2) reads `signal.throwIfAborted()` before
  * touching the filesystem, so the second argument is mandatory at this
@@ -231,8 +233,9 @@ export interface HostSessionOpener {
  *
  * The route passes an absolute path inside the repository; this adapter binds
  * the host's two-argument contract and a bounded timeout signal. A host
- * without the method, or a host that rejects the native open, throws and the
- * open route maps that onto `inbox/open-unsupported` — never a faked success.
+ * without the method throws `artifact/open-unsupported`; a rejecting host throws
+ * a plain error. The artifact route maps the former to 501 and the latter to
+ * 500; the inbox route maps both to `inbox/open-unsupported`.
  */
 export function createOpenWorkspacePathPort(
   opener: HostSessionOpener | undefined,
@@ -241,7 +244,9 @@ export function createOpenWorkspacePathPort(
   return async (path: string): Promise<void> => {
     const open = opener?.openWorkspacePath
     if (typeof open !== 'function') {
-      throw new Error('the host session controller exposes no openWorkspacePath')
+      const error = new Error('the host session controller exposes no openWorkspacePath') as Error & { code?: string }
+      error.code = ARTIFACT_OPEN_UNSUPPORTED_CODE
+      throw error
     }
     await open.call(opener, { path, action: 'reveal' }, AbortSignal.timeout(timeoutMs))
   }

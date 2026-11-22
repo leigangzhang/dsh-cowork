@@ -397,6 +397,9 @@ export const MAX_ARTIFACT_ATTACHMENTS = 200
 /** Most editing ranges one presence report may carry. */
 export const MAX_PRESENCE_RANGES = 200
 
+/** The 501 code for a host without a native file opener. */
+export const ARTIFACT_OPEN_UNSUPPORTED_CODE = 'artifact/open-unsupported'
+
 /** Stable artifact failure codes. They join {@link PanelErrorCode} in `api-contract`. */
 export const ARTIFACT_ERROR_CODES = [
   'artifact/not-found',
@@ -421,6 +424,7 @@ export const ARTIFACT_ERROR_CODES = [
   'artifact/limit-reached',
   'artifact/duplicate',
   'artifact/corrupt',
+  ARTIFACT_OPEN_UNSUPPORTED_CODE,
 ] as const
 
 /** One artifact failure code. */
@@ -453,6 +457,7 @@ export const ARTIFACT_ERROR_STATUS: Readonly<Record<ArtifactErrorCode, number>> 
   'artifact/limit-reached': 409,
   'artifact/duplicate': 409,
   'artifact/corrupt': 500,
+  [ARTIFACT_OPEN_UNSUPPORTED_CODE]: 501,
 }
 
 /** Human label of one collaboration state. */
@@ -571,6 +576,15 @@ export interface ArtifactDetailResponse {
   readonly eventsSeq: number
   /** Latest row of every batch that carried a comment of this work item. */
   readonly dispatches: readonly ArtifactDispatchSummary[]
+  /** Owning topic-session title, when the host listing carries it. */
+  readonly sessionTitle?: string | null
+  /** Kept snapshot revision numbers, newest first (at most 20). */
+  readonly revisions?: readonly number[]
+}
+
+/** Body of a successful `POST artifact.open`. */
+export interface ArtifactOpenResponse {
+  readonly ok: true
 }
 
 /** Body of a successful text `GET artifact.file`. */

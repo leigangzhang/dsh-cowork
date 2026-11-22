@@ -91,6 +91,24 @@ test('retryDispatch posts the batch id to its own route', async () => {
   assert.deepEqual(JSON.parse(calls[0].init.body), { sessionId: 's', artifactId: 'a', dispatchId: 'd1' })
 })
 
+test('open posts to its own route and surfaces the unsupported host', async () => {
+  const { calls, impl } = fakeFetch(() => ok({ ok: true }))
+  const api = createWorkItemApi(impl)
+  await api.open({ sessionId: 's', artifactId: 'a' })
+  assert.equal(calls[0].input, '/api/cowork.artifact.open')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { sessionId: 's', artifactId: 'a' })
+
+  const unsupported = createWorkItemApi(fakeFetch(
+    () => failure(501, 'artifact/open-unsupported', 'this host exposes no file-open capability'),
+  ).impl)
+  await assert.rejects(unsupported.open({ sessionId: 's', artifactId: 'a' }), (error) => {
+    assert.ok(error instanceof WorkItemApiError)
+    assert.equal(error.code, 'artifact/open-unsupported')
+    return true
+  })
+})
+
 test('resolve and status post their bodies to the contract routes', async () => {
   const { calls, impl } = fakeFetch(() => ok({ ok: true }))
   const api = createWorkItemApi(impl)

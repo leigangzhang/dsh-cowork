@@ -14,6 +14,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { resolve as resolvePath } from 'node:path'
+import { resolveInsideRepo } from '../platform/artifact-files.js'
 import type { PanelErrorCode } from './api-contract.js'
 import type { PanelFetchRoute } from './api-types.js'
 import {
@@ -31,6 +32,8 @@ import {
   ARTIFACT_FILE_PATH,
   ARTIFACT_LIST_MAX_LIMIT,
   ARTIFACT_LIST_PATH,
+  ARTIFACT_OPEN_PATH,
+  ARTIFACT_OPEN_UNSUPPORTED_CODE,
   ARTIFACT_PRESENCE_PATH,
   ARTIFACT_STATUS_PATH,
   ARTIFACT_UPLOAD_PATH,
@@ -54,6 +57,7 @@ import {
   type ArtifactEditResponse,
   type ArtifactEventV1,
   type ArtifactFileResponse,
+  type ArtifactOpenResponse,
   type ArtifactListResponse,
   type ArtifactPresenceResponse,
   type ArtifactRecordV1,
@@ -105,6 +109,10 @@ export interface ArtifactApiPorts {
   runtimeFor(repoPath: string): ArtifactRuntime
   now?(): Date
   log?(message: string): void
+  /** Title of one session for the viewer breadcrumb; null when unavailable. */
+  sessionTitle?(sessionId: string): Promise<string | null>
+  /** Host file-browser port used by the "open in app" action. */
+  openWorkspacePath?(path: string): Promise<void>
 }
 
 /** A query parameter, or null when absent or blank. `GET` routes carry no body. */
@@ -292,6 +300,69 @@ async function handleList(
   return kit.jsonResponse(200, response)
 }
 
+/**
+ * The owning session's title for the viewer breadcrumb.
+ *
+ * A host without the listing port, or a listing failure, degrades the
+ * breadcrumb to "工作项"; it must not fail the work item itself. The failure is
+ * logged because it is a host capability issue, not user data.
+ */
+async function sessionTitleOf(ports: ArtifactApiPorts, sessionId: string): Promise<string | null> {
+  if (ports.sessionTitle === undefined) return null
+  try {
+    return await ports.sessionTitle(sessionId)
+  } catch (error) {
+    ports.log?.(`session title lookup failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`)
+    return null
+  }
+}
+
+/** Kept snapshot numbers; an auxiliary read that degrades to an empty list. */
+async function revisionsOf(ports: ArtifactApiPorts, runtime: ArtifactRuntime, artifactId: string): Promise<number[]> {
+  try {
+    return await runtime.store.listRevisions(artifactId)
+  } catch (error) {
+    ports.log?.(`revision listing failed for ${artifactId}: ${error instanceof Error ? error.message : String(error)}`)
+    return []
+  }
+}
+
+/** `POST /api/cowork.artifact.open` — hand the primary file to the host. */
+async function handleOpen(
+  request: Request,
+  ports: ArtifactApiPorts,
+  kit: ArtifactRouteKit,
+): Promise<Response> {
+  const body = await kit.readJsonBody(request)
+  const sessionId = requireBodyString(body, 'sessionId', kit)
+  const artifactId = requireBodyString(body, 'artifactId', kit)
+  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  if (ports.openWorkspacePath === undefined) {
+    throw new ArtifactDomainError(
+      ARTIFACT_OPEN_UNSUPPORTED_CODE,
+      'this host exposes no file-open capability',
+      record.primaryPath,
+    )
+  }
+  const file = registeredFile(record, record.primaryPath)
+  const absolute = await resolveInsideRepo(runtime.repoPath, file.path)
+  if (absolute === null) {
+    throw new ArtifactDomainError('artifact/file-missing', `file does not exist: ${file.path}`, file.path)
+  }
+  try {
+    await ports.openWorkspacePath(absolute)
+  } catch (error) {
+    if ((error as { code?: unknown }).code === ARTIFACT_OPEN_UNSUPPORTED_CODE) {
+      throw new ArtifactDomainError(ARTIFACT_OPEN_UNSUPPORTED_CODE, 'this host exposes no file-open capability', file.path)
+    }
+    const detail = error instanceof Error ? error.message : String(error)
+    ports.log?.(`host failed to open ${file.path}: ${detail}`)
+    throw new ArtifactDomainError('artifact/io-error', `host failed to open ${file.path}: ${detail}`, file.path)
+  }
+  const response: ArtifactOpenResponse = { ok: true }
+  return kit.jsonResponse(200, response)
+}
+
 /** `GET /api/cowork.artifact.detail` — one work item with reconciled files. */
 async function handleDetail(
   request: Request,
@@ -310,11 +381,17 @@ async function handleDetail(
     errorCode: dispatch.errorCode,
     updatedAt: dispatch.updatedAt,
   }))
+  const [sessionTitle, revisions] = await Promise.all([
+    sessionTitleOf(ports, record.ownerSessionId),
+    revisionsOf(ports, runtime, artifactId),
+  ])
   const response: ArtifactDetailResponse = {
     ok: true,
     record: reconciled.record,
     eventsSeq: await runtime.store.lastEventSeq(),
     dispatches,
+    sessionTitle,
+    revisions,
   }
   return kit.jsonResponse(200, response)
 }
@@ -1078,5 +1155,6 @@ export function artifactPanelRoutes(
     route(ARTIFACT_UPLOAD_PATH, ['POST'], (request) => handleUpload(request, ports, kit), 'streaming'),
     route(ARTIFACT_ATTACHMENT_PATH, ['GET'], (request) => handleAttachment(request, ports, kit)),
     route(ARTIFACT_EVENTS_PATH, ['GET'], (request) => handleEvents(request, ports, kit)),
+    route(ARTIFACT_OPEN_PATH, ['POST'], (request) => handleOpen(request, ports, kit)),
   ]
 }

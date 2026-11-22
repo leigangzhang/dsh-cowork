@@ -86,12 +86,40 @@
       "lane": "browser"
     },
     {
+      "path": "src/client/work-item/comment-composer.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/thread-list.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewer-toolbar.tsx",
+      "lane": "browser"
+    },
+    {
       "path": "src/client/work-item/store.ts",
       "lane": "unit"
     },
     {
       "path": "src/client/work-item/styles.ts",
       "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/thread-card.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewer-footer.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewer-header.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewer-side-tabs.tsx",
+      "lane": "browser"
     },
     {
       "path": "src/client/work-item/viewers/canvas.tsx",

@@ -16,7 +16,6 @@ import {
   makeRecord,
   sha256,
 } from '../support/artifact-fixtures.mjs'
-
 /**
  * Route-level behavior for the eight stage-1 artifact routes: session→project
  * resolution, path registration, reconciliation, comment anchoring, status
@@ -24,7 +23,6 @@ import {
  */
 const SPEC = '# Spec\n\nfirst paragraph\nsecond paragraph\n'
 const ARTIFACT = 'artifact-11111111-1111-4111-8111-111111111111'
-
 /** A file entry whose sha/version match the fake host fs token. */
 function specFile(content = SPEC, overrides = {}) {
   return makeFile({
@@ -34,10 +32,9 @@ function specFile(content = SPEC, overrides = {}) {
     ...overrides,
   })
 }
-
 /** Create the harness plus one registered work item. */
 async function withSeededHarness(operation, options = {}) {
-  const harness = await createHarness({ files: { 'docs/spec.md': SPEC, ...(options.files ?? {}) }, ...options })
+  const harness = await createHarness({ files: { 'docs/spec.md': SPEC, ...(options.files ?? {}) }, sessionTitle: 'Spec 主题', ...options })
   try {
     await harness.runtime().store.createRecord(makeRecord({ files: [specFile(options.content)] }))
     return await operation(harness)
@@ -49,7 +46,7 @@ async function withSeededHarness(operation, options = {}) {
 test('the harness registers every panel and artifact route', async () => {
   const harness = await createHarness()
   try {
-    assert.equal(harness.routes.size, 23)
+    assert.equal(harness.routes.size, 24)
     assert.ok(harness.routes.has('/api/cowork.artifact.list'))
     assert.ok(harness.routes.has('/api/cowork.artifact.events'))
   } finally {
@@ -131,6 +128,8 @@ test('detail serves the record and reconciles an external file change', async ()
     assert.equal(first.ok, true)
     assert.equal(first.record.revision, 1)
     assert.equal(first.eventsSeq, 0)
+    assert.equal(first.sessionTitle, 'Spec 主题')
+    assert.deepEqual(first.revisions, [])
 
     await harness.runtime().events // no-op; the runtime is shared
     await writeFile(join(harness.repoPath, 'docs/spec.md'), `${SPEC}\nappended\n`)

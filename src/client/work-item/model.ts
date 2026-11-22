@@ -14,6 +14,7 @@ import {
   isTerminalDispatchState,
   type ActiveDispatchV1,
   type ArtifactAnchor,
+  type ArtifactDetailResponse,
   type ArtifactDispatchSummary,
   type ArtifactFileV1,
   type ArtifactStatus,
@@ -124,10 +125,15 @@ export function filterCount(
   }
 }
 
-/** The one-line activity a card or the viewer header shows, or null. */
-export function activeDispatchSummary(
-  dispatch: ActiveDispatchV1 | null,
-): { readonly label: string; readonly tone: 'pending' | 'active' | 'done' | 'error'; readonly terminal: boolean } | null {
+/** One-line activity badge the header and cards render. */
+export interface ActiveDispatchBadge {
+  readonly label: string
+  readonly tone: 'pending' | 'active' | 'done' | 'error'
+  readonly terminal: boolean
+}
+
+/** One-line badge for the viewer header's live activity pill. */
+export function activeDispatchSummary(dispatch: ActiveDispatchV1 | null): ActiveDispatchBadge | null {
   if (dispatch === null) return null
   const terminal = isTerminalDispatchState(dispatch.state)
   const tone = dispatch.state === 'replied'
@@ -138,6 +144,66 @@ export function activeDispatchSummary(
         ? 'pending'
         : 'active'
   return { label: DISPATCH_STATE_LABELS[dispatch.state], tone, terminal }
+}
+
+/** The rail's three-state comment filter. */
+export type ThreadFilter = 'all' | 'pending' | 'resolved'
+
+/** One rail projection: cards to show, summary state, and the empty message. */
+export interface ThreadRailView {
+  readonly open: readonly WorkItemThread[]
+  readonly resolved: readonly WorkItemThread[]
+  readonly visible: readonly WorkItemThread[]
+  readonly showResolvedCards: boolean
+  readonly showSummary: boolean
+  readonly emptyMessage: string | null
+}
+
+const EMPTY_MESSAGES: Readonly<Record<ThreadFilter, string>> = {
+  all: '还没有批注。选中行后点“批注”，或直接写整体批注。',
+  pending: '没有待处理的批注。',
+  resolved: '没有已解决的批注。',
+}
+
+/** Resolved cards stay visible under "all" only while the summary is expanded. */
+function resolvedCardsVisible(filter: ThreadFilter, showResolved: boolean): boolean {
+  return filter === 'resolved' || (filter === 'all' && showResolved)
+}
+
+/** The empty message for the active filter, or null when the rail has rows. */
+function railEmptyMessage(
+  filter: ThreadFilter,
+  threads: number,
+  open: number,
+  resolved: number,
+): string | null {
+  const count = filter === 'all' ? threads : (filter === 'pending' ? open : resolved)
+  return count === 0 ? EMPTY_MESSAGES[filter] : null
+}
+
+/**
+ * Project the folded threads for the rail's filter and resolved group state.
+ * @param threads - folded threads in sort order.
+ * @param filter - active three-state filter.
+ * @param showResolved - whether the resolved summary was expanded.
+ * @returns visible cards, summary state, and the empty message.
+ */
+export function threadRailView(
+  threads: readonly WorkItemThread[],
+  filter: ThreadFilter,
+  showResolved: boolean,
+): ThreadRailView {
+  const open = threads.filter((thread) => !thread.resolved)
+  const resolved = threads.filter((thread) => thread.resolved)
+  const visible = filter === 'resolved' ? [] : open
+  return {
+    open,
+    resolved,
+    visible,
+    showResolvedCards: resolvedCardsVisible(filter, showResolved),
+    showSummary: filter === 'all' && resolved.length > 0,
+    emptyMessage: railEmptyMessage(filter, threads.length, open.length, resolved.length),
+  }
 }
 
 /** The newest delivery batch that carried any comment of one thread. */
@@ -272,6 +338,110 @@ export function anchorLine(anchor: ArtifactAnchor | null): number {
   if (anchor.kind === 'line-range') return anchor.startLine
   if (anchor.kind === 'diagram-node' && anchor.line !== undefined) return anchor.line
   return Number.MAX_SAFE_INTEGER
+}
+
+/** One line's pin: the thread ordinal and the state that colours it. */
+export interface ThreadPin {
+  readonly ordinal: number
+  readonly tone: 'open' | 'stale' | 'resolved'
+}
+
+/** Thread ordinal by thread id, numbered in the rail's sorted order. */
+export function threadOrdinals(threads: readonly WorkItemThread[]): ReadonlyMap<string, number> {
+  return new Map(threads.map((thread, index) => [thread.threadId, index + 1]))
+}
+
+/**
+ * The pin shown on each anchored line.
+ *
+ * A line keeps the first thread that starts there; later threads on the same
+ * line still appear in the rail and in the footer. Threads without a line
+ * anchor get no pin.
+ * @param threads - threads in rail order, so ordinals match the anchor chips.
+ * @returns one pin per anchored line.
+ */
+export function threadLinePins(threads: readonly WorkItemThread[]): ReadonlyMap<number, ThreadPin> {
+  const pins = new Map<number, ThreadPin>()
+  threads.forEach((thread, index) => {
+    if (thread.anchor === null || thread.anchor.kind !== 'line-range') return
+    const line = thread.anchor.startLine
+    if (pins.has(line)) return
+    const tone = thread.resolved ? 'resolved' : (thread.anchorStatus === 'stale' ? 'stale' : 'open')
+    pins.set(line, { ordinal: index + 1, tone })
+  })
+  return pins
+}
+
+/** Elapsed time in the demo's activity form: `18 秒`, `3 分钟`, `2 小时`, `4 天`. */
+export function formatElapsed(iso: string, now: Date): string {
+  const time = Date.parse(iso)
+  if (Number.isNaN(time)) return ''
+  const seconds = Math.max(0, Math.floor((now.getTime() - time) / 1000))
+  if (seconds < 60) return `${String(seconds)} 秒`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${String(minutes)} 分钟`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${String(hours)} 小时`
+  return `${String(Math.floor(hours / 24))} 天`
+}
+
+/** Local wall-clock time as `HH:mm`; invalid input renders an empty string. */
+export function formatClock(iso: string): string {
+  const time = Date.parse(iso)
+  if (Number.isNaN(time)) return ''
+  const date = new Date(time)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+/** Delivery state as the thread state row phrases it. */
+export function dispatchDetailLabel(state: DispatchState): string {
+  if (state === 'thinking') return '已送达 · 模型思考中'
+  if (state === 'working') return '模型改文件中'
+  return dispatchLabel(state)
+}
+
+/** The thread that carried one dispatch batch, if it is in the rail. */
+export function threadForDispatch(
+  dispatchId: string,
+  dispatches: readonly ArtifactDispatchSummary[],
+  threads: readonly WorkItemThread[],
+): WorkItemThread | null {
+  const dispatch = dispatches.find((entry) => entry.dispatchId === dispatchId)
+  if (dispatch === undefined) return null
+  const commentIds = new Set(dispatch.commentIds)
+  return threads.find((thread) => thread.comments.some((event) => commentIds.has(event.commentId))) ?? null
+}
+
+/**
+ * The viewer footer's delivery line: replied ordinals, in-flight batches, and
+ * anchors whose position moved.
+ * @param threads - threads in rail order, so ordinals match the anchor chips.
+ * @param dispatches - the detail response's newest batch per thread.
+ * @returns a `·` separated summary, or `还没有模型回复`.
+ */
+export function deliverySummary(
+  threads: readonly WorkItemThread[],
+  dispatches: readonly ArtifactDispatchSummary[],
+): string {
+  const replied: string[] = []
+  const active: string[] = []
+  const stale: string[] = []
+  threads.forEach((thread, index) => {
+    const ordinal = `#${String(index + 1)}`
+    if (thread.anchorStatus === 'stale') {
+      stale.push(ordinal)
+      return
+    }
+    const dispatch = dispatchForThread(thread, dispatches)
+    if (dispatch === null) return
+    if (dispatch.state === 'replied') replied.push(ordinal)
+    else active.push(`${ordinal} ${DISPATCH_STATE_LABELS[dispatch.state]}`)
+  })
+  const parts: string[] = []
+  if (replied.length > 0) parts.push(`模型已回复 ${replied.join('、')}`)
+  if (active.length > 0) parts.push(active.join('、'))
+  if (stale.length > 0) parts.push(`${stale.join('、')} 位置待确认`)
+  return parts.length === 0 ? '还没有模型回复' : parts.join(' · ')
 }
 
 /** One anchor's display label, e.g. `第 3–5 行` or `整份文件`. */
@@ -439,7 +609,7 @@ export function changedLineRanges(before: string, after: string): LineSelection[
 
 /** One source line reduced for the read-only Markdown-ish view. */
 export interface ReadLine {
-  readonly kind: 'text' | 'h1' | 'h2' | 'h3' | 'list' | 'quote'
+  readonly kind: 'text' | 'h1' | 'h2' | 'h3' | 'list' | 'quote' | 'code' | 'fence'
   readonly text: string
 }
 
@@ -451,6 +621,106 @@ export function markdownLine(line: string): ReadLine {
   if (line.startsWith('- ') || line.startsWith('* ')) return { kind: 'list', text: line.slice(2) }
   if (line.startsWith('> ')) return { kind: 'quote', text: line.slice(2) }
   return { kind: 'text', text: line }
+}
+
+/**
+ * Classify a whole document, tracking fenced code blocks.
+ *
+ * Fence marker lines keep their row (line numbers stay aligned with the stored
+ * file) but render empty; the lines between them render in the code style.
+ * @param lines - stored file lines.
+ * @returns one classification per line, in order.
+ */
+export function markdownLines(lines: readonly string[]): ReadLine[] {
+  let fenced = false
+  return lines.map((line) => {
+    if (line.trimStart().startsWith('```')) {
+      fenced = !fenced
+      return { kind: 'fence', text: '' }
+    }
+    if (fenced) return { kind: 'code', text: line }
+    return markdownLine(line)
+  })
+}
+
+/** Session title and kept snapshots carried by the detail response. */
+export interface DetailMeta {
+  readonly sessionTitle: string | null
+  readonly revisions: readonly number[]
+}
+
+/**
+ * Detail metadata with the previous view's values as a fallback.
+ * @param detail - the freshly fetched detail.
+ * @param fallback - the values already on screen, if any.
+ * @returns normalized title and snapshot list.
+ */
+export function detailMeta(
+  detail: Pick<ArtifactDetailResponse, 'sessionTitle' | 'revisions'>,
+  fallback?: DetailMeta,
+): DetailMeta {
+  return {
+    sessionTitle: detail.sessionTitle ?? fallback?.sessionTitle ?? null,
+    revisions: detail.revisions ?? fallback?.revisions ?? [],
+  }
+}
+
+/** One visible viewer tab. */
+export interface ViewerTab {
+  readonly id: 'document' | 'versions' | 'attachments'
+  readonly label: string
+}
+
+/**
+ * Tab labels for the viewer toolbar.
+ * @param revisions - kept snapshot count.
+ * @param attachments - attachment count.
+ * @returns the three tabs in display order.
+ */
+export function viewerTabs(revisions: number, attachments: number): readonly ViewerTab[] {
+  return [
+    { id: 'document', label: '文档' },
+    { id: 'versions', label: revisions === 0 ? '版本' : `版本 ${String(revisions)}` },
+    { id: 'attachments', label: attachments === 0 ? '附件' : `附件 ${String(attachments)}` },
+  ]
+}
+
+/** The last path segment, used by file headers and exports. */
+export function baseName(path: string): string {
+  const cut = path.lastIndexOf('/')
+  return cut === -1 ? path : path.slice(cut + 1)
+}
+
+/** One inline run of a read-mode Markdown line. */
+export interface InlineRun {
+  readonly kind: 'text' | 'strong' | 'em' | 'code'
+  readonly text: string
+}
+
+/**
+ * Split one line into inline text, strong, emphasis, and code runs.
+ *
+ * The read view renders these as elements instead of printing the markers, so
+ * `**bold**` reads as bold without an HTML parser and without trusting the
+ * file. Only non-nested spans are recognized; an unmatched marker stays
+ * literal text, which is how a half-finished Markdown line should read.
+ * @param text - one line with block markers already stripped.
+ * @returns the runs in source order; plain text is a single run.
+ */
+export function inlineMarkdown(text: string): readonly InlineRun[] {
+  if (text === '') return []
+  const pattern = /`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*/g
+  const runs: InlineRun[] = []
+  let start = 0
+  for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
+    if (match.index > start) runs.push({ kind: 'text', text: text.slice(start, match.index) })
+    if (match[1] !== undefined) runs.push({ kind: 'code', text: match[1] })
+    else if (match[2] !== undefined) runs.push({ kind: 'strong', text: match[2] })
+    else runs.push({ kind: 'em', text: match[3] ?? '' })
+    start = match.index + match[0].length
+  }
+  if (start < text.length) runs.push({ kind: 'text', text: text.slice(start) })
+  return runs
 }
 
 /** Save-state label the toolbar shows while editing. */

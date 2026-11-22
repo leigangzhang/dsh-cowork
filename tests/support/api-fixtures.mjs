@@ -235,6 +235,9 @@ export function fakePorts(options = {}) {
         await new Promise((resolve) => setTimeout(resolve, options.listDelayMs))
       }
       if (options.listError !== undefined) throw options.listError
+      if (options.listFailsAfterCalls !== undefined && state.listCalls > options.listFailsAfterCalls) {
+        throw new Error('listing failed after the project lookup')
+      }
       if (options.listHangs === true) return new Promise(() => {})
       if (options.listLateErrorAfterMs !== undefined) {
         return new Promise((_resolve, reject) => {
@@ -275,6 +278,7 @@ export function fakePorts(options = {}) {
       return { accepted: options.promptAccepted ?? true }
     },
     ...(options.noticePort === undefined ? {} : { noticePort: options.noticePort }),
+    ...(options.openWorkspacePath === undefined ? {} : { openWorkspacePath: options.openWorkspacePath }),
     kickNotices: (repoPath) => state.kicks.push(repoPath),
   }
   return { ports, state }

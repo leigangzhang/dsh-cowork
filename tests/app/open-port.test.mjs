@@ -44,10 +44,10 @@ test('the port aborts a hung host call after its timeout signal', async () => {
 
 test('a missing host method and a rejected native open are reported, not swallowed', async () => {
   const missing = createOpenWorkspacePathPort(undefined)
-  await assert.rejects(missing('/repo/docs/PLAN.md'), /exposes no openWorkspacePath/)
+  await assert.rejects(missing('/repo/docs/PLAN.md'), (error) => error.code === 'artifact/open-unsupported' && /exposes no openWorkspacePath/.test(error.message))
 
   const blank = createOpenWorkspacePathPort({})
-  await assert.rejects(blank('/repo/docs/PLAN.md'), /exposes no openWorkspacePath/)
+  await assert.rejects(blank('/repo/docs/PLAN.md'), (error) => error.code === 'artifact/open-unsupported')
 
   const refused = createOpenWorkspacePathPort({
     async openWorkspacePath() {

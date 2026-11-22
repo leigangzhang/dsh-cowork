@@ -36,9 +36,16 @@ const BROWSER_SOURCES = [
   'src/client/list.tsx',
   'src/client/notice.tsx',
   'src/client/panel.tsx',
+  'src/client/work-item/comment-composer.tsx',
   'src/client/work-item/editor.tsx',
   'src/client/work-item/list.tsx',
   'src/client/work-item/panel.tsx',
+  'src/client/work-item/thread-card.tsx',
+  'src/client/work-item/thread-list.tsx',
+  'src/client/work-item/viewer-footer.tsx',
+  'src/client/work-item/viewer-header.tsx',
+  'src/client/work-item/viewer-side-tabs.tsx',
+  'src/client/work-item/viewer-toolbar.tsx',
   'src/client/work-item/viewers/canvas.tsx',
   'src/client/work-item/viewers/diagram.tsx',
   'src/client/work-item/viewers/html.tsx',
@@ -202,10 +209,10 @@ test('the owner map classifies every source file exactly once', () => {
   const map = JSON.parse(read('tools/coverage-map.json'))
   const result = validateOwnershipMap(map, sources)
   assert.deepEqual(result.failures, [])
-  assert.equal(sources.length, 98)
+  assert.equal(sources.length, 105)
   const byLane = { unit: 0, browser: 0, dev: 0 }
   for (const entry of map.files) byLane[entry.lane] += 1
-  assert.deepEqual(byLane, { unit: 84, browser: 14, dev: 0 })
+  assert.deepEqual(byLane, { unit: 84, browser: 21, dev: 0 })
   assert.deepEqual(
     map.files.filter((entry) => entry.lane === 'dev').map((entry) => entry.path).sort(),
     DEV_DRIVERS,

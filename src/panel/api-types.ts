@@ -22,6 +22,8 @@ export interface PanelSessionRow {
   readonly sessionId: string
   /** The session's working directory; the only accepted start for project discovery. */
   readonly cwd?: string
+  /** Display title, used by the work-item breadcrumb when the host carries it. */
+  readonly title?: string
 }
 
 /**
@@ -93,9 +95,10 @@ export interface CoworkApiPorts {
   /** Host notice port, used to update the original authorization notice. */
   noticePort?: TopicNoticePort
   /**
-   * Host file-browser port for `POST /api/cowork.inbox.open`. Optional: a host
-   * without the desktop capability answers `inbox/open-unsupported` instead of
-   * faking a success.
+   * Host file-browser port shared by `inbox.open` and `artifact.open`. Optional:
+   * a host without the desktop capability must not fake a success; the inbox
+   * route answers `inbox/open-unsupported`, the artifact route
+   * `artifact/open-unsupported` (501).
    */
   openWorkspacePath?(path: string): Promise<void>
   /** Schedule the notice dispatcher for one project after a committed write. */

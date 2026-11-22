@@ -67,23 +67,25 @@ function WorkItemCard({
       onClick={() => { onOpen(item) }}
       title={item.primaryPath}
     >
-      <span className="cwi-card-title">{item.title}</span>
-      <span className="cwi-card-meta">
-        <span className="cwi-chip" data-testid="cwi-card-status" data-status={item.status}>
+      <span className="cwi-card-top">
+        <span className="cwi-kind" data-type={item.type}>{typeLabel(item.type)}</span>
+        <span className="cwi-card-status" data-testid="cwi-card-status" data-status={item.status}>
           {ARTIFACT_STATUS_LABELS[item.status]}
         </span>
-        <span className="cwi-chip">{typeLabel(item.type)}</span>
+      </span>
+      <span className="cwi-card-title">{item.title}</span>
+      <span className="cwi-card-meta">
+        <span className="cwi-chip">{item.commentCount} 条评论</span>
+        {item.attachmentCount > 0 ? <span className="cwi-chip">{item.attachmentCount} 个附件</span> : null}
         {dispatch === null ? null : (
           <span className="cwi-chip" data-tone={dispatch.tone} data-testid="cwi-card-dispatch">
             {dispatch.label}
           </span>
         )}
-        <span>{item.commentCount} 条评论</span>
-        {item.attachmentCount > 0 ? <span>{item.attachmentCount} 个附件</span> : null}
-        <span>{formatRelativeTime(item.updatedAt, now)}</span>
+        <span className="cwi-card-time">{formatRelativeTime(item.updatedAt, now)}</span>
       </span>
       <span className="cwi-path">{item.primaryPath}</span>
-      <span className="cwi-card-meta" data-testid="cwi-card-source">来源：{item.ownerSessionId}</span>
+      <span className="cwi-card-source" data-testid="cwi-card-source">来源：{item.ownerSessionId}</span>
     </button>
   )
 }

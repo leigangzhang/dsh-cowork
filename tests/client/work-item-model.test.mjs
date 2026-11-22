@@ -287,6 +287,27 @@ test('markdownLine strips common markers without touching other text', () => {
   assert.deepEqual(model.markdownLine('plain'), { kind: 'text', text: 'plain' })
 })
 
+test('inlineMarkdown separates strong, emphasis, and code runs', () => {
+  assert.deepEqual(model.inlineMarkdown(''), [])
+  assert.deepEqual(model.inlineMarkdown('plain'), [{ kind: 'text', text: 'plain' }])
+  assert.deepEqual(model.inlineMarkdown('a **b** c'), [
+    { kind: 'text', text: 'a ' },
+    { kind: 'strong', text: 'b' },
+    { kind: 'text', text: ' c' },
+  ])
+  assert.deepEqual(model.inlineMarkdown('`code` and *em*'), [
+    { kind: 'code', text: 'code' },
+    { kind: 'text', text: ' and ' },
+    { kind: 'em', text: 'em' },
+  ])
+  assert.deepEqual(model.inlineMarkdown('**unclosed'), [{ kind: 'text', text: '**unclosed' }])
+  assert.deepEqual(model.inlineMarkdown('**a** `b`'), [
+    { kind: 'strong', text: 'a' },
+    { kind: 'text', text: ' ' },
+    { kind: 'code', text: 'b' },
+  ])
+})
+
 test('persisted drafts round-trip, drop malformed entries, and clear', () => {
   const storage = new Map()
   const savedWindow = globalThis.window
@@ -350,4 +371,157 @@ test('draft storage drops a JSON null entry', () => {
   } finally {
     globalThis.window = savedWindow
   }
+})
+
+test('elapsed time and wall-clock time follow the demo labels', () => {
+  const now = new Date('2026-02-10T12:00:00.000Z')
+  assert.equal(model.formatElapsed('2026-02-10T11:59:42.000Z', now), '18 秒')
+  assert.equal(model.formatElapsed('2026-02-10T11:57:00.000Z', now), '3 分钟')
+  assert.equal(model.formatElapsed('2026-02-10T09:00:00.000Z', now), '3 小时')
+  assert.equal(model.formatElapsed('2026-02-08T12:00:00.000Z', now), '2 天')
+  assert.equal(model.formatElapsed('not-a-date', now), '')
+  const local = new Date(2026, 1, 10, 14, 32)
+  assert.equal(model.formatClock(local.toISOString()), '14:32')
+  assert.equal(model.formatClock('not-a-date'), '')
+})
+
+test('dispatch detail labels keep the thinking and file-work phrasing', () => {
+  assert.equal(model.dispatchDetailLabel('thinking'), '已送达 · 模型思考中')
+  assert.equal(model.dispatchDetailLabel('working'), '模型改文件中')
+  for (const state of ['queued', 'sent', 'replied', 'failed', 'blocked', 'stale']) {
+    assert.equal(model.dispatchDetailLabel(state), model.dispatchLabel(state), state)
+  }
+})
+
+test('thread ordinals and line pins follow the sorted rail', () => {
+  const late = {
+    threadId: 'late', root: null, comments: [], resolved: false, anchorStatus: null,
+    latestAt: '2026-02-01T02:00:00.000Z',
+    anchor: { kind: 'line-range', path: 'a.md', startLine: 8, endLine: 8, quote: '' },
+  }
+  const early = {
+    threadId: 'early', root: null, comments: [], resolved: false, anchorStatus: null,
+    latestAt: '2026-02-01T01:00:00.000Z',
+    anchor: { kind: 'line-range', path: 'a.md', startLine: 2, endLine: 3, quote: '' },
+  }
+  const stale = { ...late, threadId: 'stale', anchorStatus: 'stale', anchor: { kind: 'line-range', path: 'a.md', startLine: 9, endLine: 9, quote: '' } }
+  const done = { ...early, threadId: 'done', resolved: true }
+  const threads = model.sortThreads([late, early, stale, done])
+  assert.deepEqual([...model.threadOrdinals(threads).entries()], [
+    ['early', 1], ['late', 2], ['stale', 3], ['done', 4],
+  ])
+  assert.deepEqual([...model.threadLinePins(threads).entries()], [
+    [2, { ordinal: 1, tone: 'open' }],
+    [8, { ordinal: 2, tone: 'open' }],
+    [9, { ordinal: 3, tone: 'stale' }],
+  ])
+  assert.deepEqual([...model.threadLinePins([done]).entries()], [[2, { ordinal: 1, tone: 'resolved' }]])
+  assert.equal(model.threadLinePins([]).size, 0)
+})
+
+test('dispatch ownership and the footer delivery summary use rail ordinals', () => {
+  const threads = [
+    {
+      threadId: 't1', root: null, resolved: false, anchorStatus: null,
+      latestAt: '2026-02-01T01:00:00.000Z',
+      anchor: { kind: 'line-range', path: 'a.md', startLine: 3, endLine: 3, quote: '' },
+      comments: [comment({ commentId: 'c1', threadId: 't1' })],
+    },
+    {
+      threadId: 't2', root: null, resolved: false, anchorStatus: 'stale',
+      latestAt: '2026-02-01T02:00:00.000Z',
+      anchor: { kind: 'line-range', path: 'a.md', startLine: 9, endLine: 9, quote: '' },
+      comments: [comment({ commentId: 'c2', threadId: 't2' })],
+    },
+    {
+      threadId: 't3', root: null, resolved: false, anchorStatus: null,
+      latestAt: '2026-02-01T03:00:00.000Z',
+      anchor: { kind: 'line-range', path: 'a.md', startLine: 12, endLine: 12, quote: '' },
+      comments: [comment({ commentId: 'c3', threadId: 't3' })],
+    },
+  ]
+  const dispatches = [
+    { dispatchId: 'd1', state: 'replied', commentIds: ['c1'], errorCode: null, updatedAt: '2026-02-01T01:00:00.000Z' },
+    { dispatchId: 'd3', state: 'thinking', commentIds: ['c3'], errorCode: null, updatedAt: '2026-02-01T03:00:00.000Z' },
+  ]
+  assert.equal(model.threadForDispatch('d3', dispatches, threads)?.threadId, 't3')
+  assert.equal(model.threadForDispatch('missing', dispatches, threads), null)
+  assert.equal(model.deliverySummary(threads, dispatches), '模型已回复 #1 · #3 思考中 · #2 位置待确认')
+  assert.equal(model.deliverySummary([], []), '还没有模型回复')
+})
+
+test('markdownLines hides fences and styles code blocks', () => {
+  const lines = ['# Title', '```ts', 'const a = 1', '```', 'after']
+  assert.deepEqual(model.markdownLines(lines), [
+    { kind: 'h1', text: 'Title' },
+    { kind: 'fence', text: '' },
+    { kind: 'code', text: 'const a = 1' },
+    { kind: 'fence', text: '' },
+    { kind: 'text', text: 'after' },
+  ])
+  assert.deepEqual(model.markdownLines(['   ```', 'x', '```', 'y']), [
+    { kind: 'fence', text: '' },
+    { kind: 'code', text: 'x' },
+    { kind: 'fence', text: '' },
+    { kind: 'text', text: 'y' },
+  ])
+})
+
+test('baseName keeps the last path segment', () => {
+  assert.equal(model.baseName('docs/spec.md'), 'spec.md')
+  assert.equal(model.baseName('spec.md'), 'spec.md')
+  assert.equal(model.baseName(''), '')
+})
+
+test('detailMeta normalizes optional fields and keeps the previous values', () => {
+  assert.deepEqual(model.detailMeta({ sessionTitle: '主题', revisions: [3, 2] }), {
+    sessionTitle: '主题',
+    revisions: [3, 2],
+  })
+  assert.deepEqual(model.detailMeta({}, { sessionTitle: '旧标题', revisions: [1] }), {
+    sessionTitle: '旧标题',
+    revisions: [1],
+  })
+  assert.deepEqual(model.detailMeta({}, undefined), { sessionTitle: null, revisions: [] })
+})
+
+test('viewerTabs labels counts only when present', () => {
+  assert.deepEqual(model.viewerTabs(0, 0), [
+    { id: 'document', label: '文档' },
+    { id: 'versions', label: '版本' },
+    { id: 'attachments', label: '附件' },
+  ])
+  assert.deepEqual(model.viewerTabs(9, 2).map((tab) => tab.label), ['文档', '版本 9', '附件 2'])
+})
+
+test('threadRailView keeps resolved cards out of the pending filter', () => {
+  const open = model.foldThreads([comment({ commentId: 'c-open', threadId: 'c-open' })])[0]
+  const resolved = model.foldThreads([
+    comment({ commentId: 'c-done', threadId: 'c-done' }),
+    comment({ type: 'resolve', eventId: 'e-resolve', commentId: 'c-done', threadId: 'c-done' }),
+  ])[0]
+  const threads = [open, resolved]
+
+  const collapsed = model.threadRailView(threads, 'all', false)
+  assert.deepEqual(collapsed.visible.map((thread) => thread.threadId), ['c-open'])
+  assert.equal(collapsed.showSummary, true)
+  assert.equal(collapsed.showResolvedCards, false)
+  assert.equal(collapsed.emptyMessage, null)
+
+  const expandedPending = model.threadRailView(threads, 'pending', true)
+  assert.deepEqual(expandedPending.visible.map((thread) => thread.threadId), ['c-open'])
+  assert.equal(expandedPending.showSummary, false)
+  assert.equal(expandedPending.showResolvedCards, false, 'expanded resolved cards must not leak into pending')
+
+  const onlyResolved = model.threadRailView([resolved], 'pending', true)
+  assert.equal(onlyResolved.showResolvedCards, false)
+  assert.equal(onlyResolved.emptyMessage, '没有待处理的批注。')
+
+  const resolvedOnly = model.threadRailView([resolved], 'resolved', false)
+  assert.deepEqual(resolvedOnly.visible, [])
+  assert.equal(resolvedOnly.showResolvedCards, true)
+  assert.equal(resolvedOnly.emptyMessage, null)
+
+  assert.equal(model.threadRailView([open], 'resolved', false).emptyMessage, '没有已解决的批注。')
+  assert.equal(model.threadRailView([], 'all', false).emptyMessage, '还没有批注。选中行后点“批注”，或直接写整体批注。')
 })

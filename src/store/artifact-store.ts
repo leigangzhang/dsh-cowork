@@ -356,6 +356,30 @@ export class ArtifactStore {
     })
   }
 
+  /**
+   * The kept snapshot revision numbers of one work item, newest first.
+   *
+   * The directory is the only source of truth: snapshots are pruned on write,
+   * and a missing directory means no snapshot was ever kept.
+   * @param artifactId - work item id.
+   * @returns revision numbers, descending; empty when none are kept.
+   */
+  async listRevisions(artifactId: string): Promise<number[]> {
+    let names
+    try {
+      names = await readdir(this.revisionsDir(artifactId))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return []
+      throw error
+    }
+    const revisions = names
+      .filter((name) => name.endsWith(REVISION_FILE_SUFFIX))
+      .map((name) => Number.parseInt(name.split('-', 1)[0], 10))
+      .filter((revision) => Number.isSafeInteger(revision))
+    return [...new Set(revisions)].sort((left, right) => right - left)
+  }
+
   /** One revision's text, or null when no snapshot was kept. */
   async readRevision(artifactId: string, revision: number): Promise<string | null> {
     let names
