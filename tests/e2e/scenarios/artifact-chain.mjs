@@ -10,18 +10,75 @@
  * text except to route the scripted model.
  */
 
-import { writeFile } from 'node:fs/promises'
+import { rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { text, tool } from '../support/scripted-model.mjs'
 
 export const artifactChainId = 'artifact-chain'
 
 const SPEC_PATH = 'README.md'
+const REBOUND_PATH = 'README-rebound.md'
 const FIRST_COMMENT = 'E2E 第一段批注'
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
 )
+
+
+/** The primary path one rebind response reports. */
+function reboundPath(response) {
+  return response.body?.record?.primaryPath
+}
+
+/** Whether one panel response answered 200. */
+function panelOk(response) {
+  return response.status === 200
+}
+
+/** Whether one rebind response reported a changed record. */
+function rebindChanged(response) {
+  return response.body?.changed === true
+}
+
+/** Check the response that moved the registered file to its new path. */
+function checkRebound(ctx, response, newPath) {
+  const ok = panelOk(response) && rebindChanged(response) && reboundPath(response) === newPath
+  ctx.check('rebind re-points the moved file', ok, `${response.status}:${reboundPath(response)}`)
+}
+
+/** Check the idempotent retry that re-sends the same old and new path. */
+function checkIdempotentRebind(ctx, response, path) {
+  const ok = panelOk(response) && rebindChanged(response) === false && reboundPath(response) === path
+  ctx.check('rebind is idempotent for the same path', ok, `${response.status}:${rebindChanged(response)}`)
+}
+
+/** Whether the rail list carries this work item at its rebound path. */
+function listedRebound(response, artifactId, path) {
+  return response.body?.items?.some(
+    (item) => item.artifactId === artifactId && item.primaryPath === path,
+  ) === true
+}
+
+/** Check the rail list after a rebind reports the new primary path. */
+function checkReboundListed(ctx, response, artifactId, path) {
+  const listed = listedRebound(response, artifactId, path)
+  ctx.check('the rail lists the rebound path', panelOk(response) && listed, String(response.status))
+}
+
+/** Move the registered file and prove the work item now points at its new path. */
+async function runRebindStep(ctx, masterId, artifactId) {
+  await rename(join(ctx.fixture.path, SPEC_PATH), join(ctx.fixture.path, REBOUND_PATH))
+  const rebind = (oldPath, newPath) => ctx.client.panelPost('/api/cowork.artifact.rebind', {
+    sessionId: masterId,
+    artifactId,
+    oldPath,
+    newPath,
+  })
+  checkRebound(ctx, await rebind(SPEC_PATH, REBOUND_PATH), REBOUND_PATH)
+  checkIdempotentRebind(ctx, await rebind(REBOUND_PATH, REBOUND_PATH), REBOUND_PATH)
+  const list = await ctx.client.panelGet(`/api/cowork.artifact.list?sessionId=${encodeURIComponent(masterId)}`)
+  checkReboundListed(ctx, list, artifactId, REBOUND_PATH)
+}
 
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
 export async function runArtifactChain(ctx) {
@@ -243,4 +300,6 @@ export async function runArtifactChain(ctx) {
   ctx.check('the guard denied the overlapping model edit', denied.isError === true && /用户正在编辑|重叠/.test(denied.text), denied.text.slice(0, 120))
   const guarded = await ctx.readText(SPEC_PATH)
   ctx.check('the denied edit left the file unchanged', guarded?.includes('GUARD TEST') === false, guarded?.slice(0, 40))
+
+  await runRebindStep(ctx, masterId, artifactId)
 }

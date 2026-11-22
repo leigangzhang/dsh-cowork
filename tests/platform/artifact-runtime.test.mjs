@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { artifactRuntime, fakeHostFs, makeRepo } from '../support/artifact-fixtures.mjs'
+import { artifactRuntime, artifactStore, fakeHostFs, makeRecord, makeRepo } from '../support/artifact-fixtures.mjs'
 
 /**
  * The per-project runtime cache: one hub/store/file port per repository, an
@@ -81,6 +81,75 @@ test('a failed dispatch recovery is logged, never thrown at startup', async () =
     assert.ok(logs.some((message) => message.includes('artifact dispatch recovery failed')), logs.join('|'))
     manager.dispose()
     await chmod(artifacts, 0o700)
+  } finally {
+    await repo.remove()
+  }
+})
+
+/** Wait for a dispatch state, or fail the enclosing test on the deadline. */
+async function waitForState(store, artifactId, expected) {
+  const deadline = Date.now() + 2_000
+  let latest = await store.readLatestDispatch(artifactId)
+  while (latest?.state !== expected && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    latest = await store.readLatestDispatch(artifactId)
+  }
+  return latest
+}
+
+/** Seed one record with an in-flight dispatch batch. */
+async function seedInFlight(repo) {
+  const store = new artifactStore.ArtifactStore(repo.repoPath)
+  const record = makeRecord()
+  await store.createRecord(record)
+  await store.appendDispatch({
+    version: 1,
+    dispatchId: 'dispatch-old',
+    artifactId: record.artifactId,
+    sessionId: 'session-1',
+    commentIds: [],
+    state: 'sent',
+    attempts: 0,
+    promptRequestId: 'dispatch-old',
+    errorCode: null,
+    createdAt: '2026-02-01T00:00:00.000Z',
+    updatedAt: '2026-02-01T00:00:00.000Z',
+  })
+  return { store, record }
+}
+
+test('dispatch recovery runs on create by default', async () => {
+  const repo = await makeRepo()
+  try {
+    const { store, record } = await seedInFlight(repo)
+    const manager = new artifactRuntime.ArtifactRuntimeManager({
+      hostFs: fakeHostFs(),
+      prompt: { async prompt() { return { accepted: true } } },
+    })
+    manager.runtimeFor(repo.repoPath)
+    assert.equal((await waitForState(store, record.artifactId, 'stale')).state, 'stale')
+    // Recovery may still be appending the transition row; let it settle before
+    // the temporary repository is removed.
+    manager.dispose()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  } finally {
+    await repo.remove()
+  }
+})
+
+test('recoverOnCreate:false leaves in-flight dispatches untouched', async () => {
+  const repo = await makeRepo()
+  try {
+    const { store, record } = await seedInFlight(repo)
+    const manager = new artifactRuntime.ArtifactRuntimeManager({
+      hostFs: fakeHostFs(),
+      prompt: { async prompt() { return { accepted: true } } },
+      dispatch: { recoverOnCreate: false },
+    })
+    manager.runtimeFor(repo.repoPath)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal((await store.readLatestDispatch(record.artifactId)).state, 'sent')
+    manager.dispose()
   } finally {
     await repo.remove()
   }

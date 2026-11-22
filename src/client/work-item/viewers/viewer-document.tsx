@@ -48,8 +48,12 @@ export interface DocumentSurfaceProps {
   readonly onChangeDraft: (content: string) => void
   readonly onSaveDraft: () => void
   readonly onAnnotate: () => void
+  /** Enter/Space on the keyboard-active line opens its comment entry. */
+  readonly onAnnotateLine: (line: number) => void
   readonly onClearSelection: () => void
   readonly onPickLine: (line: number, extend: boolean) => void
+  /** A line's pin opens the thread it numbers. */
+  readonly onPickPin: (line: number) => void
 }
 
 /** One attachment chip in the file strip or paper foot. */
@@ -202,9 +206,22 @@ function SourceSurface({
   pins,
   markdown,
   onAnnotate,
+  onAnnotateLine,
   onClearSelection,
   onPickLine,
-}: Pick<DocumentSurfaceProps, 'selection' | 'lines' | 'anchoredLines' | 'staleLines' | 'pins' | 'onAnnotate' | 'onClearSelection' | 'onPickLine'> & {
+  onPickPin,
+}: Pick<DocumentSurfaceProps,
+  | 'selection'
+  | 'lines'
+  | 'anchoredLines'
+  | 'staleLines'
+  | 'pins'
+  | 'onAnnotate'
+  | 'onAnnotateLine'
+  | 'onClearSelection'
+  | 'onPickLine'
+  | 'onPickPin'
+> & {
   readonly markdown: boolean
 }): ReactElement {
   return (
@@ -231,6 +248,8 @@ function SourceSurface({
         pins={pins}
         markdown={markdown}
         onPick={onPickLine}
+        onAnnotateLine={onAnnotateLine}
+        onPickPin={onPickPin}
       />
     </>
   )
@@ -251,8 +270,10 @@ function ReadSurface({
   lines,
   anchoredLines,
   onAnnotate,
+  onAnnotateLine,
   onClearSelection,
   onPickLine,
+  onPickPin,
 }: Pick<DocumentSurfaceProps,
   | 'kind'
   | 'file'
@@ -265,8 +286,10 @@ function ReadSurface({
   | 'lines'
   | 'anchoredLines'
   | 'onAnnotate'
+  | 'onAnnotateLine'
   | 'onClearSelection'
   | 'onPickLine'
+  | 'onPickPin'
 >): ReactElement {
   const surface = readSurfaceKind(kind, readMode, file !== null)
   // `readSurfaceKind` only returns a renderer when the file exists.
@@ -302,8 +325,10 @@ function ReadSurface({
         pins={pins}
         markdown={sourceLinesMarkdown(kind, readMode)}
         onAnnotate={onAnnotate}
+        onAnnotateLine={onAnnotateLine}
         onClearSelection={onClearSelection}
         onPickLine={onPickLine}
+        onPickPin={onPickPin}
       />
     </Paper>
   )

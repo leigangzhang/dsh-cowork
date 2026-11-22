@@ -104,7 +104,7 @@
     {
       "id": "artifact-chain",
       "mode": "keyless",
-      "summary": "A master session registers README.md as a work item; the panel routes list, read, annotate, save, report presence, upload and serve an attachment, and consume the live SSE stream; the dispatched annotation is replied to by the scripted model and the reply closes the batch.",
+      "summary": "A master session registers README.md as a work item; the panel routes list, read, annotate, save, report presence, upload and serve an attachment, consume the live SSE stream, and rebind the record after the file moves; the dispatched annotation is replied to by the scripted model and the reply closes the batch.",
       "covers": [
         "tool:cowork_artifact_create",
         "tool:cowork_artifact_comments",
@@ -121,6 +121,7 @@
         "route:/api/cowork.artifact.upload POST",
         "route:/api/cowork.artifact.attachment GET",
         "route:/api/cowork.artifact.events GET",
+        "route:/api/cowork.artifact.rebind POST",
         "preset:cowork-master"
       ]
     },

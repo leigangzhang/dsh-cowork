@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { ArtifactFileV1 } from '../panel/artifact-contract.js'
-import { isTextMediaType } from '../domains/artifact/paths.js'
+import { isTextMediaType, normalizeArtifactPath } from '../domains/artifact/paths.js'
 import { ArtifactDomainError } from '../domains/artifact/errors.js'
 
 /** One observation of a registered file. */
@@ -135,6 +135,18 @@ export async function resolveInsideRepo(repoPath: string, path: string): Promise
   const relativePath = relative(root, real)
   if (relativePath === '' || relativePath.startsWith(`..${sep}`) || relativePath === '..' || isAbsolute(relativePath)) {
     throw new ArtifactDomainError('artifact/path-not-allowed', `path escapes the project: ${path}`, path)
+  }
+  // The lexical check at the wire boundary saw the registered path, not the
+  // link target. A symlink such as `docs/note.md -> .git/config` stays inside
+  // the repository yet resolves into a forbidden location, so the resolved
+  // path must pass the same rules.
+  const resolvedPath = normalizeArtifactPath(relativePath.split(sep).join('/'))
+  if (!resolvedPath.ok) {
+    throw new ArtifactDomainError(
+      'artifact/path-not-allowed',
+      `path resolves into a forbidden location: ${path} (${resolvedPath.reason})`,
+      path,
+    )
   }
   const info = await stat(real)
   if (!info.isFile()) {

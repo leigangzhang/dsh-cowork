@@ -525,3 +525,217 @@ test('threadRailView keeps resolved cards out of the pending filter', () => {
   assert.equal(model.threadRailView([open], 'resolved', false).emptyMessage, '没有已解决的批注。')
   assert.equal(model.threadRailView([], 'all', false).emptyMessage, '还没有批注。选中行后点“批注”，或直接写整体批注。')
 })
+
+/** One stored record with a single registered file. */
+function record(overrides = {}) {
+  const file = {
+    path: 'docs/spec.md',
+    mediaType: 'text/markdown',
+    editable: true,
+    size: 10,
+    sha256: 'abc',
+    revision: 1,
+    fsVersion: null,
+    missing: false,
+    ...overrides.file,
+  }
+  return {
+    version: 1,
+    artifactId: 'artifact-1',
+    projectId: 'p',
+    ownerSessionId: 'session-1',
+    title: 'Spec',
+    type: 'text',
+    status: 'pending-confirm',
+    files: [file],
+    primaryPath: file.path,
+    revision: 1,
+    commentCount: 0,
+    attachmentCount: 0,
+    activeDispatch: null,
+    createdAt: '2026-02-01T00:00:00.000Z',
+    updatedAt: '2026-02-01T00:00:00.000Z',
+  }
+}
+
+test('missingFileState offers a rebind only for a vanished primary file', () => {
+  assert.equal(model.missingFileState(record(), null), null)
+  const onDisk = model.missingFileState(record(), 'artifact/file-missing')
+  assert.equal(onDisk?.path, 'docs/spec.md')
+  assert.match(onDisk?.hint ?? '', /新路径/)
+  const flagged = model.missingFileState(record({ file: { missing: true } }), null)
+  assert.equal(flagged?.path, 'docs/spec.md')
+  assert.equal(model.missingFileState(record({ file: { missing: true } }), 'artifact/io-error')?.path, 'docs/spec.md')
+})
+
+test('rebindTarget trims and rejects paths the server would refuse', () => {
+  assert.deepEqual(model.rebindTarget('  docs/new.md  '), { ok: true, path: 'docs/new.md' })
+  assert.equal(model.rebindTarget('   ').ok, false)
+  assert.match(model.rebindTarget('/etc/passwd').error, /相对路径/)
+  assert.match(model.rebindTarget('C:\\Users\\spec.md').error, /相对路径/)
+  assert.match(model.rebindTarget('docs/../secret.md').error, /\.\./)
+  // A name containing two dots is not a parent segment.
+  assert.deepEqual(model.rebindTarget('docs/a..b.md'), { ok: true, path: 'docs/a..b.md' })
+})
+
+test('rebindFailure frames each wire code and keeps the server reason', () => {
+  assert.deepEqual(model.rebindFailure({ code: 'artifact/file-missing', message: '目标文件不存在' }), {
+    title: '新路径不存在',
+    detail: '目标文件不存在',
+  })
+  assert.equal(model.rebindFailure({ code: 'artifact/path-not-allowed', message: 'x' }).title, '路径不可用')
+  assert.equal(model.rebindFailure({ code: 'artifact/not-found', message: 'x' }).title, '工作项不存在')
+  assert.deepEqual(model.rebindFailure(null), { title: '重新绑定失败', detail: '重新绑定失败，请稍后重试。' })
+  assert.equal(model.rebindFailure({ code: 'artifact/io-error' }).title, '重新绑定失败')
+})
+
+test('rebindReceipt names the new path only when it changed', () => {
+  assert.equal(model.rebindReceipt(true, 'docs/found.md'), '已重新绑定到 docs/found.md')
+  assert.match(model.rebindReceipt(false, 'docs/spec.md'), /没有变化/)
+})
+
+test('olderCursor is the earliest loaded event id', () => {
+  assert.equal(model.olderCursor([]), null)
+  assert.equal(model.olderCursor([comment({ eventId: 'event-1' }), comment({ eventId: 'event-2' })]), 'event-1')
+})
+
+test('withOlderPage prepends without duplicating an overlapping row', () => {
+  const current = { events: [comment({ eventId: 'event-3' }), comment({ eventId: 'event-4' })], hasOlder: true }
+  const older = [comment({ eventId: 'event-1' }), comment({ eventId: 'event-2' }), comment({ eventId: 'event-3' })]
+  const merged = model.withOlderPage(current, { events: older, hasOlder: false })
+  assert.deepEqual(merged.events.map((event) => event.eventId), ['event-1', 'event-2', 'event-3', 'event-4'])
+  assert.equal(merged.hasOlder, false)
+  assert.deepEqual(model.withOlderPage({ events: [], hasOlder: true }, { events: [], hasOlder: false }), {
+    events: [],
+    hasOlder: false,
+  })
+})
+
+test('olderPageAvailable hides the entry for an empty or final page', () => {
+  assert.equal(model.olderPageAvailable({ hasOlder: true, events: [comment()] }), true)
+  assert.equal(model.olderPageAvailable({ hasOlder: true, events: [] }), false)
+  assert.equal(model.olderPageAvailable({ hasOlder: false, events: [comment()] }), false)
+  assert.equal(model.olderPageAvailable({ events: [comment()] }), false)
+})
+
+test('moveActiveLine clamps to the document', () => {
+  assert.equal(model.moveActiveLine(1, 1, 5), 2)
+  assert.equal(model.moveActiveLine(1, -1, 5), 1)
+  assert.equal(model.moveActiveLine(5, 1, 5), 5)
+  assert.equal(model.moveActiveLine(3, 0, 5), 3)
+  assert.equal(model.moveActiveLine(3, 1, 0), 1)
+})
+
+test('lineKeyIntent maps only the line-list keys', () => {
+  assert.equal(model.lineKeyIntent('ArrowDown'), 'next')
+  assert.equal(model.lineKeyIntent('ArrowUp'), 'previous')
+  assert.equal(model.lineKeyIntent('Enter'), 'annotate')
+  assert.equal(model.lineKeyIntent(' '), 'annotate')
+  assert.equal(model.lineKeyIntent('Escape'), null)
+  assert.equal(model.lineKeyIntent('a'), null)
+  assert.equal(model.lineMoveDelta('next'), 1)
+  assert.equal(model.lineMoveDelta('previous'), -1)
+})
+
+test('withRecord and withOlderPage keep the rest of the view', () => {
+  const record = { revision: 2 }
+  assert.equal(model.withRecord(null, record), null)
+  assert.deepEqual(model.withRecord({ record: { revision: 1 }, other: 1 }, record), { record, other: 1 })
+  const existing = [comment({ eventId: 'event-2' })]
+  const page = { events: [comment({ eventId: 'event-1' }), comment({ eventId: 'event-2' })], hasOlder: false }
+  assert.deepEqual(model.withOlderPage({ events: existing, hasOlder: true, other: 1 }, page), {
+    events: [page.events[0], existing[0]],
+    hasOlder: false,
+    other: 1,
+  })
+  assert.equal(model.withOlderPage(null, page), null)
+})
+
+test('olderCall carries the cursor only when the viewer is idle', () => {
+  const context = { sessionId: 'session-1', artifactId: 'artifact-1' }
+  assert.equal(model.olderCall(null, { events: [] }, false, 'event-1'), null)
+  assert.equal(model.olderCall(context, null, false, 'event-1'), null)
+  assert.equal(model.olderCall(context, { events: [] }, true, 'event-1'), null)
+  assert.deepEqual(model.olderCall(context, { events: [] }, false, 'event-1'), {
+    sessionId: 'session-1',
+    artifactId: 'artifact-1',
+    before: 'event-1',
+  })
+})
+
+test('lineRangeAnnotation clamps the range and falls back to the primary path', () => {
+  assert.equal(model.lineRangeAnnotation(['a'], null, 'docs/p.md', 2, 1), null)
+  assert.deepEqual(model.lineRangeAnnotation(['a', 'b'], null, 'docs/p.md', 1, 9), {
+    path: 'docs/p.md',
+    startLine: 1,
+    endLine: 2,
+    quote: 'a\nb',
+  })
+  assert.equal(model.lineRangeAnnotation(['a'], { path: 'docs/f.md' }, 'docs/p.md', 1, 1).path, 'docs/f.md')
+})
+
+test('olderEntryVisible and the Escape rules match the drawer state', () => {
+  assert.equal(model.olderEntryVisible(true, 'event-1'), true)
+  assert.equal(model.olderEntryVisible(true, null), false)
+  assert.equal(model.olderEntryVisible(false, 'event-1'), false)
+  assert.equal(model.isEscapeKey({ key: 'Escape', defaultPrevented: false }), true)
+  assert.equal(model.isEscapeKey({ key: 'Escape', defaultPrevented: true }), false)
+  assert.equal(model.isEscapeKey({ key: 'Enter', defaultPrevented: false }), false)
+  assert.equal(model.drawerClosesOnEscape(true, true, false), true)
+  assert.equal(model.drawerClosesOnEscape(true, false, false), false)
+  assert.equal(model.drawerClosesOnEscape(true, true, true), false)
+})
+
+test('line ranges, stale ranges, attachments, and pins fold from the threads', () => {
+  const threads = model.foldThreads([
+    comment({
+      commentId: 'c1',
+      threadId: 'c1',
+      eventId: 'e1',
+      anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 2, endLine: 3, quote: 'a\nb' },
+    }),
+    comment({
+      commentId: 'c2',
+      threadId: 'c2',
+      eventId: 'e2',
+      anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 5, endLine: 5, quote: 'c' },
+    }),
+    comment({
+      commentId: 'c2',
+      threadId: 'c2',
+      eventId: 'e3',
+      type: 'reply',
+      body: 'reply',
+      attachments: [{ attachmentId: 'a1', name: 'x.png', mediaType: 'image/png', size: 1, sha256: 'x' }],
+    }),
+    comment({
+      commentId: 'c2',
+      threadId: 'c2',
+      eventId: 'e4',
+      type: 'anchor-moved',
+      anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 5, endLine: 5, quote: 'c' },
+      anchorStatus: 'stale',
+    }),
+  ])
+  assert.deepEqual([...model.anchoredLineNumbers(threads)].sort((left, right) => left - right), [2, 3, 5])
+  assert.deepEqual([...model.staleLineNumbers(threads)], [5])
+  assert.deepEqual(model.attachmentRowsOf(threads).map((row) => row.attachmentId), ['a1'])
+  const pins = model.threadLinePins(threads)
+  assert.equal(model.pinThread(pins, threads, 2), threads[0])
+  assert.equal(model.pinThread(pins, threads, 99), null)
+  assert.equal(model.pinThread(new Map(), threads, 2), null)
+})
+
+test('rebindOldPath prefers the registered primary entry and falls back to primaryPath', () => {
+  assert.equal(
+    model.rebindOldPath({
+      files: [{ path: 'docs/old.md' }, { path: 'docs/spec.md' }],
+      primaryPath: 'docs/spec.md',
+    }),
+    'docs/spec.md',
+  )
+  assert.equal(
+    model.rebindOldPath({ files: [{ path: 'docs/old.md' }], primaryPath: 'docs/gone.md' }),
+    'docs/gone.md',
+  )
+})

@@ -8,7 +8,7 @@
  * they happened.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import type { ReactElement } from 'react'
+import type { Dispatch, ReactElement, SetStateAction } from 'react'
 import {
   ARTIFACT_EVENT_TYPES,
   ARTIFACT_EVENTS_PATH,
@@ -33,29 +33,49 @@ import { DocumentSurface } from './viewers/viewer-document.tsx'
 import { applyRefreshedFile } from './viewers/viewer-refresh.ts'
 import {
   activeDispatchSummary,
+  anchoredLineNumbers,
+  attachmentRowsOf,
   baseName,
   detailMeta,
   contentLines,
   errorPresentation,
+  drawerClosesOnEscape,
   foldThreads,
+  isEscapeKey,
+  lineRangeAnnotation,
+  missingFileState,
+  olderCall,
+  olderCursor,
+  olderEntryVisible,
+  olderPageAvailable,
+  pinThread,
   readPersistedDraft,
+  rebindFailure,
+  rebindOldPath,
+  rebindReceipt,
+  rebindTarget,
   removePersistedDraft,
   savePersistedDraft,
   selectLine,
   sortThreads,
+  staleLineNumbers,
   typeLabel,
   type LineSelection,
+  type MissingFileState,
+  type OlderCall,
   type SavePhase,
   type WorkItemThread,
   dispatchDetailLabel,
   deliverySummary,
   formatElapsed,
   threadForDispatch,
+  withOlderPage,
+  withRecord,
   threadLinePins,
   threadOrdinals,
   type ThreadFilter,
 } from './model.ts'
-import { workItemOpenStore } from './store.ts'
+import { workItemOpenStore, type WorkItemOpenContext } from './store.ts'
 import { CommentComposer } from './comment-composer.tsx'
 import { ThreadList } from './thread-list.tsx'
 import { ViewerFooter } from './viewer-footer.tsx'
@@ -69,12 +89,16 @@ interface ViewerData {
   readonly file: ArtifactFileResponse | null
   readonly events: readonly CommentEventV1[]
   readonly dispatches: readonly ArtifactDispatchSummary[]
-  readonly commentsTruncated: boolean
+  /** True when the comments route holds a page older than the loaded one. */
+  readonly hasOlder: boolean
   readonly sessionTitle: string | null
   readonly revisions: readonly number[]
 }
 
 const BYTE_ENCODER = new TextEncoder()
+
+/** The breakpoint below which the comment rail is a drawer over the content. */
+const NARROW_QUERY = '(max-width: 900px)'
 
 /** UTF-8 byte length, the unit the server's text cap uses. */
 function byteLength(text: string): number {
@@ -100,16 +124,35 @@ function useOpenContext() {
   ).context
 }
 
+/** Track the drawer breakpoint; a host without matchMedia stays wide. */
+function useNarrowLayout(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia(NARROW_QUERY).matches,
+  )
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia(NARROW_QUERY)
+    const update = (): void => { setNarrow(query.matches) }
+    update()
+    query.addEventListener('change', update)
+    return () => { query.removeEventListener('change', update) }
+  }, [])
+  return narrow
+}
+
 /** Read the initial file; a refusal becomes a notice instead of failing the view. */
 async function readInitialFile(
   sessionId: string,
   artifactId: string,
   path: string,
-): Promise<{ file: ArtifactFileResponse | null; notice: string | null }> {
+): Promise<{ file: ArtifactFileResponse | null; notice: string | null; code: string | null }> {
   try {
-    return { file: await workItemApi.file(sessionId, artifactId, path), notice: null }
+    return { file: await workItemApi.file(sessionId, artifactId, path), notice: null, code: null }
   } catch (reason) {
-    return { file: null, notice: errorPresentation(reason as { code?: string; message?: string }).detail }
+    const error = reason as { code?: string; message?: string }
+    return { file: null, notice: errorPresentation(error).detail, code: error.code ?? null }
   }
 }
 
@@ -124,7 +167,7 @@ function reloadedView(
     file: latest,
     events: current.events,
     dispatches: detail.dispatches,
-    commentsTruncated: current.commentsTruncated,
+    hasOlder: current.hasOlder,
     ...detailMeta(detail, current),
   }
 }
@@ -139,14 +182,197 @@ async function openReceipt(sessionId: string, artifactId: string): Promise<strin
   }
 }
 
+/** Props of the missing-file rebind entry. */
+interface RebindFileProps {
+  readonly state: MissingFileState | null
+  readonly context: WorkItemOpenContext
+  readonly record: ArtifactRecordV1
+  readonly onRecord: (record: ArtifactRecordV1) => void
+  readonly reloadFile: (path: string) => Promise<void>
+  readonly onReceipt: (message: string) => void
+}
+
+/** The missing-file entry: one path input, local validation, and the request. */
+function RebindFileEntry({ state, context, record, onRecord, reloadFile, onReceipt }: RebindFileProps): ReactElement | null {
+  const [value, setValue] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (state === null) return null
+
+  /** Send the validated path, apply the returned record, then re-read the file. */
+  const send = async (newPath: string): Promise<void> => {
+    setPending(true)
+    setError(null)
+    try {
+      const response = await workItemApi.rebind({
+        sessionId: context.sessionId,
+        artifactId: context.artifactId,
+        oldPath: rebindOldPath(record),
+        newPath,
+      })
+      setValue('')
+      onReceipt(rebindReceipt(response.changed, newPath))
+      onRecord(response.record)
+      await reloadFile(response.record.primaryPath)
+    } catch (reason) {
+      const failure = rebindFailure(reason as { code?: string; message?: string })
+      setError(`${failure.title}：${failure.detail}`)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  /** Validate the typed path, then send it. */
+  const submit = async (): Promise<void> => {
+    const target = rebindTarget(value)
+    if (!target.ok) {
+      setError(target.error)
+      return
+    }
+    await send(target.path)
+  }
+
+  return (
+    <form
+      className="cwi-rebind"
+      data-testid="cwi-rebind"
+      onSubmit={(event) => { event.preventDefault(); void submit() }}
+    >
+      <div className="cwi-rebind-title">
+        文件缺失：<span className="cwi-mono">{state.path}</span>
+      </div>
+      <p className="cwi-rebind-hint">{state.hint}</p>
+      <div className="cwi-rebind-row">
+        <input
+          className="cwi-rebind-input"
+          data-testid="cwi-rebind-input"
+          value={value}
+          placeholder="项目内的新路径，如 docs/spec.md"
+          aria-label="文件在项目中的新路径"
+          onChange={(event) => { setValue(event.target.value) }}
+        />
+        <button type="submit" className="cwi-primary" data-testid="cwi-rebind-submit" disabled={pending}>
+          {pending ? '绑定中…' : '重新绑定文件'}
+        </button>
+      </div>
+      {error === null ? null : <div className="cwi-rebind-error" data-testid="cwi-rebind-error" role="alert">{error}</div>}
+    </form>
+  )
+}
+
+/** Paging state for the rail's "load older" entry. */
+function useOlderPages(
+  context: WorkItemOpenContext | null,
+  data: ViewerData | null,
+  setData: Dispatch<SetStateAction<ViewerData | null>>,
+  setReceipt: Dispatch<SetStateAction<string | null>>,
+): { readonly loadingOlder: boolean; readonly loadOlderPage: () => void } {
+  const [loadingOlder, setLoadingOlder] = useState(false)
+
+  /** Fetch and prepend the page before the earliest loaded comment. */
+  const run = async (call: OlderCall): Promise<void> => {
+    setLoadingOlder(true)
+    setReceipt(null)
+    try {
+      const page = await workItemApi.comments(call.sessionId, call.artifactId, undefined, call.before)
+      setData(current => withOlderPage(current, page))
+    } catch (reason) {
+      setReceipt(`加载更早的批注失败：${messageOf(reason)}`)
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
+
+  /** Start load-older when the viewer is idle. */
+  const loadOlderPage = (): void => {
+    if (data === null) return
+    const before = olderCursor(data.events)
+    if (before === null) return
+    const call = olderCall(context, data, loadingOlder, before)
+    if (call === null) return
+    void run(call)
+  }
+
+  return { loadingOlder, loadOlderPage }
+}
+
+/** The viewer's idle, loading, and error states. */
+function ViewerPlaceholder({ phase, error, onRetry, onBack }: {
+  readonly phase: 'idle' | 'loading' | 'error'
+  readonly error?: unknown
+  readonly onRetry?: () => void
+  readonly onBack?: () => void
+}): ReactElement {
+  if (phase === 'idle') {
+    return (
+      <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="idle">
+        <div className="cwi-viewer-empty">从右栏的「工作项」标签打开一份交付物。</div>
+      </div>
+    )
+  }
+  if (phase === 'loading') {
+    return (
+      <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="loading" aria-busy="true">
+        <div className="cwi-viewer-empty">正在加载工作项…</div>
+      </div>
+    )
+  }
+  const presentation = errorPresentation(error as { code?: string; message?: string } | null)
+  return (
+    <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="error">
+      <div className="cwi-viewer-empty">
+        <div data-testid="cwi-viewer-error">{presentation.title}</div>
+        <div>{presentation.detail}</div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 10 }}>
+          <button type="button" className="cwi-secondary" onClick={onRetry}>
+            重试
+          </button>
+          <button type="button" className="cwi-secondary" data-testid="cwi-back" onClick={onBack}>
+            返回会话
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Escape closes the narrow drawer first and never reaches a submit control. */
+function RailEscape({ narrow, showRail, onClose }: {
+  readonly narrow: boolean
+  readonly showRail: boolean
+  readonly onClose: (open: boolean) => void
+}): ReactElement | null {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!isEscapeKey(event)) return
+      // The header's overflow menu owns Escape while it is open.
+      const menuOpen = document.querySelector('.cwi-menu') !== null
+      if (!drawerClosesOnEscape(narrow, showRail, menuOpen)) return
+      event.preventDefault()
+      onClose(false)
+      document.querySelector<HTMLButtonElement>('[data-testid="cwi-rail-toggle"]')?.focus()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown) }
+  }, [narrow, showRail, onClose])
+  return null
+}
+
+/** The narrow drawer's backdrop, or null when the rail is not over content. */
+function railBackdrop(narrow: boolean, showRail: boolean, onClose: () => void): ReactElement | null {
+  if (!narrow || !showRail) return null
+  return <div className="cwi-rail-backdrop" data-testid="cwi-rail-backdrop" aria-hidden="true" onClick={onClose} />
+}
+
 /** The work-item viewer. */
 export function WorkItemViewer(): ReactElement {
   const services = useClientServices()
   const context = useOpenContext()
+  const narrow = useNarrowLayout()
   const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [data, setData] = useState<ViewerData | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [fileNotice, setFileNotice] = useState<string | null>(null)
+  const [fileProblem, setFileProblem] = useState<{ notice: string | null; code: string | null }>({ notice: null, code: null })
   const [selection, setSelection] = useState<LineSelection | null>(null)
   const [pendingAnchor, setPendingAnchor] = useState<ArtifactAnchor | null>(null)
   const [replyTarget, setReplyTarget] = useState<WorkItemThread | null>(null)
@@ -162,6 +388,7 @@ export function WorkItemViewer(): ReactElement {
   // save alone must not remount Excalidraw (that would drop undo history).
   const [canvasReset, setCanvasReset] = useState(0)
   const [receipt, setReceipt] = useState<string | null>(null)
+  const { loadingOlder, loadOlderPage } = useOlderPages(context, data, setData, setReceipt)
   const [refreshToken, setRefreshToken] = useState(0)
   const [now, setNow] = useState(() => new Date())
   const [editing, setEditing] = useState(false)
@@ -240,12 +467,12 @@ export function WorkItemViewer(): ReactElement {
     let active = true
     setPhase(current => (current === 'ready' ? 'ready' : 'loading'))
     setError(null)
-    setFileNotice(null)
+    setFileProblem({ notice: null, code: null })
     setSelection(null)
     setPendingAnchor(null)
     const load = async (): Promise<void> => {
       const detail = await workItemApi.detail(context.sessionId, context.artifactId)
-      const { file, notice } = await readInitialFile(context.sessionId, context.artifactId, detail.record.primaryPath)
+      const { file, notice, code } = await readInitialFile(context.sessionId, context.artifactId, detail.record.primaryPath)
       const comments = await workItemApi.comments(context.sessionId, context.artifactId)
       if (!active) return
       setData({
@@ -253,10 +480,10 @@ export function WorkItemViewer(): ReactElement {
         file,
         events: comments.events,
         dispatches: detail.dispatches,
-        commentsTruncated: comments.truncated,
+        hasOlder: olderPageAvailable(comments),
         ...detailMeta(detail),
       })
-      setFileNotice(notice)
+      setFileProblem({ notice, code })
       setNow(new Date())
       setEditing(false)
       setEditDraft(file?.content ?? '')
@@ -538,7 +765,7 @@ export function WorkItemViewer(): ReactElement {
           record: detail.record,
           events: comments.events,
           dispatches: detail.dispatches,
-          commentsTruncated: comments.truncated,
+          hasOlder: olderPageAvailable(comments),
           ...detailMeta(detail, current),
         }
         return file === null || keepDraft ? next : { ...next, file }
@@ -634,6 +861,32 @@ export function WorkItemViewer(): ReactElement {
     }
   }, [context, data])
 
+  /** Re-read one file after a rebind and adopt its content. */
+  const reloadFile = async (path: string): Promise<void> => {
+    if (context === null) return
+    try {
+      const file = await workItemApi.file(context.sessionId, context.artifactId, path)
+      setData(current => (current === null ? current : { ...current, file }))
+      setFileProblem({ notice: null, code: null })
+      setEditDraft(file.content)
+      setSavedContent(file.content)
+      setCanvasReset(value => value + 1)
+      setSavePhase('saved')
+    } catch (reason) {
+      const failure = rebindFailure(reason as { code?: string; message?: string })
+      const code = (reason as { code?: string }).code ?? null
+      setFileProblem({ notice: `${failure.title}：${failure.detail}`, code })
+    }
+  }
+
+  /** Adopt a committed record and reload the shared viewer data. */
+  const applyRecord = (next: ArtifactRecordV1): void => {
+    setData(current => withRecord(current, next))
+  }
+
+  /** Close the narrow drawer. */
+  const closeRail = (): void => { setShowRail(false) }
+
   const lines = useMemo(() => contentLines(data?.file?.content ?? ''), [data?.file?.content])
   const threads = useMemo(() => sortThreads(foldThreads(data?.events ?? [])), [data?.events])
   const ordinals = useMemo(() => threadOrdinals(threads), [threads])
@@ -661,63 +914,42 @@ export function WorkItemViewer(): ReactElement {
     })
   }, [])
 
-  const anchoredLines = useMemo(() => {
-    const values = new Set<number>()
-    for (const thread of threads) {
-      if (thread.resolved) continue
-      if (thread.anchor !== null && thread.anchor.kind === 'line-range') {
-        for (let line = thread.anchor.startLine; line <= thread.anchor.endLine; line += 1) values.add(line)
-      }
-    }
-    return values
-  }, [threads])
+  const anchoredLines = useMemo(() => anchoredLineNumbers(threads), [threads])
   const anchoredLineList = useMemo(
     () => [...anchoredLines].sort((left, right) => left - right),
     [anchoredLines],
   )
-  // Derives stale line ranges from the folded threads; display-only.
-  // fallow-ignore-next-line complexity
-  const staleLines = useMemo(() => {
-    const values = new Set<number>()
-    for (const thread of threads) {
-      if (thread.anchorStatus !== 'stale') continue
-      if (thread.anchor === null || thread.anchor.kind !== 'line-range') continue
-      for (let line = thread.anchor.startLine; line <= thread.anchor.endLine; line += 1) values.add(line)
-    }
-    return values
-  }, [threads])
+  const staleLines = useMemo(() => staleLineNumbers(threads), [threads])
+  const attachmentRows = useMemo(() => attachmentRowsOf(threads), [threads])
 
-  const attachmentRows = useMemo(() => {
-    const rows: AttachmentRefV1[] = []
-    for (const thread of threads) {
-      for (const event of thread.comments) {
-        if (event.type !== 'create' && event.type !== 'reply') continue
-        for (const attachment of event.attachments ?? []) rows.push(attachment)
-      }
-    }
-    return rows
-  }, [threads])
-
-  const pickLine = useCallback((line: number, extend: boolean) => {
+  const pickLine = (line: number, extend: boolean): void => {
     setSelection(current => selectLine(current, line, extend))
-  }, [])
+  }
 
-  const annotate = useCallback(() => {
-    if (data === null || selection === null) return
+  /** Open the comment entry for one line range and focus its composer. */
+  const annotateRange = (startLine: number, endLine: number): void => {
+    if (data === null) return
+    const range = lineRangeAnnotation(lines, data.file, data.record.primaryPath, startLine, endLine)
+    if (range === null) return
     setReplyTarget(null)
-    const startLine = Math.max(1, selection.startLine)
-    const endLine = Math.min(selection.endLine, lines.length)
-    const quote = lines.slice(startLine - 1, endLine).join('\n')
-    setReplyTarget(null)
-    setPendingAnchor({
-      kind: 'line-range',
-      path: data.file?.path ?? data.record.primaryPath,
-      startLine,
-      endLine,
-      quote,
-    })
+    setSelection({ startLine: range.startLine, endLine: range.endLine })
+    setPendingAnchor({ kind: 'line-range', ...range })
     composerRef.current?.focus()
-  }, [data, lines, selection])
+  }
+
+  const annotate = (): void => {
+    if (selection === null) return
+    annotateRange(selection.startLine, selection.endLine)
+  }
+
+  /** Keyboard annotation from the line list: one line, then the composer. */
+  const annotateLine = (line: number): void => { annotateRange(line, line) }
+
+  /** A line's pin opens the thread it numbers. */
+  const focusPin = (line: number): void => {
+    const thread = pinThread(linePins, threads, line)
+    if (thread !== null) focusThread(thread)
+  }
 
   const submit = useCallback(async () => {
     if (context === null || data === null || draft.trim() === '' || submitting) return
@@ -861,38 +1093,11 @@ export function WorkItemViewer(): ReactElement {
     }
   }, [data?.record.primaryPath])
 
-  if (context === null) {
-    return (
-      <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="idle">
-        <div className="cwi-viewer-empty">从右栏的「工作项」标签打开一份交付物。</div>
-      </div>
-    )
-  }
-  if (phase === 'loading') {
-    return (
-      <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="loading" aria-busy="true">
-        <div className="cwi-viewer-empty">正在加载工作项…</div>
-      </div>
-    )
-  }
+  if (context === null) return <ViewerPlaceholder phase="idle" />
+  if (phase === 'loading') return <ViewerPlaceholder phase="loading" />
   if (phase === 'error' || data === null) {
-    const presentation = errorPresentation(error as { code?: string; message?: string } | null)
-    return (
-      <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="error">
-        <div className="cwi-viewer-empty">
-          <div data-testid="cwi-viewer-error">{presentation.title}</div>
-          <div>{presentation.detail}</div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 10 }}>
-            <button type="button" className="cwi-secondary" onClick={() => { setRefreshToken(token => token + 1) }}>
-              重试
-            </button>
-            <button type="button" className="cwi-secondary" data-testid="cwi-back" onClick={close}>
-              返回会话
-            </button>
-          </div>
-        </div>
-      </div>
-    )
+    const onRetry = (): void => { setRefreshToken(token => token + 1) }
+    return <ViewerPlaceholder phase="error" error={error} onRetry={onRetry} onBack={close} />
   }
   const record = data.record
   const kind = viewerKindOf(record.type)
@@ -900,6 +1105,8 @@ export function WorkItemViewer(): ReactElement {
   // broken file stays repairable instead of trapping the user in an error pane.
   const canvasBroken = kind === 'canvas' && data.file !== null && !parseCanvasScene(savedContent).ok
   const activity = activeDispatchSummary(record.activeDispatch)
+  const missingFile = missingFileState(record, fileProblem.code)
+  const olderBefore = olderCursor(data.events)
   return (
     <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="ready" data-artifact-id={record.artifactId}>
       <ViewerHeader
@@ -920,6 +1127,14 @@ export function WorkItemViewer(): ReactElement {
         onRefresh={() => { setRefreshToken(token => token + 1) }}
         onCopyPath={() => { void copyPath() }}
       />
+      <RebindFileEntry
+        state={missingFile}
+        context={context}
+        record={record}
+        onRecord={applyRecord}
+        reloadFile={reloadFile}
+        onReceipt={setReceipt}
+      />
       <ViewerToolbar
         viewTab={viewTab}
         revisions={data.revisions.length}
@@ -934,8 +1149,8 @@ export function WorkItemViewer(): ReactElement {
         onToggleReadMode={() => { setReadMode(value => !value) }}
         onToggleRail={() => { setShowRail(value => !value) }}
       />
-      {fileNotice === null ? null : (
-        <div className="cwi-receipt" data-testid="cwi-file-notice">{fileNotice}</div>
+      {fileProblem.notice === null ? null : (
+        <div className="cwi-receipt" data-testid="cwi-file-notice">{fileProblem.notice}</div>
       )}
       {backArmed
         ? <div className="cwi-receipt" data-testid="cwi-unsaved-notice">还有未保存内容：再点一次返回会关闭查看器</div>
@@ -1001,8 +1216,10 @@ export function WorkItemViewer(): ReactElement {
             onChangeDraft={(content) => { setEditDraft(content); setBackArmed(false) }}
             onSaveDraft={() => { void saveDraft() }}
             onAnnotate={annotate}
+            onAnnotateLine={annotateLine}
             onClearSelection={() => { setSelection(null) }}
             onPickLine={pickLine}
+            onPickPin={focusPin}
           />
           {viewTab === 'versions' ? (
             <VersionsPanel record={record} file={data.file} revisions={data.revisions} />
@@ -1018,7 +1235,9 @@ export function WorkItemViewer(): ReactElement {
             />
           ) : null}
         </div>
-        <aside className="cwi-rail" data-testid="cwi-rail" hidden={!showRail}>
+        <RailEscape narrow={narrow} showRail={showRail} onClose={setShowRail} />
+        {railBackdrop(narrow, showRail, closeRail)}
+        <aside className="cwi-rail" data-testid="cwi-rail" data-drawer={String(narrow)} hidden={!showRail}>
           <ThreadList
             threads={threads}
             ordinals={ordinals}
@@ -1029,7 +1248,9 @@ export function WorkItemViewer(): ReactElement {
             retrying={pendingDispatch !== null}
             filter={threadFilter}
             showResolved={showResolved}
-            commentsTruncated={data.commentsTruncated}
+            hasOlder={olderEntryVisible(data.hasOlder, olderBefore)}
+            loadingOlder={loadingOlder}
+            drawer={narrow}
             onFilter={setThreadFilter}
             onToggleResolved={() => { setShowResolved(value => !value) }}
             onSelect={(thread) => { setSelectedThreadId(thread.threadId) }}
@@ -1037,6 +1258,8 @@ export function WorkItemViewer(): ReactElement {
             onReply={startReply}
             onRetry={(dispatch) => { void retryDispatch(dispatch) }}
             onFocus={focusThread}
+            onLoadOlder={loadOlderPage}
+            onCloseDrawer={closeRail}
             attachmentUrl={(attachmentId) => workItemApi.attachmentUrl({
               sessionId: context.sessionId,
               artifactId: context.artifactId,

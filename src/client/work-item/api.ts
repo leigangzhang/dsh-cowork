@@ -19,6 +19,7 @@ import {
   ARTIFACT_LIST_PATH,
   ARTIFACT_OPEN_PATH,
   ARTIFACT_PRESENCE_PATH,
+  ARTIFACT_REBIND_PATH,
   ARTIFACT_UPLOAD_PATH,
   ARTIFACT_STATUS_PATH,
   type ArtifactAnchor,
@@ -32,6 +33,7 @@ import {
   type ArtifactListResponse,
   type ArtifactOpenResponse,
   type ArtifactPresenceResponse,
+  type ArtifactRecordV1,
   type ArtifactStatusResponse,
   type ArtifactUploadResponse,
   type AttachmentRefV1,
@@ -111,6 +113,34 @@ export interface OpenInput {
   readonly artifactId: string
 }
 
+/** One rebind request: the registered path that vanished and its replacement. */
+export interface RebindInput {
+  readonly sessionId: string
+  readonly artifactId: string
+  readonly oldPath: string
+  readonly newPath: string
+}
+
+/**
+ * Frozen stage-5 wire shape of `POST artifact.rebind`.
+ *
+ * The route constant is the contract module's; its response type is owned by
+ * the backend task, so the browser half declares the shape it decodes. The two
+ * are structurally identical: a rebind reports whether the path changed and
+ * returns the whole updated record.
+ */
+export interface ArtifactRebindResult {
+  readonly ok: true
+  readonly changed: boolean
+  readonly record: ArtifactRecordV1
+}
+
+/**
+ * One comments page. The wire contract owns the shape, including the stage-5
+ * `hasOlder` flag, so the browser half reuses it instead of restating fields.
+ */
+export type CommentsPage = ArtifactCommentsResponse
+
 /** One status action. */
 export interface StatusInput {
   readonly sessionId: string
@@ -123,7 +153,8 @@ export interface WorkItemApi {
   list(sessionId: string): Promise<ArtifactListResponse>
   detail(sessionId: string, artifactId: string): Promise<ArtifactDetailResponse>
   file(sessionId: string, artifactId: string, path: string): Promise<ArtifactFileResponse>
-  comments(sessionId: string, artifactId: string, after?: string): Promise<ArtifactCommentsResponse>
+  /** `after` reads the next newer page; `before` reads the next older one. */
+  comments(sessionId: string, artifactId: string, after?: string, before?: string): Promise<CommentsPage>
   comment(input: CommentInput): Promise<ArtifactCommentResponse>
   resolveComment(input: ResolveCommentInput): Promise<ArtifactCommentResolveResponse>
   open(input: OpenInput): Promise<ArtifactOpenResponse>
@@ -132,6 +163,8 @@ export interface WorkItemApi {
   edit(input: EditInput): Promise<ArtifactEditResponse>
   presence(input: PresenceInput): Promise<ArtifactPresenceResponse>
   upload(input: UploadInput): Promise<ArtifactUploadResponse>
+  /** Rebind a registered file that moved; the old path must still be registered. */
+  rebind(input: RebindInput): Promise<ArtifactRebindResult>
   /** Same-origin URL of one stored attachment, for an `<img>` or a download link. */
   attachmentUrl(input: { sessionId: string; artifactId: string; attachmentId: string }): string
 }
@@ -195,14 +228,15 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
       const response = await fetchImpl(withQuery(ARTIFACT_FILE_PATH, { sessionId, artifactId, path }))
       return envelope<ArtifactFileResponse>(response)
     },
-    async comments(sessionId, artifactId, after) {
+    async comments(sessionId, artifactId, after, before) {
       const response = await fetchImpl(withQuery(ARTIFACT_COMMENTS_PATH, {
         sessionId,
         artifactId,
         after,
+        before,
         limit: String(ARTIFACT_COMMENTS_MAX_LIMIT),
       }))
-      return envelope<ArtifactCommentsResponse>(response)
+      return envelope<CommentsPage>(response)
     },
     async comment(input) {
       const body: Record<string, unknown> = {
@@ -267,6 +301,9 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
         body: input.bytes as BodyInit,
       })
       return envelope<ArtifactUploadResponse>(response)
+    },
+    async rebind(input) {
+      return post<ArtifactRebindResult>(ARTIFACT_REBIND_PATH, input)
     },
     attachmentUrl(input) {
       return withQuery(ARTIFACT_ATTACHMENT_PATH, {

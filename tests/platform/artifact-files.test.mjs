@@ -110,6 +110,43 @@ test('a symlink out of the repository and a directory are refused', async () => 
   })
 })
 
+test('a symlink resolving inside the repo to a forbidden path is refused', async () => {
+  await withFixtureRepo({
+    'docs/spec.md': 'x',
+    '.git/config': '[remote "origin"]\n',
+    '.env': 'TOKEN=secret\n',
+    '.dsh-cowork/index.json': '{}\n',
+  }, async (repo) => {
+    const links = [
+      ['docs/git.md', '.git/config'],
+      ['docs/env.md', '.env'],
+      ['docs/state.md', '.dsh-cowork/index.json'],
+    ]
+    for (const [link, target] of links) {
+      await linkInside(repo.repoPath, link, join(repo.repoPath, target))
+    }
+    const port = artifactFiles.createHostArtifactFiles(fakeHostFs(), repo.repoPath)
+    for (const [link] of links) {
+      // The linker path is lexically fine; only the resolved target is forbidden,
+      // so detail/file/open/edit cannot be tricked into serving these bytes.
+      await assert.rejects(port.stat(link), (error) => {
+        assert.equal(error.code, 'artifact/path-not-allowed')
+        return true
+      })
+      await assert.rejects(port.readText(link), (error) => {
+        assert.equal(error.code, 'artifact/path-not-allowed')
+        return true
+      })
+      await assert.rejects(port.writeText(link, 'x', null), (error) => {
+        assert.equal(error.code, 'artifact/path-not-allowed')
+        return true
+      })
+    }
+    // A normal registered file is unchanged by the resolved-path rule.
+    assert.equal((await port.stat('docs/spec.md')).exists, true)
+  })
+})
+
 test('a symlink loop is an io error, not a missing file', async () => {
   await withFixtureRepo({}, async (repo) => {
     await linkInside(repo.repoPath, 'docs/loop.md', 'loop.md')

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   artifactStore,
@@ -302,5 +302,110 @@ test('the event window filters by artifact before the cap and reports a trimmed 
     const empty = await store.readEventsWindow(9, 'artifact-b')
     assert.deepEqual(empty.events, [])
     assert.equal(empty.newest, 6)
+  })
+})
+
+test('the list cache serves its snapshot until a write invalidates it', async () => {
+  await withStore(async (store) => {
+    await store.createRecord(makeRecord())
+    const first = await store.listRecords()
+    const recordPath = join(store.root, ARTIFACT, 'artifact.json')
+    // An outside write to a record does not change the artifacts directory
+    // mtime, so the cached inventory keeps serving the snapshot it took.
+    await writeFile(recordPath, JSON.stringify(makeRecord({ status: 'confirmed' })))
+    const cached = await store.listRecords()
+    assert.deepEqual(cached.records, first.records)
+    assert.equal(cached.records[0].status, 'pending-view')
+
+    // A record write invalidates: the next read sees the outside change.
+    await store.mutateRecord(ARTIFACT, (record) => ({ ...record, status: 'confirmed' }))
+    assert.equal((await store.listRecords()).records[0].status, 'confirmed')
+
+    // Comment and event appends invalidate for the same reason.
+    await writeFile(recordPath, JSON.stringify(makeRecord({ status: 'needs-feedback' })))
+    await store.appendComment(makeComment())
+    assert.equal((await store.listRecords()).records[0].status, 'needs-feedback')
+
+    await writeFile(recordPath, JSON.stringify(makeRecord({ status: 'in-progress' })))
+    await store.appendEvent({
+      eventId: 'event-1',
+      type: 'artifact.updated',
+      artifactId: ARTIFACT,
+      time: '2026-02-01T00:00:00.000Z',
+      data: {},
+    })
+    assert.equal((await store.listRecords()).records[0].status, 'in-progress')
+  })
+})
+
+test('a cached list keeps limit, total, and corrupt semantics', async () => {
+  await withStore(async (store, repo) => {
+    const ids = [
+      'artifact-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'artifact-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      'artifact-cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    ]
+    for (const artifactId of ids) await store.createRecord(makeRecord({ artifactId }))
+    const root = join(repo.repoPath, '.dsh-cowork', 'artifacts')
+    await mkdir(join(root, 'artifact-dddddddd-dddd-4ddd-8ddd-dddddddddddd'), { recursive: true })
+    await writeFile(join(root, 'artifact-dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'artifact.json'), '{broken')
+
+    const first = await store.listRecords(2)
+    assert.equal(first.records.length, 2)
+    assert.equal(first.total, 3)
+    assert.deepEqual(first.corrupt, ['artifact-dddddddd-dddd-4ddd-8ddd-dddddddddddd'])
+    const cached = await store.listRecords(2)
+    assert.deepEqual(cached, first)
+  })
+})
+
+test('an event window keeps the newest rows and reports a lagging cursor trimmed', async () => {
+  await withStore(async (store) => {
+    await mkdir(store.root, { recursive: true })
+    const row = (seq) => ({
+      version: 1,
+      seq,
+      eventId: `event-${seq}`,
+      type: 'artifact.updated',
+      artifactId: seq % 2 === 0 ? 'artifact-even' : 'artifact-odd',
+      time: '2026-02-01T00:00:00.000Z',
+      data: { seq },
+    })
+    const rows = []
+    for (let seq = 1; seq <= 2500; seq += 1) rows.push(JSON.stringify(row(seq)))
+    await writeFile(join(store.root, 'events.jsonl'), `${rows.join('\n')}\n`)
+
+    const fresh = await store.readEvents(0)
+    assert.equal(fresh.length, 2000)
+    assert.equal(fresh[0].seq, 501, 'the newest window must be replayed, not the oldest')
+    assert.equal(fresh[fresh.length - 1].seq, 2500)
+
+    const lagging = await store.readEventsWindow(1)
+    assert.equal(lagging.events.length, 2000)
+    assert.equal(lagging.events[0].seq, 501)
+    assert.equal(lagging.newest, 2500)
+    assert.equal(lagging.truncated, true, 'a cursor behind more than one window must reset')
+
+    const filtered = await store.readEventsWindow(1, 'artifact-even')
+    assert.equal(filtered.events.length, 1250)
+    assert.equal(filtered.truncated, false, 'a filtered replay that fits one window is complete')
+
+    const trimmedRows = []
+    for (let seq = 5; seq <= 2504; seq += 1) trimmedRows.push(JSON.stringify(row(seq)))
+    await writeFile(join(store.root, 'events.jsonl'), `${trimmedRows.join('\n')}\n`)
+    const trimmed = await store.readEventsWindow(3)
+    assert.equal(trimmed.truncated, true, 'a gap between the cursor and the retained log must reset')
+    assert.equal(trimmed.events[0].seq, 505)
+  })
+})
+
+test('a cache fingerprint that cannot stat the directory is rethrown', async () => {
+  await withStore(async (store, repo) => {
+    const root = join(repo.repoPath, '.dsh-cowork', 'artifacts')
+    await mkdir(join(repo.repoPath, '.dsh-cowork'), { recursive: true })
+    // A self-referential symlink makes stat fail with ELOOP, not ENOENT, so
+    // the fingerprint must rethrow instead of reporting an empty project.
+    await symlink(root, root)
+    await assert.rejects(store.listRecords(), (error) => error.code === 'ELOOP')
   })
 })

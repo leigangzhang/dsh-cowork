@@ -15,8 +15,10 @@ import {
   type ActiveDispatchV1,
   type ArtifactAnchor,
   type ArtifactDetailResponse,
+  type AttachmentRefV1,
   type ArtifactDispatchSummary,
   type ArtifactFileV1,
+  type ArtifactRecordV1,
   type ArtifactStatus,
   type ArtifactSummaryV1,
   type ArtifactType,
@@ -256,6 +258,272 @@ export function fileSummary(file: ArtifactFileV1): string {
     ? `${String(file.size)} B`
     : `${(file.size / 1024).toFixed(1)} KB`
   return `${file.path} · ${size}`
+}
+
+/** One missing-file state the viewer can offer to repair. */
+export interface MissingFileState {
+  readonly path: string
+  readonly hint: string
+}
+
+/**
+ * The rebind state of a work item whose registered file vanished.
+ *
+ * The record's own `missing` flag is authoritative when the detail read
+ * succeeded; a failed file read supplies the same fact through its error code.
+ * @param record - the loaded record.
+ * @param fileErrorCode - the file read's failure code, if it failed.
+ * @returns the missing path and the hint, or null when the file is readable.
+ */
+export function missingFileState(record: ArtifactRecordV1, fileErrorCode: string | null): MissingFileState | null {
+  const primary = record.files.find((file) => file.path === record.primaryPath) ?? record.files[0]
+  const missing = fileErrorCode === 'artifact/file-missing' || primary?.missing === true
+  if (!missing) return null
+  return {
+    path: primary?.path ?? record.primaryPath,
+    hint: '文件已被移动或删除。填入它在项目中的新路径；批注和版本都保留在这个工作项上。',
+  }
+}
+
+/** A validated rebind target typed by the user. */
+export type RebindTarget =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly error: string }
+
+/**
+ * Validate one rebind path before sending it.
+ *
+ * The server still rejects an escaping path; this catches the obvious mistakes
+ * locally so the user gets the reason without a round trip.
+ * @param input - the raw path typed by the user.
+ * @returns the trimmed project-relative path, or the reason it is unusable.
+ */
+export function rebindTarget(input: string): RebindTarget {
+  const path = input.trim()
+  if (path === '') return { ok: false, error: '请输入文件在项目中的新路径。' }
+  if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) {
+    return { ok: false, error: '路径必须是项目内的相对路径。' }
+  }
+  if (path.split('/').includes('..')) return { ok: false, error: '路径不能包含 ..。' }
+  return { ok: true, path }
+}
+
+/** How one failed rebind is presented: a short title and the server's reason. */
+export function rebindFailure(
+  error: { readonly code?: string; readonly message?: string } | null,
+): { title: string; detail: string } {
+  const code = error?.code ?? 'internal'
+  const detail = error?.message ?? '重新绑定失败，请稍后重试。'
+  if (code === 'artifact/file-missing') return { title: '新路径不存在', detail }
+  if (code === 'artifact/path-not-allowed') return { title: '路径不可用', detail }
+  if (code === 'artifact/not-found') return { title: '工作项不存在', detail }
+  return { title: '重新绑定失败', detail }
+}
+
+/** The receipt after a successful rebind. */
+export function rebindReceipt(changed: boolean, path: string): string {
+  return changed ? `已重新绑定到 ${path}` : '路径没有变化，已刷新文件'
+}
+
+/** The line range one thread anchors, when it is a line range and matches the filter. */
+function threadLineRange(
+  thread: WorkItemThread,
+  unresolvedOnly: boolean,
+): { readonly startLine: number; readonly endLine: number } | null {
+  if (unresolvedOnly && thread.resolved) return null
+  if (thread.anchor === null || thread.anchor.kind !== 'line-range') return null
+  return thread.anchor
+}
+
+/** Add every line of one range. */
+function addRange(values: Set<number>, range: { readonly startLine: number; readonly endLine: number }): void {
+  for (let line = range.startLine; line <= range.endLine; line += 1) values.add(line)
+}
+
+/** The line numbers of every unresolved thread's line-range anchor. */
+export function anchoredLineNumbers(threads: readonly WorkItemThread[]): Set<number> {
+  const values = new Set<number>()
+  for (const thread of threads) {
+    const range = threadLineRange(thread, true)
+    if (range !== null) addRange(values, range)
+  }
+  return values
+}
+
+/** The line numbers of every thread whose anchor was marked stale. */
+export function staleLineNumbers(threads: readonly WorkItemThread[]): Set<number> {
+  const values = new Set<number>()
+  for (const thread of threads) {
+    const range = thread.anchorStatus === 'stale' ? threadLineRange(thread, false) : null
+    if (range !== null) addRange(values, range)
+  }
+  return values
+}
+
+/** The attachments one comment or reply event carries. */
+function commentAttachments(event: CommentEventV1): AttachmentRefV1[] {
+  if (event.type !== 'create' && event.type !== 'reply') return []
+  return [...(event.attachments ?? [])]
+}
+
+/** Every attachment carried by the folded threads, in display order. */
+export function attachmentRowsOf(threads: readonly WorkItemThread[]): AttachmentRefV1[] {
+  return threads.flatMap((thread) => thread.comments.flatMap(commentAttachments))
+}
+
+/** The thread a line's pin numbers, or null when the line has no pin. */
+export function pinThread(
+  linePins: ReadonlyMap<number, ThreadPin>,
+  threads: readonly WorkItemThread[],
+  line: number,
+): WorkItemThread | null {
+  const pin = linePins.get(line)
+  if (pin === undefined) return null
+  return threads[pin.ordinal - 1] ?? null
+}
+
+/** The cursor that asks the comments route for the page before the loaded one. */
+export function olderCursor(events: readonly CommentEventV1[]): string | null {
+  return events[0]?.eventId ?? null
+}
+
+/**
+ * Prepend an older comments page, dropping rows already loaded.
+ *
+ * The route pages by event id, so an overlap (a comment arriving between the
+ * two reads) is expected; the merged order stays chronological.
+ * @param current - the rows already shown.
+ * @param older - the older page, oldest first.
+ * @returns one chronological array without duplicate event ids.
+ */
+function mergeOlderComments(
+  current: readonly CommentEventV1[],
+  older: readonly CommentEventV1[],
+): CommentEventV1[] {
+  const known = new Set(current.map((event) => event.eventId))
+  return [...older.filter((event) => !known.has(event.eventId)), ...current]
+}
+
+/** Whether the rail still offers "load older" after one page. */
+export function olderPageAvailable(
+  page: { readonly hasOlder?: boolean; readonly events: readonly CommentEventV1[] },
+): boolean {
+  return page.hasOlder === true && page.events.length > 0
+}
+
+/** Move the keyboard-active line within the document, clamped to its lines. */
+export function moveActiveLine(active: number, delta: number, total: number): number {
+  if (total <= 0) return 1
+  return Math.min(total, Math.max(1, active + delta))
+}
+
+/** What one line-list key press asks the viewer to do. */
+type LineKeyIntent = 'previous' | 'next' | 'annotate'
+
+/** One key press per intent; keys outside the map do nothing. */
+const LINE_KEY_INTENTS: Readonly<Record<string, LineKeyIntent>> = {
+  ArrowDown: 'next',
+  ArrowUp: 'previous',
+  Enter: 'annotate',
+  ' ': 'annotate',
+}
+
+/** The intent of one line-list key, or null when the key is not ours. */
+export function lineKeyIntent(key: string): LineKeyIntent | null {
+  return LINE_KEY_INTENTS[key] ?? null
+}
+
+/** The step a previous/next intent moves the keyboard cursor. */
+export function lineMoveDelta(intent: LineKeyIntent): number {
+  return intent === 'next' ? 1 : -1
+}
+
+/** The registered path a rebind starts from: the primary file's entry, else primaryPath. */
+export function rebindOldPath(record: ArtifactRecordV1): string {
+  return record.files.find((file) => file.path === record.primaryPath)?.path ?? record.primaryPath
+}
+
+/** Replace the loaded record without touching the rest of the view. */
+export function withRecord<T extends { readonly record: ArtifactRecordV1 }>(
+  data: T | null,
+  record: ArtifactRecordV1,
+): T | null {
+  return data === null ? null : { ...data, record }
+}
+
+/** One older comment page as the route returns it, narrowed to what paging needs. */
+interface OlderCommentPage {
+  readonly events: readonly CommentEventV1[]
+  readonly hasOlder: boolean
+}
+
+/** Prepend an older page and adopt its `hasOlder` flag. */
+export function withOlderPage<T extends { readonly events: readonly CommentEventV1[]; readonly hasOlder: boolean }>(
+  data: T | null,
+  page: OlderCommentPage,
+): T | null {
+  if (data === null) return null
+  return { ...data, events: mergeOlderComments(data.events, page.events), hasOlder: olderPageAvailable(page) }
+}
+
+/** One load-older request, or null when the viewer is not ready for it. */
+export interface OlderCall {
+  readonly sessionId: string
+  readonly artifactId: string
+  readonly before: string
+}
+
+/** Build a load-older request, or null while the viewer is busy or idle. */
+export function olderCall(
+  context: { readonly sessionId: string; readonly artifactId: string } | null,
+  data: { readonly events: readonly CommentEventV1[] } | null,
+  pending: boolean,
+  before: string,
+): OlderCall | null {
+  if (context === null || data === null || pending) return null
+  return { sessionId: context.sessionId, artifactId: context.artifactId, before }
+}
+
+/** One validated line-range annotation, or null when the range is empty. */
+interface LineRangeAnnotation {
+  readonly path: string
+  readonly startLine: number
+  readonly endLine: number
+  readonly quote: string
+}
+
+/** Build the annotation one line range implies, or null for an empty range. */
+export function lineRangeAnnotation(
+  lines: readonly string[],
+  file: { readonly path: string } | null,
+  primaryPath: string,
+  startLine: number,
+  endLine: number,
+): LineRangeAnnotation | null {
+  const start = Math.max(1, startLine)
+  const end = Math.min(endLine, Math.max(1, lines.length))
+  if (end < start) return null
+  return {
+    path: file?.path ?? primaryPath,
+    startLine: start,
+    endLine: end,
+    quote: lines.slice(start - 1, end).join('\n'),
+  }
+}
+
+/** Whether the rail should offer one more older page. */
+export function olderEntryVisible(hasOlder: boolean, before: string | null): boolean {
+  return hasOlder && before !== null
+}
+
+/** Whether one key event is an unhandled Escape. */
+export function isEscapeKey(event: { readonly key: string; readonly defaultPrevented: boolean }): boolean {
+  return event.key === 'Escape' && !event.defaultPrevented
+}
+
+/** Whether Escape may close the narrow drawer (the header menu wins first). */
+export function drawerClosesOnEscape(narrow: boolean, showRail: boolean, menuOpen: boolean): boolean {
+  return narrow && showRail && !menuOpen
 }
 
 /** One comment thread as the rail renders it. */
