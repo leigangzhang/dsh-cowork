@@ -10,7 +10,7 @@ import {
 } from '../support/public-surface.mjs'
 
 /**
- * The public-surface snapshot: 23 business tools, 18 panel routes, 3 presets,
+ * The public-surface snapshot: 25 business tools, 25 panel routes, 3 presets,
  * and 3 package export keys. Each count already has an owning behavior test;
  * this file exists so a deliberate surface change shows up as one diff that
  * must be reviewed together, not as three unrelated green updates.
@@ -19,11 +19,11 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 const { presetDefinitions } = await import('../../src/platform/presets.ts')
 
-test('the public surface stays at 25 tools, 24 routes, 3 presets, and 3 exports', () => {
+test('the public surface stays at 25 tools, 25 routes, 3 presets, and 3 exports', () => {
   assert.equal(BUSINESS_TOOL_ORDER.length, 25)
   assert.equal(new Set(BUSINESS_TOOL_ORDER).size, 25, 'tool names must be unique')
-  assert.equal(PANEL_ROUTES.length, 24)
-  assert.equal(new Set(PANEL_ROUTES.map(([path]) => path)).size, 24, 'route paths must be unique')
+  assert.equal(PANEL_ROUTES.length, 25)
+  assert.equal(new Set(PANEL_ROUTES.map(([path]) => path)).size, 25, 'route paths must be unique')
   assert.equal(presetDefinitions().length, 3)
 
   const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))

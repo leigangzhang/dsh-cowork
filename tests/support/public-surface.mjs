@@ -39,6 +39,7 @@ export const PANEL_ROUTES = [
   [artifact.ARTIFACT_ATTACHMENT_PATH, 'GET'],
   [artifact.ARTIFACT_EVENTS_PATH, 'GET'],
   [artifact.ARTIFACT_OPEN_PATH, 'POST'],
+  [artifact.ARTIFACT_REBIND_PATH, 'POST'],
 ]
 
 /** The panel route paths, in registration order. */

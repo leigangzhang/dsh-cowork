@@ -15,7 +15,6 @@
 import { randomUUID } from 'node:crypto'
 import { resolve as resolvePath } from 'node:path'
 import { resolveInsideRepo } from '../platform/artifact-files.js'
-import type { PanelErrorCode } from './api-contract.js'
 import type { PanelFetchRoute } from './api-types.js'
 import {
   ARTIFACT_COMMENT_PATH,
@@ -35,6 +34,7 @@ import {
   ARTIFACT_OPEN_PATH,
   ARTIFACT_OPEN_UNSUPPORTED_CODE,
   ARTIFACT_PRESENCE_PATH,
+  ARTIFACT_REBIND_PATH,
   ARTIFACT_STATUS_PATH,
   ARTIFACT_UPLOAD_PATH,
   MAX_ARTIFACT_ATTACHMENT_BYTES,
@@ -73,200 +73,37 @@ import {
 import type { ArtifactRuntime } from '../platform/artifact-runtime.js'
 import { createEventRow, parseLastEventId, openArtifactEventStream } from '../platform/artifact-events.js'
 import { ArtifactDomainError } from '../domains/artifact/errors.js'
-import { parseArtifactAnchor, deriveLineAnchor, relocateLineAnchor } from '../domains/artifact/anchor.js'
+import { parseArtifactAnchor, deriveLineAnchor } from '../domains/artifact/anchor.js'
 import { isTextMediaType } from '../domains/artifact/paths.js'
-import { reconcileArtifactFile, sha256Hex, sha256HexBytes } from '../platform/artifact-files.js'
+import { sha256Hex, sha256HexBytes } from '../platform/artifact-files.js'
 import { attachmentMediaType, isUtf8, sniffImageMediaType } from '../domains/artifact/attachments.js'
 import { parseAttachmentRef } from '../store/artifact-schema.js'
 import { applyCommentEvent, applyStatusAction } from '../domains/artifact/state.js'
 import type { ArtifactStatusAction } from '../domains/artifact/state.js'
 import { writeArtifactEdit } from './artifact-edit.js'
+import type { ArtifactApiPorts, ArtifactRouteKit } from './artifact-route-kit.js'
+import {
+  nowOf,
+  openRecord,
+  publishAll,
+  queryParam,
+  reconcileRecord,
+  registeredFile,
+  relocateAnchorsUnlocked,
+  requireBodyBoolean,
+  requireBodyString,
+  requireQuery,
+} from './artifact-records.js'
+import { handleRebind } from './artifact-rebind.js'
+
+// The route plumbing types used to live here; they are re-exported so existing
+// importers (the panel assembly) keep one stable import site.
+export type { ArtifactApiPorts, ArtifactOpenedProject, ArtifactRouteKit } from './artifact-route-kit.js'
+// Kept for the tests that drive reconciliation directly.
+export { reconcileRecord } from './artifact-records.js'
 
 /** Recent delivery batches the detail response carries. */
 const DISPATCH_SUMMARY_LIMIT = 50
-
-/** One resolved project and its work-item runtime. */
-export interface ArtifactOpenedProject {
-  readonly repoPath: string
-  readonly projectId: string
-}
-
-/**
- * The plumbing the panel assembly lends this module. It keeps one implementation
- * of session→project resolution, JSON bodies, the same-origin fence, and the
- * shared error envelope; the artifact routes never re-implement those.
- */
-export interface ArtifactRouteKit {
-  openProject(sessionId: string): Promise<ArtifactOpenedProject>
-  readJsonBody(request: Request, maxBytes?: number): Promise<Record<string, unknown>>
-  jsonResponse(status: number, payload: unknown): Response
-  serve(handler: (request: Request) => Promise<Response>): (request: Request) => Promise<Response>
-  fail(code: PanelErrorCode, message: string, path?: string): Error
-}
-
-/** What the artifact route module needs from the composition root. */
-export interface ArtifactApiPorts {
-  runtimeFor(repoPath: string): ArtifactRuntime
-  now?(): Date
-  log?(message: string): void
-  /** Title of one session for the viewer breadcrumb; null when unavailable. */
-  sessionTitle?(sessionId: string): Promise<string | null>
-  /** Host file-browser port used by the "open in app" action. */
-  openWorkspacePath?(path: string): Promise<void>
-}
-
-/** A query parameter, or null when absent or blank. `GET` routes carry no body. */
-function queryParam(request: Request, name: string): string | null {
-  const value = new URL(request.url).searchParams.get(name)
-  if (value === null) return null
-  const trimmed = value.trim()
-  return trimmed === '' ? null : trimmed
-}
-
-/** A required query parameter. */
-function requireQuery(request: Request, name: string, kit: ArtifactRouteKit, code: PanelErrorCode): string {
-  const value = queryParam(request, name)
-  if (value === null) throw kit.fail(code, `query parameter ${name} is required`)
-  return value
-}
-
-/** A required non-blank body string. */
-function requireBodyString(
-  body: Record<string, unknown>,
-  name: string,
-  kit: ArtifactRouteKit,
-  code: PanelErrorCode = 'request/invalid-body',
-): string {
-  const value = body[name]
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw kit.fail(code, `body field ${name} is required`)
-  }
-  return value.trim()
-}
-
-/** A required body boolean. */
-function requireBodyBoolean(body: Record<string, unknown>, name: string, kit: ArtifactRouteKit): boolean {
-  const value = body[name]
-  if (typeof value !== 'boolean') throw kit.fail('request/invalid-body', `body field ${name} must be a boolean`)
-  return value
-}
-
-/** The clock every write stamps. */
-function nowOf(ports: ArtifactApiPorts): Date {
-  return ports.now?.() ?? new Date()
-}
-
-
-/**
- * Read the work item a request names, after proving it belongs to the project
- * the session resolved to. A record from another project is refused instead of
- * served, so a copied id cannot cross project boundaries.
- */
-async function openRecord(
-  ports: ArtifactApiPorts,
-  kit: ArtifactRouteKit,
-  sessionId: string,
-  artifactId: string,
-): Promise<{ record: ArtifactRecordV1; runtime: ArtifactRuntime }> {
-  const opened = await kit.openProject(sessionId)
-  const runtime = ports.runtimeFor(opened.repoPath)
-  const record = await runtime.store.readRecord(artifactId)
-  if (record === null) {
-    throw new ArtifactDomainError('artifact/not-found', `work item is missing: ${artifactId}`, artifactId)
-  }
-  if (record.projectId !== opened.projectId) {
-    throw new ArtifactDomainError(
-      'artifact/session-mismatch',
-      `work item ${artifactId} belongs to another project`,
-      artifactId,
-    )
-  }
-  return { record, runtime }
-}
-
-/**
- * Reconcile every registered file against the filesystem, persist the result,
- * and append the events the change produces. Returns the record and the events
- * so the caller can broadcast them after the transaction commits.
- */
-export async function reconcileRecord(
-  runtime: ArtifactRuntime,
-  record: ArtifactRecordV1,
-  now: Date,
-): Promise<{ record: ArtifactRecordV1; events: ArtifactEventV1[] }> {
-  if (!runtime.fsAvailable) return { record, events: [] }
-  const files: Awaited<ReturnType<typeof reconcileArtifactFile>>[] = []
-  let anyChanged = false
-  for (const file of record.files) {
-    const result = await reconcileArtifactFile(runtime.files, file)
-    files.push(result)
-    if (result.changed) anyChanged = true
-  }
-  if (!anyChanged) return { record, events: [] }
-  const sourceRevisions = new Map(record.files.map((file) => [file.path, file.revision]))
-  const reconciled = new Map(files.map((entry) => [entry.file.path, entry]))
-  const result = await runtime.store.withLock(async () => {
-    // Re-read inside the lock so a concurrent comment count or status update is
-    // kept. A file is only replaced when the record still carries the revision
-    // this scan observed; a newer save wins and this observation is discarded.
-    const current = await runtime.store.readRecord(record.artifactId)
-    if (current === null) {
-      throw new ArtifactDomainError('artifact/not-found', `work item is missing: ${record.artifactId}`, record.artifactId)
-    }
-    const applied: { path: string; revision: number; missing: boolean }[] = []
-    const nextFiles = current.files.map((file) => {
-      const observed = reconciled.get(file.path)
-      if (observed === undefined || !observed.changed) return file
-      if (file.revision !== sourceRevisions.get(file.path)) return file
-      applied.push({ path: observed.file.path, revision: file.revision + 1, missing: observed.file.missing })
-      return { ...observed.file, revision: file.revision + 1 }
-    })
-    if (applied.length === 0) return { record: current, events: [] as ArtifactEventV1[], applied }
-    const next: ArtifactRecordV1 = {
-      ...current,
-      files: nextFiles,
-      revision: current.revision + 1,
-      updatedAt: now.toISOString(),
-    }
-    const saved = await runtime.store.mutateRecordUnlocked(next.artifactId, () => next)
-    const events: ArtifactEventV1[] = []
-    for (const file of applied) {
-      events.push(await runtime.store.appendEventUnlocked(
-        createEventRow(saved.artifactId, 'file.changed', now, file),
-      ))
-      const observed = files.find((candidate) => candidate.file.path === file.path)
-      if (observed !== undefined && observed.text !== null) {
-        const relocated = await relocateAnchorsUnlocked(runtime, saved, file.path, observed.text, now)
-        events.push(...relocated.events)
-      }
-    }
-    events.push(await runtime.store.appendEventUnlocked(
-      createEventRow(saved.artifactId, 'artifact.updated', now, { revision: saved.revision }),
-    ))
-    return { record: saved, events, applied }
-  })
-  // A snapshot of every applied revision is the merge base a later save needs;
-  // a failed snapshot is logged, never allowed to fail the read.
-  for (const file of result.applied) {
-    const entry = files.find((candidate) => candidate.file.path === file.path)
-    if (entry === undefined || entry.text === null) continue
-    const savedFile = result.record.files.find((candidate) => candidate.path === file.path)
-    if (savedFile === undefined) continue
-    try {
-      await runtime.store.saveRevision(record.artifactId, savedFile.revision, entry.text)
-    } catch (error) {
-      // A failed snapshot is a lost merge base, not a failed read; the next
-      // save answers 409 instead of guessing a base.
-      void error
-    }
-  }
-  return { record: result.record, events: result.events }
-}
-
-/** Broadcast already-committed events to live subscribers. */
-function publishAll(runtime: ArtifactRuntime, events: readonly ArtifactEventV1[]): void {
-  for (const event of events) runtime.events.publish(event)
-}
 
 /** `GET /api/cowork.artifact.list` — the right-rail list and its counts. */
 async function handleList(
@@ -396,65 +233,6 @@ async function handleDetail(
   return kit.jsonResponse(200, response)
 }
 
-/** The registered file a request names, or a refusal. */
-function registeredFile(
-  record: ArtifactRecordV1,
-  path: string,
-): ArtifactRecordV1['files'][number] {
-  const file = record.files.find((entry) => entry.path === path)
-  if (file === undefined) {
-    throw new ArtifactDomainError('artifact/path-not-allowed', `path is not registered on this work item: ${path}`, path)
-  }
-  return file
-}
-
-/** Re-anchor every comment whose file changed, inside the caller's lock. */
-async function relocateAnchorsUnlocked(
-  runtime: ArtifactRuntime,
-  record: ArtifactRecordV1,
-  path: string,
-  content: string,
-  now: Date,
-): Promise<{ rows: CommentEventV1[]; events: ArtifactEventV1[] }> {
-  const comments = await runtime.store.readComments(record.artifactId)
-  const anchors = new Map<string, { anchor: ArtifactAnchor; threadId: string; stale: boolean }>()
-  for (const event of comments) {
-    if (event.type === 'create' && event.anchor !== undefined) {
-      anchors.set(event.commentId, { anchor: event.anchor, threadId: event.threadId, stale: false })
-    } else if (event.type === 'anchor-moved') {
-      const existing = anchors.get(event.commentId)
-      if (existing !== undefined) {
-        anchors.set(event.commentId, { anchor: event.anchor, threadId: existing.threadId, stale: event.anchorStatus === 'stale' })
-      }
-    }
-  }
-  const rows: CommentEventV1[] = []
-  const events: ArtifactEventV1[] = []
-  for (const [commentId, entry] of anchors) {
-    if (entry.stale) continue
-    if (entry.anchor.kind !== 'line-range' || entry.anchor.path !== path) continue
-    const relocated = relocateLineAnchor(content, entry.anchor)
-    if (relocated.status === 'unchanged') continue
-    const row: CommentEventV1 = {
-      version: ARTIFACT_COMMENT_VERSION,
-      eventId: `comment-event-${randomUUID()}`,
-      artifactId: record.artifactId,
-      commentId,
-      threadId: entry.threadId,
-      type: 'anchor-moved',
-      anchor: relocated.anchor,
-      anchorStatus: relocated.status,
-      createdAt: now.toISOString(),
-    }
-    await runtime.store.appendCommentUnlocked(row)
-    rows.push(row)
-    events.push(await runtime.store.appendEventUnlocked(
-      createEventRow(record.artifactId, 'comment.updated', now, { commentId, anchorStatus: relocated.status }),
-    ))
-  }
-  return { rows, events }
-}
-
 /** `GET /api/cowork.artifact.file` — one registered text file. */
 async function handleFile(
   request: Request,
@@ -492,7 +270,14 @@ async function handleFile(
   return kit.jsonResponse(200, response)
 }
 
-/** `GET /api/cowork.artifact.comments` — one page of comment rows. */
+/**
+ * `GET /api/cowork.artifact.comments` — one page of comment rows.
+ *
+ * The three directions keep paging honest: no cursor returns the newest page
+ * the viewer opens with (`hasOlder` says more is kept), `before` walks
+ * backwards, and `after` keeps the existing forward page where `truncated`
+ * means newer rows follow.
+ */
 async function handleComments(
   request: Request,
   ports: ArtifactApiPorts,
@@ -505,19 +290,39 @@ async function handleComments(
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > ARTIFACT_COMMENTS_MAX_LIMIT) {
     throw kit.fail('request/invalid-query', `limit must be an integer from 1 to ${ARTIFACT_COMMENTS_MAX_LIMIT}`)
   }
+  const after = queryParam(request, 'after')
+  const before = queryParam(request, 'before')
+  if (after !== null && before !== null) {
+    throw kit.fail('request/invalid-query', 'after and before are mutually exclusive')
+  }
   const { runtime } = await openRecord(ports, kit, sessionId, artifactId)
   const events = await runtime.store.readComments(artifactId)
-  const after = queryParam(request, 'after')
-  if (after !== null && !events.some((event) => event.eventId === after)) {
-    throw kit.fail('request/invalid-query', `after does not name a comment on this work item: ${after}`)
+  const cursorIndex = (cursor: string, name: string): number => {
+    const index = events.findIndex((event) => event.eventId === cursor)
+    if (index < 0) {
+      throw kit.fail('request/invalid-query', `${name} does not name a comment on this work item: ${cursor}`)
+    }
+    return index
   }
-  const start = after === null ? 0 : events.findIndex((event) => event.eventId === after) + 1
-  const page = events.slice(start, start + limit)
-  const response: ArtifactCommentsResponse = {
-    ok: true,
-    events: page,
-    truncated: start + page.length < events.length,
+  let page: CommentEventV1[]
+  let truncated = false
+  let hasOlder: boolean
+  if (after !== null) {
+    const start = cursorIndex(after, 'after') + 1
+    page = events.slice(start, start + limit)
+    truncated = start + page.length < events.length
+    hasOlder = false
+  } else if (before !== null) {
+    const end = cursorIndex(before, 'before')
+    const start = Math.max(0, end - limit)
+    page = events.slice(start, end)
+    hasOlder = start > 0
+  } else {
+    const start = Math.max(0, events.length - limit)
+    page = events.slice(start)
+    hasOlder = start > 0
   }
+  const response: ArtifactCommentsResponse = { ok: true, events: page, truncated, hasOlder }
   return kit.jsonResponse(200, response)
 }
 
@@ -1156,5 +961,6 @@ export function artifactPanelRoutes(
     route(ARTIFACT_ATTACHMENT_PATH, ['GET'], (request) => handleAttachment(request, ports, kit)),
     route(ARTIFACT_EVENTS_PATH, ['GET'], (request) => handleEvents(request, ports, kit)),
     route(ARTIFACT_OPEN_PATH, ['POST'], (request) => handleOpen(request, ports, kit)),
+    route(ARTIFACT_REBIND_PATH, ['POST'], (request) => handleRebind(request, ports, kit)),
   ]
 }

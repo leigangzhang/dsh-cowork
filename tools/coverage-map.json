@@ -274,6 +274,18 @@
       "lane": "unit"
     },
     {
+      "path": "src/panel/artifact-records.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/artifact-rebind.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/artifact-route-kit.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/panel/inbox-api.ts",
       "lane": "unit"
     },
