@@ -259,3 +259,75 @@ test('the attachment URL is the same-origin read route', () => {
     '/api/cowork.artifact.attachment?sessionId=s&artifactId=a&attachmentId=attachment-1',
   )
 })
+
+test('a rebind posts the old and new path to the frozen route', async () => {
+  const record = { artifactId: 'a', primaryPath: 'docs/found.md', files: [{ path: 'docs/found.md', missing: false }] }
+  const { calls, impl } = fakeFetch(() => ok({ ok: true, changed: true, record }))
+  const api = createWorkItemApi(impl)
+  const result = await api.rebind({
+    sessionId: 's',
+    artifactId: 'a',
+    oldPath: 'docs/gone.md',
+    newPath: 'docs/found.md',
+  })
+  assert.equal(calls[0].input, '/api/cowork.artifact.rebind')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.equal(calls[0].init.headers['content-type'], 'application/json')
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    sessionId: 's',
+    artifactId: 'a',
+    oldPath: 'docs/gone.md',
+    newPath: 'docs/found.md',
+  })
+  assert.equal(result.changed, true)
+  assert.equal(result.record.primaryPath, 'docs/found.md')
+})
+
+test('a same-path rebind reports changed:false instead of inventing a move', async () => {
+  const { impl } = fakeFetch(() => ok({ ok: true, changed: false, record: { artifactId: 'a' } }))
+  const result = await createWorkItemApi(impl).rebind({
+    sessionId: 's',
+    artifactId: 'a',
+    oldPath: 'docs/held.md',
+    newPath: 'docs/held.md',
+  })
+  assert.equal(result.changed, false)
+})
+
+test('a failed rebind carries the wire code and reason', async () => {
+  const { impl } = fakeFetch(() => failure(404, 'artifact/file-missing', 'docs/nope.md is not in the project'))
+  await assert.rejects(createWorkItemApi(impl).rebind({
+    sessionId: 's',
+    artifactId: 'a',
+    oldPath: 'docs/gone.md',
+    newPath: 'docs/nope.md',
+  }), (error) => {
+    assert.ok(error instanceof WorkItemApiError)
+    assert.equal(error.code, 'artifact/file-missing')
+    assert.equal(error.message, 'docs/nope.md is not in the project')
+    assert.equal(error.status, 404)
+    return true
+  })
+  const { impl: forbidden } = fakeFetch(() => failure(400, 'artifact/path-not-allowed', 'path escapes the project'))
+  await assert.rejects(createWorkItemApi(forbidden).rebind({
+    sessionId: 's',
+    artifactId: 'a',
+    oldPath: 'docs/gone.md',
+    newPath: '../outside.md',
+  }), (error) => {
+    assert.equal(error.code, 'artifact/path-not-allowed')
+    return true
+  })
+})
+
+test('the comments page carries hasOlder and reads older pages by before', async () => {
+  const { calls, impl } = fakeFetch(() => ok({ ok: true, events: [], truncated: false, hasOlder: true }))
+  const api = createWorkItemApi(impl)
+  const page = await api.comments('s', 'a')
+  assert.equal(calls[0].input, '/api/cowork.artifact.comments?sessionId=s&artifactId=a&limit=200')
+  assert.equal(page.hasOlder, true)
+  await api.comments('s', 'a', undefined, 'event-1')
+  assert.equal(calls[1].input, '/api/cowork.artifact.comments?sessionId=s&artifactId=a&before=event-1&limit=200')
+  await api.comments('s', 'a', 'event-9')
+  assert.equal(calls[2].input, '/api/cowork.artifact.comments?sessionId=s&artifactId=a&after=event-9&limit=200')
+})

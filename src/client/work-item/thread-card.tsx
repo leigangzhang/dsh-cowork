@@ -8,7 +8,7 @@
  * resolved thread folds to a compact row and keeps an expand entry.
  */
 import { useState } from 'react'
-import type { ReactElement } from 'react'
+import type { KeyboardEvent, ReactElement } from 'react'
 import type { ArtifactDispatchSummary, CommentEventV1 } from '../../panel/artifact-contract.js'
 import {
   anchorLabel,
@@ -163,6 +163,13 @@ export function ThreadCard({
         : dispatch.state === 'stale'
           ? 'warn'
           : 'pending'
+  const onCardKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    // A nested button owns its own Enter/Space; only the card itself selects.
+    if (event.target !== event.currentTarget) return
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    onSelect(thread)
+  }
   return (
     <article
       className="cwi-thread"
@@ -171,6 +178,8 @@ export function ThreadCard({
       data-resolved={thread.resolved ? 'true' : 'false'}
       data-selected={selected ? 'true' : 'false'}
       data-open={open ? 'true' : 'false'}
+      tabIndex={0}
+      onKeyDown={onCardKeyDown}
       onClick={() => { onSelect(thread) }}
     >
       <div className="cwi-thread-head">

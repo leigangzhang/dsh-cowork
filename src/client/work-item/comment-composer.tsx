@@ -72,12 +72,12 @@ export function CommentComposer({
         onChange={(event) => { onDraft(event.target.value) }}
       />
       <div className="cwi-composer-row">
-        <label className="cwi-secondary" data-testid="cwi-attach-label" title="添加附件">
+        <label className="cwi-secondary cwi-attach-label" data-testid="cwi-attach-label" title="添加附件">
           附件
           <input
             type="file"
+            className="cwi-file-input"
             data-testid="cwi-file-input"
-            hidden
             multiple
             accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.tsv,.json"
             onChange={(event) => {

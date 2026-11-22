@@ -1658,6 +1658,412 @@ async function scenarioOverviewRetry(page) {
   await page.unroute(`**${PATH_OVERVIEW}*`)
 }
 
+
+/** One comments-route row; the paging scenario owns its own page. */
+function commentEvent({ eventId, threadId = eventId, body = '批注', line = null }) {
+  return {
+    version: 1,
+    eventId,
+    artifactId: BROWSER_ARTIFACT,
+    commentId: threadId,
+    threadId,
+    type: 'create',
+    author: 'user',
+    body,
+    ...(line === null
+      ? {}
+      : { anchor: { kind: 'line-range', path: BROWSER_SPEC_PATH, startLine: line, endLine: line, quote: '' } }),
+    createdAt: '2026-11-20T00:00:00.000Z',
+  }
+}
+
+/** The work item the rebind scenario repairs. */
+const REBOUND_PATH = 'docs/rebound.md'
+const REBOUND_SPEC = '# 已重新绑定\n\n新文件内容。'
+
+/**
+ * Keyboard and focus: the line list, thread cards, and pins are operable from
+ * the keyboard with a visible ring, and Escape closes overlays without sending.
+ */
+async function scenarioWorkItemKeyboard(page) {
+  await openWorkItemTab(page)
+  await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
+  await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+  await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor({ timeout: 15_000 })
+
+  // Toolbar buttons, thread cards, and pins all sit in the tab order.
+  const tabbable = await page.evaluate(() => {
+    const read = (selector) => Array.from(document.querySelectorAll(selector)).map(element => element.tabIndex)
+    return {
+      tabs: read('[data-testid="cwi-view-tab"]'),
+      railToggle: read('[data-testid="cwi-rail-toggle"]'),
+      cards: read('[data-testid="cwi-thread"]'),
+      pins: read('[data-testid="cwi-line-pin"]'),
+    }
+  })
+  assert.ok(tabbable.tabs.length > 0 && tabbable.tabs.every(index => index >= 0), 'view tabs must be tabbable')
+  assert.ok(tabbable.railToggle.length === 1 && tabbable.railToggle[0] >= 0, 'rail toggle must be tabbable')
+  assert.ok(tabbable.cards.length > 0 && tabbable.cards.every(index => index >= 0), 'thread cards must be tabbable')
+  assert.ok(tabbable.pins.length > 0 && tabbable.pins.every(index => index >= 0), 'line pins must be tabbable')
+  assert.equal(await page.getByTestId('cwi-line-pin').first().evaluate(element => element.tagName), 'BUTTON')
+
+  // Focus is visible as a ring, not only as a colour change, for the toolbar,
+  // a thread card, and a line pin. Tab into each one so :focus-visible applies.
+  const ringOf = (locator) => locator.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { style: style.outlineStyle, width: style.outlineWidth }
+  })
+  await page.getByTestId('cwi-more').focus()
+  await page.keyboard.press('Tab')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-view-tab')
+  const tabRing = await ringOf(page.getByTestId('cwi-view-tab').first())
+  assert.notEqual(tabRing.style, 'none', 'a focused toolbar tab needs an outline')
+  assert.notEqual(tabRing.width, '0px')
+
+  await page.getByTestId('cwi-thread').first().focus()
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Tab')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-thread')
+  const cardRing = await ringOf(page.getByTestId('cwi-thread').first())
+  assert.notEqual(cardRing.style, 'none', 'a focused thread card needs an outline')
+  assert.notEqual(cardRing.width, '0px')
+
+  await page.getByTestId('cwi-lines').focus()
+  await page.keyboard.press('Tab')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-line-pin')
+  const pinRing = await ringOf(page.getByTestId('cwi-line-pin').first())
+  assert.notEqual(pinRing.style, 'none', 'a focused line pin needs an outline')
+  assert.notEqual(pinRing.width, '0px')
+
+  // Arrow keys move the active line; Enter opens that line's comment entry.
+  await page.getByTestId('cwi-lines').focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.getAttribute('data-testid')),
+    'cwi-composer',
+    'Enter on the line list must focus the composer',
+  )
+  assert.match(await page.getByTestId('cwi-rail').innerText(), /第 2 行/)
+  await page.getByTestId('cwi-rail').getByRole('button', { name: '取消位置' }).click()
+
+  // A card selects itself with Enter; a pin opens the thread it numbers.
+  const card = page.getByTestId('cwi-thread').first()
+  await card.focus()
+  await page.keyboard.press('Enter')
+  assert.equal(await card.getAttribute('data-selected'), 'true')
+  const pin = page.getByTestId('cwi-line-pin').first()
+  await pin.focus()
+  await page.keyboard.press('Enter')
+  assert.equal(await page.locator('[data-testid="cwi-thread"][data-selected="true"]').count(), 1)
+
+  // Escape closes the overflow menu and never submits the composer draft.
+  await page.getByTestId('cwi-more').click()
+  await page.getByTestId('cwi-menu').waitFor({ timeout: 5_000 })
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-menu').waitFor({ state: 'detached', timeout: 5_000 })
+  const threadCount = await page.locator('[data-testid="cwi-thread"]').count()
+  await page.getByTestId('cwi-composer').fill('Escape 不应该发送这条批注')
+  await page.keyboard.press('Escape')
+  assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), threadCount)
+  assert.equal(await page.getByTestId('cwi-composer').inputValue(), 'Escape 不应该发送这条批注')
+  await page.getByTestId('cwi-composer').fill('')
+  await page.getByTestId('cwi-back').click()
+  await backToTopicTab(page)
+}
+
+/**
+ * The narrow layout: the rail list is one column, the viewer body one column,
+ * and the comment rail is a drawer that Escape, its close button, and the
+ * backdrop all dismiss without horizontal overflow.
+ */
+async function scenarioWorkItemNarrow(page) {
+  await page.setViewportSize({ width: 820, height: 900 })
+  try {
+    const list = await openWorkItemTab(page)
+    const listLayout = await list.evaluate((element) => ({
+      direction: getComputedStyle(element).flexDirection,
+      overflow: element.scrollWidth - element.clientWidth,
+    }))
+    assert.equal(listLayout.direction, 'column', 'the rail list must stay a single column')
+    assert.ok(listLayout.overflow <= 1, `the rail list overflows horizontally by ${listLayout.overflow}px`)
+
+    await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor({ timeout: 15_000 })
+    assert.equal(await page.getByTestId('cwi-rail').getAttribute('data-drawer'), 'true')
+    const bodyDirection = await page.locator('.cwi-body').evaluate(element => getComputedStyle(element).flexDirection)
+    assert.equal(bodyDirection, 'column')
+    const railBox = await page.getByTestId('cwi-rail').boundingBox()
+    assert.notEqual(railBox, null)
+    assert.ok(railBox.x >= 0 && railBox.x + railBox.width <= 821, 'the drawer must stay inside the viewport')
+    assert.equal(await page.getByTestId('cwi-rail-backdrop').count(), 1)
+
+    // Escape closes the drawer and returns focus to its toggle.
+    await page.keyboard.press('Escape')
+    assert.equal(await page.getByTestId('cwi-rail').isHidden(), true)
+    assert.equal(await page.getByTestId('cwi-rail-backdrop').count(), 0)
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-rail-toggle')
+
+    // Reopen, then close with the drawer's own button.
+    await page.getByTestId('cwi-rail-toggle').click()
+    await page.getByTestId('cwi-rail').waitFor({ timeout: 5_000 })
+    assert.equal(await page.getByTestId('cwi-rail-close').count(), 1)
+    await page.getByTestId('cwi-rail-close').click()
+    assert.equal(await page.getByTestId('cwi-rail').isHidden(), true)
+
+    // Reopen, then dismiss with the backdrop.
+    await page.getByTestId('cwi-rail-toggle').click()
+    await page.getByTestId('cwi-rail-backdrop').waitFor({ timeout: 5_000 })
+    // The drawer covers the lower part of the body; dismiss by the free area above it.
+    await page.getByTestId('cwi-rail-backdrop').click({ position: { x: 8, y: 8 } })
+    assert.equal(await page.getByTestId('cwi-rail').isHidden(), true)
+
+    // Nothing on the viewer surface overflows horizontally at this width.
+    const overflow = await page.evaluate(() => {
+      const viewer = document.querySelector('[data-testid="cwi-viewer"]')
+      return {
+        document: document.documentElement.scrollWidth - window.innerWidth,
+        viewer: viewer === null ? 0 : viewer.scrollWidth - viewer.clientWidth,
+      }
+    })
+    assert.ok(overflow.document <= 1, `the page overflows horizontally by ${overflow.document}px`)
+    assert.ok(overflow.viewer <= 1, `the viewer overflows horizontally by ${overflow.viewer}px`)
+    await page.getByTestId('cwi-back').click()
+    await backToTopicTab(page)
+  } finally {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+  }
+}
+
+/**
+ * Backward comment paging: the rail offers "load older", requests the page
+ * before the earliest loaded event with the same 200-row limit, dedupes an
+ * overlapping row, keeps the selected thread, and hides the entry on an empty
+ * page instead of pretending there is more.
+ */
+async function scenarioWorkItemPaging(page) {
+  let olderFailures = 0
+  await page.route('**/api/cowork.artifact.events*', route => route.abort())
+  await page.route('**/api/cowork.artifact.comments*', async (route) => {
+    const url = new URL(route.request().url())
+    const before = url.searchParams.get('before')
+    if (before === 'event-a' && olderFailures === 0) {
+      olderFailures += 1
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'older page boom' } }),
+      })
+      return
+    }
+    const events = before === null
+      ? [commentEvent({ eventId: 'event-a', threadId: 'thread-a', line: 1 }), commentEvent({ eventId: 'event-b', threadId: 'thread-b', line: 4 })]
+      : before === 'event-a'
+        ? [
+            commentEvent({ eventId: 'event-old', threadId: 'thread-old', line: 2 }),
+            commentEvent({ eventId: 'event-a', threadId: 'thread-a', line: 1 }),
+          ]
+        : []
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, events: events, truncated: false, hasOlder: before !== 'event-old' }),
+    })
+  })
+  try {
+    const initialRequest = page.waitForRequest((request) => {
+      try {
+        const url = new URL(request.url())
+        return url.pathname === '/api/cowork.artifact.comments' && url.searchParams.get('before') === null
+      } catch {
+        return false
+      }
+    }, { timeout: 15_000 })
+    await openWorkItemTab(page)
+    await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
+    const request = await initialRequest
+    assert.equal(new URL(request.url()).searchParams.get('limit'), '200')
+    await page.locator('[data-testid="cwi-load-older"]').waitFor({ timeout: 15_000 })
+    assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 2)
+
+    const target = page.locator('[data-testid="cwi-thread"][data-thread-id="thread-b"]')
+    await target.click()
+    assert.equal(await target.getAttribute('data-selected'), 'true')
+
+    const failedRequest = page.waitForRequest((candidate) => {
+      try {
+        return new URL(candidate.url()).searchParams.get('before') === 'event-a'
+      } catch {
+        return false
+      }
+    }, { timeout: 15_000 })
+    await page.getByTestId('cwi-load-older').click()
+    assert.equal(new URL((await failedRequest).url()).searchParams.get('limit'), '200')
+    await page.getByRole('status').filter({ hasText: '加载更早的批注失败' }).waitFor({ timeout: 10_000 })
+    assert.equal(await page.getByTestId('cwi-load-older').count(), 1)
+
+    const olderRequest = page.waitForRequest((candidate) => {
+      try {
+        return new URL(candidate.url()).searchParams.get('before') === 'event-a'
+      } catch {
+        return false
+      }
+    }, { timeout: 15_000 })
+    await page.getByTestId('cwi-load-older').click()
+    assert.equal(new URL((await olderRequest).url()).searchParams.get('limit'), '200')
+    await page.locator('[data-testid="cwi-thread"][data-thread-id="thread-old"]').waitFor({ timeout: 10_000 })
+    assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 3)
+    assert.equal(await target.getAttribute('data-selected'), 'true', 'loading older rows must keep the selection')
+
+    const emptyRequest = page.waitForRequest((candidate) => {
+      try {
+        return new URL(candidate.url()).searchParams.get('before') === 'event-old'
+      } catch {
+        return false
+      }
+    }, { timeout: 15_000 })
+    await page.getByTestId('cwi-load-older').click()
+    await emptyRequest
+    await page.getByTestId('cwi-load-older').waitFor({ state: 'detached', timeout: 10_000 })
+    assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 3)
+    await page.getByTestId('cwi-back').click()
+    await backToTopicTab(page)
+  } finally {
+    await page.unroute('**/api/cowork.artifact.events*')
+    await page.unroute('**/api/cowork.artifact.comments*')
+  }
+}
+
+/**
+ * The missing-file entry: the viewer names the vanished path, validates input
+ * locally, reports the server's reason on failure, and on success applies the
+ * returned record and re-reads the file from its new path.
+ */
+async function scenarioWorkItemRebind(page) {
+  let reboundPath = null
+  let patchedRecord = null
+  let rebindRequest = null
+  let rebindCalls = 0
+
+  await page.route('**/api/cowork.artifact.events*', route => route.abort())
+  await page.route('**/api/cowork.artifact.detail*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    const record = body.record
+    record.files = record.files.map(file => ({
+      ...file,
+      path: reboundPath ?? BROWSER_SPEC_PATH,
+      missing: reboundPath === null,
+      size: reboundPath === null ? file.size : Buffer.byteLength(REBOUND_SPEC, 'utf8'),
+    }))
+    record.primaryPath = reboundPath ?? BROWSER_SPEC_PATH
+    patchedRecord = record
+    await route.fulfill({ response, json: body })
+  })
+  await page.route('**/api/cowork.artifact.file*', async (route) => {
+    const path = new URL(route.request().url()).searchParams.get('path')
+    if (path === REBOUND_PATH) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          artifactId: BROWSER_ARTIFACT,
+          path: REBOUND_PATH,
+          mediaType: 'text/markdown',
+          content: REBOUND_SPEC,
+          size: Buffer.byteLength(REBOUND_SPEC, 'utf8'),
+          sha256: '',
+          revision: 1,
+          fsVersion: 'fixture-rebound',
+        }),
+      })
+      return
+    }
+    if (path === BROWSER_SPEC_PATH && reboundPath === null) {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: { code: 'artifact/file-missing', message: '文件已移动' } }),
+      })
+      return
+    }
+    await route.continue()
+  })
+  await page.route('**/api/cowork.artifact.rebind', async (route) => {
+    rebindRequest = route.request().postDataJSON()
+    rebindCalls += 1
+    if (rebindCalls === 1) {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: { code: 'artifact/file-missing', message: '目标文件不存在' } }),
+      })
+      return
+    }
+    reboundPath = rebindRequest.newPath
+    const record = {
+      ...patchedRecord,
+      primaryPath: reboundPath,
+      files: (patchedRecord?.files ?? []).map(file => ({
+        ...file,
+        path: reboundPath,
+        missing: false,
+        size: Buffer.byteLength(REBOUND_SPEC, 'utf8'),
+      })),
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, changed: true, record }),
+    })
+  })
+  try {
+    await openWorkItemTab(page)
+    await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
+    await page.getByTestId('cwi-rebind').waitFor({ timeout: 15_000 })
+    assert.match(await page.getByTestId('cwi-rebind').innerText(), new RegExp(BROWSER_SPEC_PATH.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.equal(await page.getByTestId('cwi-rebind-input').count(), 1)
+    // An unusable file has no fake actions: open and export are disabled, edit is absent.
+    assert.equal(await page.getByTestId('cwi-open').isDisabled(), true)
+    assert.equal(await page.getByTestId('cwi-export').isDisabled(), true)
+    assert.equal(await page.getByTestId('cwi-edit').count(), 0)
+
+    // Local validation refuses an empty path and an absolute one.
+    await page.getByTestId('cwi-rebind-submit').click()
+    await page.getByTestId('cwi-rebind-error').waitFor({ timeout: 5_000 })
+    assert.match(await page.getByTestId('cwi-rebind-error').innerText(), /请输入/)
+    await page.getByTestId('cwi-rebind-input').fill('/etc/passwd')
+    await page.getByTestId('cwi-rebind-submit').click()
+    assert.match(await page.getByTestId('cwi-rebind-error').innerText(), /相对路径/)
+
+    // The server's refusal is shown with its own reason and keeps the form.
+    await page.getByTestId('cwi-rebind-input').fill(REBOUND_PATH)
+    await page.getByTestId('cwi-rebind-submit').click()
+    await page.getByTestId('cwi-rebind-error').filter({ hasText: '新路径不存在' }).waitFor({ timeout: 10_000 })
+    assert.match(await page.getByTestId('cwi-rebind-error').innerText(), /目标文件不存在/)
+    assert.equal(rebindRequest.oldPath, BROWSER_SPEC_PATH)
+    assert.equal(rebindRequest.newPath, REBOUND_PATH)
+    assert.equal(await page.getByTestId('cwi-rebind').count(), 1)
+
+    // Success applies the returned record and re-reads the new path.
+    await page.getByTestId('cwi-rebind-submit').click()
+    await page.getByTestId('cwi-rebind').waitFor({ state: 'detached', timeout: 10_000 })
+    await page.getByTestId('cwi-lines').filter({ hasText: '已重新绑定' }).waitFor({ timeout: 10_000 })
+    assert.match(await page.getByTestId('cwi-primary-path').innerText(), new RegExp(REBOUND_PATH.replace('.', '\\.')))
+    await page.getByRole('status').filter({ hasText: '已重新绑定到' }).waitFor({ timeout: 10_000 })
+    assert.equal(await page.getByTestId('cwi-open').isDisabled(), false)
+    await page.getByTestId('cwi-back').click()
+    await backToTopicTab(page)
+  } finally {
+    await page.unroute('**/api/cowork.artifact.events*')
+    await page.unroute('**/api/cowork.artifact.detail*')
+    await page.unroute('**/api/cowork.artifact.file*')
+    await page.unroute('**/api/cowork.artifact.rebind')
+  }
+}
+
 /**
  * Run the scenarios that never navigate the page.
  *
@@ -1683,6 +2089,10 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioWorkItemAttachments(page)
   await scenarioWorkItemEdges(page, fixtures)
   await scenarioWorkItemError(page)
+  await scenarioWorkItemKeyboard(page)
+  await scenarioWorkItemNarrow(page)
+  await scenarioWorkItemPaging(page)
+  await scenarioWorkItemRebind(page)
   await scenarioFilterSetup(page)
 }
 
