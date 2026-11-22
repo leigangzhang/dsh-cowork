@@ -5,7 +5,9 @@ import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  COVERAGE_GAP_MARKER,
   HEAVY_SUMMARY_MARKER,
+  formatCoverageGapComment,
   formatHeavySummary,
   publishHeavyComment,
 } from '../../scripts/ci/publish-heavy-comment.mjs'
@@ -26,6 +28,11 @@ function summary(overrides = {}) {
     diffSha256,
     porcelain: [],
     clean: true,
+    coverageGaps: {
+      available: true,
+      text: 'coverage gaps: base fixture head fixture\n\nchanged uncovered lines:\n  src/a.ts: 4',
+      truncated: false,
+    },
     commands: [
       { name: 'typecheck', command: 'npm run typecheck', blocking: true, exitCode: 0 },
       { name: 'e2e-bash', command: 'npm run test:e2e:bash', blocking: false, exitCode: 1 },
@@ -80,10 +87,11 @@ async function fixtureServer({ statuses = [], checks = [], comments = [] } = {})
       return json(response, pages[page - 1] ?? [])
     }
     if (request.method === 'POST' && url.pathname === '/repos/owner/repo/issues/7/comments') {
-      return json(response, { id: 100, body: body.body })
+      const id = String(body.body).includes(COVERAGE_GAP_MARKER) ? 101 : 100
+      return json(response, { id, body: body.body })
     }
-    if (request.method === 'PATCH' && url.pathname === '/repos/owner/repo/issues/comments/99') {
-      return json(response, { id: 99, body: body.body })
+    if (request.method === 'PATCH' && /^\/repos\/owner\/repo\/issues\/comments\/(?:98|99|100|101)$/.test(url.pathname)) {
+      return json(response, { id: Number(url.pathname.split('/').at(-1)), body: body.body })
     }
     return json(response, { error: `${request.method} ${url.pathname}` }, 404)
   })
@@ -112,41 +120,51 @@ function config(server, overrides = {}) {
   }
 }
 
-test('the heavy comment creates one marked summary with identity and command exits', async () => {
+test('the heavy comments create one marked summary and one marked gap report', async () => {
   const server = await fixtureServer({
     statuses: [status()],
     checks: [check()],
   })
   try {
     const outcome = await publishHeavyComment(config(server))
-    assert.deepEqual(outcome, { action: 'created', prNumber: 7 })
-    const post = server.requests.find((request) => request.method === 'POST')
-    assert.ok(post !== undefined)
-    assert.ok(post.body.body.includes(HEAVY_SUMMARY_MARKER))
-    assert.ok(post.body.body.includes(head))
-    assert.ok(post.body.body.includes(base))
-    assert.ok(post.body.body.includes(diffSha256))
-    assert.ok(post.body.body.includes('typecheck'))
-    assert.ok(post.body.body.includes('e2e-bash'))
-    assert.ok(post.body.body.includes(runUrl))
+    assert.deepEqual(outcome, { action: 'created', gapAction: 'created', prNumber: 7 })
+    const posts = server.requests.filter((request) => request.method === 'POST')
+    assert.equal(posts.length, 2)
+    const summaryPost = posts.find((request) => request.body.body.includes(HEAVY_SUMMARY_MARKER))
+    assert.ok(summaryPost !== undefined)
+    assert.ok(summaryPost.body.body.includes(head))
+    assert.ok(summaryPost.body.body.includes(base))
+    assert.ok(summaryPost.body.body.includes(diffSha256))
+    assert.ok(summaryPost.body.body.includes('typecheck'))
+    assert.ok(summaryPost.body.body.includes('e2e-bash'))
+    assert.ok(summaryPost.body.body.includes(runUrl))
+    const gapPost = posts.find((request) => request.body.body.includes(COVERAGE_GAP_MARKER))
+    assert.ok(gapPost !== undefined)
+    assert.ok(gapPost.body.body.includes('Coverage gap report'))
+    assert.ok(gapPost.body.body.includes('src/a.ts: 4'))
+    assert.ok(gapPost.body.body.includes('does not change `heavy-gate`'))
   } finally {
     await server.close()
   }
 })
 
-test('the heavy comment updates the existing marked comment instead of adding another', async () => {
+test('the heavy comments update both existing marked comments instead of adding more', async () => {
   const server = await fixtureServer({
     statuses: [status()],
     checks: [check()],
-    comments: [{ id: 99, body: `${HEAVY_SUMMARY_MARKER}\nold summary` }],
+    comments: [
+      { id: 99, body: `${HEAVY_SUMMARY_MARKER}\nold summary` },
+      { id: 98, body: `${COVERAGE_GAP_MARKER}\nold gaps` },
+    ],
   })
   try {
     const outcome = await publishHeavyComment(config(server))
-    assert.deepEqual(outcome, { action: 'updated', prNumber: 7 })
+    assert.deepEqual(outcome, { action: 'updated', gapAction: 'updated', prNumber: 7 })
     assert.equal(server.requests.filter((request) => request.method === 'POST').length, 0)
-    const patch = server.requests.find((request) => request.method === 'PATCH')
-    assert.ok(patch !== undefined)
-    assert.ok(patch.body.body.includes('typecheck'))
+    const patches = server.requests.filter((request) => request.method === 'PATCH')
+    assert.equal(patches.length, 2)
+    assert.ok(patches.some((request) => request.body.body.includes('typecheck')))
+    assert.ok(patches.some((request) => request.body.body.includes('src/a.ts: 4')))
   } finally {
     await server.close()
   }
@@ -203,11 +221,13 @@ test('a blocked heavy run with failure status and check still posts a summary', 
   })
   try {
     const outcome = await publishHeavyComment(config(server))
-    assert.deepEqual(outcome, { action: 'created', prNumber: 7 })
-    const post = server.requests.find((request) => request.method === 'POST')
-    assert.ok(post !== undefined)
-    assert.ok(post.body.body.includes('Status problem:'))
-    assert.ok(post.body.body.includes('Result problem:'))
+    assert.deepEqual(outcome, { action: 'created', gapAction: 'created', prNumber: 7 })
+    const posts = server.requests.filter((request) => request.method === 'POST')
+    const summaryPost = posts.find((request) => request.body.body.includes(HEAVY_SUMMARY_MARKER))
+    assert.ok(summaryPost !== undefined)
+    assert.ok(summaryPost.body.body.includes('Status problem:'))
+    assert.ok(summaryPost.body.body.includes('Result problem:'))
+    assert.ok(posts.some((request) => request.body.body.includes(COVERAGE_GAP_MARKER)))
   } finally {
     await server.close()
   }
@@ -218,11 +238,14 @@ test('the heavy comment finds a marker beyond the first hundred comments', async
   const server = await fixtureServer({
     statuses: [status()],
     checks: [check()],
-    comments: [pageOne, [{ id: 99, body: `${HEAVY_SUMMARY_MARKER}\nexisting` }]],
+    comments: [pageOne, [
+      { id: 99, body: `${HEAVY_SUMMARY_MARKER}\nexisting` },
+      { id: 98, body: `${COVERAGE_GAP_MARKER}\nexisting gaps` },
+    ]],
   })
   try {
     const outcome = await publishHeavyComment(config(server))
-    assert.deepEqual(outcome, { action: 'updated', prNumber: 7 })
+    assert.deepEqual(outcome, { action: 'updated', gapAction: 'updated', prNumber: 7 })
     assert.equal(server.requests.filter((request) => request.method === 'POST').length, 0)
     const pages = server.requests.filter((request) => request.path.endsWith('/issues/7/comments'))
     assert.equal(pages.length, 2)
@@ -259,4 +282,26 @@ test('the summary keeps a failed status and reasons readable without a result', 
   assert.match(body, /Heavy lane: failed/)
   assert.match(body, /dirty worktree/)
   assert.match(body, /workflow logs/)
+})
+
+test('the gap comment fences untrusted backticks and reports truncation or absence', () => {
+  const body = formatCoverageGapComment({
+    head,
+    runUrl,
+    coverageGaps: {
+      available: true,
+      text: 'before ``` after',
+      truncated: true,
+    },
+  })
+  assert.match(body, /^<!-- coverage-gap-report -->/m)
+  assert.match(body, /````text\nbefore ``` after\n````/)
+  assert.match(body, /Truncated to fit the PR comment budget/)
+
+  const unavailable = formatCoverageGapComment({
+    head,
+    runUrl,
+    coverageGaps: { available: false, reason: 'coverage gap report was not produced', text: '', truncated: false },
+  })
+  assert.match(unavailable, /Report: coverage gap report was not produced/)
 })

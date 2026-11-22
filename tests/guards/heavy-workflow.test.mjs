@@ -71,6 +71,7 @@ test('heavy workflow resolves one fixed base SHA for the identity, coverage, and
   assert.match(workflow, /steps\.base\.outputs\.sha/)
   assert.match(workflow, /--base "\$\{\{ steps\.base\.outputs\.sha \}\}"\n          --head "\$HEAD_SHA"/)
   assert.match(workflow, /npm run test:coverage:layered -- --base "\$\{\{ steps\.base\.outputs\.sha \}\}"/)
+  assert.match(workflow, /npm run coverage:gaps -- --base "\$\{\{ steps\.base\.outputs\.sha \}\}"/)
   assert.match(workflow, /HEAVY_BASE_REF: \$\{\{ steps\.base\.outputs\.sha \}\}/)
 })
 
@@ -83,6 +84,7 @@ test('heavy workflow runs its prerequisites in order', () => {
     'npm run build',
     'npm run test:host-smoke',
     'npm run test:coverage:layered -- --base',
+    'npm run coverage:gaps -- --base',
     'npm run test:e2e',
     'npm run test:e2e:bash',
     'node "$RUNNER_TEMP/heavy-trusted/scripts/ci/publish-heavy.mjs"',
@@ -93,9 +95,15 @@ test('heavy workflow runs its prerequisites in order', () => {
     assert.ok(index > previous, `heavy workflow is missing or out of order: ${command}`)
     previous = index
   }
+  const gapReport = stepBlock(workflow, 'Coverage gap report (observational)')
+  assert.match(gapReport, /continue-on-error: true/)
+  assert.match(gapReport, /set \+e/)
+  assert.match(gapReport, /npm run coverage:gaps -- --base/)
+  assert.match(gapReport, /"name":"coverage-gaps"/)
   assert.match(workflow, /DSH_HOST_SMOKE_STRICT: "1"/)
   assert.match(workflow, /coverage\/layered\.json/)
   assert.match(workflow, /HEAVY_BEFORE_ARTIFACT/)
+  assert.match(workflow, /HEAVY_GAP_REPORT: \$\{\{ runner\.temp \}\}\/coverage-gaps\.txt/)
   assert.match(workflow, /HEAVY_RESULT_PATH/)
   assert.match(workflow, /if: \$\{\{ always\(\) && steps\.classify\.outputs\.docs_only != 'true' \}\}/)
   assert.match(workflow, /if: steps\.classify\.outputs\.docs_only != 'true'/)

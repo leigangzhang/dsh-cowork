@@ -1,7 +1,7 @@
 # 工作项代码健康度回归修复交接
 
 - 日期：2026-11-21
-- 状态：P0/P1 已在本分支完成；P2/P3 待后续独立 PR
+- 状态：P0/P1 已由 PR #78 完成；P2/P3 已由 [结果记录](WORK_ITEM_HEALTH_RESULT.md) 交付
 - 分支：`agent/work-item-health-followup`
 - 基线：`main` `178f216`（PR #74 合并后）
 - 隔离工作区：`/tmp/dsh-work-item-health`

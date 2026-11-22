@@ -23,7 +23,7 @@ A same-process value is not evidence for a cross-process claim: session waking, 
 
 Coverage discovery is mechanical: contract, gap report, heavy gate, review. `npm run check` requires every non-blocked browser-owned TSX to have a reviewed floor in [tools/coverage-browser-floors.json](../tools/coverage-browser-floors.json), and every live public surface to have a keyless E2E scenario or reviewed debt entry.
 
-`npm run coverage:gaps -- --base <verified-base>` reuses reports whose gate-artifact identity matches HEAD/base/diff/porcelain, otherwise runs the layered lane, then prints changed-file uncovered lines and changed public keys absent from scenario `covers` in [the E2E manifest](../tests/e2e/manifest.json). It writes only gitignored coverage data.
+`npm run coverage:gaps -- --base <verified-base>` reuses reports whose gate-artifact identity matches HEAD/base/diff/porcelain, otherwise runs the layered lane, then prints changed-file uncovered lines and changed public keys absent from scenario `covers` in [the E2E manifest](../tests/e2e/manifest.json). It writes only gitignored coverage data. Heavy runs the same command observationally and posts the bounded report on the PR; that comment never changes `heavy-gate` ([runbook](heavy-runner.md)).
 
 A new interactive surface names its browser scenario in the owning test or review evidence. Review judges assertion meaning, negative controls, mocks, and unrun lanes, not coverage discovery. Docs-only changes are exempt; all other PRs need a `heavy-gate` success bound to the same head, while `gate-artifact` remains the only required context.
 
@@ -96,7 +96,7 @@ First run `npm run change-scope -- --base <verified-base>` and record the identi
 - `tests/e2e/**`, `scripts/evidence/e2e.mjs`, `tools/e2e-coverage.mjs` → `npm run test:e2e` + `npm run check` + `npm test`; re-record the evidence whenever the keyless manifest changes.
 - `package.json`, `cordis.patch.yml`, build config → `npm run check` + typecheck + `npm test` + build + host smoke.
 - `tools/workflow.json`, `tools/check-invariants.mjs`, `.gitignore` → `npm run check` + `npm run check:self-test`.
-- `tools/fallow-health-baseline.json` and `.fallowrc.jsonc` → `fallow health --baseline tools/fallow-health-baseline.json` (zero new findings) and `fallow audit --base <verified-base> --worsened error` (zero introduced and zero worsened complexity findings); refresh the baseline only in a dedicated maintenance PR naming the CLI version and HEAD, with each added entry reviewed.
+- `tools/fallow-health-baseline.json`, `.fallowrc.jsonc` → `npm run fallow:health` (zero new findings) and `npm run fallow:audit -- --base <verified-base>` (zero introduced and zero worsened complexity findings); the PR `code-health` job also asserts both JSON counters with [scripts/ci/fallow-gate.mjs](../scripts/ci/fallow-gate.mjs). Refresh the baseline only in a dedicated maintenance PR naming the pinned CLI version and HEAD, with each added entry reviewed.
 - `AGENTS.md`, `docs/*` → `npm run check` and read the changed section as its reader.
 
 A delivery is not verified unless the commands that ran, their three-state result, and the entries that did not run are named in the final report.
