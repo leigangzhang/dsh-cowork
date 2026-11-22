@@ -10,12 +10,11 @@ import type { ArtifactDispatchSummary } from '../../panel/artifact-contract.js'
 import {
   commentBody,
   dispatchForThread,
+  threadRailView,
+  type ThreadFilter,
   type WorkItemThread,
 } from './model.ts'
 import { ThreadCard } from './thread-card.tsx'
-
-/** The rail's three-state comment filter. */
-export type ThreadFilter = 'all' | 'pending' | 'resolved'
 
 /** Props of the comment rail list. */
 interface ThreadListProps {
@@ -84,13 +83,10 @@ function card(thread: WorkItemThread, props: ThreadListProps, open: boolean): Re
  * @param props - threads, filter state, and callbacks owned by the container.
  * @returns the rail header, optional activity slot, and thread cards.
  */
-// Three-state display projection; the browser lane owns these branches.
+// Projection lives in `threadRailView` (unit-tested); this is display branches.
 // fallow-ignore-next-line complexity
 export function ThreadList(props: ThreadListProps): ReactElement {
-  const open = props.threads.filter((thread) => !thread.resolved)
-  const resolved = props.threads.filter((thread) => thread.resolved)
-  const visible = props.filter === 'resolved' ? [] : open
-  const empty = visible.length === 0 && resolved.length === 0
+  const view = threadRailView(props.threads, props.filter, props.showResolved)
   return (
     <>
       <div className="cwi-rail-header" data-testid="cwi-thread-count">
@@ -127,9 +123,9 @@ export function ThreadList(props: ThreadListProps): ReactElement {
       </div>
       {props.children}
       <div className="cwi-threads">
-        {empty ? <p className="cwi-rail-empty">{props.filter === 'resolved' ? '没有已解决的批注。' : (props.filter === 'pending' ? '没有待处理的批注。' : '还没有批注。选中行后点“批注”，或直接写整体批注。')}</p> : null}
-        {visible.map((thread) => card(thread, props, false))}
-        {props.filter === 'all' && resolved.length > 0 ? (
+        {view.emptyMessage === null ? null : <p className="cwi-rail-empty">{view.emptyMessage}</p>}
+        {view.visible.map((thread) => card(thread, props, false))}
+        {view.showSummary ? (
           <button
             type="button"
             className="cwi-resolved-line"
@@ -139,12 +135,12 @@ export function ThreadList(props: ThreadListProps): ReactElement {
           >
             <span className="cwi-resolved-dot" aria-hidden="true">✓</span>
             <span className="cwi-resolved-text">
-              {props.showResolved ? `收起已解决 ${String(resolved.length)} 条` : resolvedSummary(resolved, props.ordinals)}
+              {props.showResolved ? `收起已解决 ${String(view.resolved.length)} 条` : resolvedSummary(view.resolved, props.ordinals)}
             </span>
             <span className="cwi-resolved-arrow" aria-hidden="true">{props.showResolved ? '⌃' : '›'}</span>
           </button>
         ) : null}
-        {(props.filter === 'resolved' || props.showResolved) ? resolved.map((thread) => card(thread, props, true)) : null}
+        {view.showResolvedCards ? view.resolved.map((thread) => card(thread, props, true)) : null}
       </div>
     </>
   )

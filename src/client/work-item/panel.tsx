@@ -53,10 +53,11 @@ import {
   threadForDispatch,
   threadLinePins,
   threadOrdinals,
+  type ThreadFilter,
 } from './model.ts'
 import { workItemOpenStore } from './store.ts'
 import { CommentComposer } from './comment-composer.tsx'
-import { ThreadList, type ThreadFilter } from './thread-list.tsx'
+import { ThreadList } from './thread-list.tsx'
 import { ViewerFooter } from './viewer-footer.tsx'
 import { ViewerToolbar } from './viewer-toolbar.tsx'
 import { ViewerHeader } from './viewer-header.tsx'
@@ -299,6 +300,12 @@ export function WorkItemViewer(): ReactElement {
       persistDraftRef.current()
     }
   }, [context, refreshToken])
+
+  // A different work item starts with the default rail projection.
+  useEffect(() => {
+    setThreadFilter('all')
+    setShowResolved(false)
+  }, [context])
 
   // The viewer closes itself when the host switches the main area away from the
   // session it was opened for (`retainedBy.mainView` falls to zero).

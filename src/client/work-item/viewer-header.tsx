@@ -86,6 +86,7 @@ export function ViewerHeader({
 }: ViewerHeaderProps): ReactElement {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -94,7 +95,9 @@ export function ViewerHeader({
       setMenuOpen(false)
     }
     const escape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setMenuOpen(false)
+      if (event.key !== 'Escape') return
+      setMenuOpen(false)
+      triggerRef.current?.focus()
     }
     document.addEventListener('pointerdown', close)
     document.addEventListener('keydown', escape)
@@ -107,6 +110,7 @@ export function ViewerHeader({
   const runMenu = (action: () => void): void => {
     setMenuOpen(false)
     action()
+    triggerRef.current?.focus()
   }
 
   return (
@@ -172,6 +176,7 @@ export function ViewerHeader({
         <div className="cwi-more-wrap" ref={menuRef}>
           <button
             type="button"
+            ref={triggerRef}
             className="cwi-secondary cwi-more-button"
             data-testid="cwi-more"
             aria-label="更多操作"

@@ -493,3 +493,35 @@ test('viewerTabs labels counts only when present', () => {
   ])
   assert.deepEqual(model.viewerTabs(9, 2).map((tab) => tab.label), ['文档', '版本 9', '附件 2'])
 })
+
+test('threadRailView keeps resolved cards out of the pending filter', () => {
+  const open = model.foldThreads([comment({ commentId: 'c-open', threadId: 'c-open' })])[0]
+  const resolved = model.foldThreads([
+    comment({ commentId: 'c-done', threadId: 'c-done' }),
+    comment({ type: 'resolve', eventId: 'e-resolve', commentId: 'c-done' }),
+  ])[0]
+  const threads = [open, resolved]
+
+  const collapsed = model.threadRailView(threads, 'all', false)
+  assert.deepEqual(collapsed.visible.map((thread) => thread.threadId), ['c-open'])
+  assert.equal(collapsed.showSummary, true)
+  assert.equal(collapsed.showResolvedCards, false)
+  assert.equal(collapsed.emptyMessage, null)
+
+  const expandedPending = model.threadRailView(threads, 'pending', true)
+  assert.deepEqual(expandedPending.visible.map((thread) => thread.threadId), ['c-open'])
+  assert.equal(expandedPending.showSummary, false)
+  assert.equal(expandedPending.showResolvedCards, false, 'expanded resolved cards must not leak into pending')
+
+  const onlyResolved = model.threadRailView([resolved], 'pending', true)
+  assert.equal(onlyResolved.showResolvedCards, false)
+  assert.equal(onlyResolved.emptyMessage, '没有待处理的批注。')
+
+  const resolvedOnly = model.threadRailView([resolved], 'resolved', false)
+  assert.deepEqual(resolvedOnly.visible, [])
+  assert.equal(resolvedOnly.showResolvedCards, true)
+  assert.equal(resolvedOnly.emptyMessage, null)
+
+  assert.equal(model.threadRailView([open], 'resolved', false).emptyMessage, '没有已解决的批注。')
+  assert.equal(model.threadRailView([], 'all', false).emptyMessage, '还没有批注。选中行后点“批注”，或直接写整体批注。')
+})

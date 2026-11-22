@@ -15,7 +15,9 @@ import type { ReactElement } from 'react'
 import type { ArtifactFileResponse } from '../../../panel/artifact-contract.js'
 import type { SaveConflict } from '../api.ts'
 import { TextEditor } from '../editor.tsx'
-import { formatBytes, type LineSelection, type ThreadPin } from '../model.ts'
+import { formatBytes, type LineSelection, type ThreadPin,
+  baseName,
+} from '../model.ts'
 import { CanvasSurface } from './canvas.tsx'
 import { editorLanguage, readSurfaceKind, sourceLinesMarkdown, type ViewerKind } from './document.ts'
 import { DiagramView } from './diagram.tsx'
@@ -80,12 +82,6 @@ function AttachmentChips({ attachments }: { readonly attachments: readonly Paper
       {overflow === 0 ? null : <span className="cwi-attach-chip">+{overflow}</span>}
     </span>
   )
-}
-
-/** The last path segment, which is what the paper head names. */
-function baseName(path: string): string {
-  const cut = path.lastIndexOf('/')
-  return cut === -1 ? path : path.slice(cut + 1)
 }
 
 /** The two-letter file badge of one viewer family. */

@@ -708,15 +708,19 @@ async function scenarioWorkItemChain(page) {
   // under the resolved summary.
   await created.getByTestId('cwi-thread-toggle').click()
   await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
-  await filter.selectOption('pending')
-  assert.equal(await page.getByTestId('cwi-resolved-line').count(), 0)
-  await filter.selectOption('resolved')
+  await page.getByTestId('cwi-resolved-line').click()
   const resolvedCard = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
   await resolvedCard.waitFor({ timeout: 10_000 })
   assert.equal(await resolvedCard.getAttribute('data-resolved'), 'true')
+  // Expanded resolved cards must disappear under pending, not just the summary.
+  await filter.selectOption('pending')
+  assert.equal(await resolvedCard.count(), 0)
+  assert.equal(await page.getByTestId('cwi-resolved-line').count(), 0)
+  await filter.selectOption('resolved')
+  await resolvedCard.waitFor({ timeout: 10_000 })
+  assert.equal(await resolvedCard.getAttribute('data-resolved'), 'true')
   await filter.selectOption('all')
-  await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
-  await page.getByTestId('cwi-resolved-line').click()
+  await resolvedCard.waitFor({ timeout: 10_000 })
 
   // Back to the conversation, then reopen: the server serves the same thread.
   await page.getByTestId('cwi-back').click()

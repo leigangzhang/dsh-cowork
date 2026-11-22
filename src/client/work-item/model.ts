@@ -146,6 +146,66 @@ export function activeDispatchSummary(dispatch: ActiveDispatchV1 | null): Active
   return { label: DISPATCH_STATE_LABELS[dispatch.state], tone, terminal }
 }
 
+/** The rail's three-state comment filter. */
+export type ThreadFilter = 'all' | 'pending' | 'resolved'
+
+/** One rail projection: cards to show, summary state, and the empty message. */
+export interface ThreadRailView {
+  readonly open: readonly WorkItemThread[]
+  readonly resolved: readonly WorkItemThread[]
+  readonly visible: readonly WorkItemThread[]
+  readonly showResolvedCards: boolean
+  readonly showSummary: boolean
+  readonly emptyMessage: string | null
+}
+
+const EMPTY_MESSAGES: Readonly<Record<ThreadFilter, string>> = {
+  all: '还没有批注。选中行后点“批注”，或直接写整体批注。',
+  pending: '没有待处理的批注。',
+  resolved: '没有已解决的批注。',
+}
+
+/** Resolved cards stay visible under "all" only while the summary is expanded. */
+function resolvedCardsVisible(filter: ThreadFilter, showResolved: boolean): boolean {
+  return filter === 'resolved' || (filter === 'all' && showResolved)
+}
+
+/** The empty message for the active filter, or null when the rail has rows. */
+function railEmptyMessage(
+  filter: ThreadFilter,
+  threads: number,
+  open: number,
+  resolved: number,
+): string | null {
+  const count = filter === 'all' ? threads : (filter === 'pending' ? open : resolved)
+  return count === 0 ? EMPTY_MESSAGES[filter] : null
+}
+
+/**
+ * Project the folded threads for the rail's filter and resolved group state.
+ * @param threads - folded threads in sort order.
+ * @param filter - active three-state filter.
+ * @param showResolved - whether the resolved summary was expanded.
+ * @returns visible cards, summary state, and the empty message.
+ */
+export function threadRailView(
+  threads: readonly WorkItemThread[],
+  filter: ThreadFilter,
+  showResolved: boolean,
+): ThreadRailView {
+  const open = threads.filter((thread) => !thread.resolved)
+  const resolved = threads.filter((thread) => thread.resolved)
+  const visible = filter === 'resolved' ? [] : open
+  return {
+    open,
+    resolved,
+    visible,
+    showResolvedCards: resolvedCardsVisible(filter, showResolved),
+    showSummary: filter === 'all' && resolved.length > 0,
+    emptyMessage: railEmptyMessage(filter, threads.length, open.length, resolved.length),
+  }
+}
+
 /** The newest delivery batch that carried any comment of one thread. */
 export function dispatchForThread(
   thread: WorkItemThread,
