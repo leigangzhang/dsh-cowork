@@ -287,6 +287,27 @@ test('markdownLine strips common markers without touching other text', () => {
   assert.deepEqual(model.markdownLine('plain'), { kind: 'text', text: 'plain' })
 })
 
+test('inlineMarkdown separates strong, emphasis, and code runs', () => {
+  assert.deepEqual(model.inlineMarkdown(''), [])
+  assert.deepEqual(model.inlineMarkdown('plain'), [{ kind: 'text', text: 'plain' }])
+  assert.deepEqual(model.inlineMarkdown('a **b** c'), [
+    { kind: 'text', text: 'a ' },
+    { kind: 'strong', text: 'b' },
+    { kind: 'text', text: ' c' },
+  ])
+  assert.deepEqual(model.inlineMarkdown('`code` and *em*'), [
+    { kind: 'code', text: 'code' },
+    { kind: 'text', text: ' and ' },
+    { kind: 'em', text: 'em' },
+  ])
+  assert.deepEqual(model.inlineMarkdown('**unclosed'), [{ kind: 'text', text: '**unclosed' }])
+  assert.deepEqual(model.inlineMarkdown('**a** `b`'), [
+    { kind: 'strong', text: 'a' },
+    { kind: 'text', text: ' ' },
+    { kind: 'code', text: 'b' },
+  ])
+})
+
 test('persisted drafts round-trip, drop malformed entries, and clear', () => {
   const storage = new Map()
   const savedWindow = globalThis.window

@@ -94,6 +94,10 @@
       "lane": "unit"
     },
     {
+      "path": "src/client/work-item/thread-card.tsx",
+      "lane": "browser"
+    },
+    {
       "path": "src/client/work-item/viewers/canvas.tsx",
       "lane": "browser"
     },

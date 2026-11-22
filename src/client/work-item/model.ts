@@ -453,6 +453,38 @@ export function markdownLine(line: string): ReadLine {
   return { kind: 'text', text: line }
 }
 
+/** One inline run of a read-mode Markdown line. */
+export interface InlineRun {
+  readonly kind: 'text' | 'strong' | 'em' | 'code'
+  readonly text: string
+}
+
+/**
+ * Split one line into inline text, strong, emphasis, and code runs.
+ *
+ * The read view renders these as elements instead of printing the markers, so
+ * `**bold**` reads as bold without an HTML parser and without trusting the
+ * file. Only non-nested spans are recognized; an unmatched marker stays
+ * literal text, which is how a half-finished Markdown line should read.
+ * @param text - one line with block markers already stripped.
+ * @returns the runs in source order; plain text is a single run.
+ */
+export function inlineMarkdown(text: string): readonly InlineRun[] {
+  if (text === '') return []
+  const pattern = /`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*/g
+  const runs: InlineRun[] = []
+  let start = 0
+  for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
+    if (match.index > start) runs.push({ kind: 'text', text: text.slice(start, match.index) })
+    if (match[1] !== undefined) runs.push({ kind: 'code', text: match[1] })
+    else if (match[2] !== undefined) runs.push({ kind: 'strong', text: match[2] })
+    else runs.push({ kind: 'em', text: match[3] ?? '' })
+    start = match.index + match[0].length
+  }
+  if (start < text.length) runs.push({ kind: 'text', text: text.slice(start) })
+  return runs
+}
+
 /** Save-state label the toolbar shows while editing. */
 export type SavePhase = 'saved' | 'saving' | 'conflict' | 'failed'
 

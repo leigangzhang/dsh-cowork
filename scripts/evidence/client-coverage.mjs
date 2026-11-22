@@ -33,6 +33,7 @@ export const CLIENT_BROWSER_TSX = Object.freeze([
   'src/client/work-item/editor.tsx',
   'src/client/work-item/list.tsx',
   'src/client/work-item/panel.tsx',
+  'src/client/work-item/thread-card.tsx',
   'src/client/work-item/viewers/canvas.tsx',
   'src/client/work-item/viewers/diagram.tsx',
   'src/client/work-item/viewers/html.tsx',

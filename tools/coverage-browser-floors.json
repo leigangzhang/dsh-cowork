@@ -33,6 +33,10 @@
       "lineCoverage": 98.59,
       "functionCoverage": 93.69
     },
+    "src/client/work-item/thread-card.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 88.89
+    },
     "src/client/work-item/viewers/canvas.tsx": {
       "lineCoverage": 100.0,
       "functionCoverage": 100.0

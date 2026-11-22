@@ -35,11 +35,7 @@ import { applyRefreshedFile } from './viewers/viewer-refresh.ts'
 import {
   activeDispatchSummary,
   anchorLabel,
-  anchorStatusLabel,
-  commentAuthor,
-  commentBody,
   contentLines,
-  dispatchLabel,
   errorPresentation,
   fileSummary,
   formatBytes,
@@ -57,9 +53,9 @@ import {
   type SavePhase,
   type WorkItemThread,
   dispatchForThread,
-  isRetryableDispatch,
 } from './model.ts'
 import { workItemOpenStore } from './store.ts'
+import { ThreadCard } from './thread-card.tsx'
 
 /** The loaded viewer state; one snapshot per open work item. */
 interface ViewerData {
@@ -94,137 +90,6 @@ function useOpenContext() {
     () => workItemOpenStore.getSnapshot(),
     () => workItemOpenStore.getSnapshot(),
   ).context
-}
-
-/** One thread card in the rail. */
-function ThreadCard({
-  thread,
-  now,
-  pending,
-  dispatch,
-  retrying,
-  onToggle,
-  onReply,
-  onRetry,
-  onFocus,
-  attachmentUrl,
-}: {
-  readonly thread: WorkItemThread
-  readonly now: Date
-  readonly pending: boolean
-  readonly dispatch: ArtifactDispatchSummary | null
-  readonly retrying: boolean
-  readonly onToggle: (thread: WorkItemThread) => void
-  readonly onReply: (thread: WorkItemThread) => void
-  readonly onRetry: (dispatch: ArtifactDispatchSummary) => void
-  readonly onFocus: (thread: WorkItemThread) => void
-  readonly attachmentUrl: (attachmentId: string) => string
-}): ReactElement {
-  const stale = anchorStatusLabel(thread.anchorStatus)
-  const [expanded, setExpanded] = useState(false)
-  const showComments = !thread.resolved || expanded
-  return (
-    <div className="cwi-thread" data-testid="cwi-thread" data-thread-id={thread.threadId} data-resolved={thread.resolved ? 'true' : 'false'}>
-      <div className="cwi-thread-meta">
-        <span>{anchorLabel(thread.anchor)}</span>
-        {stale === null ? null : <span className="cwi-stale">{stale}</span>}
-        <span>{formatRelativeTime(thread.latestAt, now)}</span>
-        {dispatch === null ? null : (
-          <span className="cwi-thread-meta" data-testid="cwi-thread-dispatch">
-            <span
-              className="cwi-chip"
-              data-tone={dispatch.state === 'failed' || dispatch.state === 'blocked' ? 'error' : (dispatch.state === 'replied' ? 'done' : 'pending')}
-            >
-              {dispatchLabel(dispatch.state)}
-            </span>
-            {dispatch.errorCode === null ? null : <span className="cwi-stale">{dispatch.errorCode}</span>}
-            {isRetryableDispatch(dispatch) ? (
-              <button
-                type="button"
-                className="cwi-secondary"
-                data-testid="cwi-dispatch-retry"
-                disabled={retrying}
-                onClick={() => { onRetry(dispatch) }}
-              >
-                {retrying ? '重试中…' : '重试'}
-              </button>
-            ) : null}
-          </span>
-        )}
-        <span className="cwi-toolbar-spacer" style={{ flex: 1 }} />
-        {thread.resolved ? null : (
-          <button
-            type="button"
-            className="cwi-secondary"
-            data-testid="cwi-thread-reply"
-            disabled={pending}
-            onClick={() => { onReply(thread) }}
-          >
-            回复
-          </button>
-        )}
-        <button
-          type="button"
-          className="cwi-secondary"
-          data-testid="cwi-thread-toggle"
-          data-resolved={thread.resolved ? 'true' : 'false'}
-          disabled={pending}
-          onClick={() => { onToggle(thread) }}
-        >
-          {thread.resolved ? '重新打开' : '标记已解决'}
-        </button>
-      </div>
-      {thread.anchor !== null && 'quote' in thread.anchor && thread.anchor.quote !== ''
-        ? (
-            <button type="button" className="cwi-quote" data-testid="cwi-thread-focus" onClick={() => { onFocus(thread) }}>
-              {thread.anchor.quote}
-            </button>
-          )
-        : null}
-      {thread.resolved ? (
-        <button type="button" className="cwi-secondary" data-testid="cwi-thread-expand" onClick={() => { setExpanded(value => !value) }}>
-          {expanded ? `收起 ${String(thread.comments.length)} 条` : `已解决 · 展开 ${String(thread.comments.length)} 条`}
-        </button>
-      ) : null}
-      {(showComments ? thread.comments : []).map((event) => (
-        <div key={event.eventId} className={event.type === 'reply' ? 'cwi-thread-reply' : undefined}>
-          <div className="cwi-thread-meta">
-            <span>{commentAuthor(event)}</span>
-            <span>{formatRelativeTime(event.createdAt, now)}</span>
-          </div>
-          <div className="cwi-thread-body">{commentBody(event)}</div>
-          {((event.type === 'create' || event.type === 'reply') ? event.attachments ?? [] : []).map((attachment) => (
-            attachment.mediaType.startsWith('image/')
-              ? (
-                  <img
-                    key={attachment.attachmentId}
-                    className="cwi-attachment-thumb"
-                    data-testid="cwi-attachment-thumb"
-                    src={attachmentUrl(attachment.attachmentId)}
-                    alt={attachment.name}
-                  />
-                )
-              : (
-                  <a
-                    key={attachment.attachmentId}
-                    className="cwi-attachment-link"
-                    data-testid="cwi-attachment-link"
-                    href={attachmentUrl(attachment.attachmentId)}
-                    download={attachment.name}
-                  >
-                    {attachment.name}
-                  </a>
-                )
-          ))}
-          {((event.type === 'create' || event.type === 'reply') ? event.attachments ?? [] : []).map((attachment) => (
-            <span key={`${attachment.attachmentId}-meta`} className="cwi-thread-meta" data-testid="cwi-attachment-meta">
-              {attachment.name} · {attachment.mediaType} · {formatBytes(attachment.size)}
-            </span>
-          ))}
-        </div>
-      ))}
-    </div>
-  )
 }
 
 /** The work-item viewer. */
@@ -906,89 +771,115 @@ export function WorkItemViewer(): ReactElement {
   return (
     <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="ready" data-artifact-id={record.artifactId}>
       <header className="cwi-viewer-header">
-        <button
-          type="button"
-          className="cwi-back"
-          data-testid="cwi-back"
-          onClick={requestClose}
-          disabled={!canReturn}
-          title={canReturn ? '返回会话' : '当前宿主没有主区域布局服务'}
-        >
-          ← 返回会话
-        </button>
-        <span className="cwi-title" data-testid="cwi-title">{record.title}</span>
-        <span className="cwi-chip">{typeLabel(record.type)}</span>
-        <span className="cwi-status" data-testid="cwi-status">{ARTIFACT_STATUS_LABELS[record.status]}</span>
+        <div className="cwi-header-bar">
+          <button
+            type="button"
+            className="cwi-back"
+            data-testid="cwi-back"
+            onClick={requestClose}
+            disabled={!canReturn}
+            title={canReturn ? '返回会话' : '当前宿主没有主区域布局服务'}
+          >
+            <span className="cwi-back-icon" aria-hidden="true">←</span>
+            返回会话
+          </button>
+        </div>
+        <div className="cwi-title-row">
+          <h1 className="cwi-title" data-testid="cwi-title">{record.title}</h1>
+          <span className="cwi-chip cwi-type-chip">{typeLabel(record.type)}</span>
+          <span className="cwi-status" data-testid="cwi-status" data-status={record.status}>
+            {ARTIFACT_STATUS_LABELS[record.status]}
+          </span>
+          <span className="cwi-title-spacer" />
+          {record.status === 'confirmed' ? null : (
+            <button
+              type="button"
+              className="cwi-primary"
+              data-testid="cwi-confirm"
+              disabled={confirming}
+              onClick={() => { void confirmWork() }}
+            >
+              {confirming ? '确认中…' : '确认完成'}
+            </button>
+          )}
+          {data.file === null ? null : (
+            <button type="button" className="cwi-secondary" data-testid="cwi-edit" onClick={toggleEditing}>
+              {editing ? '退出编辑' : '编辑'}
+            </button>
+          )}
+        </div>
+        <div className="cwi-sub">
+          <span className="cwi-path" data-testid="cwi-primary-path">
+            {data.file === null
+              ? record.primaryPath
+              : fileSummary({ ...record.files[0], size: data.file.size })}
+          </span>
+          <span className="cwi-dot" aria-hidden="true" />
+          <span className="cwi-sub-fact">{revisionSummary(record.revision, record.commentCount, record.attachmentCount)}</span>
+          <span className="cwi-dot" aria-hidden="true" />
+          <span className="cwi-sub-fact">更新 {formatRelativeTime(record.updatedAt, now)}</span>
+          {activity === null ? null : (
+            <span className="cwi-live" data-tone={activity.tone} data-testid="cwi-activity">
+              <span className="cwi-live-dot" aria-hidden="true" />
+              {activity.label}
+            </span>
+          )}
+        </div>
       </header>
       <div className="cwi-toolbar">
-        <span className="cwi-path" data-testid="cwi-primary-path">{record.primaryPath}</span>
-        <span>{revisionSummary(record.revision, record.commentCount, record.attachmentCount)}</span>
-        {data.file === null ? null : <span>{fileSummary({ ...record.files[0], size: data.file.size })}</span>}
-        <span className="cwi-spacer" />
-        {activity === null ? null : (
-          <span className="cwi-chip" data-tone={activity.tone} data-testid="cwi-activity">{activity.label}</span>
-        )}
-        {record.status === 'confirmed' ? null : (
-          <button
-            type="button"
-            className="cwi-primary"
-            data-testid="cwi-confirm"
-            disabled={confirming}
-            onClick={() => { void confirmWork() }}
-          >
-            {confirming ? '确认中…' : '确认完成'}
-          </button>
-        )}
-        {data.file === null ? null : (
-          <button type="button" className="cwi-secondary" data-testid="cwi-edit" onClick={toggleEditing}>
-            {editing ? '退出编辑' : '编辑'}
-          </button>
-        )}
-        <span data-testid="cwi-save-state">{editing ? saveStateLabel(savePhase, data.file?.revision ?? record.revision) : '只读'}</span>
-      </div>
-      <div className="cwi-view-tabs" role="tablist" aria-label="工作项视图">
-        {(['document', 'versions', 'attachments'] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            role="tab"
-            className="cwi-view-tab"
-            data-testid="cwi-view-tab"
-            data-tab={tab}
-            data-active={viewTab === tab ? 'true' : 'false'}
-            aria-selected={viewTab === tab}
-            onClick={() => { setViewTab(tab) }}
-          >
-            {tab === 'document' ? '文档' : (tab === 'versions' ? '版本' : `附件${attachmentRows.length === 0 ? '' : ` ${String(attachmentRows.length)}`}`)}
-          </button>
-        ))}
+        <div className="cwi-view-tabs" role="tablist" aria-label="工作项视图">
+          {(['document', 'versions', 'attachments'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              className="cwi-view-tab"
+              data-testid="cwi-view-tab"
+              data-tab={tab}
+              data-active={viewTab === tab ? 'true' : 'false'}
+              aria-selected={viewTab === tab}
+              onClick={() => { setViewTab(tab) }}
+            >
+              {tab === 'document' ? '文档' : (tab === 'versions' ? '版本' : `附件${attachmentRows.length === 0 ? '' : ` ${String(attachmentRows.length)}`}`)}
+            </button>
+          ))}
+        </div>
         <span className="cwi-spacer" />
         {viewTab === 'document' && !editing ? (
           <button
             type="button"
-            className="cwi-secondary"
+            className="cwi-mode"
             data-testid="cwi-mode"
             data-mode={readMode ? 'read' : 'source'}
+            aria-pressed={readMode}
+            aria-label="切换阅读或源码视图"
+            title={readMode ? '切换到源码视图' : '切换到阅读视图'}
             onClick={() => { setReadMode(value => !value) }}
           >
-            {readMode ? '查看源码' : '阅读模式'}
+            <span className="cwi-mode-option" data-active={readMode ? 'true' : 'false'}>阅读</span>
+            <span className="cwi-mode-option" data-active={readMode ? 'false' : 'true'}>源码</span>
           </button>
         ) : null}
+        <span className="cwi-save" data-testid="cwi-save-state" data-phase={editing ? savePhase : 'readonly'}>
+          <span className="cwi-save-dot" aria-hidden="true" />
+          {editing ? saveStateLabel(savePhase, data.file?.revision ?? record.revision) : '只读'}
+        </span>
         <button
           type="button"
-          className="cwi-secondary"
+          className="cwi-rail-toggle"
           data-testid="cwi-rail-toggle"
           data-visible={showRail ? 'true' : 'false'}
+          aria-pressed={showRail}
           onClick={() => { setShowRail(value => !value) }}
         >
-          {showRail ? '隐藏批注' : '显示批注'}
+          批注{threads.length === 0 ? '' : ` ${String(threads.length)}`}
         </button>
       </div>
       {fileNotice === null ? null : (
         <div className="cwi-receipt" data-testid="cwi-file-notice">{fileNotice}</div>
       )}
       <div className="cwi-body">
-        <div className="cwi-content" data-testid="cwi-content">
+        <div className="cwi-content" data-testid="cwi-content" data-kind={kind} data-editing={String(editing)}>
           {sseNotice === null ? null : (
             <div className="cwi-receipt" data-testid="cwi-sse-notice">
               {sseNotice}{' '}
@@ -1028,6 +919,7 @@ export function WorkItemViewer(): ReactElement {
           <DocumentSurface
             kind={kind}
             file={data.file}
+            typeName={typeLabel(record.type)}
             visible={viewTab === 'document'}
             editing={editing}
             editDraft={editDraft}
@@ -1094,10 +986,19 @@ export function WorkItemViewer(): ReactElement {
         </div>
         <aside className="cwi-rail" data-testid="cwi-rail" hidden={!showRail}>
           <div className="cwi-rail-header" data-testid="cwi-thread-count">
-            {threads.length === 0 ? '还没有批注' : `${threads.length} 条批注线程`}
-            {data.commentsTruncated ? <span data-testid="cwi-comments-truncated"> · 仅载入最近 200 条</span> : null}
+            <span className="cwi-rail-title">批注</span>
+            <span className="cwi-count-pill">{threads.length}</span>
+            {data.commentsTruncated ? <span className="cwi-hint" data-testid="cwi-comments-truncated">仅最近 200 条</span> : null}
           </div>
+          {activity === null ? null : (
+            <div className="cwi-activity" data-tone={activity.tone} data-testid="cwi-activity-strip">
+              <span className="cwi-activity-dot" aria-hidden="true" />
+              <span className="cwi-activity-label">{activity.label}</span>
+              <span className="cwi-activity-hint">后台</span>
+            </div>
+          )}
           <div className="cwi-threads">
+            {threads.length === 0 ? <p className="cwi-rail-empty">还没有批注。选中行后点“批注”，或直接写整体批注。</p> : null}
             {threads.map((thread) => (
               <ThreadCard
                 key={thread.threadId}

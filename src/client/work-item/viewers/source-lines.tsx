@@ -7,7 +7,7 @@
  * number always addresses the stored bytes.
  */
 import type { ReactElement } from 'react'
-import { isSelected, markdownLine, type LineSelection } from '../model.ts'
+import { inlineMarkdown, isSelected, markdownLine, type LineSelection } from '../model.ts'
 
 /** Props of the numbered source view. */
 export interface SourceLinesProps {
@@ -23,23 +23,36 @@ export interface SourceLinesProps {
   readonly onPick: (line: number, extend: boolean) => void
 }
 
-/** One line's class and display text. */
+/** One line's class, row kind, and display text. */
 interface LineView {
   readonly className: string
+  readonly kind: string
   readonly text: string
 }
 
 /** Resolve one line's rendering without branching inside the React tree. */
 function lineView(text: string, markdown: boolean): LineView {
-  if (!markdown) return { className: 'cwi-line-text', text: text === '' ? ' ' : text }
+  if (!markdown) return { className: 'cwi-line-text', kind: 'source', text }
   const rendered = markdownLine(text)
   return {
     className: `cwi-line-text cwi-md-${rendered.kind}`,
-    text: rendered.text === '' ? ' ' : rendered.text,
+    kind: rendered.kind,
+    text: rendered.text,
   }
 }
 
-/** The anchor bullet, or nothing when the line has no open annotation. */
+/** Inline Markdown runs rendered as elements; no HTML is parsed. */
+function InlineText({ text }: { readonly text: string }): ReactElement {
+  return (
+    <>
+      {inlineMarkdown(text).map((run, index) => (run.kind === 'text'
+        ? run.text
+        : <span key={index} className={`cwi-inline-${run.kind}`}>{run.text}</span>))}
+    </>
+  )
+}
+
+/** The anchor marker, or nothing when the line has no open annotation. */
 function LinePin({ visible }: { readonly visible: boolean }): ReactElement | null {
   return visible
     ? <span className="cwi-line-pin" data-testid="cwi-line-pin" title="这一行有批注">●</span>
@@ -64,13 +77,16 @@ function SourceLine({ text, line, selection, anchored, markdown, onPick }: Sourc
       className="cwi-line"
       data-testid="cwi-line"
       data-line={line}
+      data-kind={markdown ? view.kind : undefined}
       data-selected={String(isSelected(selection, line))}
       data-anchored={String(anchored)}
       onClick={(event) => { onPick(line, event.shiftKey) }}
     >
       <span className="cwi-line-number">{line}</span>
       <LinePin visible={anchored} />
-      <span className={view.className}>{view.text}</span>
+      <span className={view.className}>
+        {markdown ? <InlineText text={view.text === '' ? ' ' : view.text} /> : (view.text === '' ? ' ' : view.text)}
+      </span>
     </div>
   )
 }
