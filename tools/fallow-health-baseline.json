@@ -6,6 +6,22 @@
         "count": 2
       }
     },
+    "scripts/ci/publish-heavy.mjs": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "scripts/evidence/e2e.mjs": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "src/app/apply.ts": {
       "crap_moderate": {
         "count": 1
@@ -59,7 +75,20 @@
         "count": 5
       }
     },
-    "src/dev/m12-e2e-evidence.ts": {
+    "src/client/work-item/editor.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/client/work-item/list.tsx": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/client/work-item/model.ts": {
       "complexity_high": {
         "count": 1
       },
@@ -67,18 +96,53 @@
         "count": 1
       }
     },
-    "src/dev/m12-e2e.ts": {
+    "src/client/work-item/panel.tsx": {
+      "complexity_critical": {
+        "count": 3
+      },
+      "crap_critical": {
+        "count": 7
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 11
+      }
+    },
+    "src/domains/artifact/anchor.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/domains/artifact/attachments.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/domains/artifact/merge.ts": {
       "complexity_critical": {
         "count": 2
       },
       "crap_critical": {
-        "count": 2
-      },
-      "crap_high": {
-        "count": 2
-      },
-      "crap_moderate": {
-        "count": 2
+        "count": 1
+      }
+    },
+    "src/domains/artifact/paths.ts": {
+      "complexity_moderate": {
+        "count": 1
       }
     },
     "src/domains/isolation/checkout-teardown.ts": {
@@ -122,20 +186,15 @@
       }
     },
     "src/domains/requests/authorization-decision.ts": {
-      "complexity_critical": {
+      "complexity_high": {
         "count": 1
       },
-      "crap_critical": {
+      "crap_high": {
         "count": 1
       }
     },
     "src/domains/requests/request-lifecycle.ts": {
       "complexity_high": {
-        "count": 1
-      }
-    },
-    "src/domains/requests/request-open.ts": {
-      "crap_moderate": {
         "count": 1
       }
     },
@@ -196,6 +255,55 @@
         "count": 2
       }
     },
+    "src/panel/artifact-api.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "src/platform/artifact-dispatch.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 5
+      }
+    },
+    "src/platform/artifact-events.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/platform/artifact-files.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/platform/artifact-presence.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "src/platform/llm-port.ts": {
       "crap_moderate": {
         "count": 1
@@ -208,6 +316,14 @@
     },
     "src/platform/workspace-repair.ts": {
       "complexity_high": {
+        "count": 1
+      }
+    },
+    "src/store/artifact-schema.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
         "count": 1
       }
     },
@@ -235,6 +351,14 @@
         "count": 1
       },
       "crap_moderate": {
+        "count": 3
+      }
+    },
+    "src/tools/artifact.ts": {
+      "complexity_critical": {
+        "count": 3
+      },
+      "crap_critical": {
         "count": 3
       }
     },
@@ -298,13 +422,105 @@
         "count": 1
       },
       "crap_high": {
-        "count": 2
+        "count": 1
       },
       "crap_moderate": {
         "count": 5
       }
     },
     "tests/domains/review/review-request-gate.test.mjs": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "tests/e2e/scenarios/artifact-chain.mjs": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tests/e2e/scenarios/live-artifact-chain.mjs": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tests/e2e/scenarios/master-chain.mjs": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tests/e2e/scenarios/review-merge.mjs": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "tests/e2e/scenarios/review-revision.mjs": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "tests/e2e/scenarios/topic-panel.mjs": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "tests/e2e/support/context.mjs": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "tests/e2e/support/host-client.mjs": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "tests/e2e/support/scripted-model.mjs": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "tests/e2e/support/turns.mjs": {
       "crap_moderate": {
         "count": 1
       }
@@ -317,12 +533,33 @@
         "count": 2
       }
     },
-    "tools/check-invariants.mjs": {
+    "tests/guards/heavy-comment.test.mjs": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "tests/guards/heavy-gate.test.mjs": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tests/guards/publish-gate.test.mjs": {
       "complexity_critical": {
-        "count": 3
+        "count": 1
       },
       "crap_critical": {
+        "count": 1
+      }
+    },
+    "tools/check-invariants.mjs": {
+      "complexity_critical": {
         "count": 4
+      },
+      "crap_critical": {
+        "count": 5
       },
       "crap_high": {
         "count": 3
@@ -345,6 +582,14 @@
         "count": 3
       }
     },
+    "tools/e2e-coverage.mjs": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 2
+      }
+    },
     "tools/m12-migration-drill.mjs": {
       "complexity_critical": {
         "count": 1
@@ -362,28 +607,46 @@
   },
   "runtime_coverage_findings": [],
   "target_keys": [
-    "src/domains/notices/notices.ts:complexity",
+    "tools/e2e-coverage.mjs:high impact",
+    "scripts/evidence/e2e.mjs:complexity",
+    "src/tools/artifact.ts:complexity",
+    "tools/coverage-gaps.mjs:high impact",
     "src/tools/route.ts:complexity",
-    "scripts/evidence/browser-panel.mjs:hidden coupling",
-    "src/client/panel.tsx:complexity",
-    "src/store/schema.ts:complexity",
-    "tools/check-invariants.mjs:complexity",
-    "src/domains/requests/request-schema.ts:high impact",
-    "src/domains/requests/request-lifecycle.ts:complexity",
+    "tests/e2e/scenarios/topic-panel.mjs:untested risk",
+    "src/store/artifact-schema.ts:high impact",
+    "tests/guards/e2e-coverage.test.mjs:hidden coupling",
     "scripts/evidence/client-coverage.mjs:high impact",
-    "src/client/api.ts:hidden coupling",
+    "src/domains/notices/notices.ts:complexity",
+    "tools/check-invariants.mjs:complexity",
+    "scripts/evidence/browser-panel.mjs:hidden coupling",
+    "tests/e2e/scenarios/master-chain.mjs:untested risk",
+    "src/domains/requests/request-schema.ts:high impact",
+    "src/client/work-item/panel.tsx:complexity",
+    "src/store/schema.ts:complexity",
+    "src/domains/requests/request-lifecycle.ts:complexity",
+    "src/client/panel.tsx:complexity",
+    "src/domains/artifact/anchor.ts:high impact",
     "scripts/evidence/coverage-check.mjs:high impact",
-    "src/domains/review/review-request.ts:complexity",
-    "src/panel/probe-model.ts:high impact",
-    "tools/doc-gate-engine.mjs:complexity",
-    "src/tools/review.ts:complexity",
+    "scripts/ci/publish-gate.mjs:hidden coupling",
+    "tests/e2e/scenarios/live-artifact-chain.mjs:untested risk",
+    "tests/e2e/scenarios/artifact-chain.mjs:untested risk",
+    "src/client/work-item/model.ts:complexity",
     "src/domains/requests/authorization-decision.ts:complexity",
+    "src/platform/artifact-presence.ts:high impact",
+    "src/domains/review/review-request.ts:complexity",
+    "src/tools/review.ts:complexity",
+    "src/client/api.ts:hidden coupling",
+    "tools/doc-gate-engine.mjs:complexity",
+    "src/domains/artifact/merge.ts:complexity",
     "tests/guards/architecture.test.mjs:untested risk",
+    "tests/guards/review-gate.test.mjs:hidden coupling",
     "src/client/model.ts:hidden coupling",
     "src/client/list.tsx:hidden coupling",
-    "src/dev/m12-e2e.ts:untested risk",
-    "tests/browser/coverage-map.test.mjs:hidden coupling",
+    "tests/browser/scenarios.mjs:hidden coupling",
     "src/platform/workspace-repair.ts:complexity",
+    "tests/browser/coverage-map.test.mjs:hidden coupling",
+    "tests/guards/publish-gate.test.mjs:hidden coupling",
+    "tests/guards/policy-v2-workflow.test.mjs:hidden coupling",
     "src/client/styles.ts:hidden coupling"
   ]
 }
