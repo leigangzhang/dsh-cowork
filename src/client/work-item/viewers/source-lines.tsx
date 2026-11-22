@@ -7,7 +7,7 @@
  * number always addresses the stored bytes.
  */
 import type { ReactElement } from 'react'
-import { inlineMarkdown, isSelected, markdownLine, type LineSelection } from '../model.ts'
+import { inlineMarkdown, isSelected, markdownLine, type LineSelection, type ThreadPin } from '../model.ts'
 
 /** Props of the numbered source view. */
 export interface SourceLinesProps {
@@ -17,6 +17,8 @@ export interface SourceLinesProps {
   readonly selection: LineSelection | null
   /** 1-based lines carrying an unresolved annotation. */
   readonly anchoredLines: ReadonlySet<number>
+  /** Anchored-line pins keyed by line; the ordinal is the rail's thread number. */
+  readonly pins: ReadonlyMap<number, ThreadPin>
   /** Render Markdown emphasis in the line text; source modes pass false. */
   readonly markdown: boolean
   /** Select one line; `extend` is the Shift-click range extension. */
@@ -52,11 +54,21 @@ function InlineText({ text }: { readonly text: string }): ReactElement {
   )
 }
 
-/** The anchor marker, or nothing when the line has no open annotation. */
-function LinePin({ visible }: { readonly visible: boolean }): ReactElement | null {
-  return visible
-    ? <span className="cwi-line-pin" data-testid="cwi-line-pin" title="这一行有批注">●</span>
-    : null
+/** The numbered anchor marker, or nothing when the line has no comment. */
+function LinePin({ pin }: { readonly pin: ThreadPin | undefined }): ReactElement | null {
+  return pin === undefined
+    ? null
+    : (
+        <span
+          className="cwi-line-pin"
+          data-testid="cwi-line-pin"
+          data-tone={pin.tone}
+          data-ordinal={pin.ordinal}
+          title={`第 ${String(pin.ordinal)} 条批注`}
+        >
+          {pin.ordinal}
+        </span>
+      )
 }
 
 /** Props of one rendered source line. */
@@ -65,12 +77,13 @@ interface SourceLineProps {
   readonly line: number
   readonly selection: LineSelection | null
   readonly anchored: boolean
+  readonly pin: ThreadPin | undefined
   readonly markdown: boolean
   readonly onPick: (line: number, extend: boolean) => void
 }
 
 /** One focusable line row. */
-function SourceLine({ text, line, selection, anchored, markdown, onPick }: SourceLineProps): ReactElement {
+function SourceLine({ text, line, selection, anchored, pin, markdown, onPick }: SourceLineProps): ReactElement {
   const view = lineView(text, markdown)
   return (
     <div
@@ -83,7 +96,7 @@ function SourceLine({ text, line, selection, anchored, markdown, onPick }: Sourc
       onClick={(event) => { onPick(line, event.shiftKey) }}
     >
       <span className="cwi-line-number">{line}</span>
-      <LinePin visible={anchored} />
+      <LinePin pin={pin} />
       <span className={view.className}>
         {markdown ? <InlineText text={view.text === '' ? ' ' : view.text} /> : (view.text === '' ? ' ' : view.text)}
       </span>
@@ -96,7 +109,7 @@ function SourceLine({ text, line, selection, anchored, markdown, onPick }: Sourc
  * @param props - lines, selection, anchors, and the pick handler.
  * @returns the scrollable line list.
  */
-export function SourceLines({ lines, selection, anchoredLines, markdown, onPick }: SourceLinesProps): ReactElement {
+export function SourceLines({ lines, selection, anchoredLines, pins, markdown, onPick }: SourceLinesProps): ReactElement {
   return (
     <div className="cwi-lines" data-testid="cwi-lines">
       {lines.map((text, index) => (
@@ -106,6 +119,7 @@ export function SourceLines({ lines, selection, anchoredLines, markdown, onPick 
           line={index + 1}
           selection={selection}
           anchored={anchoredLines.has(index + 1)}
+          pin={pins.get(index + 1)}
           markdown={markdown}
           onPick={onPick}
         />

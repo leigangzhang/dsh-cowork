@@ -274,6 +274,110 @@ export function anchorLine(anchor: ArtifactAnchor | null): number {
   return Number.MAX_SAFE_INTEGER
 }
 
+/** One line's pin: the thread ordinal and the state that colours it. */
+export interface ThreadPin {
+  readonly ordinal: number
+  readonly tone: 'open' | 'stale' | 'resolved'
+}
+
+/** Thread ordinal by thread id, numbered in the rail's sorted order. */
+export function threadOrdinals(threads: readonly WorkItemThread[]): ReadonlyMap<string, number> {
+  return new Map(threads.map((thread, index) => [thread.threadId, index + 1]))
+}
+
+/**
+ * The pin shown on each anchored line.
+ *
+ * A line keeps the first thread that starts there; later threads on the same
+ * line still appear in the rail and in the footer. Threads without a line
+ * anchor get no pin.
+ * @param threads - threads in rail order, so ordinals match the anchor chips.
+ * @returns one pin per anchored line.
+ */
+export function threadLinePins(threads: readonly WorkItemThread[]): ReadonlyMap<number, ThreadPin> {
+  const pins = new Map<number, ThreadPin>()
+  threads.forEach((thread, index) => {
+    if (thread.anchor === null || thread.anchor.kind !== 'line-range') return
+    const line = thread.anchor.startLine
+    if (pins.has(line)) return
+    const tone = thread.resolved ? 'resolved' : (thread.anchorStatus === 'stale' ? 'stale' : 'open')
+    pins.set(line, { ordinal: index + 1, tone })
+  })
+  return pins
+}
+
+/** Elapsed time in the demo's activity form: `18 秒`, `3 分钟`, `2 小时`, `4 天`. */
+export function formatElapsed(iso: string, now: Date): string {
+  const time = Date.parse(iso)
+  if (Number.isNaN(time)) return ''
+  const seconds = Math.max(0, Math.floor((now.getTime() - time) / 1000))
+  if (seconds < 60) return `${String(seconds)} 秒`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${String(minutes)} 分钟`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${String(hours)} 小时`
+  return `${String(Math.floor(hours / 24))} 天`
+}
+
+/** Local wall-clock time as `HH:mm`; invalid input renders an empty string. */
+export function formatClock(iso: string): string {
+  const time = Date.parse(iso)
+  if (Number.isNaN(time)) return ''
+  const date = new Date(time)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+/** Delivery state as the thread state row phrases it. */
+export function dispatchDetailLabel(state: DispatchState): string {
+  if (state === 'thinking') return '已送达 · 模型思考中'
+  if (state === 'working') return '模型改文件中'
+  return dispatchLabel(state)
+}
+
+/** The thread that carried one dispatch batch, if it is in the rail. */
+export function threadForDispatch(
+  dispatchId: string,
+  dispatches: readonly ArtifactDispatchSummary[],
+  threads: readonly WorkItemThread[],
+): WorkItemThread | null {
+  const dispatch = dispatches.find((entry) => entry.dispatchId === dispatchId)
+  if (dispatch === undefined) return null
+  const commentIds = new Set(dispatch.commentIds)
+  return threads.find((thread) => thread.comments.some((event) => commentIds.has(event.commentId))) ?? null
+}
+
+/**
+ * The viewer footer's delivery line: replied ordinals, in-flight batches, and
+ * anchors whose position moved.
+ * @param threads - threads in rail order, so ordinals match the anchor chips.
+ * @param dispatches - the detail response's newest batch per thread.
+ * @returns a `·` separated summary, or `还没有模型回复`.
+ */
+export function deliverySummary(
+  threads: readonly WorkItemThread[],
+  dispatches: readonly ArtifactDispatchSummary[],
+): string {
+  const replied: string[] = []
+  const active: string[] = []
+  const stale: string[] = []
+  threads.forEach((thread, index) => {
+    const ordinal = `#${String(index + 1)}`
+    if (thread.anchorStatus === 'stale') {
+      stale.push(ordinal)
+      return
+    }
+    const dispatch = dispatchForThread(thread, dispatches)
+    if (dispatch === null) return
+    if (dispatch.state === 'replied') replied.push(ordinal)
+    else active.push(`${ordinal} ${DISPATCH_STATE_LABELS[dispatch.state]}`)
+  })
+  const parts: string[] = []
+  if (replied.length > 0) parts.push(`模型已回复 ${replied.join('、')}`)
+  if (active.length > 0) parts.push(active.join('、'))
+  if (stale.length > 0) parts.push(`${stale.join('、')} 位置待确认`)
+  return parts.length === 0 ? '还没有模型回复' : parts.join(' · ')
+}
+
 /** One anchor's display label, e.g. `第 3–5 行` or `整份文件`. */
 export function anchorLabel(anchor: ArtifactAnchor | null): string {
   if (anchor === null) return '整份工作项'

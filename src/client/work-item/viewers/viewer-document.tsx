@@ -15,7 +15,7 @@ import type { ReactElement } from 'react'
 import type { ArtifactFileResponse } from '../../../panel/artifact-contract.js'
 import type { SaveConflict } from '../api.ts'
 import { TextEditor } from '../editor.tsx'
-import { formatBytes, type LineSelection } from '../model.ts'
+import { formatBytes, type LineSelection, type ThreadPin } from '../model.ts'
 import { CanvasSurface } from './canvas.tsx'
 import { editorLanguage, readSurfaceKind, sourceLinesMarkdown, type ViewerKind } from './document.ts'
 import { DiagramView } from './diagram.tsx'
@@ -40,11 +40,44 @@ export interface DocumentSurfaceProps {
   readonly selection: LineSelection | null
   readonly lines: readonly string[]
   readonly anchoredLines: ReadonlySet<number>
+  readonly pins: ReadonlyMap<number, ThreadPin>
+  readonly attachments: readonly PaperAttachment[]
   readonly onChangeDraft: (content: string) => void
   readonly onSaveDraft: () => void
   readonly onAnnotate: () => void
   readonly onClearSelection: () => void
   readonly onPickLine: (line: number, extend: boolean) => void
+}
+
+/** One attachment chip in the file strip or paper foot. */
+export interface PaperAttachment {
+  readonly name: string
+  readonly mediaType: string
+}
+
+/** The first two attachment names plus an overflow count. */
+function attachmentChips(attachments: readonly PaperAttachment[]): {
+  readonly shown: readonly PaperAttachment[]
+  readonly overflow: number
+} {
+  return { shown: attachments.slice(0, 2), overflow: Math.max(0, attachments.length - 2) }
+}
+
+/** Attachment chips rendered in the paper head and foot. */
+function AttachmentChips({ attachments }: { readonly attachments: readonly PaperAttachment[] }): ReactElement | null {
+  if (attachments.length === 0) return null
+  const { shown, overflow } = attachmentChips(attachments)
+  return (
+    <span className="cwi-attach-chips" data-testid="cwi-paper-attachments">
+      {shown.map((attachment) => (
+        <span key={attachment.name} className="cwi-attach-chip" title={attachment.name}>
+          <span className="cwi-attach-dot" data-type={attachment.mediaType.startsWith('image/') ? 'image' : 'file'} aria-hidden="true" />
+          {attachment.name}
+        </span>
+      ))}
+      {overflow === 0 ? null : <span className="cwi-attach-chip">+{overflow}</span>}
+    </span>
+  )
 }
 
 /** The last path segment, which is what the paper head names. */
@@ -68,10 +101,11 @@ function fileBadge(kind: ViewerKind): string {
 }
 
 /** The file strip above a paper surface. */
-function FileHead({ kind, file, typeName }: {
+function FileHead({ kind, file, typeName, attachments }: {
   readonly kind: ViewerKind
   readonly file: ArtifactFileResponse
   readonly typeName: string
+  readonly attachments: readonly PaperAttachment[]
 }): ReactElement {
   return (
     <div className="cwi-paper-head" data-testid="cwi-file-head">
@@ -79,6 +113,7 @@ function FileHead({ kind, file, typeName }: {
       <span className="cwi-file-name" title={file.path}>{baseName(file.path)}</span>
       <span className="cwi-file-meta">{typeName} · r{file.revision}</span>
       <span className="cwi-paper-spacer" />
+      <AttachmentChips attachments={attachments} />
       <span className="cwi-file-meta">{formatBytes(file.size)}</span>
     </div>
   )
@@ -89,17 +124,20 @@ interface PaperProps {
   readonly kind: ViewerKind
   readonly file: ArtifactFileResponse | null
   readonly typeName: string
+  readonly attachments: readonly PaperAttachment[]
   readonly children: ReactElement | readonly ReactElement[]
   readonly footer?: string | undefined
 }
 
 /** The centred document card shared by text, diagram, and source surfaces. */
-function Paper({ kind, file, typeName, children, footer }: PaperProps): ReactElement {
+function Paper({ kind, file, typeName, attachments, children, footer }: PaperProps): ReactElement {
   return (
     <section className="cwi-paper" data-testid="cwi-paper">
-      {file === null ? null : <FileHead kind={kind} file={file} typeName={typeName} />}
+      {file === null ? null : <FileHead kind={kind} file={file} typeName={typeName} attachments={attachments} />}
       <div className="cwi-paper-body">{children}</div>
       <div className="cwi-paper-foot">
+        <AttachmentChips attachments={attachments} />
+        <span className="cwi-paper-spacer" />
         <span className="cwi-paper-hint">{footer ?? '选中行后可直接批注 · 模型回复会挂到批注上'}</span>
       </div>
     </section>
@@ -111,6 +149,7 @@ function EditorSurface({
   kind,
   file,
   typeName,
+  attachments,
   editDraft,
   canvasBroken,
   canvasReset,
@@ -124,6 +163,7 @@ function EditorSurface({
   | 'kind'
   | 'file'
   | 'typeName'
+  | 'attachments'
   | 'editDraft'
   | 'canvasBroken'
   | 'canvasReset'
@@ -139,7 +179,7 @@ function EditorSurface({
     return <CanvasSurface key={sceneKey} content={editDraft} editable sceneKey={sceneKey} onChange={onChangeDraft} />
   }
   return (
-    <Paper kind={kind} file={file} typeName={typeName} footer="编辑中：失焦或退出编辑时保存，冲突时停在同一版本">
+    <Paper kind={kind} file={file} typeName={typeName} attachments={attachments} footer="编辑中：失焦或退出编辑时保存，冲突时停在同一版本">
       <div className="cwi-editor-paper">
         <TextEditor
           value={editDraft}
@@ -160,11 +200,12 @@ function SourceSurface({
   selection,
   lines,
   anchoredLines,
+  pins,
   markdown,
   onAnnotate,
   onClearSelection,
   onPickLine,
-}: Pick<DocumentSurfaceProps, 'selection' | 'lines' | 'anchoredLines' | 'onAnnotate' | 'onClearSelection' | 'onPickLine'> & {
+}: Pick<DocumentSurfaceProps, 'selection' | 'lines' | 'anchoredLines' | 'pins' | 'onAnnotate' | 'onClearSelection' | 'onPickLine'> & {
   readonly markdown: boolean
 }): ReactElement {
   return (
@@ -187,6 +228,7 @@ function SourceSurface({
         lines={lines}
         selection={selection}
         anchoredLines={anchoredLines}
+        pins={pins}
         markdown={markdown}
         onPick={onPickLine}
       />
@@ -199,6 +241,8 @@ function ReadSurface({
   kind,
   file,
   typeName,
+  attachments,
+  pins,
   readMode,
   selection,
   lines,
@@ -210,6 +254,8 @@ function ReadSurface({
   | 'kind'
   | 'file'
   | 'typeName'
+  | 'attachments'
+  | 'pins'
   | 'readMode'
   | 'selection'
   | 'lines'
@@ -222,7 +268,7 @@ function ReadSurface({
   // `readSurfaceKind` only returns a renderer when the file exists.
   if (surface === 'diagram') {
     return (
-      <Paper kind={kind} file={file} typeName={typeName} footer="图表按文本保存 · 切到源码修改 Mermaid 文本">
+      <Paper kind={kind} file={file} typeName={typeName} attachments={attachments} footer="图表按文本保存 · 切到源码修改 Mermaid 文本">
         <div className="cwi-figure" data-testid="cwi-figure">
           <DiagramView source={file!.content} />
         </div>
@@ -239,6 +285,7 @@ function ReadSurface({
       kind={kind}
       file={file}
       typeName={typeName}
+      attachments={attachments}
       footer={sourceLinesMarkdown(kind, readMode)
         ? '选中行后可直接批注 · 模型回复会挂到批注上'
         : '源码按行展示 · 选中行后可直接批注'}
@@ -247,6 +294,7 @@ function ReadSurface({
         selection={selection}
         lines={lines}
         anchoredLines={anchoredLines}
+        pins={pins}
         markdown={sourceLinesMarkdown(kind, readMode)}
         onAnnotate={onAnnotate}
         onClearSelection={onClearSelection}

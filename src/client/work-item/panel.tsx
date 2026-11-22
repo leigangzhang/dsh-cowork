@@ -53,6 +53,13 @@ import {
   type SavePhase,
   type WorkItemThread,
   dispatchForThread,
+  dispatchDetailLabel,
+  deliverySummary,
+  formatClock,
+  formatElapsed,
+  threadForDispatch,
+  threadLinePins,
+  threadOrdinals,
 } from './model.ts'
 import { workItemOpenStore } from './store.ts'
 import { ThreadCard } from './thread-card.tsx'
@@ -127,6 +134,8 @@ export function WorkItemViewer(): ReactElement {
   const [showConflictDiff, setShowConflictDiff] = useState(false)
   const [backArmed, setBackArmed] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentRefV1[]>([])
+  const [onlyPending, setOnlyPending] = useState(false)
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [sseNotice, setSseNotice] = useState<string | null>(null)
   const [sseToken, setSseToken] = useState(0)
@@ -140,6 +149,13 @@ export function WorkItemViewer(): ReactElement {
   const dirty = editing && data !== null && data.file !== null && editDraft !== savedContent
   const layout = services.layout
   const canReturn = layout !== undefined && typeof layout.selectPanel === 'function'
+
+  // Relative times and activity ages stay current without a data refresh.
+  useEffect(() => {
+    if (data === null) return
+    const timer = window.setInterval(() => { setNow(new Date()) }, 30_000)
+    return () => { window.clearInterval(timer) }
+  }, [data])
 
   const close = useCallback(() => {
     workItemOpenStore.close()
@@ -176,6 +192,7 @@ export function WorkItemViewer(): ReactElement {
       setDraft('')
       setReplyTarget(null)
       setPendingAttachments([])
+      setSelectedThreadId(null)
       setBackArmed(false)
     }
     let active = true
@@ -401,7 +418,6 @@ export function WorkItemViewer(): ReactElement {
   const requestClose = useCallback(() => {
     if (editing && dirty && !backArmed) {
       setBackArmed(true)
-      setReceipt('还有未保存内容：再点一次返回会关闭查看器')
       return
     }
     persistDraft()
@@ -570,7 +586,25 @@ export function WorkItemViewer(): ReactElement {
 
   const lines = useMemo(() => contentLines(data?.file?.content ?? ''), [data?.file?.content])
   const threads = useMemo(() => sortThreads(foldThreads(data?.events ?? [])), [data?.events])
+  const ordinals = useMemo(() => threadOrdinals(threads), [threads])
+  const linePins = useMemo(() => threadLinePins(threads), [threads])
+  const visibleThreads = useMemo(
+    () => (onlyPending ? threads.filter((thread) => !thread.resolved) : threads),
+    [threads, onlyPending],
+  )
+  const activeThread = useMemo(
+    () => (data?.record.activeDispatch == null
+      ? null
+      : threadForDispatch(data.record.activeDispatch.dispatchId, data.dispatches, threads)),
+    [data?.record.activeDispatch, data?.dispatches, threads],
+  )
+  const activeOrdinal = activeThread === null ? null : ordinals.get(activeThread.threadId) ?? null
+  const footerSummary = useMemo(
+    () => (data === null ? '' : deliverySummary(threads, data.dispatches)),
+    [data, threads],
+  )
   const focusThread = useCallback((thread: WorkItemThread) => {
+    setSelectedThreadId(thread.threadId)
     const anchor = thread.anchor
     if (anchor === null || anchor.kind !== 'line-range') return
     setViewTab('document')
@@ -653,6 +687,7 @@ export function WorkItemViewer(): ReactElement {
       setReplyTarget(current => clearIfUnchanged(current, submitted.reply, null))
       setSelection(current => clearIfUnchanged(current, submitted.selection, null))
       setPendingAttachments(current => clearIfUnchanged(current, submitted.attachments, []))
+      setSelectedThreadId(response.comment.threadId)
       setReceipt(response.dispatchError === null
         ? '评论已提交'
         : `评论已保存，但投递失败：${response.dispatchError.message}`)
@@ -664,6 +699,7 @@ export function WorkItemViewer(): ReactElement {
   }, [context, data, draft, pendingAnchor, pendingAttachments, replyTarget, selection, submitting])
 
   const startReply = useCallback((thread: WorkItemThread) => {
+    setSelectedThreadId(thread.threadId)
     setReplyTarget(thread)
     setPendingAnchor(null)
     setSelection(null)
@@ -878,6 +914,9 @@ export function WorkItemViewer(): ReactElement {
       {fileNotice === null ? null : (
         <div className="cwi-receipt" data-testid="cwi-file-notice">{fileNotice}</div>
       )}
+      {backArmed
+        ? <div className="cwi-receipt" data-testid="cwi-unsaved-notice">还有未保存内容：再点一次返回会关闭查看器</div>
+        : null}
       <div className="cwi-body">
         <div className="cwi-content" data-testid="cwi-content" data-kind={kind} data-editing={String(editing)}>
           {sseNotice === null ? null : (
@@ -933,6 +972,8 @@ export function WorkItemViewer(): ReactElement {
             selection={selection}
             lines={lines}
             anchoredLines={anchoredLines}
+            pins={linePins}
+            attachments={attachmentRows}
             onChangeDraft={(content) => { setEditDraft(content); setBackArmed(false) }}
             onSaveDraft={() => { void saveDraft() }}
             onAnnotate={annotate}
@@ -986,27 +1027,54 @@ export function WorkItemViewer(): ReactElement {
         </div>
         <aside className="cwi-rail" data-testid="cwi-rail" hidden={!showRail}>
           <div className="cwi-rail-header" data-testid="cwi-thread-count">
-            <span className="cwi-rail-title">批注</span>
-            <span className="cwi-count-pill">{threads.length}</span>
-            {data.commentsTruncated ? <span className="cwi-hint" data-testid="cwi-comments-truncated">仅最近 200 条</span> : null}
+            <div className="cwi-rail-head-row">
+              <span className="cwi-rail-title">批注</span>
+              <span className="cwi-count-pill">{threads.length}</span>
+              <span className="cwi-rail-spacer" />
+              <span className="cwi-rail-sort">按位置排序</span>
+            </div>
+            <div className="cwi-rail-tools">
+              <label className="cwi-switch">
+                <input
+                  type="checkbox"
+                  data-testid="cwi-rail-pending-filter"
+                  checked={onlyPending}
+                  onChange={(event) => { setOnlyPending(event.target.checked) }}
+                />
+                <span className="cwi-switch-track" aria-hidden="true"><span className="cwi-switch-thumb" /></span>
+                只看待处理
+              </label>
+              {data.commentsTruncated ? <span className="cwi-hint" data-testid="cwi-comments-truncated">仅最近 200 条</span> : null}
+            </div>
           </div>
-          {activity === null ? null : (
-            <div className="cwi-activity" data-tone={activity.tone} data-testid="cwi-activity-strip">
+          {record.activeDispatch === null ? null : (
+            <div className="cwi-activity" data-tone={activity?.tone ?? 'active'} data-testid="cwi-activity-strip">
               <span className="cwi-activity-dot" aria-hidden="true" />
-              <span className="cwi-activity-label">{activity.label}</span>
-              <span className="cwi-activity-hint">后台</span>
+              <span className="cwi-activity-label">
+                模型正在处理{activeOrdinal === null ? '' : ` #${String(activeOrdinal)}`}：{dispatchDetailLabel(record.activeDispatch.state)}
+              </span>
+              <span className="cwi-activity-age">{formatElapsed(record.activeDispatch.updatedAt, now)}</span>
             </div>
           )}
           <div className="cwi-threads">
-            {threads.length === 0 ? <p className="cwi-rail-empty">还没有批注。选中行后点“批注”，或直接写整体批注。</p> : null}
-            {threads.map((thread) => (
+            {visibleThreads.length === 0
+              ? (
+                  <p className="cwi-rail-empty">
+                    {onlyPending ? '没有待处理的批注。' : '还没有批注。选中行后点“批注”，或直接写整体批注。'}
+                  </p>
+                )
+              : null}
+            {visibleThreads.map((thread) => (
               <ThreadCard
                 key={thread.threadId}
                 thread={thread}
+                ordinal={ordinals.get(thread.threadId) ?? 1}
+                selected={selectedThreadId === thread.threadId}
                 now={now}
                 pending={pendingThread === thread.threadId}
                 dispatch={dispatchForThread(thread, data.dispatches)}
                 retrying={pendingDispatch !== null}
+                onSelect={(selected) => { setSelectedThreadId(selected.threadId) }}
                 onToggle={toggleThread}
                 onReply={startReply}
                 onRetry={(dispatch) => { void retryDispatch(dispatch) }}
@@ -1020,6 +1088,7 @@ export function WorkItemViewer(): ReactElement {
             ))}
           </div>
           <div className="cwi-composer">
+            <p className="cwi-composer-lead">在文档中选择行后批注；也可以直接评论整份文档。</p>
             {replyTarget === null ? null : (
               <div className="cwi-thread-meta" data-testid="cwi-reply-target">
                 <span>回复 {anchorLabel(replyTarget.anchor)} 的批注</span>
@@ -1093,6 +1162,13 @@ export function WorkItemViewer(): ReactElement {
           </div>
         </aside>
       </div>
+      <footer className="cwi-viewer-foot" data-testid="cwi-viewer-footer">
+        <span className="cwi-foot-summary">{footerSummary}</span>
+        <span className="cwi-foot-spacer" />
+        <span className="cwi-foot-meta">内容版本 r{data.file?.revision ?? record.revision}</span>
+        <span className="cwi-foot-dot" aria-hidden="true" />
+        <span className="cwi-foot-meta">更新于 {formatClock(record.updatedAt)}</span>
+      </footer>
     </div>
   )
 }

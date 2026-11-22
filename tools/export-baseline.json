@@ -40,6 +40,7 @@
     "DELIVERY_DEFAULT_MAX_ATTEMPTS",
     "diffHunks",
     "DISPATCH_STATES",
+    "dispatchLabel",
     "emptyDelivery",
     "estimateTokens",
     "FixtureTopicNoticePort",
