@@ -17,7 +17,7 @@ Class: process
 - `tools/fallow-health-baseline.json` 由 fallow 3.43.0 在 main `c9f7e84` 上重新生成。旧基线覆盖 184 条超阈值 finding 中的 101 条；83 条未覆盖的 finding 全部在 PR #74 的 base `6413911` 上已存在，没有一条由 #74/#78 引入。逐条审阅的分类接受理由、12 条 stale 条目的处理与基线计数变化见 [结果记录](../../../../docs/handoff/WORK_ITEM_HEALTH_RESULT.md)。没有改阈值、源码行为或 `.fallowrc.jsonc` 的 ignore。
 - `package.json` 精确固定 `devDependencies.fallow = 3.43.0`；lockfile 只新增 fallow、`detect-libc` 与 8 个平台 optional dependency，共 154 行，全部从 `https://registry.npmjs.org/` 解析。新增 `fallow:health` 与 `fallow:audit` 脚本，本地和 CI 跑同一命令。
 - `.github/workflows/ci.yml` 新增独立 `code-health` job，只在非 docs-only 的 PR 上运行：`npm ci` → 用 merge-base 解析 PR 的 base sha → `npm run --silent fallow:audit -- --base <sha> --format json` → `scripts/ci/fallow-gate.mjs` 断言 JSON 计数 → `npm run fallow:health`。`pr-gate` 把 `code-health` 列为必需 lane，并像 `unit` 一样拒绝 docs-only 变更里意外运行的 lane。
-- 必须解析 JSON 而不能只看 exit code：fallow 3.43.0 会把部分 warn 级 line-count 增长记入 `attribution.complexity_worsened` 但仍以 0 退出；`scripts/ci/fallow-gate.mjs` 断言 `complexity_introduced` 与 `complexity_worsened` 都为 0，并把报告绑定到 base、head（接受 fallow 输出的短 SHA 前缀）和固定 CLI 版本。
+- CI 不把 audit 的退出码当作唯一证据：`scripts/ci/fallow-gate.mjs` 直接断言 `complexity_introduced` 与 `complexity_worsened` 都为 0，并把报告绑定到 base、head（接受 fallow 输出的短 SHA 前缀）和固定 CLI 版本；退出码是汇总结果，无法证明报告对应的比较点、检出和 CLI 版本。
 - 本次不启用 `--fail-on-baseline-growth`：它要求 head 的基线键在 base 上已存在，而这次维护 PR 的任务恰好是新增键，启用会让迁移本身失败。迁移落地后可以在后续 PR 中评估。
 
 ## Alternatives considered

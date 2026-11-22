@@ -146,9 +146,9 @@ jobs:
           --base "${{ steps.base.outputs.sha }}"
           --format json > "$RUNNER_TEMP/fallow-audit.json"
 
-      # The exit code alone is insufficient: fallow 3.43.0 can record a
-      # warn-level line-count regression in `complexity_worsened` while still
-      # exiting 0, so the JSON counters are the gate.
+      # The exit code is a coarse aggregate; assert the attribution counters
+      # explicitly and bind the report to the compared commits and the pinned
+      # CLI version, which the exit code alone cannot prove.
       - name: Require zero introduced and worsened complexity
         run: >-
           node scripts/ci/fallow-gate.mjs

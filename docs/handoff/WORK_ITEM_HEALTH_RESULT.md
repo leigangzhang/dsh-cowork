@@ -38,7 +38,7 @@
 | `scripts/` | 3 | 1 | 0 | 2 |
 | `src/store` | 1 | 0 | 1 | 0 |
 
-- 其中最大的几条：`WorkItemViewer`（967 行，CC 65）、`runTopicPanel`（CC 66）、`scripts/evidence/e2e.mjs` 的 `main`（265 行，CC 61）、`e2eManifestProblems`（CC 52）、`runArtifactChain`（220 行，CC 51）。这五条在 `6413911` 上已存在。
+- 其中最大的几条：`src/client/work-item/panel.tsx` 的 `WorkItemViewer`（967 行，CC 65）、`tests/e2e/scenarios/topic-panel.mjs` 的 `runTopicPanel`（CC 66）、`scripts/evidence/e2e.mjs` 的 `main`（265 行，CC 61）、`tools/e2e-coverage.mjs` 的 `e2eManifestProblems`（CC 52）、`tests/e2e/scenarios/artifact-chain.mjs` 的 `runArtifactChain`（220 行，CC 51）。这五条在 `6413911` 上已存在。
 
 ### 分类接受理由
 
@@ -52,15 +52,16 @@
 
 ### 12 条 stale 条目
 
-旧基线的 12 条 stale 条目（共 13 个计数，其中 `src/tools/topic.ts` 的 `crap_high` 只从 2 降到 1）逐条核对如下：
+旧基线的 12 条 stale 条目就是 12 个文件×类别计数（`fallow health --baseline` 的 `stale_entries` 口径）；逐条核对如下：
 
-| 文件 | 旧计数 | 处理 |
+| 文件 | 失效计数 | 处理 |
 |---|---|---|
 | `src/dev/m12-e2e-evidence.ts` | `complexity_moderate` 1、`complexity_high` 1 | 文件在 `c9e06fc` 退役，条目删除 |
 | `src/dev/m12-e2e.ts` | `complexity_critical` 2、`crap_critical` 2、`crap_high` 2、`crap_moderate` 2 | 同一退役提交删除，条目删除 |
 | `src/domains/requests/request-open.ts` | `crap_moderate` 1 | `resolveOpenableFile` 不再超阈值，条目删除 |
-| `src/tools/topic.ts` | `crap_high` 2 | `requestAuthorization` 从 high 降到 moderate，保留 1 个计数 |
-| `tests/domains/review/review-request-gate.test.mjs` | `crap_moderate` 1 | `runGit` 变为 high（cognitive + CRAP），旧 moderate 条目失效；新 finding 进入本轮审阅并接受 |
+| `src/tools/topic.ts` | `crap_high` 1（旧计数 2） | `requestAuthorization` 从 high 降到 moderate，保留 1 个计数 |
+
+`tests/domains/review/review-request-gate.test.mjs` 的旧 `crap_moderate` 计数不算 stale：移除该条目后 `matched_entries` 从 145 降到 144、`stale_entries` 仍为 12，说明当前 `runGit` 的高严重度 finding 仍被 health 计入该类别；新 high finding 进入本轮审阅并接受。`fallow baselines prune` 按精确类别修剪，会额外删掉这条 1 个计数，但 health 的 stale 判定以 12 为准。
 
 ### 基线变化
 
@@ -70,7 +71,7 @@
 | 文件×类别计数 | 157 | 254 |
 | target key | 23 | 41 |
 
-剪掉 13 个 stale 计数、增加 110 个计数后，新基线覆盖全部 184 条 finding，`fallow health --baseline` 退出 0。逐条核对的 83 条 finding 与分类理由如上；target key 从 23 增加到 41（fallow 生成的重构目标标识），随同一次刷新保存。
+剪掉 12 个 stale 计数、增加 109 个计数后，新基线覆盖全部 184 条 finding，`fallow health --baseline` 退出 0。逐条核对的 83 条 finding 与分类理由如上；target key 从 23 增加到 41（fallow 生成的重构目标标识），随同一次刷新保存。
 
 ## P3 — CI 强制
 
@@ -80,7 +81,7 @@ P3 改变了「fallow 只做本地信号」的历史决策，新增 [decision re
 - `package-lock.json` 只新增 154 行：fallow、`detect-libc` 与 8 个平台 optional dependency，`resolved` 全部指向 `https://registry.npmjs.org/`。
 - `.github/workflows/ci.yml` 新增独立 `code-health` job，只在非 docs-only 的 PR 上运行。步骤：`npm ci` → `git merge-base` 解析 PR 的 base sha → `npm run --silent fallow:audit -- --base <sha> --format json` → `node scripts/ci/fallow-gate.mjs` → `npm run fallow:health`。`pr-gate` 把 `code-health` 纳入必需 lane，并像 `unit` 一样拒绝 docs-only 变更里意外运行的 lane。
 - `scripts/ci/fallow-gate.mjs` 断言 `attribution.complexity_introduced` 与 `complexity_worsened` 都为 0，并把报告绑定到 kind、CLI 版本（默认读 `package.json` 的 pin）、base 和 head（接受 fallow 输出的短 SHA 前缀）。负例在 `tests/guards/fallow-gate.test.mjs`，job 结构断言在 `tests/guards/ci-workflow.test.mjs`。
-- `--worsened error` 仍是 audit 的失败条件；JSON 断言补上退出码看不到的 warn 级 line-count 增长。health 对 stale 条目仍只警告：启用 `--fail-on-stale-baseline` 会让「删除函数」的普通 PR 变红，与「只在维护 PR 刷新基线」冲突。
+- `--worsened error` 仍是 audit 的失败条件；JSON 断言直接读取 `complexity_introduced` 与 `complexity_worsened`，并把报告绑定到 base、head 与固定 CLI 版本——退出码是汇总结果，无法证明报告对应的比较身份。health 对 stale 条目仍只警告：启用 `--fail-on-stale-baseline` 会让「删除函数」的普通 PR 变红，与「只在维护 PR 刷新基线」冲突。
 - `--baseline-mode identity` 已评估并否决：按函数身份匹配会让每次拆分或重命名都要求刷新基线；变更级回归继续由 `fallow audit` 的 introduced/worsened 覆盖。`--fail-on-baseline-growth` 本次不启用，因为维护 PR 的任务就是新增基线键，启用会让迁移本身失败。
 
 ## 验收
