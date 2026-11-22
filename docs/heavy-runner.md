@@ -5,7 +5,7 @@
 ## 前提
 
 - heavy 有三个入口：同仓库 `agent/*` PR 的 CI 成功后由 `workflow_run` 自动触发，维护者给同仓库 PR 加 `heavy` label，或用 `workflow_dispatch` 手动触发。fork PR 永远跳过 self-hosted job。
-- workflow 在目标 `HEAD_SHA` 上发布 `heavy-gate` commit status 和 `heavy-gate-result` display check；`heavy-result.json` 记录 head、base、current main、diff SHA-256、porcelain 和每个命令的退出码。
+- workflow 在目标 `HEAD_SHA` 上发布 `heavy-gate` commit status 和 `heavy-gate-result` display check；`heavy-result.json` 记录 head、base、current main、diff SHA-256、porcelain、每个命令的退出码，以及观测性 coverage gap 报告的有界文本。
 - 结果 publisher、pre-run 身份记录和 docs-only classifier 都从本地 checkout 的 `refs/remotes/origin/main` 导出到临时目录后执行，不执行 PR checkout 里的同名脚本；PR checkout 只用于测试命令和 git 身份读取。
 - `gate-artifact` 现在是唯一 required context；docs-only PR 豁免 heavy，其他 PR 需要同 head 的 `heavy-gate` success 才能通过。
 - ruleset 仍不直接要求 `heavy-gate`。它是 `gate-artifact` 的输入，不是第二个 required check。
@@ -59,13 +59,15 @@ gh api "repos/leigangzhang/dsh-cowork/commits/$HEAD_SHA/check-runs" \
 
 `heavy-result.json` 在 runner workspace 中生成、被 `.gitignore` 忽略；workflow 的 `Show coverage evidence` 步骤会把内容打印到日志。不要提交这个文件，也不要把它当 release evidence。
 
-## PR 摘要评论
+## PR 摘要与 gap 评论
 
 `Heavy Comment` workflow 在 `Heavy` 完成后触发，从受信任的 `main` checkout 运行 `scripts/ci/resolve-heavy-pr.mjs` 和 `scripts/ci/publish-heavy-comment.mjs`，持有 `pull-requests: write` 和 `actions: write`，不执行 PR 代码。
 
 自动 Heavy 由 `workflow_run` 触发，run 记录挂在默认分支上，`workflow_run.head_sha` 是 `main` 而不是 PR head。解析分两步：run 来自非默认分支且 head 能唯一匹配 open PR 时直接采用（label 触发和 `workflow_dispatch --ref <branch>`）；否则扫描 open PR 的当前 head，取 `heavy-gate` status 的 `target_url` 等于本次 Heavy run URL 的那个 PR 和 head。解析结果同时决定读取 `heavy-gate` status / `heavy-gate-result` 的 head 和 `Policy V2` 的 `pr_number`。
 
-发布步骤用 `<!-- heavy-gate-summary -->` marker 创建或原地更新一条摘要评论，内容包含 head、base、current main、diff SHA-256、worktree 状态、命令退出码、失败原因和 run 链接。无 open PR 或 docs-only 成功但没有 heavy 结果时跳过；heavy 测试失败也发摘要。在 publisher 发布 `heavy-gate` 之前就失败（refresh、checkout、base 解析）的自动 run 没有可反查的 status，不写摘要；`workflow_dispatch --ref <branch>` 仍按 head 直接解析并写失败摘要。评论只用于审计和排查，不参与 `gate-artifact` 决策。发布后 workflow 用 `workflow_dispatch` 把 PR 号传给 `Policy V2`，由唯一 gate publisher 重算 required status；这个 gate 请求即使评论步骤失败也会尝试执行。
+发布步骤用 `<!-- heavy-gate-summary -->` marker 创建或原地更新一条摘要评论，内容包含 head、base、current main、diff SHA-256、worktree 状态、命令退出码、失败原因和 run 链接。heavy 在 layered coverage 之后以 observational 方式运行 `coverage:gaps`，把输出写到 `$RUNNER_TEMP/coverage-gaps.txt`；publisher 最多读取 64 KiB，清洗终端控制字符并限制为 12,000 字符 / 300 行后写入 `heavy-result.json` 的 `coverageGaps`。comment publisher 用 `<!-- coverage-gap-report -->` marker 创建或原地更新第二条评论，把报告放在足够长的 code fence 中；报告不可用时评论写明原因。两条评论都只用于审计和排查，不参与 `gate-artifact` 决策。
+
+无 open PR 或 docs-only 成功但没有 heavy 结果时跳过；heavy 测试失败也发摘要，如果 `heavy-gate-result` 已发布，也从该失败 check 的 summary 读取命令和 gap 数据发评论。在 publisher 发布 `heavy-gate` 之前就失败（refresh、checkout、base 解析）的自动 run 没有可反查的 status，不写摘要；`workflow_dispatch --ref <branch>` 仍按 head 直接解析并写失败摘要。发布后 workflow 用 `workflow_dispatch` 把 PR 号传给 `Policy V2`，由唯一 gate publisher 重算 required status；这个 gate 请求即使评论步骤失败也会尝试执行。
 
 ## gate 如何消费结果
 
@@ -94,7 +96,7 @@ docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 d
 因为 `heavy-gate` 不在 ruleset 中，回滚不需要改规则：
 
 1. 回退 `.github/workflows/heavy.yml`、`.github/workflows/heavy-comment.yml`、`.github/workflows/gate-artifact-v2.yml`、`scripts/ci/publish-gate.mjs`、`scripts/ci/publish-heavy.mjs`、`scripts/ci/resolve-heavy-pr.mjs`、`scripts/ci/publish-heavy-comment.mjs` 或相关测试；
-2. 在同一 head 上重新运行 publisher 会原地覆盖 `heavy-gate` status；摘要评论按 marker 原地更新；
+2. 在同一 head 上重新运行 publisher 会原地覆盖 `heavy-gate` status；摘要与 gap 评论分别按 marker 原地更新；
 3. 如果只需撤销某个错误状态，重新 dispatch 该 head，不要删除 ruleset。
 
 ## 常见错误
@@ -106,5 +108,5 @@ docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 d
 - **工作区不干净**：runner 上的未跟踪文件会进入 `porcelain`，publisher 必须发布 failure。
 - **`npm ci` 慢**：先看 npm debug log 里大 tarball 的下载源与耗时，再确认持久 cache 是否命中；不要靠修改 runner 的 `~/.npmrc` 回退到不稳定的镜像。
 - **让 PR checkout 执行 publisher**：分支可以改写 `publish-heavy.mjs` 来伪造 success；publisher、pre-run 身份记录和 classifier 必须从可信 main 树的临时导出执行。
-- **把评论 workflow 当成 gate**：`heavy-comment` 只写审计评论，失败或延迟不影响 `gate-artifact`；也不要给执行 PR 代码的 job 加 `pull-requests: write`。
+- **把评论 workflow 当成 gate**：`heavy-comment` 只写摘要和 gap 审计评论，失败、延迟或 gap 命令非 0 都不影响 `gate-artifact`；也不要给执行 PR 代码的 job 加 `pull-requests: write`。
 - **在默认分支还没有新 workflow 时期待自动触发**：`workflow_run` 使用默认分支上的 workflow 文件；合并前只能手动 dispatch。

@@ -23,7 +23,7 @@ A same-process value is not evidence for a cross-process claim: session waking, 
 
 Coverage discovery is mechanical: contract, gap report, heavy gate, review. `npm run check` requires every non-blocked browser-owned TSX to have a reviewed floor in [tools/coverage-browser-floors.json](../tools/coverage-browser-floors.json), and every live public surface to have a keyless E2E scenario or reviewed debt entry.
 
-`npm run coverage:gaps -- --base <verified-base>` reuses reports whose gate-artifact identity matches HEAD/base/diff/porcelain, otherwise runs the layered lane, then prints changed-file uncovered lines and changed public keys absent from scenario `covers` in [the E2E manifest](../tests/e2e/manifest.json). It writes only gitignored coverage data.
+`npm run coverage:gaps -- --base <verified-base>` reuses reports whose gate-artifact identity matches HEAD/base/diff/porcelain, otherwise runs the layered lane, then prints changed-file uncovered lines and changed public keys absent from scenario `covers` in [the E2E manifest](../tests/e2e/manifest.json). It writes only gitignored coverage data. Heavy runs the same command observationally and posts the bounded report on the PR; that comment never changes `heavy-gate` ([runbook](heavy-runner.md)).
 
 A new interactive surface names its browser scenario in the owning test or review evidence. Review judges assertion meaning, negative controls, mocks, and unrun lanes, not coverage discovery. Docs-only changes are exempt; all other PRs need a `heavy-gate` success bound to the same head, while `gate-artifact` remains the only required context.
 

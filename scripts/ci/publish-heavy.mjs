@@ -16,7 +16,7 @@
  * The publisher never checks out or executes pull-request code; the workflow
  * already ran the target head on the self-hosted runner.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { collectGateArtifact } from '../review/gate-artifact.mjs'
@@ -27,6 +27,19 @@ import { isAncestor, publishGateCheck, publishGateStatus } from './publish-gate.
 export { HEAVY_COMMANDS, HEAVY_DISPLAY_CHECK, HEAVY_GATE_CONTEXT } from './heavy-contract.mjs'
 
 const COMMIT_SHA = /^[0-9a-f]{40}$/
+const GAP_REPORT_MAX_BYTES = 64 * 1024
+const GAP_REPORT_MAX_CHARS = 12_000
+const GAP_REPORT_MAX_LINES = 300
+const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g
+const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
+
+/** Result shape used when no observational gap report is available. */
+export const MISSING_COVERAGE_GAPS = Object.freeze({
+  available: false,
+  reason: 'coverage gap report was not produced',
+  text: '',
+  truncated: false,
+})
 
 function requiredEnv(name) {
   const value = process.env[name]
@@ -45,6 +58,72 @@ function readOptionalJson(path) {
   } catch (error) {
     if (error?.code === 'ENOENT') return null
     throw new Error(`${path} is not readable JSON: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+/**
+ * Normalize untrusted terminal output into a bounded, comment-safe text block.
+ *
+ * The heavy step runs pull-request code, so the file may contain ANSI control
+ * sequences or arbitrary bytes. The comment publisher never treats this text as
+ * Markdown structure: it is capped and later placed inside a code fence.
+ *
+ * @param {string} raw Raw report text.
+ * @returns {{text: string, truncated: boolean}} Sanitized text and truncation flag.
+ */
+export function sanitizeCoverageGapText(raw) {
+  const normalized = String(raw)
+    .replace(/\r\n?/g, '\n')
+    .replace(ANSI_ESCAPE, '')
+    .replace(CONTROL_CHARACTERS, '')
+  const allLines = normalized.replace(/\n$/, '').split('\n')
+  let text = allLines.slice(0, GAP_REPORT_MAX_LINES).join('\n').trimEnd()
+  let truncated = allLines.length > GAP_REPORT_MAX_LINES
+  if (text.length > GAP_REPORT_MAX_CHARS) {
+    text = text.slice(0, GAP_REPORT_MAX_CHARS).trimEnd()
+    truncated = true
+  }
+  return { text, truncated }
+}
+
+/**
+ * Read the optional coverage-gap report written by the heavy workflow.
+ *
+ * A missing or unreadable file is recorded as an unavailable observational
+ * section; it never changes the heavy verdict or blocks publication.
+ *
+ * @param {string} path Report path.
+ * @returns {{available: boolean, reason?: string, text: string, truncated: boolean}}
+ *   Bounded report data or the reason it is unavailable.
+ */
+export function readCoverageGapReport(path) {
+  if (typeof path !== 'string' || path === '') {
+    return { ...MISSING_COVERAGE_GAPS, reason: 'coverage gap report path is not configured' }
+  }
+  if (!existsSync(path)) return { ...MISSING_COVERAGE_GAPS }
+  let descriptor
+  try {
+    if (!lstatSync(path).isFile()) {
+      return { ...MISSING_COVERAGE_GAPS, reason: 'coverage gap report is not a regular file' }
+    }
+    const noFollow = typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0
+    descriptor = openSync(path, constants.O_RDONLY | noFollow)
+    const size = fstatSync(descriptor).size
+    const buffer = Buffer.alloc(GAP_REPORT_MAX_BYTES)
+    const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0)
+    const sanitized = sanitizeCoverageGapText(buffer.subarray(0, bytesRead).toString('utf8'))
+    return {
+      available: true,
+      text: sanitized.text,
+      truncated: sanitized.truncated || size > bytesRead,
+    }
+  } catch (error) {
+    return {
+      ...MISSING_COVERAGE_GAPS,
+      reason: `coverage gap report is not readable: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor)
   }
 }
 
@@ -199,7 +278,8 @@ export function heavyDecision({ artifact, beforeArtifact, expectedHead, currentM
  * Build the machine-readable result written to `heavy-result.json`.
  *
  * @param {{artifact: object, currentMain: string, commands: Array<object>,
- *   decision: {pass: boolean, reasons: string[]}, baseIsAncestor: boolean}} input Result inputs.
+ *   decision: {pass: boolean, reasons: string[]}, baseIsAncestor: boolean,
+ *   coverageGaps?: {available: boolean, reason?: string, text: string, truncated: boolean}}} input Result inputs.
  * @returns {object} Versioned heavy result.
  */
 export function buildHeavyResult(input) {
@@ -212,6 +292,7 @@ export function buildHeavyResult(input) {
     porcelain: input.artifact.porcelain,
     clean: input.artifact.porcelain.length === 0,
     baseIsAncestor: input.baseIsAncestor,
+    coverageGaps: input.coverageGaps ?? MISSING_COVERAGE_GAPS,
     commands: input.commands.map((command) => ({
       name: command.name,
       command: command.command,
@@ -305,6 +386,7 @@ function publisherConfig() {
     baseRef: process.env.HEAVY_BASE_REF ?? 'origin/main',
     commandsPath: requiredEnv('HEAVY_COMMANDS_FILE'),
     beforePath: process.env.HEAVY_BEFORE_ARTIFACT ?? '',
+    gapReportPath: process.env.HEAVY_GAP_REPORT ?? '',
     resultPath: process.env.HEAVY_RESULT_PATH ?? resolve(workspace, 'heavy-result.json'),
   }
 }
@@ -318,6 +400,7 @@ async function publishFromGit(config) {
     apiUrl: config.apiUrl,
   })
   const commands = mergeCommandResults(readCommandResults(config.commandsPath))
+  const coverageGaps = readCoverageGapReport(config.gapReportPath)
   const baseIsAncestor = isAncestor(config.workspace, artifact.resolved.baseSha, artifact.resolved.headSha)
   const decision = heavyDecision({
     artifact,
@@ -327,7 +410,7 @@ async function publishFromGit(config) {
     commands,
     baseIsAncestor,
   })
-  const result = buildHeavyResult({ artifact, currentMain, commands, decision, baseIsAncestor })
+  const result = buildHeavyResult({ artifact, currentMain, commands, decision, baseIsAncestor, coverageGaps })
   writeHeavyResult(config.resultPath, result)
   const published = await publishHeavy({
     token: config.token,
