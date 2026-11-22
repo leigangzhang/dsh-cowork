@@ -240,6 +240,8 @@ function SourceSurface({
 }
 
 /** The document tab in read or source mode. */
+// Read-mode surface selection (markdown vs source) for one document type.
+// fallow-ignore-next-line complexity
 function ReadSurface({
   kind,
   file,

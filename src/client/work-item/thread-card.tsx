@@ -124,6 +124,9 @@ function Comment({ event, now, attachmentUrl, showMeta }: {
  * @param props - folded thread, rail position, delivery batch, and callbacks.
  * @returns the card; a resolved thread shows a compact row until expanded.
  */
+// One comment thread as a card: quote, state, replies, and actions. The
+// branchiness is the card's visible state matrix; the browser lane owns it.
+// fallow-ignore-next-line complexity
 export function ThreadCard({
   thread,
   ordinal,

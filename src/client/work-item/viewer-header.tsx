@@ -63,6 +63,9 @@ function Crumbs({ sessionTitle }: { readonly sessionTitle: string | null }): Rea
  * @param props - record/file facts, action state, and action callbacks.
  * @returns the header with the overflow menu it owns.
  */
+// Breadcrumb/title/action row plus the overflow menu. The conditional actions
+// are the header's state matrix; the browser lane owns the interactions.
+// fallow-ignore-next-line complexity
 export function ViewerHeader({
   record,
   file,

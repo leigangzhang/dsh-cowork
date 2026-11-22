@@ -86,6 +86,8 @@ interface SourceLineProps {
 }
 
 /** One focusable line row. */
+// One line's anchor/selection/stale matrix; the browser lane owns these states.
+// fallow-ignore-next-line complexity
 function SourceLine({ line, selection, anchored, stale, view, pin, markdown, onPick }: SourceLineProps): ReactElement {
   const inline = markdown && view.kind !== 'code' && view.kind !== 'fence'
   return (

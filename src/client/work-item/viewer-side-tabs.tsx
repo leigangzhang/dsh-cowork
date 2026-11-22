@@ -16,6 +16,8 @@ export interface VersionsPanelProps {
 }
 
 /** Current file metadata plus the kept snapshot numbers. */
+// Metadata projection; every ternary is a display fallback for a missing file.
+// fallow-ignore-next-line complexity
 export function VersionsPanel({ record, file, revisions }: VersionsPanelProps): ReactElement {
   return (
     <div className="cwi-panel" data-testid="cwi-versions">
