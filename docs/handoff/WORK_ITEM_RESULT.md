@@ -1,7 +1,7 @@
-# 工作项页阶段 0–3 交付结果
+# 工作项页阶段 0–4 与 demo 批次 A/B 交付结果
 
-- 日期：2026-11-19
-- 状态：阶段 0–3 已实现并提交；KI-51/KI-52 已于 2026-11-20 在 `agent/ki-51-52`（基于 `main` `26141dd`）补修；阶段 4 于 2026-11-21 按用户调整只实现图表/画布/HTML（Doc/表格/PDF/图片后置）；阶段 5（收口）未开始
+- 日期：2026-11-19（2026-11-22 增补 demo 批次 A/B）
+- 状态：阶段 0–4 与 demo 对齐批次 A/B 已交付（至 2026-11-22）；KI-51/KI-52 已于 2026-11-20 在 `agent/ki-51-52`（基于 `main` `26141dd`）补修；阶段 4 于 2026-11-21 按用户调整只实现图表/画布/HTML；Doc、表格、PDF、图片自 2026-11-22 永久移出目标（KI-57）；阶段 5（收口）未开始
 - 执行分支：`agent/work-item-docs-facts`（沿用交接文档指定的工作流分支）
 - 交接：[WORK_ITEM_HANDOFF.md](WORK_ITEM_HANDOFF.md)；设计状态已同步为 implementing
 
@@ -70,12 +70,22 @@
 
 ### 阶段 4 偏离与未核实
 
-- Doc、表格、PDF、图片没有渲染器，仍是编号源码行；图表节点级批注、画布元素级模型工具未实现（KI-57）。
+- Doc、表格、PDF、图片没有渲染器，仍是编号源码行；2026-11-22 起永久移出目标，未来按需再评估（KI-57）。图表节点级批注、画布元素级模型工具同样按需。
 - Excalidraw 字体未随包发布，画布含文本时走上游 CDN 回退，离线回退系统字体（KI-58）。
 - 画布整文件锁用行范围表达，覆盖当前行数；bash 和末行之后的追加仍可能绕过（KI-59）。编辑会话从进入编辑到退出持续持有锁。
 - Excalidraw CSS/字体资源路由、画布元素工具、导出 PNG/SVG 与阶段 4 原设计相比未完成。图表导出按文本保留，HTML 导出不在本轮范围。
 - HTML 预览的 CSP 阻止外链 CSS、图片、字体、脚本、表单和 `fetch`/XHR，`eval` 也不执行；自包含的内联页面正常。交互模式只放开内联脚本，但 iframe 仍可自行导航到外部 URL，只应打开可信页面（KI-60）。
 - 单文件 CJS 闭包不能做 Excalidraw 懒加载；分块方案仍需改构建并在真实宿主验证。
+
+## demo 对齐批次 A/B（2026-11-22）
+
+PR #81（`agent/work-item-demo-style`，base `791955b`，head `8cdde73`，merge `a6c074e`）按前端设计的「视觉验收项」交付批次 A 与批次 B。
+
+- 批次 A：文本行右侧编号 pin、线程卡 anchor 编号/选中蓝环/投递状态行/动作行、已解决紧凑卡、评论栏排序与待处理开关、文档头尾附件 chip、查看器底部投递摘要；亮色主题切到 demo 色板，暗色继续用宿主 token。
+- 批次 B：详情响应补 `sessionTitle` 与 `revisions`；新增 `POST /api/cowork.artifact.open`，宿主无 opener 时返回 501 `artifact/open-unsupported`；头部补面包屑与确认/编辑/在应用中打开/导出/⋯ 动作；版本 tab 显示保留快照；评论栏增加三态筛选与已解决线程单行摘要；文本阅读补 fenced code 与 stale 行样式。公开面板路由由 23 条增加到 24 条。
+- 结构调整：抽出 `viewer-header.tsx`、`viewer-footer.tsx`、`viewer-side-tabs.tsx`、`thread-list.tsx`、`comment-composer.tsx`、`viewer-toolbar.tsx`，`panel.tsx` 从 52.4 KB 降到 42.4 KB。
+- 证据（PR #81 记录）：`npm test` exit 0；`npm run test:coverage` 100.00%（32306/32306）；`npm run test:browser` PASS（32 个 counted client 文件）；`npm run fallow:audit -- --base 791955b` 与 `npm run fallow:health` 均为 0 introduced / 0 worsened；`npm run test:e2e -- --record` 6 场景 / 140 检查；`npm run test:host-smoke` 5/5；`npm run typecheck`、`npm run build`、`npm run check` exit 0。
+- 未核实：`npm run test:e2e:live` 未跑（无 `DEEPSEEK_API_KEY`）；浏览器中未点击“在应用中打开/导出”（会触发桌面/下载动作），由路由与 adapter 测试覆盖；暗色主题只做代码层 token 覆盖，未做视觉截图。`artifact.open` 按 `inbox.open` 先例登记 keyless debt（`tests/e2e/coverage-debt.json`）。
 
 ## 验证证据
 
@@ -108,7 +118,7 @@
 - 真实模型 E2E 已跑通核心链路（KI-53 已收窄）：两个会话并行投递、图片 prompt、回复工具采用均通过。恢复路径由 keyless `artifact-recovery` 覆盖“预置日志 → 真实宿主启动恢复”，但仍未做同一 `DSH_HOME` 的进程级重启；真实模型回合被 `tools.guard` 拒绝后的重试、prompt 拒绝触发的退避重试、队列满与 SSE 重连仍只有单测/浏览器片段证据，bash 绕过保持。
 - `tools.guard` 的重叠拒绝已由 keyless `artifact-chain` 在真实宿主 + 脚本化模型回合中观测；仍未在一次真实模型回合里观测拒绝后重试。
 - 保存请求在途时的并发编辑与“退出编辑”双发保存是 textarea 时代既有竞态，本轮未改（KI-56）。
-- 阶段 4 已按调整后的范围完成图表/画布/HTML，但 Doc/表格/PDF/图片、`open`/字节 Range、图表节点/画布元素工具仍未做（KI-57）；阶段 5（rebind、事件裁剪、列表缓存与旧隔离 workItems 入口，KI-41）未开始。
+- 阶段 4 已按调整后的范围完成图表/画布/HTML；`open` 已由批次 B 交付，字节 Range 与图表节点/画布元素工具仍未做（KI-57）；Doc/表格/PDF/图片永久移出目标。阶段 5（rebind、事件裁剪、列表缓存与旧隔离 workItems 入口，KI-41）未开始。
 
 ## 回滚
 

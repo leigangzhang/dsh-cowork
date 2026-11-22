@@ -1,14 +1,14 @@
 # Cowork 工作项前端设计与开发方案
 
-Status: implementing（frontend design，2026-11-10；阶段 0–3 已落地 2026-11-19；阶段 4 于 2026-11-21 调整为图表/画布/HTML，Doc/表格/PDF/图片后置；阶段 5 未开始；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)；后端设计见 [work-item-backend.md](work-item-backend.md)）
+Status: implementing（frontend design，2026-11-10；阶段 0–4 与 demo 对齐批次 A/B 已交付至 2026-11-22；阶段 5 未开始；Doc、表格、PDF、图片永久移出目标，按需再评估（KI-57）；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)；后端设计见 [work-item-backend.md](work-item-backend.md)）
 
-本方案把[工作项多模态交付物查看器设计](work-item-artifact-viewer.md)和[V1–V16 核实报告](work-item-artifact-verification.md)落成前端实现计划。页面结构、类型和交互以查看器设计为准；依赖体积、编辑器和限制以核实报告为准。决策和取舍见[前端开发提案](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-frontend.md)。
+本方案把[工作项多模态交付物查看器设计](work-item-artifact-viewer.md)和[V1–V16 核实报告](work-item-artifact-verification.md)落成前端实现计划。页面结构、类型和交互以查看器设计为准；依赖体积、编辑器和限制以核实报告为准。决策和取舍见[前端开发决策](../../../.agents/notes/implemented/feature/2026-11-10-work-item-page-frontend.md)。
 
 ## 范围
 
-做：右栏工作项列表、主区域查看器、文本/图表/表格/Doc/画布/PDF/图片的查看与编辑、批注线程、模型活动状态、保存与冲突、附件和多模态回复。
+做：右栏工作项列表、主区域查看器、文本/图表/画布/HTML 的查看与编辑、批注线程、模型活动状态、保存与冲突、附件和多模态回复。Doc、表格、PDF、图片永久移出目标（2026-11-22，KI-57）。
 
-不做：旧的代码隔离 `workItems`、评审/CI 闸门、多人权限、PDF 正文编辑、复杂 Word 版式/Excel 公式保真、Artifact 工作室和活动记录页（只保留标签位置）。
+不做：旧的代码隔离 `workItems`、评审/CI 闸门、多人权限、Doc/表格/PDF/图片类型、Artifact 工作室和活动记录页（只保留标签位置）。
 
 ## 承载面与导航
 
@@ -28,7 +28,7 @@ Cowork 右栏（session scope）
    └─ 底部：投递摘要 / 内容版本与更新时间
 ```
 
-- 右栏工作项列表挂在 Cowork 面板的内部标签里。当前 `src/client/panel.tsx` 是主题页 v2 + 收件箱：宽面板（内容宽 ≥620px）为 318px 主题列 + 独立滚动的收件箱列，窄面板为单列主题列表 + “需要你处理”横幅；没有 `TopicDetail`，也没有内部标签。阶段 0 要在这层壳上加标签壳，把主题页（含收件箱）迁入第一个标签；活动记录、项目记忆先占位或未启用。
+- 右栏工作项列表挂在 Cowork 面板的内部标签里。`src/client/panel.tsx` 有主题 / 工作项 / 活动记录 / 项目记忆四个标签：主题标签承载主题页 v2 + 收件箱（宽面板内容宽 ≥620px 时为 318px 主题列 + 独立滚动的收件箱列，窄面板为单列主题列表 + “需要你处理”横幅）；工作项标签渲染 `WorkItemList`；活动记录与项目记忆是占位。列表是 session-scoped，不新增 `sidebar.panellist` 入口。
 - 查看器注册为 root `main` 的 keyed panel（`ctx.slots.register({ name: 'main', key: 'cowork-work-item' }, …)`）；从列表打开时把 `{sessionId, artifactId}` 写进客户端 store，再 `ctx.layout.selectPanel('cowork-work-item')`。`selectPanel` 只接受已注册的 main key，未注册会抛错。
 - 顶部“返回会话”调用 `selectPanel(null)`，回到当前会话；关闭查看器不清空工作项状态，也不删除未保存草稿。
 - 左侧栏切换会话时，查看器自动关闭。宿主没有单独的“当前选中会话”事件服务，但 `ctx.sessions.retainInfo(sessionId)` 暴露 `retainedBy.mainView`：ui-workspace 打开会话时以 `source:'mainView'` retain，切换会话会释放旧会话。查看器订阅打开时 `sessionId` 的 retain info，`mainView` 归零即关闭并提示。
@@ -262,8 +262,8 @@ queued → sent → thinking → working → replied
 
 ### 批次 C：不属于样式层
 
-- Doc、表格、PDF、图片渲染器（KI-57）；批次 A/B 不为其补样式。
-- 画布元素级批注与自绘工具栏：保留 Excalidraw 自带 UI（KI-57）。
+- Doc、表格、PDF、图片渲染器：2026-11-22 永久移出目标，未来按需再评估（KI-57）；批次 A/B 不为其补样式。
+- 画布元素级批注与自绘工具栏：保留 Excalidraw 自带 UI，按需再评估（KI-57）。
 
 ### 验收方式
 
@@ -295,7 +295,7 @@ queued → sent → thinking → working → replied
 - 端到端：真实主题会话里投递批注 → SSE 状态 → 模型回复 → 文档定位；真实模型 E2E 单独记录。
 - 画布：打开、编辑保存、模型改元素、整文件锁；单独浏览器检查。
 - 工程：文档改动跑 `npm run check`；实现改动按 `tools/workflow.json` 的 source/browser surface 跑 `npm run test:coverage`、`npm run typecheck`、`npm run build`、`npm run test:host-smoke`，客户端另跑 `npm run test:browser` 与 `npm run test:coverage:layered -- --base <verified-base>`；`npm pack` 检查包体。
-- 公开面：新增路由/工具要同步 `tests/support/public-surface.mjs` 的 `PANEL_ROUTES`/`BUSINESS_TOOL_ORDER`/`TOOL_DOMAINS`；工具预算 `tests/guards/tool-schema-budget.test.mjs` 当前固定为 22 个/16,523 B，新增工具必须显式提高。
+- 公开面：新增路由/工具要同步 `tests/support/public-surface.mjs` 的 `PANEL_ROUTES`/`BUSINESS_TOOL_ORDER`/`TOOL_DOMAINS`；工具预算以 `tests/guards/tool-schema-budget.test.mjs` 为准，新增工具必须显式提高。
 - 文档：设计、核实报告、提案、demo 截图互相链接。
 
 ## 开发阶段
@@ -331,5 +331,5 @@ queued → sent → thinking → working → replied
 - 交互稿：[work-item-demo.html](assets/work-item-demo.html)（`?view=text|canvas|details`）
 - 设计：[work-item-artifact-viewer.md](work-item-artifact-viewer.md)
 - 研究与核实：[work-item-artifact-embedding-research.md](work-item-artifact-embedding-research.md)、[work-item-artifact-verification.md](work-item-artifact-verification.md)
-- 提案：[2026-11-10-work-item-page-frontend.md](../../../.agents/notes/proposed/feature/2026-11-10-work-item-page-frontend.md)
+- 决策：[2026-11-10-work-item-page-frontend.md](../../../.agents/notes/implemented/feature/2026-11-10-work-item-page-frontend.md)
 - 实现交接：[WORK_ITEM_HANDOFF.md](../../handoff/WORK_ITEM_HANDOFF.md)
