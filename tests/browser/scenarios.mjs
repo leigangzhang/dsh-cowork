@@ -1068,11 +1068,13 @@ async function scenarioWorkItemEdit(page, fixtures) {
   assert.equal(await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8'), firstSaved)
 
   // 2) A non-overlapping concurrent append must auto-merge with the user's
-  // edit to a different line.
+  // edit to a different line. The draft is dirty before the external write so
+  // the viewer keeps the draft's base version; a clean refresh arriving first
+  // would legitimately rebase the editor and turn the save into a direct write.
   const mergedDraft = firstSaved.replace('# 浏览器交付物', '# 浏览器交付物 (user)')
-  await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${firstSaved}模型合并行。\n`, 'utf8')
   const mergeResponse = waitForEdit()
   await fillEditor(page, mergedDraft)
+  await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), `${firstSaved}模型合并行。\n`, 'utf8')
   assert.equal((await mergeResponse).status(), 200)
   await page.getByText('已合并模型修改并保存').waitFor({ timeout: 10_000 })
   const mergedSaved = await readFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), 'utf8')
