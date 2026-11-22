@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { artifactEvents } from '../support/artifact-fixtures.mjs'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { artifactEvents, artifactStore, makeRepo } from '../support/artifact-fixtures.mjs'
 
 /**
  * The SSE half: live fan-out, `Last-Event-ID` replay, the reset frame for an
@@ -296,4 +298,35 @@ test('cancelling the reader cleans up without throwing', async () => {
   await readUntil(reader, (buffer) => buffer.includes(': ready'))
   await reader.cancel()
   hub.publish(event(3))
+})
+
+test('a cursor behind more than one retained window gets a reset from the real log', async () => {
+  const repo = await makeRepo()
+  try {
+    const store = new artifactStore.ArtifactStore(repo.repoPath)
+    await mkdir(store.root, { recursive: true })
+    const rows = []
+    for (let seq = 1; seq <= 2002; seq += 1) rows.push(JSON.stringify(event(seq)))
+    await writeFile(join(store.root, 'events.jsonl'), `${rows.join('\n')}\n`)
+
+    const hub = new artifactEvents.ArtifactEventHub()
+    const controller = new AbortController()
+    const response = artifactEvents.openArtifactEventStream({
+      hub,
+      source: store,
+      lastEventId: 1,
+      signal: controller.signal,
+      heartbeatMs: 60_000,
+    })
+    const reader = response.body.getReader()
+    const text = await readUntil(reader, (buffer) => buffer.includes(': ready'))
+    // Dropping the 1,000 rows the window cannot carry would be a silent gap;
+    // the reset is what makes the client reload instead of pretending.
+    assert.match(text, /event: reset/)
+    assert.match(text, /id: 2002/)
+    controller.abort()
+    await reader.read()
+  } finally {
+    await repo.remove()
+  }
 })

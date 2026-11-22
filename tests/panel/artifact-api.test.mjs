@@ -46,7 +46,7 @@ async function withSeededHarness(operation, options = {}) {
 test('the harness registers every panel and artifact route', async () => {
   const harness = await createHarness()
   try {
-    assert.equal(harness.routes.size, 24)
+    assert.equal(harness.routes.size, 25)
     assert.ok(harness.routes.has('/api/cowork.artifact.list'))
     assert.ok(harness.routes.has('/api/cowork.artifact.events'))
   } finally {
@@ -311,35 +311,33 @@ test('a host without ctx.fs answers 501 on file reads but keeps the list working
   }
 })
 
-test('comments paginate with an after cursor', async () => {
+test('comments page from the newest row and accept both cursors', async () => {
   await withSeededHarness(async (harness) => {
     const store = harness.runtime().store
-    for (let index = 0; index < 3; index += 1) {
-      await store.appendComment(makeComment({ commentId: `comment-${index}`, eventId: `event-${index}` }))
-    }
-    const first = await jsonOf(await harness.request('/api/cowork.artifact.comments', {
-      query: { sessionId: SESSION, artifactId: ARTIFACT, limit: '2' },
-    }))
-    assert.deepEqual(first.events.map((event) => event.commentId), ['comment-0', 'comment-1'])
-    assert.equal(first.truncated, true)
-    const second = await jsonOf(await harness.request('/api/cowork.artifact.comments', {
-      query: { sessionId: SESSION, artifactId: ARTIFACT, after: 'event-1' },
-    }))
-    assert.deepEqual(second.events.map((event) => event.commentId), ['comment-2'])
-    assert.equal(second.truncated, false)
-    const unknown = await harness.request('/api/cowork.artifact.comments', {
-      query: { sessionId: SESSION, artifactId: ARTIFACT, after: 'unknown' },
-    })
+    for (let index = 0; index < 3; index += 1) await store.appendComment(makeComment({ commentId: `comment-${index}`, eventId: `event-${index}` }))
+    const commentsAt = (query) => harness.request('/api/cowork.artifact.comments', { query: { sessionId: SESSION, artifactId: ARTIFACT, ...query } })
+    const latest = await jsonOf(await commentsAt({ limit: '2' }))
+    assert.deepEqual(latest.events.map((event) => event.commentId), ['comment-1', 'comment-2'])
+    assert.equal(latest.truncated, false)
+    assert.equal(latest.hasOlder, true)
+    const older = await jsonOf(await commentsAt({ before: 'event-1', limit: '1' }))
+    assert.deepEqual(older.events.map((event) => event.commentId), ['comment-0'])
+    assert.equal(older.hasOlder, false)
+    const forward = await jsonOf(await commentsAt({ after: 'event-0', limit: '1' }))
+    assert.deepEqual(forward.events.map((event) => event.commentId), ['comment-1'])
+    assert.equal(forward.truncated, true)
+    assert.equal(forward.hasOlder, false)
+    const unknown = await commentsAt({ after: 'unknown' })
     assert.equal(unknown.status, 400)
     assert.equal((await jsonOf(unknown)).error.code, 'request/invalid-query')
-    const badLimit = await harness.request('/api/cowork.artifact.comments', {
-      query: { sessionId: SESSION, artifactId: ARTIFACT, limit: '0' },
-    })
-    assert.equal(badLimit.status, 400)
-    const hugeLimit = await harness.request('/api/cowork.artifact.comments', {
-      query: { sessionId: SESSION, artifactId: ARTIFACT, limit: String(artifactContract.ARTIFACT_COMMENTS_MAX_LIMIT + 1) },
-    })
-    assert.equal(hugeLimit.status, 400)
+    const unknownBefore = await commentsAt({ before: 'unknown' })
+    assert.equal(unknownBefore.status, 400)
+    assert.equal((await jsonOf(unknownBefore)).error.code, 'request/invalid-query')
+    const both = await commentsAt({ after: 'event-0', before: 'event-1' })
+    assert.equal(both.status, 400)
+    assert.equal((await jsonOf(both)).error.code, 'request/invalid-query')
+    assert.equal((await commentsAt({ limit: '0' })).status, 400)
+    assert.equal((await commentsAt({ limit: String(artifactContract.ARTIFACT_COMMENTS_MAX_LIMIT + 1) })).status, 400)
   })
 })
 

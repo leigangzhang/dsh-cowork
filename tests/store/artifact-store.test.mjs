@@ -304,3 +304,98 @@ test('the event window filters by artifact before the cap and reports a trimmed 
     assert.equal(empty.newest, 6)
   })
 })
+
+test('the list cache reuses one scan until a write invalidates it', async () => {
+  await withStore(async (store) => {
+    await store.createRecord(makeRecord())
+    const base = store.scanCount
+    const first = await store.listRecords()
+    const second = await store.listRecords()
+    assert.equal(store.scanCount, base + 1, 'the second read must not scan again')
+    assert.equal(store.cacheHitCount, 1)
+    assert.equal(first.total, second.total)
+    assert.deepEqual(first.records, second.records)
+
+    await store.mutateRecord(ARTIFACT, (record) => ({ ...record, status: 'confirmed' }))
+    const afterStatus = await store.listRecords()
+    assert.equal(store.scanCount, base + 2, 'a status/edit/rebind write must invalidate')
+    assert.equal(afterStatus.records[0].status, 'confirmed')
+
+    await store.appendComment(makeComment())
+    await store.listRecords()
+    assert.equal(store.scanCount, base + 3, 'a comment append must invalidate')
+
+    await store.appendEvent({
+      eventId: 'event-1',
+      type: 'artifact.updated',
+      artifactId: ARTIFACT,
+      time: '2026-02-01T00:00:00.000Z',
+      data: {},
+    })
+    await store.listRecords()
+    assert.equal(store.scanCount, base + 4, 'an event append must invalidate')
+  })
+})
+
+test('a cached list keeps limit, total, and corrupt semantics', async () => {
+  await withStore(async (store, repo) => {
+    const ids = [
+      'artifact-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'artifact-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      'artifact-cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    ]
+    for (const artifactId of ids) await store.createRecord(makeRecord({ artifactId }))
+    const root = join(repo.repoPath, '.dsh-cowork', 'artifacts')
+    await mkdir(join(root, 'artifact-dddddddd-dddd-4ddd-8ddd-dddddddddddd'), { recursive: true })
+    await writeFile(join(root, 'artifact-dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'artifact.json'), '{broken')
+
+    const first = await store.listRecords(2)
+    assert.equal(first.records.length, 2)
+    assert.equal(first.total, 3)
+    assert.deepEqual(first.corrupt, ['artifact-dddddddd-dddd-4ddd-8ddd-dddddddddddd'])
+    const scans = store.scanCount
+    const cached = await store.listRecords(2)
+    assert.equal(store.scanCount, scans)
+    assert.deepEqual(cached, first)
+  })
+})
+
+test('an event window keeps the newest rows and reports a lagging cursor trimmed', async () => {
+  await withStore(async (store) => {
+    await mkdir(store.root, { recursive: true })
+    const row = (seq) => ({
+      version: 1,
+      seq,
+      eventId: `event-${seq}`,
+      type: 'artifact.updated',
+      artifactId: seq % 2 === 0 ? 'artifact-even' : 'artifact-odd',
+      time: '2026-02-01T00:00:00.000Z',
+      data: { seq },
+    })
+    const rows = []
+    for (let seq = 1; seq <= 2500; seq += 1) rows.push(JSON.stringify(row(seq)))
+    await writeFile(join(store.root, 'events.jsonl'), `${rows.join('\n')}\n`)
+
+    const fresh = await store.readEvents(0)
+    assert.equal(fresh.length, 2000)
+    assert.equal(fresh[0].seq, 501, 'the newest window must be replayed, not the oldest')
+    assert.equal(fresh[fresh.length - 1].seq, 2500)
+
+    const lagging = await store.readEventsWindow(1)
+    assert.equal(lagging.events.length, 2000)
+    assert.equal(lagging.events[0].seq, 501)
+    assert.equal(lagging.newest, 2500)
+    assert.equal(lagging.truncated, true, 'a cursor behind more than one window must reset')
+
+    const filtered = await store.readEventsWindow(1, 'artifact-even')
+    assert.equal(filtered.events.length, 1250)
+    assert.equal(filtered.truncated, false, 'a filtered replay that fits one window is complete')
+
+    const trimmedRows = []
+    for (let seq = 5; seq <= 2504; seq += 1) trimmedRows.push(JSON.stringify(row(seq)))
+    await writeFile(join(store.root, 'events.jsonl'), `${trimmedRows.join('\n')}\n`)
+    const trimmed = await store.readEventsWindow(3)
+    assert.equal(trimmed.truncated, true, 'a gap between the cursor and the retained log must reset')
+    assert.equal(trimmed.events[0].seq, 505)
+  })
+})

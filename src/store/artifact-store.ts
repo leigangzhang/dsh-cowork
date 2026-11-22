@@ -11,7 +11,7 @@
  * A damaged record fails its own read as `artifact/corrupt`; a damaged row in a
  * JSONL file is skipped, and the rest of the file stays readable.
  */
-import { appendFile, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import {
@@ -68,16 +68,43 @@ export interface ArtifactScan {
   readonly total: number
 }
 
+/**
+ * The inventory of one successful directory scan.
+ *
+ * `fingerprint` combines the artifacts directory's `mtime` with the store's
+ * write version, so a cached list is reused only while neither the directory
+ * changed underneath this process nor this store wrote anything.
+ */
+interface ScanCache {
+  readonly fingerprint: string
+  readonly records: readonly ArtifactRecordV1[]
+  readonly corrupt: readonly string[]
+}
+
 /** One work-item store rooted at a repository. */
 export class ArtifactStore {
   readonly repoPath: string
   readonly root: string
   private readonly lockFile: string
+  private scanCache: ScanCache | null = null
+  private writeVersion = 0
+  private scans = 0
+  private cacheHits = 0
 
   constructor(repoPath: string) {
     this.repoPath = repoPath
     this.root = join(repoPath, PROJECT_DIR_NAME, ARTIFACTS_DIR_NAME)
     this.lockFile = join(this.root, '.write.lock')
+  }
+
+  /** Full inventory scans performed; a cached read does not count. */
+  get scanCount(): number {
+    return this.scans
+  }
+
+  /** List reads answered from the inventory cache. */
+  get cacheHitCount(): number {
+    return this.cacheHits
   }
 
   /** The directory of one work item; the id is validated first. */
@@ -111,6 +138,7 @@ export class ArtifactStore {
       await mkdir(directory, { recursive: true, mode: DIR_MODE })
       const filePath = join(directory, attachmentId)
       await writeFile(filePath, bytes, { mode: FILE_MODE, flag: 'wx' })
+      this.invalidateInventory()
       return filePath
     })
   }
@@ -143,14 +171,61 @@ export class ArtifactStore {
    * The scan is bounded at {@link MAX_ARTIFACTS_PER_PROJECT}; a project holding
    * more is reported as truncated by the caller's comparison. A record that
    * fails to parse is named in `corrupt` and does not hide its neighbours.
+   *
+   * Repeated reads reuse one scan while the directory fingerprint and this
+   * store's write version are unchanged; limit, `total`, and `corrupt` come
+   * from the cached inventory, so a hit cannot change their semantics.
    */
   async listRecords(limit: number = MAX_ARTIFACTS_PER_PROJECT): Promise<ArtifactScan> {
+    const inventory = await this.scanInventory()
+    return { records: inventory.records.slice(0, limit), corrupt: inventory.corrupt, total: inventory.records.length }
+  }
+
+  /** The cached inventory when its fingerprint still matches, else one scan. */
+  private async scanInventory(): Promise<{ records: ArtifactRecordV1[]; corrupt: string[] }> {
+    const fingerprint = await this.inventoryFingerprint()
+    if (this.scanCache !== null && this.scanCache.fingerprint === fingerprint) {
+      this.cacheHits += 1
+      return this.scanCache
+    }
+    const records = await this.readInventory()
+    this.scans += 1
+    this.scanCache = { fingerprint, ...records }
+    return this.scanCache
+  }
+
+  /** The artifacts directory identity plus this store's write version. */
+  private async inventoryFingerprint(): Promise<string> {
+    try {
+      const info = await stat(this.root, { bigint: true })
+      return `${String(info.mtimeNs)}:${String(info.ino)}:${String(this.writeVersion)}`
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return `missing:${String(this.writeVersion)}`
+      throw error
+    }
+  }
+
+  /**
+   * Drop the cached inventory after a write.
+   *
+   * Every write path calls this, including comment/dispatch/event appends:
+   * whether or not that write changes the inventory, a caller must never see a
+   * list that predates a completed write.
+   */
+  private invalidateInventory(): void {
+    this.writeVersion += 1
+    this.scanCache = null
+  }
+
+  /** One uncached directory scan, sorted newest first. */
+  private async readInventory(): Promise<{ records: ArtifactRecordV1[]; corrupt: string[] }> {
     let entries
     try {
       entries = await readdir(this.root, { withFileTypes: true })
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ENOTDIR') return { records: [], corrupt: [], total: 0 }
+      if (code === 'ENOENT' || code === 'ENOTDIR') return { records: [], corrupt: [] }
       throw error
     }
     const records: ArtifactRecordV1[] = []
@@ -171,7 +246,7 @@ export class ArtifactStore {
       const order = right.updatedAt.localeCompare(left.updatedAt)
       return order !== 0 ? order : left.artifactId.localeCompare(right.artifactId)
     })
-    return { records: records.slice(0, limit), corrupt, total: records.length }
+    return { records, corrupt }
   }
 
   /**
@@ -207,6 +282,7 @@ export class ArtifactStore {
       }
       await mkdir(this.artifactDir(record.artifactId), { recursive: true, mode: DIR_MODE })
       await writeJsonAtomic(this.recordPath(record.artifactId), record)
+      this.invalidateInventory()
       return record
     })
   }
@@ -240,6 +316,7 @@ export class ArtifactStore {
     const next = mutator(current)
     if (next === null) return current
     await writeJsonAtomic(this.recordPath(artifactId), next)
+    this.invalidateInventory()
     return next
   }
 
@@ -310,6 +387,12 @@ export class ArtifactStore {
    * The replay window for one stream, with the facts a client needs to detect
    * a trimmed log. The artifact filter runs before the line cap so one noisy
    * neighbor cannot evict this work item's own replay.
+   *
+   * The cap keeps the *newest* rows, so the last replayed row and the next live
+   * row meet instead of leaving an artificial hole. A cursor that still needs
+   * rows the window could not carry is reported `truncated`, which the stream
+   * turns into a `reset`; silently dropping those rows would leave the client
+   * with a history it cannot detect as incomplete.
    */
   async readEventsWindow(
     afterSeq = 0,
@@ -320,9 +403,12 @@ export class ArtifactStore {
     const firstSeq = rows.length === 0 ? 0 : rows[0].seq
     const after = rows.filter((row) => row.seq > afterSeq)
     const filtered = artifactId === undefined ? after : after.filter((row) => row.artifactId === artifactId)
+    const window = filtered.length > ARTIFACT_EVENT_LOG_MAX_LINES
+      ? filtered.slice(-ARTIFACT_EVENT_LOG_MAX_LINES)
+      : filtered
     return {
-      events: filtered.slice(0, ARTIFACT_EVENT_LOG_MAX_LINES),
-      truncated: afterSeq > 0 && firstSeq > afterSeq + 1,
+      events: window,
+      truncated: afterSeq > 0 && (firstSeq > afterSeq + 1 || filtered.length > window.length),
       newest,
     }
   }
@@ -409,6 +495,7 @@ export class ArtifactStore {
       mode: DIR_MODE,
     })
     await appendFile(filePath, `${JSON.stringify(row)}\n`, { mode: FILE_MODE })
+    this.invalidateInventory()
   }
 
   /** Parse the complete lines of one JSONL log, skipping damaged rows. */

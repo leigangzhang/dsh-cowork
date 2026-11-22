@@ -587,6 +587,18 @@ export interface ArtifactOpenResponse {
   readonly ok: true
 }
 
+/**
+ * Body of a successful `POST artifact.rebind`.
+ *
+ * `changed` is false for an idempotent retry (`oldPath === newPath`); the
+ * returned record is always the committed record.
+ */
+export interface ArtifactRebindResponse {
+  readonly ok: true
+  readonly changed: boolean
+  readonly record: ArtifactRecordV1
+}
+
 /** Body of a successful text `GET artifact.file`. */
 export interface ArtifactFileResponse {
   readonly ok: true
@@ -604,7 +616,10 @@ export interface ArtifactFileResponse {
 export interface ArtifactCommentsResponse {
   readonly ok: true
   readonly events: readonly CommentEventV1[]
+  /** Forward paging only: true when newer rows follow an `after` page. */
   readonly truncated: boolean
+  /** True when rows older than this page are kept and reachable via `before`. */
+  readonly hasOlder: boolean
 }
 
 /** Body of a successful `POST artifact.comment`. */
