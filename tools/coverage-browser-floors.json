@@ -48,6 +48,10 @@
     "src/client/work-item/viewers/source-lines.tsx": {
       "lineCoverage": 100.0,
       "functionCoverage": 100.0
+    },
+    "src/client/work-item/viewers/viewer-document.tsx": {
+      "lineCoverage": 100.0,
+      "functionCoverage": 100.0
     }
   }
 }
