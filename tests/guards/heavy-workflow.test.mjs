@@ -126,6 +126,7 @@ test('heavy workflow uses a persistent npm cache and the official registry', () 
   assert.match(install, /^        run: npm ci --prefer-offline --no-audit --no-fund$/m)
   for (const [name, block] of [['Verify npm configuration', verify], ['Install dependencies', install]]) {
     assert.doesNotMatch(block, /npm_config_/, `${name} must inherit npm configuration from the job env`)
+    assert.doesNotMatch(block, /set \+e/, `${name} must not disable the shell's fail-fast behavior`)
   }
 
   const configureIndex = workflow.indexOf('name: Configure npm cache')
@@ -163,6 +164,12 @@ test('heavy workflow npm guard rejects commented or misplaced configuration', ()
     '      - name: Install dependencies\n        env:\n          npm_config_registry: https://registry.npmmirror.com\n',
   )
   assert.match(stepBlock(overriddenInstall, 'Install dependencies'), /npm_config_registry/)
+
+  const loosenedVerify = workflow.replace(
+    '      - name: Verify npm configuration\n        if: steps.classify.outputs.docs_only != \'true\'\n        run: |\n',
+    '      - name: Verify npm configuration\n        if: steps.classify.outputs.docs_only != \'true\'\n        run: |\n          set +e\n',
+  )
+  assert.match(stepBlock(loosenedVerify, 'Verify npm configuration'), /set \+e/)
 })
 
 test('heavy workflow downloads no actions and carries no secrets', () => {
