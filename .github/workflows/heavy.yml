@@ -145,7 +145,13 @@ jobs:
         if: steps.classify.outputs.docs_only != 'true'
         run: |
           cache_dir="$HOME/.cache/dsh-cowork/npm"
+          cache_limit_kb=2097152
           mkdir -p "$cache_dir"
+          cache_kb="$(du -sk "$cache_dir" | awk '{print $1}')"
+          if [ "$cache_kb" -gt "$cache_limit_kb" ]; then
+            echo "npm cache is ${cache_kb}KB; clearing it before install"
+            npm cache clean --force --cache "$cache_dir"
+          fi
           echo "npm_config_cache=$cache_dir" >> "$GITHUB_ENV"
           echo "npm cache: $cache_dir"
 

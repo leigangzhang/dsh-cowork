@@ -10,7 +10,7 @@
 - `gate-artifact` 现在是唯一 required context；docs-only PR 豁免 heavy，其他 PR 需要同 head 的 `heavy-gate` success 才能通过。
 - ruleset 仍不直接要求 `heavy-gate`。它是 `gate-artifact` 的输入，不是第二个 required check。
 - 新 commit 必须在新的 head 上重新产生结果；旧 status 不会自动迁移。
-- heavy 不继承 runner 用户的 npm registry 镜像：workflow 固定使用 `https://registry.npmjs.org`，并把 npm cache 放在 `$HOME/.cache/dsh-cowork/npm`。同一 runner 用户会复用 cache；新增依赖或首次冷装仍会下载。
+- heavy 不继承 runner 用户的 npm registry 镜像：workflow 固定使用 `https://registry.npmjs.org`，并把 npm cache 放在 `$HOME/.cache/dsh-cowork/npm`。同一 runner 用户会复用 cache；新增依赖或首次冷装仍会下载。cache 超过 2 GiB 时会在下一次安装前清空。
 
 ## 触发方式
 

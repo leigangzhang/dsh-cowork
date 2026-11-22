@@ -110,7 +110,10 @@ test('heavy workflow uses a persistent npm cache and the official registry', () 
 
   const configure = stepBlock(workflow, 'Configure npm cache')
   assert.match(configure, /^          cache_dir="\$HOME\/\.cache\/dsh-cowork\/npm"$/m)
+  assert.match(configure, /^          cache_limit_kb=2097152$/m)
   assert.match(configure, /^          mkdir -p "\$cache_dir"$/m)
+  assert.match(configure, /^          cache_kb="\$\(du -sk "\$cache_dir" \| awk '\{print \$1\}'\)"$/m)
+  assert.match(configure, /^            npm cache clean --force --cache "\$cache_dir"$/m)
   assert.match(configure, /^          echo "npm_config_cache=\$cache_dir" >> "\$GITHUB_ENV"$/m)
 
   const verify = stepBlock(workflow, 'Verify npm configuration')
@@ -121,6 +124,9 @@ test('heavy workflow uses a persistent npm cache and the official registry', () 
 
   const install = stepBlock(workflow, 'Install dependencies')
   assert.match(install, /^        run: npm ci --prefer-offline --no-audit --no-fund$/m)
+  for (const [name, block] of [['Verify npm configuration', verify], ['Install dependencies', install]]) {
+    assert.doesNotMatch(block, /npm_config_/, `${name} must inherit npm configuration from the job env`)
+  }
 
   const configureIndex = workflow.indexOf('name: Configure npm cache')
   const verifyIndex = workflow.indexOf('name: Verify npm configuration')
@@ -151,6 +157,12 @@ test('heavy workflow npm guard rejects commented or misplaced configuration', ()
     '          # echo "npm_config_cache=$cache_dir" >> "$GITHUB_ENV"',
   )
   assert.doesNotMatch(stepBlock(commentedCache, 'Configure npm cache'), /^          echo "npm_config_cache=/m)
+
+  const overriddenInstall = workflow.replace(
+    '      - name: Install dependencies\n',
+    '      - name: Install dependencies\n        env:\n          npm_config_registry: https://registry.npmmirror.com\n',
+  )
+  assert.match(stepBlock(overriddenInstall, 'Install dependencies'), /npm_config_registry/)
 })
 
 test('heavy workflow downloads no actions and carries no secrets', () => {
