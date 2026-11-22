@@ -181,8 +181,17 @@ export class ArtifactStore {
     return { records: inventory.records.slice(0, limit), corrupt: inventory.corrupt, total: inventory.records.length }
   }
 
-  /** The cached inventory when its fingerprint still matches, else one scan. */
-  private async scanInventory(): Promise<{ records: ArtifactRecordV1[]; corrupt: string[] }> {
+  /**
+   * The cached inventory when its fingerprint still matches, else one scan.
+   *
+   * The arrays are readonly in the result: the cache serves the same arrays to
+   * every caller, and `listRecords` only slices them, so nothing may mutate the
+   * cached inventory in place.
+   */
+  private async scanInventory(): Promise<{
+    records: readonly ArtifactRecordV1[]
+    corrupt: readonly string[]
+  }> {
     const fingerprint = await this.inventoryFingerprint()
     if (this.scanCache !== null && this.scanCache.fingerprint === fingerprint) {
       this.cacheHits += 1
