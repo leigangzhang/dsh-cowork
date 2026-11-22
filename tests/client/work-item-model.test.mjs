@@ -725,3 +725,17 @@ test('line ranges, stale ranges, attachments, and pins fold from the threads', (
   assert.equal(model.pinThread(pins, threads, 99), null)
   assert.equal(model.pinThread(new Map(), threads, 2), null)
 })
+
+test('rebindOldPath prefers the registered primary entry and falls back to primaryPath', () => {
+  assert.equal(
+    model.rebindOldPath({
+      files: [{ path: 'docs/old.md' }, { path: 'docs/spec.md' }],
+      primaryPath: 'docs/spec.md',
+    }),
+    'docs/spec.md',
+  )
+  assert.equal(
+    model.rebindOldPath({ files: [{ path: 'docs/old.md' }], primaryPath: 'docs/gone.md' }),
+    'docs/gone.md',
+  )
+})

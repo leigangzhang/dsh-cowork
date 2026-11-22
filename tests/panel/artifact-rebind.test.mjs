@@ -414,3 +414,41 @@ test('an unreadable rebind target marks a line anchor stale instead of losing it
     await harness.cleanup()
   }
 })
+
+test('rebind rebases non-line anchors and keeps an existing stale status', async () => {
+  await withHarness(async (harness, store) => {
+    await store.appendComment(makeComment({
+      commentId: 'comment-whole',
+      threadId: 'comment-whole',
+      eventId: 'event-whole',
+      anchor: { kind: 'whole', path: 'docs/old.md' },
+    }))
+    await store.appendComment(makeComment({
+      commentId: 'comment-block',
+      threadId: 'comment-block',
+      eventId: 'event-block',
+      anchor: { kind: 'block', path: 'docs/old.md', quote: 'first paragraph' },
+    }))
+    await store.appendComment(makeComment({
+      commentId: 'comment-block',
+      threadId: 'comment-block',
+      eventId: 'event-block-stale',
+      type: 'anchor-moved',
+      anchor: { kind: 'block', path: 'docs/old.md', quote: 'first paragraph' },
+      anchorStatus: 'stale',
+    }))
+    const body = await jsonOf(await rebind(harness, { oldPath: 'docs/old.md', newPath: 'docs/new.md' }))
+    assert.equal(body.changed, true)
+    const appended = (await store.readComments(ARTIFACT))
+      .filter((event) => event.type === 'anchor-moved' && event.eventId !== 'event-block-stale')
+    const byComment = new Map(appended.map((event) => [event.commentId, event]))
+    const whole = byComment.get('comment-whole')
+    assert.equal(whole.anchor.kind, 'whole')
+    assert.equal(whole.anchor.path, 'docs/new.md')
+    assert.equal(whole.anchorStatus, 'moved')
+    const block = byComment.get('comment-block')
+    assert.equal(block.anchor.kind, 'block')
+    assert.equal(block.anchor.path, 'docs/new.md')
+    assert.equal(block.anchorStatus, 'stale')
+  })
+})

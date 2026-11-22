@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   artifactStore,
@@ -396,5 +396,16 @@ test('an event window keeps the newest rows and reports a lagging cursor trimmed
     const trimmed = await store.readEventsWindow(3)
     assert.equal(trimmed.truncated, true, 'a gap between the cursor and the retained log must reset')
     assert.equal(trimmed.events[0].seq, 505)
+  })
+})
+
+test('a cache fingerprint that cannot stat the directory is rethrown', async () => {
+  await withStore(async (store, repo) => {
+    const root = join(repo.repoPath, '.dsh-cowork', 'artifacts')
+    await mkdir(join(repo.repoPath, '.dsh-cowork'), { recursive: true })
+    // A self-referential symlink makes stat fail with ELOOP, not ENOENT, so
+    // the fingerprint must rethrow instead of reporting an empty project.
+    await symlink(root, root)
+    await assert.rejects(store.listRecords(), (error) => error.code === 'ELOOP')
   })
 })
