@@ -97,6 +97,6 @@ P3 改变了「fallow 只做本地信号」的历史决策，新增 [decision re
 | `npm run test:host-smoke` | exit 0：5/5 PASS |
 | `npm run test:coverage:layered -- --base c9f7e84` | exit 0：97 counted files，line 99.88% |
 | `npm run fallow:health` | exit 0：254/254 matched、0 stale、0 remaining |
-| `npm run test:e2e -- --record` | exit 0：6 个 keyless 场景 / 140 项检查，证据重录到 `394c592` |
+| `npm run test:e2e -- --record` | exit 0：6 个 keyless 场景 / 140 项检查，证据重录到 `65a0303` |
 | `npm run fallow:audit -- --base c9f7e84 --format json` + gate | exit 0：verdict pass，16 个变更文件，`complexity_introduced=0`、`complexity_worsened=0`；gate 在 `25ee373` 上通过 |
 | `npm run change-scope -- --base c9f7e84` | exit 0：committed 16，staged / unstaged / untracked 均为 0 |
