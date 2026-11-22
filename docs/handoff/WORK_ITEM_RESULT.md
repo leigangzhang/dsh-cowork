@@ -1,7 +1,7 @@
 # 工作项页阶段 0–3 交付结果
 
 - 日期：2026-11-19
-- 状态：阶段 0–3 已实现并提交；KI-51/KI-52 已于 2026-11-20 在 `agent/ki-51-52`（基于 `main` `26141dd`）补修；阶段 4（图表/表格/Doc/PDF/画布）与阶段 5（收口）未开始
+- 状态：阶段 0–3 已实现并提交；KI-51/KI-52 已于 2026-11-20 在 `agent/ki-51-52`（基于 `main` `26141dd`）补修；阶段 4 于 2026-11-21 按用户调整只实现图表/画布/HTML（Doc/表格/PDF/图片后置）；阶段 5（收口）未开始
 - 执行分支：`agent/work-item-docs-facts`（沿用交接文档指定的工作流分支）
 - 交接：[WORK_ITEM_HANDOFF.md](WORK_ITEM_HANDOFF.md)；设计状态已同步为 implementing
 
@@ -49,6 +49,34 @@
 - **KI-52（列表实时）**：`src/client/work-item/list.tsx` 订阅同一项目 SSE 流，250 ms 合并窗口触发一次列表读取；卡片评论数、状态 chip、投递摘要与筛选计数随事件更新，分组折叠状态不重置；连续 3 次连接失败后保留已加载列表并显示“实时更新中断，点击重试”，重试重新建立 EventSource。
 - **测试**：浏览器 lane 新增 CodeMirror 行号/高亮/批注行装饰断言，以及列表 SSE 断线→重试→实时评论计数链路；`npm run test:browser` 通过（19 个报告文件，1 个 blocked）。
 
+## 阶段 4：图表、画布与 HTML（2026-11-21）
+
+用户把类型扩展收敛为图表（Mermaid）、画布（Excalidraw）和 HTML 页面；Doc、表格、PDF、图片本轮不做，保持源码行视图。三种类型都是文本文件，复用既有文件路由、文本保存、版本冲突和行范围锚点，没有新增面板路由、工具或存储。
+
+- 查看器分派：`src/client/work-item/viewers/document.ts` 的 `viewerKindOf` 与 `parseCanvasScene`；`panel.tsx` 按类型渲染，源码行列表抽到 `source-lines.tsx`。
+- 图表：`diagram.tsx` 用 Pele 把 Mermaid 源码渲染为 SVG；链接和图片关闭，不进网络；渲染失败显示行/列与源码片段。源码视图可编辑（CodeMirror `plain`），行批注照旧。
+- HTML：`html.tsx` 在 opaque iframe 中预览。默认静态模式 `sandbox=""`、CSP 禁止脚本、外链资源和表单；切到交互模式后 `sandbox="allow-scripts"`，仍禁止同源、表单、嵌套框架和 top navigation，但 frame 自身导航无法被现行 CSP/sandbox 阻止（KI-60）。源码视图用 CodeMirror `html` 高亮。
+- 画布：`canvas.tsx` 挂载 Excalidraw，阅读模式只读、编辑模式上报序列化场景；Excalidraw CSS 以文本进入客户端闭包并注入 `<style>`；`validateEmbeddable={false}` 阻止场景文件加载第三方框架。用户在画布编辑期间（进入编辑即开始，不等到第一次修改）按整文件行范围上报 presence，结构化模型写入与范围重叠会被 `tools.guard` 拒绝；`src/panel/artifact-api.ts` 对 canvas 的过期底座直接 409，不做行级三方合并。自动保存使用稳定的编辑 key，不重建 Excalidraw 实例，撤销历史保留；只有 `加载最新` 或外部文件替换才显式重置场景。
+- 失败回退：无效 Mermaid 保留源码入口；无效 `.excalidraw` JSON 显示原因并回退到源码编辑器，避免把用户困在错误面板。
+
+### 阶段 4 证据（`agent/work-item-stage4`，基于 `main` `c78a9cb`）
+
+- `npm run test:coverage`：81 个 owner 模块，行覆盖 100%（31338/31338）；`tests/panel/artifact-canvas-edit.test.mjs` 覆盖画布过期底座 409 与当前底座直接保存。
+- `npm run test:coverage:layered -- --base c78a9cb`：94 个 counted 文件，行覆盖 99.88%（34249/34290），reviewed browser floors 全部通过。
+- `npm run test:browser`：通过，23 个 counted client 文件、24 个报告文件（dirty worktree）；`diagram.tsx`、`html.tsx`、`source-lines.tsx`、`canvas.tsx` 行/函数覆盖 100%，`work-item/panel.tsx` 98.62%/93.69%。场景覆盖图表 SVG 与错误定位、HTML 静态/交互两种沙箱、画布进入编辑即上报 presence、手绘矩形自动保存到 r2、第二次保存保持同一 Excalidraw 实例后到 r3、源码、损坏画布源码回退。
+- `npm run build`：exit 0；client 15,469,940 B（gzip 3,681,571 B）；`npm pack --dry-run` 9,894,811 B（unpacked 42,467,588 B），只保留 `lib/client.js.map`。
+- `npm run test:host-smoke`：5/5 通过。
+- `npm run typecheck`：exit 0。`npm run check`：`check-invariants: ok`。
+
+### 阶段 4 偏离与未核实
+
+- Doc、表格、PDF、图片没有渲染器，仍是编号源码行；图表节点级批注、画布元素级模型工具未实现（KI-57）。
+- Excalidraw 字体未随包发布，画布含文本时走上游 CDN 回退，离线回退系统字体（KI-58）。
+- 画布整文件锁用行范围表达，覆盖当前行数；bash 和末行之后的追加仍可能绕过（KI-59）。编辑会话从进入编辑到退出持续持有锁。
+- Excalidraw CSS/字体资源路由、画布元素工具、导出 PNG/SVG 与阶段 4 原设计相比未完成。图表导出按文本保留，HTML 导出不在本轮范围。
+- HTML 预览的 CSP 阻止外链 CSS、图片、字体、脚本、表单和 `fetch`/XHR，`eval` 也不执行；自包含的内联页面正常。交互模式只放开内联脚本，但 iframe 仍可自行导航到外部 URL，只应打开可信页面（KI-60）。
+- 单文件 CJS 闭包不能做 Excalidraw 懒加载；分块方案仍需改构建并在真实宿主验证。
+
 ## 验证证据
 
 均在最终代码树上实际运行（`agent/work-item-docs-facts` HEAD）：
@@ -80,8 +108,8 @@
 - 真实模型 E2E 已跑通核心链路（KI-53 已收窄）：两个会话并行投递、图片 prompt、回复工具采用均通过。恢复路径由 keyless `artifact-recovery` 覆盖“预置日志 → 真实宿主启动恢复”，但仍未做同一 `DSH_HOME` 的进程级重启；真实模型回合被 `tools.guard` 拒绝后的重试、prompt 拒绝触发的退避重试、队列满与 SSE 重连仍只有单测/浏览器片段证据，bash 绕过保持。
 - `tools.guard` 的重叠拒绝已由 keyless `artifact-chain` 在真实宿主 + 脚本化模型回合中观测；仍未在一次真实模型回合里观测拒绝后重试。
 - 保存请求在途时的并发编辑与“退出编辑”双发保存是 textarea 时代既有竞态，本轮未改（KI-56）。
-- 阶段 4/5 未开始：图表/表格/Doc/PDF/画布、`open`/字节 Range、rebind、事件裁剪、列表缓存与旧隔离 workItems 入口（KI-41）。
+- 阶段 4 已按调整后的范围完成图表/画布/HTML，但 Doc/表格/PDF/图片、`open`/字节 Range、图表节点/画布元素工具仍未做（KI-57）；阶段 5（rebind、事件裁剪、列表缓存与旧隔离 workItems 入口，KI-41）未开始。
 
 ## 回滚
 
-按阶段提交回退：`git revert` 阶段 1 / 阶段 2–3 的提交即可；数据目录 `.dsh-cowork/artifacts/` 是新增独立目录，删除它不影响 `index.json`、主题页或收件箱。
+按阶段提交回退：`git revert` 阶段 1 / 阶段 2–3 / 阶段 4 的提交即可；阶段 4 只改客户端查看器、构建脚本、测试和文档，回退后画布/图表/HTML 退回源码行视图。数据目录 `.dsh-cowork/artifacts/` 是新增独立目录，删除它不影响 `index.json`、主题页或收件箱。

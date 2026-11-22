@@ -14,8 +14,10 @@ import { Compartment, EditorState, StateField, Transaction, type Range, type Tex
 import { EditorView, Decoration, keymap, lineNumbers, type DecorationSet } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { html } from '@codemirror/lang-html'
 import { markdown } from '@codemirror/lang-markdown'
 import { useEffect, useRef, useState } from 'react'
+import type { Extension } from '@codemirror/state'
 import type { ReactElement } from 'react'
 
 /** One anchored line marker; the class is styled by `styles.ts`. */
@@ -81,6 +83,18 @@ export interface TextEditorProps {
    * apply again after a save or "load latest".
    */
   readonly anchorsAuthoritative: boolean
+  /**
+   * Syntax mode for the file. `plain` is used by formats with no editor
+   * language (Mermaid source); the line numbers and anchors still work.
+   */
+  readonly language?: 'markdown' | 'html' | 'plain'
+}
+
+/** The syntax extension for one editor language; `plain` adds nothing. */
+function languageExtension(language: 'markdown' | 'html' | 'plain'): Extension {
+  if (language === 'markdown') return markdown()
+  if (language === 'html') return html()
+  return []
 }
 
 /** The controlled CodeMirror editor used by the work-item viewer. */
@@ -91,6 +105,7 @@ export function TextEditor({
   ariaLabel,
   anchoredLines,
   anchorsAuthoritative,
+  language = 'markdown',
 }: TextEditorProps): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -119,7 +134,7 @@ export function TextEditor({
         lineNumbers(),
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
-        markdown(),
+        languageExtension(language),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         bracketMatching(),
         anchoredCompartment.of(anchoredLineMarkers([])),

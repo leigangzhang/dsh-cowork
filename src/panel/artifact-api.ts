@@ -775,6 +775,47 @@ function parsePresenceRanges(value: unknown, kit: ArtifactRouteKit): { startLine
 }
 
 /**
+ * Resolve one stale edit base.
+ *
+ * A text file is three-way merged against the snapshot the browser held; an
+ * overlap or a missing snapshot becomes a 409. A canvas scene is opaque JSON:
+ * it has no line identity, so a stale base is always a conflict.
+ */
+interface StaleBaseInput {
+  readonly canvas: boolean
+  readonly artifactId: string
+  readonly baseRevision: number
+  readonly current: { readonly content: string; readonly version: string | null }
+  readonly content: string
+  readonly fileRevision: number
+  readonly runtime: ArtifactRuntime
+  readonly kit: ArtifactRouteKit
+}
+
+/** One resolved stale save: merged text, or the 409 response. */
+type StaleBaseResult =
+  | { readonly kind: 'content'; readonly content: string }
+  | { readonly kind: 'conflict'; readonly response: Response }
+
+async function resolveStaleBase(input: StaleBaseInput): Promise<StaleBaseResult> {
+  const conflict = (): StaleBaseResult => ({
+    kind: 'conflict',
+    response: conflictResponse(input.kit, input.current.version, input.fileRevision, wholeFileRange(input.current.content)),
+  })
+  if (input.canvas) return conflict()
+  const base = await input.runtime.store.readRevision(input.artifactId, input.baseRevision)
+  if (base === null) return conflict()
+  const result = mergeText({ base, current: input.current.content, mine: input.content })
+  if (!result.ok) {
+    return {
+      kind: 'conflict',
+      response: conflictResponse(input.kit, input.current.version, input.fileRevision, result.conflictRanges),
+    }
+  }
+  return { kind: 'content', content: result.content }
+}
+
+/**
  * `POST /api/cowork.artifact.edit` — save text with optimistic concurrency.
  *
  * The fast path writes when the browser's opaque version still matches. A
@@ -814,20 +855,31 @@ async function handleEdit(
   let current = await runtime.files.readText(path)
   let source = reconciled.record
   let file = registeredFile(source, path)
+  // A canvas scene is opaque JSON: a line-level merge cannot preserve its
+  // meaning, so a stale base is a conflict as the stage-4 contract states.
+  const canvasScene = source.type === 'canvas'
   if (content === current.content) {
     const unchanged: ArtifactEditResponse = {
       ok: true, path, content, revision: file.revision, fsVersion: current.version, record: source, merged: false,
     }
     return kit.jsonResponse(200, unchanged)
   }
+  const resolveStale = (): Promise<StaleBaseResult> => resolveStaleBase({
+    canvas: canvasScene,
+    artifactId,
+    baseRevision,
+    current,
+    content,
+    fileRevision: file.revision,
+    runtime,
+    kit,
+  })
   let nextContent = content
   let merged = false
   if (baseVersion === null || current.version === null || baseVersion !== current.version) {
-    const base = await runtime.store.readRevision(artifactId, baseRevision)
-    if (base === null) return conflictResponse(kit, current.version, file.revision, wholeFileRange(current.content))
-    const result = mergeText({ base, current: current.content, mine: content })
-    if (!result.ok) return conflictResponse(kit, current.version, file.revision, result.conflictRanges)
-    nextContent = result.content
+    const resolved = await resolveStale()
+    if (resolved.kind === 'conflict') return resolved.response
+    nextContent = resolved.content
     merged = true
   }
   let written
@@ -844,11 +896,9 @@ async function handleEdit(
       }
       retries += 1
       current = await runtime.files.readText(path)
-      const base = await runtime.store.readRevision(artifactId, baseRevision)
-      if (base === null) return conflictResponse(kit, current.version, file.revision, wholeFileRange(current.content))
-      const result = mergeText({ base, current: current.content, mine: content })
-      if (!result.ok) return conflictResponse(kit, current.version, file.revision, result.conflictRanges)
-      nextContent = result.content
+      const resolved = await resolveStale()
+      if (resolved.kind === 'conflict') return resolved.response
+      nextContent = resolved.content
       merged = true
     }
   }

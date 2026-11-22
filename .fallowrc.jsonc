@@ -4,7 +4,9 @@
   "ignoreExportsUsedInFile": true,
   // The client bundle keeps react external (scripts/build/build-client.mjs) and
   // the DSH host supplies it at runtime; package.json intentionally declares no dependency.
-  "ignoreDependencies": ["react"],
+  // Pele, Excalidraw, and the CodeMirror language packages are inlined into
+  // lib/client.js at build time, so a production install never resolves them.
+  "ignoreDependencies": ["react", "pele", "@excalidraw/excalidraw", "@codemirror/lang-html"],
   // Host-provided peer dependencies are not installed into the local node_modules.
   "ignoreUnresolvedImports": [
     "@deepseek-ai/cordis",

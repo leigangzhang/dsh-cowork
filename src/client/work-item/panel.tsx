@@ -25,6 +25,11 @@ import {
 import { useClientServices } from '../contracts.ts'
 import { WorkItemApiError, workItemApi, type SaveConflict } from './api.ts'
 import { TextEditor } from './editor.tsx'
+import { CanvasSurface } from './viewers/canvas.tsx'
+import { viewerKindOf, canvasPresenceRanges, parseCanvasScene } from './viewers/document.ts'
+import { DiagramView } from './viewers/diagram.tsx'
+import { HtmlPreview } from './viewers/html.tsx'
+import { SourceLines } from './viewers/source-lines.tsx'
 import {
   activeDispatchSummary,
   anchorLabel,
@@ -39,8 +44,6 @@ import {
   formatBytes,
   foldThreads,
   formatRelativeTime,
-  isSelected,
-  markdownLine,
   readPersistedDraft,
   removePersistedDraft,
   savePersistedDraft,
@@ -237,6 +240,9 @@ export function WorkItemViewer(): ReactElement {
   const [viewTab, setViewTab] = useState<'document' | 'versions' | 'attachments'>('document')
   const [readMode, setReadMode] = useState(true)
   const [showRail, setShowRail] = useState(true)
+  // Bumped when the editor must rebuild its scene from the stored file; a
+  // save alone must not remount Excalidraw (that would drop undo history).
+  const [canvasReset, setCanvasReset] = useState(0)
   const [receipt, setReceipt] = useState<string | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [now, setNow] = useState(() => new Date())
@@ -255,6 +261,8 @@ export function WorkItemViewer(): ReactElement {
   const [sseToken, setSseToken] = useState(0)
   const editingRef = useRef(false)
   const dirtyRef = useRef(false)
+  const canvasTypeRef = useRef(false)
+  const savedTextRef = useRef('')
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const persistDraftRef = useRef<() => void>(() => {})
   const contextKeyRef = useRef<string | null>(null)
@@ -479,7 +487,12 @@ export function WorkItemViewer(): ReactElement {
   // differs from the saved text. The server expires the report on its own.
   useEffect(() => {
     if (context === null || data?.file == null || !editing) return
-    const ranges = changedLineRanges(savedContent, editDraft)
+    // A canvas has no line concept: the edit session holds the whole file, not
+    // only the lines that changed, so a model write is refused from the moment
+    // the user enters edit mode until they leave it.
+    const ranges = data.record.type === 'canvas'
+      ? canvasPresenceRanges(editDraft)
+      : changedLineRanges(savedContent, editDraft)
     if (ranges.length === 0) return
     const report = (): void => {
       void workItemApi.presence({
@@ -492,7 +505,7 @@ export function WorkItemViewer(): ReactElement {
     report()
     const timer = window.setInterval(report, ARTIFACT_PRESENCE_REPORT_INTERVAL_MS)
     return () => { window.clearInterval(timer) }
-  }, [context, data?.file, editing, savedContent, editDraft])
+  }, [context, data?.file, data?.record.type, editing, savedContent, editDraft])
 
   /** Leave editing: flush a dirty draft first. */
   const toggleEditing = useCallback(() => {
@@ -539,6 +552,7 @@ export function WorkItemViewer(): ReactElement {
       setShowConflictDiff(false)
       setDraftBase(null)
       clearPersistedDraft()
+      setCanvasReset(value => value + 1)
       setSavePhase('saved')
       setReceipt('已加载最新内容')
     } catch (error) {
@@ -557,7 +571,9 @@ export function WorkItemViewer(): ReactElement {
   useEffect(() => {
     editingRef.current = editing
     dirtyRef.current = editing && editDraft !== savedContent
-  }, [editDraft, editing, savedContent])
+    canvasTypeRef.current = data?.record.type === 'canvas'
+    savedTextRef.current = savedContent
+  }, [data?.record.type, editDraft, editing, savedContent])
 
   /**
    * Re-read the record and threads; optionally the file when it changed.
@@ -593,8 +609,12 @@ export function WorkItemViewer(): ReactElement {
         return file === null || keepDraft ? next : { ...next, file }
       })
       if (file !== null && !keepDraft) {
+        // A clean canvas editor still holds the old scene; rebuild it only when
+        // the file really changed (an own save replays as `file.changed` too).
+        const replaced = file.content !== savedTextRef.current
         setEditDraft(file.content)
         setSavedContent(file.content)
+        if (canvasTypeRef.current && editingRef.current && replaced) setCanvasReset(value => value + 1)
         if (!editingRef.current) setSavePhase('saved')
       } else if (file !== null && keepDraft && fileChanged) {
         setReceipt('模型已修改文件；保存时会自动合并，重叠则提示冲突')
@@ -878,6 +898,10 @@ export function WorkItemViewer(): ReactElement {
     )
   }
   const record = data.record
+  const kind = viewerKindOf(record.type)
+  // A canvas whose JSON cannot be parsed falls back to the source editor so a
+  // broken file stays repairable instead of trapping the user in an error pane.
+  const canvasBroken = kind === 'canvas' && data.file !== null && !parseCanvasScene(savedContent).ok
   const activity = activeDispatchSummary(record.activeDispatch)
   return (
     <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="ready" data-artifact-id={record.artifactId}>
@@ -1001,18 +1025,41 @@ export function WorkItemViewer(): ReactElement {
               ) : null}
             </div>
           )}
-          <div className="cwi-doc-view" data-testid="cwi-doc-view" hidden={viewTab !== 'document'} data-mode={readMode ? 'read' : 'source'}>
+          <div className="cwi-doc-view" data-testid="cwi-doc-view" data-kind={kind} hidden={viewTab !== 'document'} data-mode={readMode ? 'read' : 'source'}>
           {editing ? (
-            <TextEditor
-              value={editDraft}
-              ariaLabel="编辑文件内容"
-              anchoredLines={anchoredLineList}
-              anchorsAuthoritative={!dirty}
-              onChange={(content) => {
-                setEditDraft(content)
-                setBackArmed(false)
-              }}
-              onBlur={() => { if (dirty && conflict === null) void saveDraft() }}
+            kind === 'canvas' && !canvasBroken ? (
+              <CanvasSurface
+                content={editDraft}
+                editable
+                sceneKey={`edit-${record.artifactId}-${String(canvasReset)}`}
+                onChange={(content) => {
+                  setEditDraft(content)
+                  setBackArmed(false)
+                }}
+              />
+            ) : (
+              <TextEditor
+                value={editDraft}
+                language={kind === 'html' ? 'html' : (kind === 'diagram' || canvasBroken ? 'plain' : 'markdown')}
+                ariaLabel="编辑文件内容"
+                anchoredLines={anchoredLineList}
+                anchorsAuthoritative={!dirty}
+                onChange={(content) => {
+                  setEditDraft(content)
+                  setBackArmed(false)
+                }}
+                onBlur={() => { if (dirty && conflict === null) void saveDraft() }}
+              />
+            )
+          ) : kind === 'diagram' && readMode && data.file !== null ? (
+            <DiagramView source={data.file.content} />
+          ) : kind === 'html' && readMode && data.file !== null ? (
+            <HtmlPreview source={data.file.content} />
+          ) : kind === 'canvas' && readMode && data.file !== null ? (
+            <CanvasSurface
+              content={data.file.content}
+              editable={false}
+              sceneKey={`view-${String(data.file.revision)}`}
             />
           ) : (
             <>
@@ -1030,31 +1077,13 @@ export function WorkItemViewer(): ReactElement {
                   </button>
                 </div>
               )}
-              <div className="cwi-lines" data-testid="cwi-lines">
-                {lines.map((text, index) => {
-                  const line = index + 1
-                  return (
-                    <div
-                      key={line}
-                      className="cwi-line"
-                      data-testid="cwi-line"
-                      data-line={line}
-                      data-selected={isSelected(selection, line) ? 'true' : 'false'}
-                      data-anchored={anchoredLines.has(line) ? 'true' : 'false'}
-                      onClick={(event) => { pickLine(line, event.shiftKey) }}
-                    >
-                      <span className="cwi-line-number">{line}</span>
-                      {anchoredLines.has(line) ? <span className="cwi-line-pin" data-testid="cwi-line-pin" title="这一行有批注">●</span> : null}
-                      {readMode && text !== ''
-                        ? (() => {
-                            const rendered = markdownLine(text)
-                            return <span className={`cwi-line-text cwi-md-${rendered.kind}`}>{rendered.text === '' ? ' ' : rendered.text}</span>
-                          })()
-                        : <span className="cwi-line-text">{text === '' ? ' ' : text}</span>}
-                    </div>
-                  )
-                })}
-              </div>
+              <SourceLines
+                lines={lines}
+                selection={selection}
+                anchoredLines={anchoredLines}
+                markdown={kind === 'text' && readMode}
+                onPick={pickLine}
+              />
             </>
           )}
           </div>
