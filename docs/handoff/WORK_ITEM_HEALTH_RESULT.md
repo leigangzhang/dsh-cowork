@@ -1,6 +1,6 @@
 # 工作项代码健康度回归修复结果
 
-- 状态：进行中（2026-11-21）。P0/P1 已由 PR #78 交付，见 [交接](WORK_ITEM_HEALTH_HANDOFF.md)；本记录覆盖 P2（health 基线维护）与 P3（CI 强制）。
+- 状态：完成（2026-11-21）。P0/P1 已由 PR #78 交付，见 [交接](WORK_ITEM_HEALTH_HANDOFF.md)；本记录覆盖 P2（health 基线维护）与 P3（CI 强制）。
 - 基线：`main` `c9f7e84`（PR #77 合并后）。
 - 工具：fallow 3.43.0。P3 把精确版本固定进 `package.json` 的 `devDependencies.fallow`；P2 的人工审阅也使用该版本。
 - 分支：`agent/fallow-health-gate`。
@@ -70,7 +70,7 @@
 | 文件×类别计数 | 157 | 254 |
 | target key | 23 | 41 |
 
-剪掉 13 个 stale 计数、增加 110 个计数后，新基线覆盖全部 184 条 finding，`fallow health --baseline` 退出 0。逐条核对的 83 条 finding 与分类理由如上；target key 的增加来自同一批函数的热点排序，不改变 finding 判定。
+剪掉 13 个 stale 计数、增加 110 个计数后，新基线覆盖全部 184 条 finding，`fallow health --baseline` 退出 0。逐条核对的 83 条 finding 与分类理由如上；target key 从 23 增加到 41（fallow 生成的重构目标标识），随同一次刷新保存。
 
 ## P3 — CI 强制
 
@@ -96,5 +96,6 @@ P3 改变了「fallow 只做本地信号」的历史决策，新增 [decision re
 | `npm run test:host-smoke` | exit 0：5/5 PASS |
 | `npm run test:coverage:layered -- --base c9f7e84` | exit 0：97 counted files，line 99.88% |
 | `npm run fallow:health` | exit 0：254/254 matched、0 stale、0 remaining |
-| `npm run fallow:audit -- --base c9f7e84 --format json` + gate | 提交后运行；结果补记在下一提交 |
-| `npm run change-scope -- --base c9f7e84` | 提交后运行；结果补记在下一提交 |
+| `npm run test:e2e -- --record` | exit 0：6 个 keyless 场景 / 140 项检查，证据重录到 `292088b` |
+| `npm run fallow:audit -- --base c9f7e84 --format json` + gate | exit 0：verdict pass，16 个变更文件，`complexity_introduced=0`、`complexity_worsened=0`；gate 在 `25ee373` 上通过 |
+| `npm run change-scope -- --base c9f7e84` | exit 0：committed 16，staged / unstaged / untracked 均为 0 |
