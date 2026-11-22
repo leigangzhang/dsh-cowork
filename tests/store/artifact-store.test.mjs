@@ -253,6 +253,20 @@ test('revision snapshots are readable and keep only the newest twenty', async ()
   })
 })
 
+test('revision listing rethrows an unexpected filesystem error', async () => {
+  await withStore(async (store) => {
+    await store.createRecord(makeRecord())
+    const directory = store.revisionsDir(ARTIFACT)
+    await mkdir(directory, { recursive: true })
+    await chmod(directory, 0o000)
+    try {
+      await assert.rejects(store.listRevisions(ARTIFACT), (error) => error.code === 'EACCES')
+    } finally {
+      await chmod(directory, 0o700)
+    }
+  })
+})
+
 test('revision IO for an unknown or malformed artifact id fails like the record', async () => {
   await withStore(async (store) => {
     assert.equal(await store.readRevision('artifact-99999999-9999-4999-8999-999999999999', 1), null)
