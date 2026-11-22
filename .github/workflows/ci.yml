@@ -107,9 +107,61 @@ jobs:
       - name: Run coverage gate
         run: npm run test:coverage
 
+  code-health:
+    name: code-health
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Compare against the merge base rather than the base branch tip: the PR
+      # changeset is what this gate judges, and a branch that is behind main
+      # must not audit main's own commits as part of the pull request.
+      - name: Resolve the compared base
+        id: base
+        run: echo "sha=$(git merge-base "origin/${{ github.base_ref }}" "${{ github.event.pull_request.head.sha }}")" >> "$GITHUB_OUTPUT"
+
+      - name: Audit changed files
+        run: >-
+          npm run --silent fallow:audit --
+          --base "${{ steps.base.outputs.sha }}"
+          --format json > "$RUNNER_TEMP/fallow-audit.json"
+
+      # The exit code alone is insufficient: fallow 3.43.0 can record a
+      # warn-level line-count regression in `complexity_worsened` while still
+      # exiting 0, so the JSON counters are the gate.
+      - name: Require zero introduced and worsened complexity
+        run: >-
+          node scripts/ci/fallow-gate.mjs
+          --audit "$RUNNER_TEMP/fallow-audit.json"
+          --expect-base "${{ steps.base.outputs.sha }}"
+          --expect-head "${{ github.event.pull_request.head.sha }}"
+
+      - name: Health baseline gate
+        run: npm run fallow:health
+
   pr-gate:
     name: pr-gate
-    needs: [classify, docs-check, unit]
+    needs: [classify, docs-check, unit, code-health]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -136,6 +188,18 @@ jobs:
         if: ${{ needs.classify.outputs.docs_only == 'true' && needs.unit.result != 'skipped' }}
         run: |
           echo "::error::unit ran or failed although the change was classified as docs-only"
+          exit 1
+
+      - name: Require code health for source changes
+        if: ${{ needs.classify.outputs.docs_only != 'true' && needs.code-health.result != 'success' }}
+        run: |
+          echo "::error::code-health did not succeed for a source change"
+          exit 1
+
+      - name: Reject unexpected code health lane on docs-only changes
+        if: ${{ needs.classify.outputs.docs_only == 'true' && needs.code-health.result != 'skipped' }}
+        run: |
+          echo "::error::code-health ran or failed although the change was classified as docs-only"
           exit 1
 
       - name: Checkout PR head

@@ -1,6 +1,6 @@
 # 工作项代码健康度回归修复结果
 
-- 状态：进行中（2026-11-21）。P0/P1 已由 PR #78 交付，见 [交接](WORK_ITEM_HEALTH_HANDOFF.md)；本记录先覆盖 P2（health 基线维护）；P3 在同一分支的后续提交交付。
+- 状态：进行中（2026-11-21）。P0/P1 已由 PR #78 交付，见 [交接](WORK_ITEM_HEALTH_HANDOFF.md)；本记录覆盖 P2（health 基线维护）与 P3（CI 强制）。
 - 基线：`main` `c9f7e84`（PR #77 合并后）。
 - 工具：fallow 3.43.0。P3 把精确版本固定进 `package.json` 的 `devDependencies.fallow`；P2 的人工审阅也使用该版本。
 - 分支：`agent/fallow-health-gate`。
@@ -72,7 +72,29 @@
 
 剪掉 13 个 stale 计数、增加 110 个计数后，新基线覆盖全部 184 条 finding，`fallow health --baseline` 退出 0。逐条核对的 83 条 finding 与分类理由如上；target key 的增加来自同一批函数的热点排序，不改变 finding 判定。
 
-## 未决项
+## P3 — CI 强制
 
-- P3 在同一分支的后续提交交付：固定 `devDependencies.fallow`、新增 `code-health` CI job 与 `scripts/ci/fallow-gate.mjs`，并新增 decision record。
-- `--baseline-mode identity` 已评估，结论与理由写入 P3 的 decision record。
+P3 改变了「fallow 只做本地信号」的历史决策，新增 [decision record](../../.agents/notes/implemented/process/2026-11-21-fallow-health-ci-gate.md)。
+
+- `package.json` 精确固定 `devDependencies.fallow = 3.43.0`，新增 `fallow:health`（`fallow health --baseline tools/fallow-health-baseline.json`）与 `fallow:audit`（`fallow audit --worsened error`）脚本；本地和 CI 跑同一命令。
+- `package-lock.json` 只新增 154 行：fallow、`detect-libc` 与 8 个平台 optional dependency，`resolved` 全部指向 `https://registry.npmjs.org/`。
+- `.github/workflows/ci.yml` 新增独立 `code-health` job，只在非 docs-only 的 PR 上运行。步骤：`npm ci` → `git merge-base` 解析 PR 的 base sha → `npm run --silent fallow:audit -- --base <sha> --format json` → `node scripts/ci/fallow-gate.mjs` → `npm run fallow:health`。`pr-gate` 把 `code-health` 纳入必需 lane，并像 `unit` 一样拒绝 docs-only 变更里意外运行的 lane。
+- `scripts/ci/fallow-gate.mjs` 断言 `attribution.complexity_introduced` 与 `complexity_worsened` 都为 0，并把报告绑定到 kind、CLI 版本（默认读 `package.json` 的 pin）、base 和 head（接受 fallow 输出的短 SHA 前缀）。负例在 `tests/guards/fallow-gate.test.mjs`，job 结构断言在 `tests/guards/ci-workflow.test.mjs`。
+- `--worsened error` 仍是 audit 的失败条件；JSON 断言补上退出码看不到的 warn 级 line-count 增长。health 对 stale 条目仍只警告：启用 `--fail-on-stale-baseline` 会让「删除函数」的普通 PR 变红，与「只在维护 PR 刷新基线」冲突。
+- `--baseline-mode identity` 已评估并否决：按函数身份匹配会让每次拆分或重命名都要求刷新基线；变更级回归继续由 `fallow audit` 的 introduced/worsened 覆盖。`--fail-on-baseline-growth` 本次不启用，因为维护 PR 的任务就是新增基线键，启用会让迁移本身失败。
+
+## 验收
+
+| 命令 | 结果 |
+|---|---|
+| `npm run check` | exit 0（含 export audit、docs 与 publish 检查） |
+| `npm run check:self-test` | exit 0：10 kinds + 35 project negative controls |
+| `npm test` | 1615/1615 pass（首次在并发安装负载下 1614/1615，未记录失败用例；随后两次复跑均全绿） |
+| `npm run test:coverage` | exit 0：83 modules，line 100.00%（31609/31609） |
+| `npm run typecheck` | exit 0（host + client） |
+| `npm run build` | exit 0（lib/client.js 15,168 KB） |
+| `npm run test:host-smoke` | exit 0：5/5 PASS |
+| `npm run test:coverage:layered -- --base c9f7e84` | exit 0：97 counted files，line 99.88% |
+| `npm run fallow:health` | exit 0：254/254 matched、0 stale、0 remaining |
+| `npm run fallow:audit -- --base c9f7e84 --format json` + gate | 提交后运行；结果补记在下一提交 |
+| `npm run change-scope -- --base c9f7e84` | 提交后运行；结果补记在下一提交 |
