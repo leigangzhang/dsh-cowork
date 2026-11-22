@@ -396,7 +396,7 @@ export function olderCursor(events: readonly CommentEventV1[]): string | null {
  * @param older - the older page, oldest first.
  * @returns one chronological array without duplicate event ids.
  */
-export function mergeOlderComments(
+function mergeOlderComments(
   current: readonly CommentEventV1[],
   older: readonly CommentEventV1[],
 ): CommentEventV1[] {
@@ -438,48 +438,9 @@ export function lineMoveDelta(intent: LineKeyIntent): number {
   return intent === 'next' ? 1 : -1
 }
 
-/** One validated rebind call against the loaded record. */
-export interface RebindCallInput {
-  readonly sessionId: string
-  readonly artifactId: string
-  readonly oldPath: string
-  readonly newPath: string
-}
-
-export type RebindCall =
-  | {
-      readonly ok: true
-      readonly input: RebindCallInput
-    }
-  | { readonly ok: false; readonly error: string }
-
 /** The registered path a rebind starts from: the primary file's entry, else primaryPath. */
 export function rebindOldPath(record: ArtifactRecordV1): string {
   return record.files.find((file) => file.path === record.primaryPath)?.path ?? record.primaryPath
-}
-
-/** Build a rebind call for a non-null context and record. */
-function rebindCallReady(
-  context: { readonly sessionId: string; readonly artifactId: string },
-  record: ArtifactRecordV1,
-  input: string,
-): RebindCall {
-  const target = rebindTarget(input)
-  if (!target.ok) return { ok: false, error: target.error }
-  return {
-    ok: true,
-    input: { sessionId: context.sessionId, artifactId: context.artifactId, oldPath: rebindOldPath(record), newPath: target.path },
-  }
-}
-
-/** Validate one typed rebind path against the loaded record, or null when idle. */
-export function rebindCall(
-  context: { readonly sessionId: string; readonly artifactId: string } | null,
-  data: { readonly record: ArtifactRecordV1 } | null,
-  input: string,
-): RebindCall | null {
-  if (context === null || data === null) return null
-  return rebindCallReady(context, data.record, input)
 }
 
 /** Replace the loaded record without touching the rest of the view. */

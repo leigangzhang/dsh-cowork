@@ -599,14 +599,16 @@ test('olderCursor is the earliest loaded event id', () => {
   assert.equal(model.olderCursor([comment({ eventId: 'event-1' }), comment({ eventId: 'event-2' })]), 'event-1')
 })
 
-test('mergeOlderComments prepends without duplicating an overlapping row', () => {
-  const current = [comment({ eventId: 'event-3' }), comment({ eventId: 'event-4' })]
+test('withOlderPage prepends without duplicating an overlapping row', () => {
+  const current = { events: [comment({ eventId: 'event-3' }), comment({ eventId: 'event-4' })], hasOlder: true }
   const older = [comment({ eventId: 'event-1' }), comment({ eventId: 'event-2' }), comment({ eventId: 'event-3' })]
-  assert.deepEqual(
-    model.mergeOlderComments(current, older).map((event) => event.eventId),
-    ['event-1', 'event-2', 'event-3', 'event-4'],
-  )
-  assert.deepEqual(model.mergeOlderComments([], []).map((event) => event.eventId), [])
+  const merged = model.withOlderPage(current, { events: older, hasOlder: false })
+  assert.deepEqual(merged.events.map((event) => event.eventId), ['event-1', 'event-2', 'event-3', 'event-4'])
+  assert.equal(merged.hasOlder, false)
+  assert.deepEqual(model.withOlderPage({ events: [], hasOlder: true }, { events: [], hasOlder: false }), {
+    events: [],
+    hasOlder: false,
+  })
 })
 
 test('olderPageAvailable hides the entry for an empty or final page', () => {
@@ -633,19 +635,6 @@ test('lineKeyIntent maps only the line-list keys', () => {
   assert.equal(model.lineKeyIntent('a'), null)
   assert.equal(model.lineMoveDelta('next'), 1)
   assert.equal(model.lineMoveDelta('previous'), -1)
-})
-
-test('rebindCall validates the path against the loaded record', () => {
-  const context = { sessionId: 'session-1', artifactId: 'artifact-1' }
-  const record = { files: [{ path: 'docs/spec.md' }], primaryPath: 'docs/spec.md' }
-  assert.equal(model.rebindCall(null, { record }, 'docs/next.md'), null)
-  assert.equal(model.rebindCall(context, null, 'docs/next.md'), null)
-  const rejected = model.rebindCall(context, { record }, '/abs.md')
-  assert.equal(rejected.ok, false)
-  assert.deepEqual(model.rebindCall(context, { record }, ' docs/next.md '), {
-    ok: true,
-    input: { sessionId: 'session-1', artifactId: 'artifact-1', oldPath: 'docs/spec.md', newPath: 'docs/next.md' },
-  })
 })
 
 test('withRecord and withOlderPage keep the rest of the view', () => {
