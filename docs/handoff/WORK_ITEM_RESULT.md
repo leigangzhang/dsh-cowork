@@ -1,7 +1,7 @@
-# 工作项页阶段 0–4 与 demo 批次 A/B 交付结果
+# 工作项页阶段 0–5 与 demo 批次 A/B 交付结果
 
-- 日期：2026-11-19（2026-11-22 增补 demo 批次 A/B）
-- 状态：阶段 0–4 与 demo 对齐批次 A/B 已交付（至 2026-11-22）；KI-51/KI-52 已于 2026-11-20 在 `agent/ki-51-52`（基于 `main` `26141dd`）补修；阶段 4 于 2026-11-21 按用户调整只实现图表/画布/HTML；Doc、表格、PDF、图片自 2026-11-22 永久移出目标（KI-57）；阶段 5（收口）未开始
+- 日期：2026-11-19（2026-11-22 增补 demo 批次 A/B 与阶段 5）
+- 状态：阶段 0–5 与 demo 对齐批次 A/B 已交付（至 2026-11-22）；KI-51/KI-52 已于 2026-11-20 在 `agent/ki-51-52`（基于 `main` `26141dd`）补修；阶段 4 于 2026-11-21 按用户调整只实现图表/画布/HTML；Doc、表格、PDF、图片自 2026-11-22 永久移出目标（KI-57）
 - 执行分支：`agent/work-item-docs-facts`（沿用交接文档指定的工作流分支）
 - 交接：[WORK_ITEM_HANDOFF.md](WORK_ITEM_HANDOFF.md)；设计状态已同步为 implementing
 
@@ -87,6 +87,16 @@ PR #81（`agent/work-item-demo-style`，base `791955b`，head `8cdde73`，merge 
 - 证据（PR #81 记录）：`npm test` exit 0；`npm run test:coverage` 100.00%（32306/32306）；`npm run test:browser` PASS（32 个 counted client 文件）；`npm run fallow:audit -- --base 791955b` 与 `npm run fallow:health` 均为 0 introduced / 0 worsened；`npm run test:e2e -- --record` 6 场景 / 140 检查；`npm run test:host-smoke` 5/5；`npm run typecheck`、`npm run build`、`npm run check` exit 0。
 - 未核实：`npm run test:e2e:live` 未跑（无 `DEEPSEEK_API_KEY`）；浏览器中未点击“在应用中打开/导出”（会触发桌面/下载动作），由路由与 adapter 测试覆盖；暗色主题只做代码层 token 覆盖，未做视觉截图。`artifact.open` 按 `inbox.open` 先例登记 keyless debt（`tests/e2e/coverage-debt.json`）。
 
+## 阶段 5：收口（2026-11-22）
+
+分支 `agent/work-item-stage5`，base `d55f6d4`，最终 HEAD `dc3ce8d`。
+
+- 后端：`POST /api/cowork.artifact.rebind`（幂等、路径与他人登记校验、锚点跟随或 `stale`）；comments 默认返回最近 200 条并支持 `before` 游标加载更早（新增 `hasOlder`），`after` 前向分页语义不变；列表读取按目录 mtime 与写版本缓存，每次写入失效；event replay 在游标落后超过保留窗口时改发 `reset`，不再静默丢事件；`resolveInsideRepo` 对 realpath 结果复查禁止段/凭据名，堵住仓库内 symlink → `.git`/`.env`/`.dsh-cowork` 的读取；dispatch `recoverOnCreate` 默认行为有测试。启动时全量文件扫描未新增，维持 detail/file 读时对账。
+- 前端：缺失文件显示「重新绑定文件」入口并原样展示服务端原因；线程改为最近 200 条 + “加载更早”；Esc 关闭抽屉/浮层、Tab 可达工具条与 pin、键盘行选择（Enter/Space 进入批注）、≤900px 评论抽屉、空/错误态收口。
+- 结构：`artifact-api.ts` 拆出 `artifact-route-kit.ts`/`artifact-records.ts`/`artifact-rebind.ts`（41.1 KB）；`panel.tsx` 50,859 B；repair 批次清除 2 条 dead code 与全部新增 fallow finding。
+- 证据（隔离副本，HEAD `dc3ce8d`，base `d55f6d4`）：`npm run check` 0；`npm test` 1678/1678；`npm run typecheck` 0；`npm run build` 0（client 15,259 KB）；`npm run test:coverage` 85 owner 模块 line 100.00%（33086/33086）；`npm run test:coverage:layered -- --base d55f6d4` 107 counted 文件 line 99.75%，floors 通过；`npm run test:browser` 32 counted / 33 reported，通过；`npm run test:host-smoke` 5/5；`npm run test:e2e` 6 场景 / 143 checks（`artifact-chain` 29，含 rebind）；`npm run fallow:health` 0 remaining；`npm run fallow:audit -- --base d55f6d4` verdict pass，dead_code/complexity/duplication introduced 与 worsened 全 0；gate artifact head `dc3ce8d`、diff SHA-256 `bf7a5080…8673`、205,809 B、committed 35 无越界。
+- 未核实：跨项目 artifact 的 rebind 沿用 `artifact/session-mismatch`(403) 而非任务文字的 404（与既有路由一致）；浏览器未点击“在应用中打开/导出”（会触发真实桌面/下载动作，由路由与 adapter 测试覆盖）；`npm run test:e2e:live` 未跑（无 `DEEPSEEK_API_KEY`）；远端 CI 未跑。
+
 ## 验证证据
 
 均在最终代码树上实际运行（`agent/work-item-docs-facts` HEAD）：
@@ -118,8 +128,8 @@ PR #81（`agent/work-item-demo-style`，base `791955b`，head `8cdde73`，merge 
 - 真实模型 E2E 已跑通核心链路（KI-53 已收窄）：两个会话并行投递、图片 prompt、回复工具采用均通过。恢复路径由 keyless `artifact-recovery` 覆盖“预置日志 → 真实宿主启动恢复”，但仍未做同一 `DSH_HOME` 的进程级重启；真实模型回合被 `tools.guard` 拒绝后的重试、prompt 拒绝触发的退避重试、队列满与 SSE 重连仍只有单测/浏览器片段证据，bash 绕过保持。
 - `tools.guard` 的重叠拒绝已由 keyless `artifact-chain` 在真实宿主 + 脚本化模型回合中观测；仍未在一次真实模型回合里观测拒绝后重试。
 - 保存请求在途时的并发编辑与“退出编辑”双发保存是 textarea 时代既有竞态，本轮未改（KI-56）。
-- 阶段 4 已按调整后的范围完成图表/画布/HTML；`open` 已由批次 B 交付，字节 Range 与图表节点/画布元素工具仍未做（KI-57）；Doc/表格/PDF/图片永久移出目标。阶段 5（rebind、事件裁剪、列表缓存与旧隔离 workItems 入口，KI-41）未开始。
+- 阶段 4 已按调整后的范围完成图表/画布/HTML；`open` 已由批次 B 交付，字节 Range 与图表节点/画布元素工具仍未做（KI-57）；Doc/表格/PDF/图片永久移出目标。阶段 5 已完成（rebind、事件裁剪/reset、列表缓存、路径/上传加固、线程最近 200 + 加载更早）；旧隔离 workItems 入口不恢复（KI-41）。
 
 ## 回滚
 
-按阶段提交回退：`git revert` 阶段 1 / 阶段 2–3 / 阶段 4 的提交即可；阶段 4 只改客户端查看器、构建脚本、测试和文档，回退后画布/图表/HTML 退回源码行视图。数据目录 `.dsh-cowork/artifacts/` 是新增独立目录，删除它不影响 `index.json`、主题页或收件箱。
+按阶段提交回退：`git revert` 阶段 1 / 阶段 2–3 / 阶段 4 / 阶段 5 的提交即可；阶段 4 只改客户端查看器、构建脚本、测试和文档，回退后画布/图表/HTML 退回源码行视图。阶段 5 在 `agent/work-item-stage5` 上按提交回退（rebind、缓存/reset、前端收口、repair 与 evidence 可分别 revert）；rebind 只新增路由与记录字段更新，不回滚 `.dsh-cowork/artifacts/` 已有数据。数据目录 `.dsh-cowork/artifacts/` 是新增独立目录，删除它不影响 `index.json`、主题页或收件箱。

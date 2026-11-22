@@ -1,6 +1,6 @@
 # Cowork 工作项后端：调研、架构与实现设计
 
-Status: implementing（backend design，2026-11-10；阶段 0–4 与 demo 对齐批次 A/B 已交付至 2026-11-22；阶段 5 未开始；Doc、表格、PDF、图片永久移出目标，按需再评估（KI-57）；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)）
+Status: implemented（backend design，2026-11-10；阶段 0–5 与 demo 对齐批次 A/B 已交付 2026-11-22；Doc、表格、PDF、图片永久移出目标，按需再评估（KI-57）；结果见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)）
 
 本方案把[工作项前端设计与开发方案](work-item-frontend.md)和[工作项查看器设计](work-item-artifact-viewer.md)落成后端实现设计。范围是 artifacts 记录、文件、批注、版本、保存冲突、模型投递、SSE 和工具；不含前端代码、编辑器依赖和旧 `workItems` 改造。决策和备选见[后端决策](../../../.agents/notes/implemented/feature/2026-11-10-work-item-page-backend.md)。
 
@@ -251,7 +251,7 @@ interface ArtifactEventV1 {
 | `/api/cowork.artifact.upload` | POST | 流式 body + `sessionId,artifactId,name` | 魔数/大小/数量校验；返回附件引用 |
 | `/api/cowork.artifact.events` | GET | `sessionId,artifactId?` | SSE；`Last-Event-ID` 回放；15s 心跳 |
 | `/api/cowork.artifact.open` | POST | `sessionId,artifactId` | 用记录的 `primaryPath` 做 realpath/普通文件校验后调宿主 `openWorkspacePath`；缺失 404、逃逸 400、宿主无能力 501 |
-| `/api/cowork.artifact.rebind` | POST | `sessionId,artifactId,oldPath,newPath` | 文件缺失后重新绑定（阶段 5） |
+| `/api/cowork.artifact.rebind` | POST | `sessionId,artifactId,oldPath,newPath` | 文件缺失后重新绑定（已交付） |
 
 - 错误沿用 `PanelErrorBody`/`PanelApiError` 风格；新增 `artifact/not-found`、`artifact/session-mismatch`、`artifact/path-not-allowed`、`artifact/file-missing`、`artifact/file-too-large`、`artifact/version-conflict`、`artifact/not-editable`、`artifact/anchor-invalid`、`artifact/upload-invalid`、`artifact/dispatch-*`、`artifact/open-unsupported`（宿主没有原生打开能力，501）。
 - 列表/详情/文件是项目读权限：任何能解析到该项目的会话都可读；写操作校验 artifact 属于该项目、路径已登记；模型工具再校验 owner/role。
@@ -385,7 +385,7 @@ working ──cowork_artifact_reply 成功──▶ replied
 | 事件日志裁剪后旧客户端重连 | 发 `reset`，客户端重拉详情；不假装续传 |
 | 投递 prompt 接受后宿主崩溃 | 重启标 `stale`，不自动重发；用户可重试 |
 | 会话归档/不存在 | dispatch `blocked`，评论保留；不自动重试 |
-| 文件缺失 | detail 标 `missing`；评论保留；阶段 5 提供 rebind |
+| 文件缺失 | detail 标 `missing`；评论保留；rebind 已提供 |
 | 模型未调用回复工具 | `turn/end` 后 `failed`，错误码 `artifact/reply-missing`；不伪造回复 |
 | bash 绕过同行锁 | 保存/文件变化对账时发现版本变化，标记冲突；无法事前阻止 |
 
@@ -407,7 +407,7 @@ working ──cowork_artifact_reply 成功──▶ replied
 2. **阶段 2：编辑与保存。** 修订/保存/三方合并、presence、工具守卫；真实宿主 E2E。对应前端阶段 2 前半。
 3. **阶段 3：投递与多模态。** dispatch/重试/恢复、`cowork_artifact_comments`/`cowork_artifact_reply`、上传与附件引用；无新的核心存储。对应前端阶段 2 后半。
 4. **阶段 4：图表/画布/HTML。** 三种类型的文件都是文本：复用文件路由、文本保存和行范围锚点；新增画布整文件锁（presence 覆盖整个文件）。`POST /open` 已由批次 B 交付；字节/Range 与 docx/xlsx、PDF/图片预览永久移出目标（KI-57）。对应前端阶段 3–4。
-5. **阶段 5：收口。** 事件裁剪、重启恢复、rebind、性能缓存、路径/上传安全、完整 E2E。对应前端阶段 5。
+5. **阶段 5：收口。** 事件裁剪、重启恢复、rebind、性能缓存、路径/上传安全、完整 E2E。对应前端阶段 5。已交付（2026-11-22）；启动全量文件扫描未做，维持 detail/file 读时对账，见 [WORK_ITEM_RESULT](../../handoff/WORK_ITEM_RESULT.md)。
 
 ## 风险与未核实
 
