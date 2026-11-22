@@ -1,12 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { spawnSync } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   HEAVY_SUMMARY_MARKER,
   formatHeavySummary,
   publishHeavyComment,
 } from '../../scripts/ci/publish-heavy-comment.mjs'
 
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const head = 'a'.repeat(40)
 const base = 'b'.repeat(40)
 const currentMain = 'c'.repeat(40)
@@ -56,7 +60,7 @@ function json(response, value, statusCode = 200) {
   response.end(JSON.stringify(value))
 }
 
-async function fixtureServer({ prs = [], statuses = [], checks = [], comments = [] } = {}) {
+async function fixtureServer({ statuses = [], checks = [], comments = [] } = {}) {
   const requests = []
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1')
@@ -64,9 +68,6 @@ async function fixtureServer({ prs = [], statuses = [], checks = [], comments = 
     for await (const chunk of request) raw += chunk
     const body = raw === '' ? undefined : JSON.parse(raw)
     requests.push({ method: request.method, path: url.pathname, body })
-    if (request.method === 'GET' && url.pathname === `/repos/owner/repo/commits/${head}/pulls`) {
-      return json(response, prs)
-    }
     if (request.method === 'GET' && url.pathname === `/repos/owner/repo/commits/${head}/statuses`) {
       return json(response, statuses)
     }
@@ -103,6 +104,7 @@ function config(server, overrides = {}) {
     token: 'test-token',
     repository: 'owner/repo',
     head,
+    prNumber: 7,
     runUrl,
     conclusion: 'success',
     apiUrl: server.url,
@@ -112,7 +114,6 @@ function config(server, overrides = {}) {
 
 test('the heavy comment creates one marked summary with identity and command exits', async () => {
   const server = await fixtureServer({
-    prs: [{ number: 7, state: 'open', head: { sha: head } }],
     statuses: [status()],
     checks: [check()],
   })
@@ -135,7 +136,6 @@ test('the heavy comment creates one marked summary with identity and command exi
 
 test('the heavy comment updates the existing marked comment instead of adding another', async () => {
   const server = await fixtureServer({
-    prs: [{ number: 7, state: 'open', head: { sha: head } }],
     statuses: [status()],
     checks: [check()],
     comments: [{ id: 99, body: `${HEAVY_SUMMARY_MARKER}\nold summary` }],
@@ -152,20 +152,35 @@ test('the heavy comment updates the existing marked comment instead of adding an
   }
 })
 
-test('the heavy comment skips a run with no open pull request', async () => {
-  const server = await fixtureServer({ prs: [] })
+test('the heavy comment requires one resolved pull request and tested head', async () => {
+  const server = await fixtureServer()
   try {
-    const outcome = await publishHeavyComment(config(server))
-    assert.deepEqual(outcome, { skipped: 'no-open-pr' })
-    assert.equal(server.requests.filter((request) => request.path.includes('/issues/')).length, 0)
+    await assert.rejects(publishHeavyComment(config(server, { prNumber: '' })), /prNumber/)
+    await assert.rejects(publishHeavyComment(config(server, { head: 'main' })), /head must be a full commit SHA/)
+    assert.equal(server.requests.length, 0)
   } finally {
     await server.close()
   }
 })
 
+test('the publisher CLI skips a run without a resolved pull request', () => {
+  const result = spawnSync(process.execPath, [resolve(root, 'scripts/ci/publish-heavy-comment.mjs')], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GH_TOKEN: 'test-token',
+      GITHUB_REPOSITORY: 'owner/repo',
+      HEAVY_RUN_URL: runUrl,
+      PR_NUMBER: '',
+      HEAD_SHA: '',
+    },
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), { skipped: 'no-open-pr' })
+})
+
 test('a failed heavy run without a result still posts a failure summary', async () => {
   const server = await fixtureServer({
-    prs: [{ number: 7, state: 'open', head: { sha: head } }],
     statuses: [],
     checks: [],
   })
@@ -183,7 +198,6 @@ test('a failed heavy run without a result still posts a failure summary', async 
 
 test('a blocked heavy run with failure status and check still posts a summary', async () => {
   const server = await fixtureServer({
-    prs: [{ number: 7, state: 'open', head: { sha: head } }],
     statuses: [status('failure')],
     checks: [check(summary({ result: 'fail', reasons: ['blocking command failed'] }), 'failure')],
   })
@@ -202,7 +216,6 @@ test('a blocked heavy run with failure status and check still posts a summary', 
 test('the heavy comment finds a marker beyond the first hundred comments', async () => {
   const pageOne = Array.from({ length: 100 }, (_, index) => ({ id: index + 1, body: `comment ${String(index)}` }))
   const server = await fixtureServer({
-    prs: [{ number: 7, state: 'open', head: { sha: head } }],
     statuses: [status()],
     checks: [check()],
     comments: [pageOne, [{ id: 99, body: `${HEAVY_SUMMARY_MARKER}\nexisting` }]],
@@ -220,7 +233,6 @@ test('the heavy comment finds a marker beyond the first hundred comments', async
 
 test('a successful docs-only run with no heavy result is skipped', async () => {
   const server = await fixtureServer({
-    prs: [{ number: 7, state: 'open', head: { sha: head } }],
     statuses: [],
     checks: [],
   })
