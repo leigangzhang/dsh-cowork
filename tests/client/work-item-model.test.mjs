@@ -498,7 +498,7 @@ test('threadRailView keeps resolved cards out of the pending filter', () => {
   const open = model.foldThreads([comment({ commentId: 'c-open', threadId: 'c-open' })])[0]
   const resolved = model.foldThreads([
     comment({ commentId: 'c-done', threadId: 'c-done' }),
-    comment({ type: 'resolve', eventId: 'e-resolve', commentId: 'c-done' }),
+    comment({ type: 'resolve', eventId: 'e-resolve', commentId: 'c-done', threadId: 'c-done' }),
   ])[0]
   const threads = [open, resolved]
 
