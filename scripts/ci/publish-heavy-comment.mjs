@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 /**
- * Publish one idempotent heavy summary comment on the open pull request that
- * owns the heavy run head.
+ * Publish one idempotent heavy summary comment on the pull request resolved for
+ * a heavy run.
+ *
+ * The comment workflow resolves the tested head and pull request first with
+ * `resolve-heavy-pr.mjs`: a `workflow_run`-triggered heavy run records the
+ * default branch, so its own `head_sha` is not the pull-request head. This
+ * publisher receives that resolution, reads the already-published status and
+ * check run for the tested head, and writes the summary.
  *
  * The workflow is deliberately separate from the heavy test job: it checks out
- * trusted main, reads the already-published status and check run, and receives
- * only `pull-requests: write`. It never executes pull-request code, so a branch
- * cannot alter the comment publisher or run commands under the write token.
+ * trusted main and receives only `pull-requests: write`. It never executes
+ * pull-request code, so a branch cannot alter the comment publisher or run
+ * commands under the write token.
  */
 import { githubHeaders, readGithubResponse } from './github-response.mjs'
 import { HEAVY_DISPLAY_CHECK, HEAVY_GATE_CONTEXT } from './heavy-contract.mjs'
@@ -14,6 +20,7 @@ import { readHeavyResult, readHeavyStatus } from './publish-gate.mjs'
 
 export const HEAVY_SUMMARY_MARKER = '<!-- heavy-gate-summary -->'
 const API_TIMEOUT_MS = 15_000
+const COMMIT_SHA = /^[0-9a-f]{40}$/
 
 function api(config, path, init = {}) {
   return (config.fetchImpl ?? fetch)(`${config.apiUrl}${path}`, {
@@ -42,22 +49,15 @@ async function listComments(config, prNumber) {
   return comments
 }
 
-async function resolvePullRequest(config) {
-  if (config.prNumber !== undefined && config.prNumber !== null && String(config.prNumber) !== '') {
-    return Number(config.prNumber)
+function validatedPrNumber(config) {
+  const prNumber = Number(config.prNumber)
+  if (!Number.isInteger(prNumber) || prNumber <= 0) {
+    throw new Error('prNumber must be a positive integer')
   }
-  const body = await apiJson(
-    config,
-    `/repos/${config.repository}/commits/${config.head}/pulls?per_page=100`,
-    'resolving the heavy pull request',
-  )
-  const matches = (Array.isArray(body) ? body : [])
-    .filter((pull) => pull?.state === 'open' && pull?.head?.sha === config.head)
-  if (matches.length === 0) return null
-  if (matches.length > 1) {
-    throw new Error(`found ${String(matches.length)} open pull requests for heavy head ${config.head}`)
+  if (typeof config.head !== 'string' || !COMMIT_SHA.test(config.head)) {
+    throw new Error('head must be a full commit SHA')
   }
-  return matches[0].number
+  return prNumber
 }
 
 function commandTable(result) {
@@ -126,18 +126,19 @@ export function formatHeavySummary(input) {
 }
 
 /**
- * Create or update the single heavy summary comment for one run head.
+ * Create or update the single heavy summary comment for one resolved run.
  *
- * @param {{token: string, repository: string, head: string, runUrl: string,
- *   conclusion?: string, prNumber?: string|number, apiUrl?: string,
- *   fetchImpl?: typeof fetch}} config Comment publisher inputs.
- * @returns {Promise<{action: 'created'|'updated', prNumber: number}|{skipped: string}>}
- *   Comment action, or the reason the run has no comment.
- * @throws {Error} When GitHub returns an unexpected response or multiple open PRs match.
+ * @param {{token: string, repository: string, head: string, prNumber: string|number,
+ *   runUrl: string, conclusion?: string, apiUrl?: string,
+ *   fetchImpl?: typeof fetch}} config Comment publisher inputs. `head` is the
+ *   tested pull-request head resolved by `resolve-heavy-pr.mjs`.
+ * @returns {Promise<{action: 'created'|'updated', prNumber: number}|{skipped: 'no-heavy-result'}>}
+ *   Comment action, or the reason this run has no summary to publish.
+ * @throws {Error} When the resolved inputs are invalid or GitHub returns an
+ *   unexpected response.
  */
 export async function publishHeavyComment(config) {
-  const prNumber = await resolvePullRequest(config)
-  if (prNumber === null) return { skipped: 'no-open-pr' }
+  const prNumber = validatedPrNumber(config)
 
   const [statuses, checks] = await Promise.all([
     apiJson(config, `/repos/${config.repository}/commits/${config.head}/statuses?per_page=100`, 'reading heavy status'),
@@ -184,18 +185,22 @@ if (invoked !== undefined && invoked.endsWith('/publish-heavy-comment.mjs')) {
   const config = {
     token: process.env.GH_TOKEN ?? '',
     repository: process.env.GITHUB_REPOSITORY ?? '',
-    head: process.env.HEAD_SHA ?? '',
+    head: (process.env.HEAD_SHA ?? '').trim(),
     runUrl: process.env.HEAVY_RUN_URL ?? '',
     conclusion: process.env.HEAVY_CONCLUSION ?? '',
-    prNumber: process.env.PR_NUMBER,
+    prNumber: (process.env.PR_NUMBER ?? '').trim(),
     apiUrl: process.env.GITHUB_API_URL ?? 'https://api.github.com',
   }
   try {
-    if (config.token === '' || config.repository === '' || config.head === '' || config.runUrl === '') {
-      throw new Error('GH_TOKEN, GITHUB_REPOSITORY, HEAD_SHA, and HEAVY_RUN_URL are required')
+    if (config.token === '' || config.repository === '' || config.runUrl === '') {
+      throw new Error('GH_TOKEN, GITHUB_REPOSITORY, and HEAVY_RUN_URL are required')
     }
-    const outcome = await publishHeavyComment(config)
-    process.stdout.write(`${JSON.stringify(outcome)}\n`)
+    if (config.prNumber === '' && config.head === '') {
+      process.stdout.write(`${JSON.stringify({ skipped: 'no-open-pr' })}\n`)
+    } else {
+      const outcome = await publishHeavyComment(config)
+      process.stdout.write(`${JSON.stringify(outcome)}\n`)
+    }
   } catch (error) {
     process.stderr.write(`publish-heavy-comment: ${error instanceof Error ? error.message : String(error)}\n`)
     process.exitCode = 1
