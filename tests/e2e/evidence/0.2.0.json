@@ -2,16 +2,16 @@
   "formatVersion": 1,
   "pluginVersion": "0.2.0",
   "dshVersion": "0.2.1-rc.2",
-  "catalogSha256": "d1b45667f1e2a6a8b19361ace6c9bcbaa725def9413f113ea0676bd426e5eeaa",
+  "catalogSha256": "da081449e8ad03d4addf63b630801c91f181d21939d0ff544ecbb953171b75a3",
   "nodeVersion": "v22.22.1",
   "command": "npm run test:e2e -- --record",
-  "recordedAt": "2026-11-22T10:49:46.904Z",
+  "recordedAt": "2026-11-22T13:21:07.280Z",
   "result": "pass",
   "artifact": {
-    "head": "46845def8c05c1da16e19e4d9fe2caebd9916202",
+    "head": "487762ddb7f273bb105f457e53427f7be7f37aa9",
     "dirty": false,
     "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "tarballSha256": "06d2aab32844410f76de91545526f083fb5e500853764c0d1f2e27d00c30558b"
+    "tarballSha256": "5d8d9f2dcc07029793388263a30899434e4dafc8ff524a5bff1ad1f3dfccc5b2"
   },
   "scenarios": [
     {
@@ -68,59 +68,59 @@
           "passed": true
         },
         {
-          "name": "session session-65833846-d… runs in the fixture",
+          "name": "session session-88bf13b4-3… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-65833846-d… is not running",
+          "name": "session session-88bf13b4-3… is not running",
           "passed": true
         },
         {
-          "name": "session session-f974792b-5… runs in the fixture",
+          "name": "session session-c5fcaa70-5… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-f974792b-5… is not running",
+          "name": "session session-c5fcaa70-5… is not running",
           "passed": true
         },
         {
-          "name": "session session-5b0c657f-6… runs in the fixture",
+          "name": "session session-755ce9c4-9… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-5b0c657f-6… is not running",
+          "name": "session session-755ce9c4-9… is not running",
           "passed": true
         },
         {
-          "name": "session session-e76c076b-2… runs in the fixture",
+          "name": "session session-21fed4c8-9… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-e76c076b-2… is not running",
+          "name": "session session-21fed4c8-9… is not running",
           "passed": true
         },
         {
-          "name": "topic session-f974792b-5… is a real session",
+          "name": "topic session-c5fcaa70-5… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-f974792b-5… mounted cowork-topic",
+          "name": "topic session-c5fcaa70-5… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-5b0c657f-6… is a real session",
+          "name": "topic session-755ce9c4-9… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-5b0c657f-6… mounted cowork-topic",
+          "name": "topic session-755ce9c4-9… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-e76c076b-2… is a real session",
+          "name": "topic session-21fed4c8-9… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-e76c076b-2… mounted cowork-topic",
+          "name": "topic session-21fed4c8-9… mounted cowork-topic",
           "passed": true
         },
         {
@@ -565,6 +565,18 @@
         },
         {
           "name": "the denied edit left the file unchanged",
+          "passed": true
+        },
+        {
+          "name": "rebind re-points the moved file",
+          "passed": true
+        },
+        {
+          "name": "rebind is idempotent for the same path",
+          "passed": true
+        },
+        {
+          "name": "the rail lists the rebound path",
           "passed": true
         }
       ]
