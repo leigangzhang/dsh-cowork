@@ -95,6 +95,11 @@ test('heavy workflow runs its prerequisites in order', () => {
     assert.ok(index > previous, `heavy workflow is missing or out of order: ${command}`)
     previous = index
   }
+  const gapReport = stepBlock(workflow, 'Coverage gap report (observational)')
+  assert.match(gapReport, /continue-on-error: true/)
+  assert.match(gapReport, /set \+e/)
+  assert.match(gapReport, /npm run coverage:gaps -- --base/)
+  assert.match(gapReport, /"name":"coverage-gaps"/)
   assert.match(workflow, /DSH_HOST_SMOKE_STRICT: "1"/)
   assert.match(workflow, /coverage\/layered\.json/)
   assert.match(workflow, /HEAVY_BEFORE_ARTIFACT/)

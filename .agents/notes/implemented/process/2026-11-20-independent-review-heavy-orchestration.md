@@ -8,7 +8,7 @@ Class: process
 
 The workstream used to open a PR, wait for CI and pre-merge, and only then ask for an independent review. The derived `gate-artifact` was already event-driven, but review was not: the user had to notice a blocked gate, request review in the session, wait for the reviewer to post a PR comment, and only then merge. Heavy auto-ran after CI, but its result was visible only as a commit status, a check run, and runner logs; the PR itself had no readable summary comment. The cost was orchestration delay, not a missing check.
 
-This record extends [the head-bound heavy gate decision](2026-11-20-heavy-lane-head-bound-gate.md) and supersedes its single-gate rollout assumptions. The head-bound `heavy-gate` result, the auto trigger, the coverage-gap audit comment, and the single-gate input are implemented. This record fixes the review orchestration and comment surface, and freezes the decision to keep one required context.
+This record extends [the head-bound heavy gate proposal](2026-11-20-heavy-lane-head-bound-gate.md) and supersedes its single-gate rollout assumptions. The head-bound `heavy-gate` result, the auto trigger, and the single-gate input are implemented. This record fixes the remaining review orchestration and comment surface, and freezes the decision to keep one required context.
 
 ## Decision
 

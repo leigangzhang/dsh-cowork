@@ -16,7 +16,7 @@
  * The publisher never checks out or executes pull-request code; the workflow
  * already ran the target head on the self-hosted runner.
  */
-import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { collectGateArtifact } from '../review/gate-artifact.mjs'
@@ -76,7 +76,7 @@ export function sanitizeCoverageGapText(raw) {
     .replace(/\r\n?/g, '\n')
     .replace(ANSI_ESCAPE, '')
     .replace(CONTROL_CHARACTERS, '')
-  const allLines = normalized.split('\n')
+  const allLines = normalized.replace(/\n$/, '').split('\n')
   let text = allLines.slice(0, GAP_REPORT_MAX_LINES).join('\n').trimEnd()
   let truncated = allLines.length > GAP_REPORT_MAX_LINES
   if (text.length > GAP_REPORT_MAX_CHARS) {
@@ -103,7 +103,11 @@ export function readCoverageGapReport(path) {
   if (!existsSync(path)) return { ...MISSING_COVERAGE_GAPS }
   let descriptor
   try {
-    descriptor = openSync(path, 'r')
+    if (!lstatSync(path).isFile()) {
+      return { ...MISSING_COVERAGE_GAPS, reason: 'coverage gap report is not a regular file' }
+    }
+    const noFollow = typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0
+    descriptor = openSync(path, constants.O_RDONLY | noFollow)
     const size = fstatSync(descriptor).size
     const buffer = Buffer.alloc(GAP_REPORT_MAX_BYTES)
     const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0)

@@ -24,7 +24,7 @@ The PR gate runs `npm run check`, unit coverage, `pre-merge`, and the derived `g
 
 **7. Review remains the quality layer.** The gap report and `gate-artifact` own mechanical coverage discovery. `code-review` judges assertion meaning, negative controls, mock boundaries, declared unrun lanes, and whether a scenario would fail for the bug it claims to pin.
 
-The follow-up [independent review and heavy orchestration](2026-11-20-independent-review-heavy-orchestration.md) keeps this single-gate shape and fixes the PR summary/review flow; it does not restore a second required context.
+The follow-up [independent review and heavy orchestration](2026-11-20-independent-review-heavy-orchestration.md) keeps this single-gate shape and fixes the PR summary/review flow; it does not restore a second required context. Its single-comment wording predates the separate coverage-gap audit comment introduced here.
 
 ## Alternatives considered
 

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
@@ -162,7 +162,7 @@ test('buildHeavyResult records the result identity and every command exit', () =
   assert.equal(result.commands.find((command) => command.name === 'coverage-gaps').blocking, false)
 })
 
-test('the gap report is bounded, strips terminal controls, and never blocks publication', () => {
+test('the gap report is bounded, strips terminal controls, and rejects symlinks', () => {
   const project = mkdtempSync(join(tmpdir(), 'cowork-heavy-gaps-'))
   try {
     const reportPath = join(project, 'coverage-gaps.txt')
@@ -173,6 +173,31 @@ test('the gap report is bounded, strips terminal controls, and never blocks publ
     assert.match(report.text, /^changed\n/)
     assert.equal(report.truncated, true)
     assert.ok(report.text.length <= 12_000)
+
+    const exactLines = Array.from({ length: 300 }, (_, index) => `line ${String(index)}`).join('\n')
+    const exact = sanitizeCoverageGapText(`${exactLines}\n`)
+    assert.equal(exact.truncated, false)
+    assert.equal(exact.text.split('\n').length, 300)
+
+    const overLines = Array.from({ length: 301 }, (_, index) => `line ${String(index)}`).join('\n')
+    const over = sanitizeCoverageGapText(`${overLines}\n`)
+    assert.equal(over.truncated, true)
+    assert.equal(over.text.split('\n').length, 300)
+
+    const byteCapPath = join(project, 'byte-cap.txt')
+    writeFileSync(byteCapPath, `${'\u001B[0m'.repeat(20_000)}visible\n`)
+    const byteCap = readCoverageGapReport(byteCapPath)
+    assert.equal(byteCap.available, true)
+    assert.equal(byteCap.text, '')
+    assert.equal(byteCap.truncated, true)
+
+    const outside = join(project, 'outside.txt')
+    const linked = join(project, 'linked.txt')
+    writeFileSync(outside, 'not published\n')
+    symlinkSync(outside, linked)
+    const symlinkReport = readCoverageGapReport(linked)
+    assert.equal(symlinkReport.available, false)
+    assert.match(symlinkReport.reason, /not a regular file/)
 
     assert.deepEqual(readCoverageGapReport(join(project, 'missing.txt')), MISSING_COVERAGE_GAPS)
     assert.equal(sanitizeCoverageGapText('a\u0000b\nc').text, 'ab\nc')
