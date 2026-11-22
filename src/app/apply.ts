@@ -39,7 +39,7 @@ import { registerCoworkTools } from './tools.js'
 import { ArtifactRuntimeManager } from '../platform/artifact-runtime.js'
 import { ArtifactPresenceRegistry, createArtifactWriteGuard } from '../platform/artifact-presence.js'
 import { createDispatchDisposedListener, createDispatchPromptPort, createDispatchSessionListener } from '../platform/artifact-dispatch.js'
-import { ARTIFACT_PRESENCE_TTL_MS } from '../panel/artifact-contract.js'
+import { ARTIFACT_OPEN_UNSUPPORTED_CODE, ARTIFACT_PRESENCE_TTL_MS } from '../panel/artifact-contract.js'
 import type { HostFileSystem } from '../platform/artifact-files.js'
 import { TopicEvents } from '../platform/topic-events.js'
 import type { TopicEventLike, TopicEventSession } from '../platform/topic-events.js'
@@ -242,7 +242,9 @@ export function createOpenWorkspacePathPort(
   return async (path: string): Promise<void> => {
     const open = opener?.openWorkspacePath
     if (typeof open !== 'function') {
-      throw new Error('the host session controller exposes no openWorkspacePath')
+      const error = new Error('the host session controller exposes no openWorkspacePath') as Error & { code?: string }
+      error.code = ARTIFACT_OPEN_UNSUPPORTED_CODE
+      throw error
     }
     await open.call(opener, { path, action: 'reveal' }, AbortSignal.timeout(timeoutMs))
   }

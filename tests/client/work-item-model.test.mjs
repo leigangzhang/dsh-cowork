@@ -472,3 +472,24 @@ test('baseName keeps the last path segment', () => {
   assert.equal(model.baseName('spec.md'), 'spec.md')
   assert.equal(model.baseName(''), '')
 })
+
+test('detailMeta normalizes optional fields and keeps the previous values', () => {
+  assert.deepEqual(model.detailMeta({ sessionTitle: '主题', revisions: [3, 2] }), {
+    sessionTitle: '主题',
+    revisions: [3, 2],
+  })
+  assert.deepEqual(model.detailMeta({}, { sessionTitle: '旧标题', revisions: [1] }), {
+    sessionTitle: '旧标题',
+    revisions: [1],
+  })
+  assert.deepEqual(model.detailMeta({}, undefined), { sessionTitle: null, revisions: [] })
+})
+
+test('viewerTabs labels counts only when present', () => {
+  assert.deepEqual(model.viewerTabs(0, 0), [
+    { id: 'document', label: '文档' },
+    { id: 'versions', label: '版本' },
+    { id: 'attachments', label: '附件' },
+  ])
+  assert.deepEqual(model.viewerTabs(9, 2).map((tab) => tab.label), ['文档', '版本 9', '附件 2'])
+})

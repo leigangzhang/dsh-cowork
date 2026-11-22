@@ -269,7 +269,7 @@ queued → sent → thinking → working → replied
 
 - 浏览器 lane 截取文本、图表、HTML、画布、列表五张图，与 demo 等宽并排核对结构、位置、色值和状态细节。
 - 保持既有 `data-testid` 与交互路径；新增细节不改变批注、保存、投递语义。
-- 批次 B 的接口改动同步更新[后端设计](work-item-backend.md)、契约测试和 [WORK_ITEM_HANDOFF](../../handoff/WORK_ITEM_HANDOFF.md) 的停点约束。
+- 批次 B 的接口改动同步更新[后端设计](work-item-backend.md)与契约测试。
 
 ## 性能
 

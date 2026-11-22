@@ -14,6 +14,7 @@ import {
   isTerminalDispatchState,
   type ActiveDispatchV1,
   type ArtifactAnchor,
+  type ArtifactDetailResponse,
   type ArtifactDispatchSummary,
   type ArtifactFileV1,
   type ArtifactStatus,
@@ -580,6 +581,48 @@ export function markdownLines(lines: readonly string[]): ReadLine[] {
     if (fenced) return { kind: 'code', text: line }
     return markdownLine(line)
   })
+}
+
+/** Session title and kept snapshots carried by the detail response. */
+export interface DetailMeta {
+  readonly sessionTitle: string | null
+  readonly revisions: readonly number[]
+}
+
+/**
+ * Detail metadata with the previous view's values as a fallback.
+ * @param detail - the freshly fetched detail.
+ * @param fallback - the values already on screen, if any.
+ * @returns normalized title and snapshot list.
+ */
+export function detailMeta(
+  detail: Pick<ArtifactDetailResponse, 'sessionTitle' | 'revisions'>,
+  fallback?: DetailMeta,
+): DetailMeta {
+  return {
+    sessionTitle: detail.sessionTitle ?? fallback?.sessionTitle ?? null,
+    revisions: detail.revisions ?? fallback?.revisions ?? [],
+  }
+}
+
+/** One visible viewer tab. */
+export interface ViewerTab {
+  readonly id: 'document' | 'versions' | 'attachments'
+  readonly label: string
+}
+
+/**
+ * Tab labels for the viewer toolbar.
+ * @param revisions - kept snapshot count.
+ * @param attachments - attachment count.
+ * @returns the three tabs in display order.
+ */
+export function viewerTabs(revisions: number, attachments: number): readonly ViewerTab[] {
+  return [
+    { id: 'document', label: '文档' },
+    { id: 'versions', label: revisions === 0 ? '版本' : `版本 ${String(revisions)}` },
+    { id: 'attachments', label: attachments === 0 ? '附件' : `附件 ${String(attachments)}` },
+  ]
 }
 
 /** The last path segment, used by file headers and exports. */

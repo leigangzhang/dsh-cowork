@@ -14,6 +14,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { resolve as resolvePath } from 'node:path'
+import { resolveInsideRepo } from '../platform/artifact-files.js'
 import type { PanelErrorCode } from './api-contract.js'
 import type { PanelFetchRoute } from './api-types.js'
 import {
@@ -32,6 +33,7 @@ import {
   ARTIFACT_LIST_MAX_LIMIT,
   ARTIFACT_LIST_PATH,
   ARTIFACT_OPEN_PATH,
+  ARTIFACT_OPEN_UNSUPPORTED_CODE,
   ARTIFACT_PRESENCE_PATH,
   ARTIFACT_STATUS_PATH,
   ARTIFACT_UPLOAD_PATH,
@@ -337,16 +339,22 @@ async function handleOpen(
   const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
   if (ports.openWorkspacePath === undefined) {
     throw new ArtifactDomainError(
-      'artifact/open-unsupported',
+      ARTIFACT_OPEN_UNSUPPORTED_CODE,
       'this host exposes no file-open capability',
       record.primaryPath,
     )
   }
   const file = registeredFile(record, record.primaryPath)
-  const absolute = resolvePath(runtime.repoPath, file.path)
+  const absolute = await resolveInsideRepo(runtime.repoPath, file.path)
+  if (absolute === null) {
+    throw new ArtifactDomainError('artifact/file-missing', `file does not exist: ${file.path}`, file.path)
+  }
   try {
     await ports.openWorkspacePath(absolute)
   } catch (error) {
+    if ((error as { code?: unknown }).code === ARTIFACT_OPEN_UNSUPPORTED_CODE) {
+      throw new ArtifactDomainError(ARTIFACT_OPEN_UNSUPPORTED_CODE, 'this host exposes no file-open capability', file.path)
+    }
     const detail = error instanceof Error ? error.message : String(error)
     ports.log?.(`host failed to open ${file.path}: ${detail}`)
     throw new ArtifactDomainError('artifact/io-error', `host failed to open ${file.path}: ${detail}`, file.path)
@@ -374,7 +382,7 @@ async function handleDetail(
     updatedAt: dispatch.updatedAt,
   }))
   const [sessionTitle, revisions] = await Promise.all([
-    sessionTitleOf(ports, sessionId),
+    sessionTitleOf(ports, record.ownerSessionId),
     revisionsOf(ports, runtime, artifactId),
   ])
   const response: ArtifactDetailResponse = {

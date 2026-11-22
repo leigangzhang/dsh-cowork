@@ -86,6 +86,18 @@
       "lane": "browser"
     },
     {
+      "path": "src/client/work-item/comment-composer.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/thread-list.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewer-toolbar.tsx",
+      "lane": "browser"
+    },
+    {
       "path": "src/client/work-item/store.ts",
       "lane": "unit"
     },

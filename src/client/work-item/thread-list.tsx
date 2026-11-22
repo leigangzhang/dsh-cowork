@@ -1,0 +1,151 @@
+/**
+ * The comment rail's filter header and thread list.
+ *
+ * The container keeps the draft, reply target, and request context; this file
+ * owns only the visible thread projection (open cards, resolved summary, and
+ * the three-state filter).
+ */
+import type { ReactElement, ReactNode } from 'react'
+import type { ArtifactDispatchSummary } from '../../panel/artifact-contract.js'
+import {
+  commentBody,
+  dispatchForThread,
+  type WorkItemThread,
+} from './model.ts'
+import { ThreadCard } from './thread-card.tsx'
+
+/** The rail's three-state comment filter. */
+export type ThreadFilter = 'all' | 'pending' | 'resolved'
+
+/** Props of the comment rail list. */
+interface ThreadListProps {
+  readonly threads: readonly WorkItemThread[]
+  readonly ordinals: ReadonlyMap<string, number>
+  readonly selectedThreadId: string | null
+  readonly pendingThread: string | null
+  readonly now: Date
+  readonly dispatches: readonly ArtifactDispatchSummary[]
+  readonly retrying: boolean
+  readonly filter: ThreadFilter
+  readonly showResolved: boolean
+  readonly commentsTruncated: boolean
+  readonly children?: ReactNode
+  readonly onFilter: (filter: ThreadFilter) => void
+  readonly onToggleResolved: () => void
+  readonly onSelect: (thread: WorkItemThread) => void
+  readonly onToggle: (thread: WorkItemThread) => void
+  readonly onReply: (thread: WorkItemThread) => void
+  readonly onRetry: (dispatch: ArtifactDispatchSummary) => void
+  readonly onFocus: (thread: WorkItemThread) => void
+  readonly attachmentUrl: (attachmentId: string) => string
+}
+
+/** The resolved-summary label: count, first ordinal, and a short excerpt. */
+function rootText(thread: WorkItemThread): string {
+  const root = thread.comments.find((event) => event.type === 'create')
+  return root !== undefined && 'body' in root ? commentBody(root) : ''
+}
+
+/** The resolved-summary label: count, first ordinal, and a short excerpt. */
+function resolvedSummary(threads: readonly WorkItemThread[], ordinals: ReadonlyMap<string, number>): string {
+  const first = threads[0]
+  if (first === undefined) return ''
+  const text = rootText(first)
+  const hint = text.length > 28 ? `${text.slice(0, 28)}…` : text
+  const ordinal = ordinals.get(first.threadId)
+  return `已解决 ${String(threads.length)} 条：${ordinal === undefined ? '' : `#${String(ordinal)} `}${hint}`
+}
+
+/** One rail card; resolved cards render open when their group is expanded. */
+function card(thread: WorkItemThread, props: ThreadListProps, open: boolean): ReactElement {
+  return (
+    <ThreadCard
+      key={thread.threadId}
+      thread={thread}
+      ordinal={props.ordinals.get(thread.threadId) ?? 1}
+      selected={props.selectedThreadId === thread.threadId}
+      now={props.now}
+      pending={props.pendingThread === thread.threadId}
+      dispatch={dispatchForThread(thread, props.dispatches)}
+      retrying={props.retrying}
+      expandedByGroup={open}
+      onSelect={() => { props.onSelect(thread) }}
+      onToggle={() => { props.onToggle(thread) }}
+      onReply={() => { props.onReply(thread) }}
+      onRetry={props.onRetry}
+      onFocus={() => { props.onFocus(thread) }}
+      attachmentUrl={props.attachmentUrl}
+    />
+  )
+}
+
+/**
+ * Render the rail filter and thread list.
+ * @param props - threads, filter state, and callbacks owned by the container.
+ * @returns the rail header, optional activity slot, and thread cards.
+ */
+// Three-state display projection; the browser lane owns these branches.
+// fallow-ignore-next-line complexity
+export function ThreadList(props: ThreadListProps): ReactElement {
+  const open = props.threads.filter((thread) => !thread.resolved)
+  const resolved = props.threads.filter((thread) => thread.resolved)
+  const visible = props.filter === 'resolved' ? [] : open
+  const empty = visible.length === 0 && resolved.length === 0
+  return (
+    <>
+      <div className="cwi-rail-header" data-testid="cwi-thread-count">
+        <div className="cwi-rail-head-row">
+          <span className="cwi-rail-title">批注</span>
+          <span className="cwi-count-pill">{props.threads.length}</span>
+          <span className="cwi-rail-spacer" />
+          <span className="cwi-rail-sort">按位置排序</span>
+        </div>
+        <div className="cwi-rail-tools">
+          <select
+            className="cwi-select"
+            data-testid="cwi-thread-filter"
+            aria-label="评论筛选"
+            value={props.filter}
+            onChange={(event) => { props.onFilter(event.target.value as ThreadFilter) }}
+          >
+            <option value="all">全部评论</option>
+            <option value="pending">待处理</option>
+            <option value="resolved">已解决</option>
+          </select>
+          <label className="cwi-switch">
+            <input
+              type="checkbox"
+              data-testid="cwi-rail-pending-filter"
+              checked={props.filter === 'pending'}
+              onChange={(event) => { props.onFilter(event.target.checked ? 'pending' : 'all') }}
+            />
+            <span className="cwi-switch-track" aria-hidden="true"><span className="cwi-switch-thumb" /></span>
+            只看待处理
+          </label>
+          {props.commentsTruncated ? <span className="cwi-hint" data-testid="cwi-comments-truncated">仅最近 200 条</span> : null}
+        </div>
+      </div>
+      {props.children}
+      <div className="cwi-threads">
+        {empty ? <p className="cwi-rail-empty">{props.filter === 'resolved' ? '没有已解决的批注。' : (props.filter === 'pending' ? '没有待处理的批注。' : '还没有批注。选中行后点“批注”，或直接写整体批注。')}</p> : null}
+        {visible.map((thread) => card(thread, props, false))}
+        {props.filter === 'all' && resolved.length > 0 ? (
+          <button
+            type="button"
+            className="cwi-resolved-line"
+            data-testid="cwi-resolved-line"
+            aria-expanded={props.showResolved}
+            onClick={props.onToggleResolved}
+          >
+            <span className="cwi-resolved-dot" aria-hidden="true">✓</span>
+            <span className="cwi-resolved-text">
+              {props.showResolved ? `收起已解决 ${String(resolved.length)} 条` : resolvedSummary(resolved, props.ordinals)}
+            </span>
+            <span className="cwi-resolved-arrow" aria-hidden="true">{props.showResolved ? '⌃' : '›'}</span>
+          </button>
+        ) : null}
+        {(props.filter === 'resolved' || props.showResolved) ? resolved.map((thread) => card(thread, props, true)) : null}
+      </div>
+    </>
+  )
+}

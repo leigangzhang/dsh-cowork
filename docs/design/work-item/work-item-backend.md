@@ -249,10 +249,10 @@ interface ArtifactEventV1 {
 | `/api/cowork.artifact.status` | POST | `sessionId,artifactId,action:'view'\|'confirm'` | `view`：pending-view→pending-confirm；`confirm`：→confirmed；幂等 |
 | `/api/cowork.artifact.upload` | POST | 流式 body + `sessionId,artifactId,name` | 魔数/大小/数量校验；返回附件引用 |
 | `/api/cowork.artifact.events` | GET | `sessionId,artifactId?` | SSE；`Last-Event-ID` 回放；15s 心跳 |
-| `/api/cowork.artifact.open` | POST | `sessionId,artifactId,path,action?,application?` | 校验项目内登记路径后调 `openWorkspacePath` |
+| `/api/cowork.artifact.open` | POST | `sessionId,artifactId` | 用记录的 `primaryPath` 做 realpath/普通文件校验后调宿主 `openWorkspacePath`；缺失 404、逃逸 400、宿主无能力 501 |
 | `/api/cowork.artifact.rebind` | POST | `sessionId,artifactId,oldPath,newPath` | 文件缺失后重新绑定（阶段 5） |
 
-- 错误沿用 `PanelErrorBody`/`PanelApiError` 风格；新增 `artifact/not-found`、`artifact/session-mismatch`、`artifact/path-not-allowed`、`artifact/file-missing`、`artifact/file-too-large`、`artifact/version-conflict`、`artifact/not-editable`、`artifact/anchor-invalid`、`artifact/upload-invalid`、`artifact/dispatch-*`。
+- 错误沿用 `PanelErrorBody`/`PanelApiError` 风格；新增 `artifact/not-found`、`artifact/session-mismatch`、`artifact/path-not-allowed`、`artifact/file-missing`、`artifact/file-too-large`、`artifact/version-conflict`、`artifact/not-editable`、`artifact/anchor-invalid`、`artifact/upload-invalid`、`artifact/dispatch-*`、`artifact/open-unsupported`（宿主没有原生打开能力，501）。
 - 列表/详情/文件是项目读权限：任何能解析到该项目的会话都可读；写操作校验 artifact 属于该项目、路径已登记；模型工具再校验 owner/role。
 - 文件路由设 `X-Content-Type-Options: nosniff`、`Cache-Control: no-store`；HTML/SVG/PDF 不作为可执行 inline 文档直接打开，前端取文本/字节后在沙箱或查看器处理。
 - 查看器首次打开时调用 `status view`（待查看→待确认）；`confirm` 只由用户动作触发。模型回复走 `cowork_artifact_reply`，不生成新的 dispatch。

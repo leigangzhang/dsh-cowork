@@ -695,14 +695,28 @@ async function scenarioWorkItemChain(page) {
   assert.equal(await created.getAttribute('data-resolved'), 'false')
   chainThreadId = await created.getAttribute('data-thread-id')
 
+  // The three-state filter and its shortcut stay in sync: pending keeps both
+  // unresolved cards and hides the (empty) resolved summary.
+  const filter = page.getByTestId('cwi-thread-filter')
+  await filter.selectOption('pending')
+  assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 2)
+  assert.equal(await page.getByTestId('cwi-resolved-line').count(), 0)
+  await page.getByTestId('cwi-rail-pending-filter').uncheck({ force: true })
+  assert.equal(await filter.inputValue(), 'all')
+
   // Resolve it: the server appends one resolve row and the rail groups it
   // under the resolved summary.
   await created.getByTestId('cwi-thread-toggle').click()
   await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
-  await page.getByTestId('cwi-resolved-line').click()
+  await filter.selectOption('pending')
+  assert.equal(await page.getByTestId('cwi-resolved-line').count(), 0)
+  await filter.selectOption('resolved')
   const resolvedCard = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
   await resolvedCard.waitFor({ timeout: 10_000 })
   assert.equal(await resolvedCard.getAttribute('data-resolved'), 'true')
+  await filter.selectOption('all')
+  await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-resolved-line').click()
 
   // Back to the conversation, then reopen: the server serves the same thread.
   await page.getByTestId('cwi-back').click()

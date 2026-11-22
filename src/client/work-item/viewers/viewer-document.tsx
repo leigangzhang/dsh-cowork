@@ -52,6 +52,7 @@ export interface DocumentSurfaceProps {
 
 /** One attachment chip in the file strip or paper foot. */
 export interface PaperAttachment {
+  readonly attachmentId: string
   readonly name: string
   readonly mediaType: string
 }
@@ -71,7 +72,7 @@ function AttachmentChips({ attachments }: { readonly attachments: readonly Paper
   return (
     <span className="cwi-attach-chips" data-testid="cwi-paper-attachments">
       {shown.map((attachment) => (
-        <span key={attachment.name} className="cwi-attach-chip" title={attachment.name}>
+        <span key={attachment.attachmentId} className="cwi-attach-chip" title={attachment.name}>
           <span className="cwi-attach-dot" data-type={attachment.mediaType.startsWith('image/') ? 'image' : 'file'} aria-hidden="true" />
           {attachment.name}
         </span>

@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { realpath, rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   SESSION,
@@ -9,6 +10,7 @@ import {
   makeRecord,
   sha256,
 } from '../support/artifact-fixtures.mjs'
+const { createOpenWorkspacePathPort } = await import('../../src/app/apply.ts')
 
 /** Route behavior for "open in app": host handoff, path, and unsupported host. */
 const SPEC = '# Spec\n\nfirst paragraph\nsecond paragraph\n'
@@ -45,7 +47,7 @@ test('detail carries kept revision numbers and the open route hands the file to 
     assert.deepEqual(await jsonOf(response), { ok: true })
     assert.equal(opened.length, 1)
     assert.match(opened[0], /docs\/spec\.md$/)
-    assert.ok(opened[0].startsWith(harness.repoPath))
+    assert.ok(opened[0].startsWith(await realpath(harness.repoPath)))
   }, { openWorkspacePath: async (path) => { opened.push(path) } })
 })
 
@@ -92,4 +94,41 @@ test('a host opener failure maps to artifact/io-error', async () => {
     const body = await jsonOf(response)
     assert.equal(body.error.code, 'artifact/io-error')
   }, { openWorkspacePath: async () => { throw new Error('opener unavailable') } })
+})
+
+test('a real assembly with a host that has no opener maps to 501', async () => {
+  await withSeededHarness(async (harness) => {
+    const response = await harness.request('/api/cowork.artifact.open', {
+      method: 'POST',
+      body: { sessionId: SESSION, artifactId: ARTIFACT },
+    })
+    assert.equal(response.status, 501)
+    assert.equal((await jsonOf(response)).error.code, 'artifact/open-unsupported')
+  }, { openWorkspacePath: createOpenWorkspacePathPort(undefined) })
+})
+
+test('open rejects a symlink that escapes the repository', async () => {
+  await withSeededHarness(async (harness) => {
+    const target = join(harness.repoPath, 'docs/spec.md')
+    await rm(target)
+    await symlink('/etc/hosts', target)
+    const response = await harness.request('/api/cowork.artifact.open', {
+      method: 'POST',
+      body: { sessionId: SESSION, artifactId: ARTIFACT },
+    })
+    assert.equal(response.status, 400)
+    assert.equal((await jsonOf(response)).error.code, 'artifact/path-not-allowed')
+  }, { openWorkspacePath: async () => {} })
+})
+
+test('open reports a missing file instead of a fake success', async () => {
+  await withSeededHarness(async (harness) => {
+    await rm(join(harness.repoPath, 'docs/spec.md'))
+    const response = await harness.request('/api/cowork.artifact.open', {
+      method: 'POST',
+      body: { sessionId: SESSION, artifactId: ARTIFACT },
+    })
+    assert.equal(response.status, 404)
+    assert.equal((await jsonOf(response)).error.code, 'artifact/file-missing')
+  }, { openWorkspacePath: async () => {} })
 })
