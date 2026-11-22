@@ -1162,7 +1162,17 @@ async function scenarioWorkItemDraft(page) {
     }]
     await route.fulfill({ status: response.status(), contentType: 'application/json', body: JSON.stringify(body) })
   })
+  let retryCalls = 0
   await page.route('**/api/cowork.artifact.dispatch.retry*', async (route) => {
+    retryCalls += 1
+    if (retryCalls === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'retry fixture boom' } }),
+      })
+      return
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1237,8 +1247,11 @@ async function scenarioWorkItemDraft(page) {
   await page.getByTestId('cwi-thread-focus').first().click()
   await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
 
-  // A failed batch exposes retry; the mocked route proves the request and the
-  // optimistic state path without enqueueing a real model turn.
+  // A failed batch exposes retry; the mocked route proves both the failure
+  // receipt and the optimistic success path without enqueueing a real model
+  // turn.
+  await page.getByTestId('cwi-dispatch-retry').first().click()
+  await page.getByText(/重试失败/).first().waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-dispatch-retry').first().click()
   await page.getByText('已重新投递').waitFor({ timeout: 10_000 })
 

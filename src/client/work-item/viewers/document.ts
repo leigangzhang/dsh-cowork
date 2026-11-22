@@ -8,12 +8,29 @@
  * policy, the scene shape check, and the viewer dispatch without a browser.
  */
 import type { ArtifactType } from '../../../panel/artifact-contract.js'
+import { changedLineRanges, type LineSelection } from '../model.ts'
 
 /** The four presentation families the viewer knows. */
 const VIEWER_KINDS = ['text', 'diagram', 'html', 'canvas', 'source'] as const
 
 /** One presentation family; `source` means "numbered text lines only". */
 export type ViewerKind = (typeof VIEWER_KINDS)[number]
+
+/** A read-mode surface that renders a file instead of numbered source lines. */
+export type ReadSurfaceKind = 'diagram' | 'html' | 'canvas' | 'source'
+
+/** Read-mode surfaces keyed by their viewer family. */
+const READ_SURFACES: Partial<Record<ViewerKind, ReadSurfaceKind>> = {
+  diagram: 'diagram',
+  html: 'html',
+  canvas: 'canvas',
+}
+
+/** Text-editor languages for the families with a dedicated source mode. */
+const EDITOR_LANGUAGES: Partial<Record<ViewerKind, 'html' | 'plain'>> = {
+  html: 'html',
+  diagram: 'plain',
+}
 
 /**
  * Content policy for the static HTML preview.
@@ -127,9 +144,73 @@ export function parseCanvasScene(content: string): CanvasSceneCheck {
  * @param content - current canvas file text.
  * @returns one 1-based inclusive line range.
  */
-export function canvasPresenceRanges(content: string): readonly { readonly startLine: number; readonly endLine: number }[] {
+function canvasPresenceRanges(content: string): readonly { readonly startLine: number; readonly endLine: number }[] {
   const lineCount = content === '' ? 1 : content.split('\n').length
   return [{ startLine: 1, endLine: lineCount }]
+}
+
+/**
+ * Resolve the presence ranges for the current editor kind.
+ *
+ * A canvas holds the whole scene while editing; every other viewer reports the
+ * lines that differ from the saved text so the server can guard those ranges.
+ * @param kind - the active presentation family.
+ * @param saved - file text at the loaded revision.
+ * @param draft - current editor text.
+ * @returns the ranges to report; empty means there is nothing to hold.
+ */
+export function presenceRangesFor(kind: ViewerKind, saved: string, draft: string): readonly LineSelection[] {
+  return kind === 'canvas' ? canvasPresenceRanges(draft) : changedLineRanges(saved, draft)
+}
+
+/**
+ * Decide whether a refreshed file must rebuild the mounted canvas.
+ *
+ * A clean canvas editor still holds the old scene after a server refresh, but a
+ * save also replays as `file.changed`; only a changed file while the user is
+ * editing needs a new scene key. Non-canvas viewers never remount this way.
+ * @param kind - the active presentation family.
+ * @param editing - whether the editor is open.
+ * @param previous - file text before the refresh.
+ * @param next - file text returned by the refresh.
+ * @returns true when the canvas scene must be rebuilt.
+ */
+export function refreshResetsCanvas(kind: ViewerKind, editing: boolean, previous: string, next: string): boolean {
+  return kind === 'canvas' && editing && previous !== next
+}
+
+/**
+ * Pick the read-mode surface for one file.
+ *
+ * A viewer only replaces the numbered source lines when the file exists and
+ * read mode is active. Feature types without a renderer stay on source lines.
+ * @param kind - the active presentation family.
+ * @param readMode - whether the user chose the rendered read mode.
+ * @param hasFile - whether the current file content is available.
+ * @returns the surface to render.
+ */
+export function readSurfaceKind(kind: ViewerKind, readMode: boolean, hasFile: boolean): ReadSurfaceKind {
+  return readMode && hasFile ? READ_SURFACES[kind] ?? 'source' : 'source'
+}
+
+/**
+ * Pick the CodeMirror language for the document editor.
+ * @param kind - the active presentation family.
+ * @param canvasBroken - whether the canvas failed its scene check.
+ * @returns the editor language.
+ */
+export function editorLanguage(kind: ViewerKind, canvasBroken: boolean): 'html' | 'plain' | 'markdown' {
+  return canvasBroken ? 'plain' : EDITOR_LANGUAGES[kind] ?? 'markdown'
+}
+
+/**
+ * Decide whether the source-line surface may render Markdown inline styles.
+ * @param kind - the active presentation family.
+ * @param readMode - whether the user chose the rendered read mode.
+ * @returns true only for text files in read mode.
+ */
+export function sourceLinesMarkdown(kind: ViewerKind, readMode: boolean): boolean {
+  return kind === 'text' && readMode
 }
 
 /**

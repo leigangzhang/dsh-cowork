@@ -24,17 +24,18 @@ import {
 } from '../../panel/artifact-contract.js'
 import { useClientServices } from '../contracts.ts'
 import { WorkItemApiError, workItemApi, type SaveConflict } from './api.ts'
-import { TextEditor } from './editor.tsx'
-import { CanvasSurface } from './viewers/canvas.tsx'
-import { viewerKindOf, canvasPresenceRanges, parseCanvasScene } from './viewers/document.ts'
-import { DiagramView } from './viewers/diagram.tsx'
-import { HtmlPreview } from './viewers/html.tsx'
-import { SourceLines } from './viewers/source-lines.tsx'
+import {
+  parseCanvasScene,
+  presenceRangesFor,
+  viewerKindOf,
+  type ViewerKind,
+} from './viewers/document.ts'
+import { DocumentSurface } from './viewers/viewer-document.tsx'
+import { applyRefreshedFile } from './viewers/viewer-refresh.ts'
 import {
   activeDispatchSummary,
   anchorLabel,
   anchorStatusLabel,
-  changedLineRanges,
   commentAuthor,
   commentBody,
   contentLines,
@@ -79,6 +80,11 @@ function byteLength(text: string): number {
 /** A short message from any thrown value. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Clear submitted UI state only when the user has not replaced it meanwhile. */
+function clearIfUnchanged<T>(current: T, submitted: T, cleared: T): T {
+  return current === submitted ? cleared : current
 }
 
 /** The open context as a React value. */
@@ -261,7 +267,7 @@ export function WorkItemViewer(): ReactElement {
   const [sseToken, setSseToken] = useState(0)
   const editingRef = useRef(false)
   const dirtyRef = useRef(false)
-  const canvasTypeRef = useRef(false)
+  const kindRef = useRef<ViewerKind>('source')
   const savedTextRef = useRef('')
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const persistDraftRef = useRef<() => void>(() => {})
@@ -490,9 +496,7 @@ export function WorkItemViewer(): ReactElement {
     // A canvas has no line concept: the edit session holds the whole file, not
     // only the lines that changed, so a model write is refused from the moment
     // the user enters edit mode until they leave it.
-    const ranges = data.record.type === 'canvas'
-      ? canvasPresenceRanges(editDraft)
-      : changedLineRanges(savedContent, editDraft)
+    const ranges = presenceRangesFor(viewerKindOf(data.record.type), savedContent, editDraft)
     if (ranges.length === 0) return
     const report = (): void => {
       void workItemApi.presence({
@@ -571,7 +575,7 @@ export function WorkItemViewer(): ReactElement {
   useEffect(() => {
     editingRef.current = editing
     dirtyRef.current = editing && editDraft !== savedContent
-    canvasTypeRef.current = data?.record.type === 'canvas'
+    kindRef.current = data === null ? 'source' : viewerKindOf(data.record.type)
     savedTextRef.current = savedContent
   }, [data?.record.type, editDraft, editing, savedContent])
 
@@ -608,17 +612,10 @@ export function WorkItemViewer(): ReactElement {
         }
         return file === null || keepDraft ? next : { ...next, file }
       })
-      if (file !== null && !keepDraft) {
-        // A clean canvas editor still holds the old scene; rebuild it only when
-        // the file really changed (an own save replays as `file.changed` too).
-        const replaced = file.content !== savedTextRef.current
-        setEditDraft(file.content)
-        setSavedContent(file.content)
-        if (canvasTypeRef.current && editingRef.current && replaced) setCanvasReset(value => value + 1)
-        if (!editingRef.current) setSavePhase('saved')
-      } else if (file !== null && keepDraft && fileChanged) {
-        setReceipt('模型已修改文件；保存时会自动合并，重叠则提示冲突')
-      }
+      applyRefreshedFile(
+        file, fileChanged, keepDraft, kindRef.current, editingRef.current, savedTextRef.current,
+        { setEditDraft, setSavedContent, setCanvasReset, setSavePhase, setReceipt },
+      )
     } catch {
       // A failed refresh keeps the last good view; the stream retries.
     }
@@ -768,26 +765,29 @@ export function WorkItemViewer(): ReactElement {
 
   const submit = useCallback(async () => {
     if (context === null || data === null || draft.trim() === '' || submitting) return
+    const submitted = {
+      draft, anchor: pendingAnchor, reply: replyTarget, selection, attachments: pendingAttachments,
+    }
     setSubmitting(true)
     setReceipt(null)
     try {
       const response = await workItemApi.comment({
         sessionId: context.sessionId,
         artifactId: context.artifactId,
-        body: draft.trim(),
-        ...(replyTarget === null
-          ? (pendingAnchor === null ? {} : { anchor: pendingAnchor })
-          : { threadId: replyTarget.threadId }),
-        ...(pendingAttachments.length === 0 ? {} : { attachments: pendingAttachments }),
+        body: submitted.draft.trim(),
+        ...(submitted.reply === null
+          ? (submitted.anchor === null ? {} : { anchor: submitted.anchor })
+          : { threadId: submitted.reply.threadId }),
+        ...(submitted.attachments.length === 0 ? {} : { attachments: submitted.attachments }),
       })
       setData(current => current === null
         ? current
         : { ...current, record: response.record, events: [...current.events, response.comment] })
-      setDraft('')
-      setPendingAnchor(null)
-      setReplyTarget(null)
-      setSelection(null)
-      setPendingAttachments([])
+      setDraft(current => clearIfUnchanged(current, submitted.draft, ''))
+      setPendingAnchor(current => clearIfUnchanged(current, submitted.anchor, null))
+      setReplyTarget(current => clearIfUnchanged(current, submitted.reply, null))
+      setSelection(current => clearIfUnchanged(current, submitted.selection, null))
+      setPendingAttachments(current => clearIfUnchanged(current, submitted.attachments, []))
       setReceipt(response.dispatchError === null
         ? '评论已提交'
         : `评论已保存，但投递失败：${response.dispatchError.message}`)
@@ -796,7 +796,7 @@ export function WorkItemViewer(): ReactElement {
     } finally {
       setSubmitting(false)
     }
-  }, [context, data, draft, pendingAnchor, replyTarget, submitting])
+  }, [context, data, draft, pendingAnchor, pendingAttachments, replyTarget, selection, submitting])
 
   const startReply = useCallback((thread: WorkItemThread) => {
     setReplyTarget(thread)
@@ -1025,68 +1025,28 @@ export function WorkItemViewer(): ReactElement {
               ) : null}
             </div>
           )}
-          <div className="cwi-doc-view" data-testid="cwi-doc-view" data-kind={kind} hidden={viewTab !== 'document'} data-mode={readMode ? 'read' : 'source'}>
-          {editing ? (
-            kind === 'canvas' && !canvasBroken ? (
-              <CanvasSurface
-                content={editDraft}
-                editable
-                sceneKey={`edit-${record.artifactId}-${String(canvasReset)}`}
-                onChange={(content) => {
-                  setEditDraft(content)
-                  setBackArmed(false)
-                }}
-              />
-            ) : (
-              <TextEditor
-                value={editDraft}
-                language={kind === 'html' ? 'html' : (kind === 'diagram' || canvasBroken ? 'plain' : 'markdown')}
-                ariaLabel="编辑文件内容"
-                anchoredLines={anchoredLineList}
-                anchorsAuthoritative={!dirty}
-                onChange={(content) => {
-                  setEditDraft(content)
-                  setBackArmed(false)
-                }}
-                onBlur={() => { if (dirty && conflict === null) void saveDraft() }}
-              />
-            )
-          ) : kind === 'diagram' && readMode && data.file !== null ? (
-            <DiagramView source={data.file.content} />
-          ) : kind === 'html' && readMode && data.file !== null ? (
-            <HtmlPreview source={data.file.content} />
-          ) : kind === 'canvas' && readMode && data.file !== null ? (
-            <CanvasSurface
-              content={data.file.content}
-              editable={false}
-              sceneKey={`view-${String(data.file.revision)}`}
-            />
-          ) : (
-            <>
-              {selection === null ? null : (
-                <div className="cwi-selection-bar">
-                  <span>
-                    已选第 {selection.startLine}
-                    {selection.endLine === selection.startLine ? '' : `–${selection.endLine}`} 行
-                  </span>
-                  <button type="button" className="cwi-primary" data-testid="cwi-annotate" onClick={annotate}>
-                    批注
-                  </button>
-                  <button type="button" className="cwi-secondary" onClick={() => { setSelection(null) }}>
-                    取消
-                  </button>
-                </div>
-              )}
-              <SourceLines
-                lines={lines}
-                selection={selection}
-                anchoredLines={anchoredLines}
-                markdown={kind === 'text' && readMode}
-                onPick={pickLine}
-              />
-            </>
-          )}
-          </div>
+          <DocumentSurface
+            kind={kind}
+            file={data.file}
+            visible={viewTab === 'document'}
+            editing={editing}
+            editDraft={editDraft}
+            readMode={readMode}
+            canvasBroken={canvasBroken}
+            canvasReset={canvasReset}
+            artifactId={record.artifactId}
+            anchoredLineList={anchoredLineList}
+            dirty={dirty}
+            conflict={conflict}
+            selection={selection}
+            lines={lines}
+            anchoredLines={anchoredLines}
+            onChangeDraft={(content) => { setEditDraft(content); setBackArmed(false) }}
+            onSaveDraft={() => { void saveDraft() }}
+            onAnnotate={annotate}
+            onClearSelection={() => { setSelection(null) }}
+            onPickLine={pickLine}
+          />
           {viewTab === 'versions' ? (
             <div className="cwi-panel" data-testid="cwi-versions">
               <div className="cwi-panel-title">当前版本</div>

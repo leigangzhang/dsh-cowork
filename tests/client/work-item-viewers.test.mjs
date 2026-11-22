@@ -83,8 +83,38 @@ test('parseCanvasScene rejects malformed input with a reason', () => {
   assert.match(badFiles.reason, /files/)
 })
 
-test('canvasPresenceRanges covers the whole file and never an empty range', () => {
-  assert.deepEqual(document.canvasPresenceRanges(''), [{ startLine: 1, endLine: 1 }])
-  assert.deepEqual(document.canvasPresenceRanges('{}'), [{ startLine: 1, endLine: 1 }])
-  assert.deepEqual(document.canvasPresenceRanges('{\n"elements": []\n}'), [{ startLine: 1, endLine: 3 }])
+test('presenceRangesFor holds the whole canvas and only changed text lines', () => {
+  assert.deepEqual(document.presenceRangesFor('canvas', '', ''), [{ startLine: 1, endLine: 1 }])
+  assert.deepEqual(document.presenceRangesFor('canvas', 'a\nb', 'c\nd'), [{ startLine: 1, endLine: 2 }])
+  assert.deepEqual(document.presenceRangesFor('text', 'a\nb', 'a\nc'), [{ startLine: 2, endLine: 2 }])
+  assert.deepEqual(document.presenceRangesFor('diagram', 'same', 'same'), [])
+})
+
+test('refreshResetsCanvas only rebuilds a changed scene during canvas editing', () => {
+  assert.equal(document.refreshResetsCanvas('canvas', true, 'old', 'new'), true)
+  assert.equal(document.refreshResetsCanvas('canvas', false, 'old', 'new'), false)
+  assert.equal(document.refreshResetsCanvas('canvas', true, 'same', 'same'), false)
+  assert.equal(document.refreshResetsCanvas('text', true, 'old', 'new'), false)
+})
+
+test('readSurfaceKind renders only available files in read mode', () => {
+  assert.equal(document.readSurfaceKind('diagram', true, true), 'diagram')
+  assert.equal(document.readSurfaceKind('html', true, true), 'html')
+  assert.equal(document.readSurfaceKind('canvas', true, true), 'canvas')
+  assert.equal(document.readSurfaceKind('diagram', false, true), 'source')
+  assert.equal(document.readSurfaceKind('diagram', true, false), 'source')
+  assert.equal(document.readSurfaceKind('text', true, true), 'source')
+})
+
+test('editorLanguage keeps HTML, diagram source, and canvas fallback distinct', () => {
+  assert.equal(document.editorLanguage('html', false), 'html')
+  assert.equal(document.editorLanguage('diagram', false), 'plain')
+  assert.equal(document.editorLanguage('canvas', true), 'plain')
+  assert.equal(document.editorLanguage('text', false), 'markdown')
+})
+
+test('sourceLinesMarkdown only renders Markdown for text in read mode', () => {
+  assert.equal(document.sourceLinesMarkdown('text', true), true)
+  assert.equal(document.sourceLinesMarkdown('text', false), false)
+  assert.equal(document.sourceLinesMarkdown('diagram', true), false)
 })
