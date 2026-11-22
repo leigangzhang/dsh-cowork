@@ -110,6 +110,14 @@
       "lane": "browser"
     },
     {
+      "path": "src/client/work-item/viewers/viewer-document.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewers/viewer-refresh.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/client/work-item/viewers/source-lines.tsx",
       "lane": "browser"
     },
@@ -223,6 +231,10 @@
     },
     {
       "path": "src/panel/api.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/artifact-edit.ts",
       "lane": "unit"
     },
     {

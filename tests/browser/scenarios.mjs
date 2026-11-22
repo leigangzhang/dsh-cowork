@@ -742,6 +742,11 @@ async function toggleTextEditing(page) {
  * count assertions untouched while exercising the real host routes around the
  * viewer.
  */
+/** Wait for the document tab to switch to the requested artifact family. */
+async function waitForDocKind(page, kind) {
+  await page.locator(`[data-testid="cwi-doc-view"][data-kind="${kind}"]`).waitFor({ timeout: 15_000 })
+}
+
 async function scenarioWorkItemTypes(page) {
   await ensurePanel(page)
   await ensureTopicList(page)
@@ -773,21 +778,34 @@ async function scenarioWorkItemTypes(page) {
   let current = cases[0]
   let currentRecord = null
 
-  await page.route('**/api/cowork.artifact.detail*', async (route) => {
-    const response = await route.fetch()
-    const body = await response.json()
-    body.record.type = current.type
-    body.record.title = current.title
-    body.record.primaryPath = current.path
-    body.record.files = [{
-      ...body.record.files[0],
+  const patchRecord = (record) => {
+    record.type = current.type
+    record.title = current.title
+    record.primaryPath = current.path
+    record.files = [{
+      ...record.files[0],
       path: current.path,
       mediaType: current.mediaType,
       editable: true,
       size: Buffer.byteLength(current.content, 'utf8'),
       sha256: '',
     }]
-    currentRecord = body.record
+    currentRecord = record
+    return record
+  }
+  await page.route('**/api/cowork.artifact.detail*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.record = patchRecord(body.record)
+    await route.fulfill({ response, json: body })
+  })
+  // Viewing a work item records status through a second response; keep that
+  // response on the same mocked type as detail so it cannot overwrite the
+  // scenario's artifact family with the real text fixture.
+  await page.route('**/api/cowork.artifact.status*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.record = patchRecord(body.record)
     await route.fulfill({ response, json: body })
   })
   await page.route('**/api/cowork.artifact.file*', async (route) => {
@@ -842,6 +860,7 @@ async function scenarioWorkItemTypes(page) {
     current = cases[0]
     await card.click()
     await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    await waitForDocKind(page, 'diagram')
     assert.equal(await page.getByTestId('cwi-doc-view').getAttribute('data-kind'), 'diagram')
     const diagram = page.getByTestId('cwi-diagram')
     await diagram.waitFor({ timeout: 15_000 })
@@ -867,6 +886,7 @@ async function scenarioWorkItemTypes(page) {
     current = cases[1]
     await card.click()
     await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    await waitForDocKind(page, 'html')
     assert.equal(await page.getByTestId('cwi-doc-view').getAttribute('data-kind'), 'html')
     await page.getByTestId('cwi-html-frame').waitFor()
     assert.equal(await page.getByTestId('cwi-html-frame').getAttribute('data-interactive'), 'false')
@@ -885,6 +905,7 @@ async function scenarioWorkItemTypes(page) {
     current = cases[2]
     await card.click()
     await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    await waitForDocKind(page, 'canvas')
     assert.equal(await page.getByTestId('cwi-doc-view').getAttribute('data-kind'), 'canvas')
     const canvas = page.getByTestId('cwi-canvas')
     await canvas.waitFor({ timeout: 15_000 })
@@ -940,6 +961,7 @@ async function scenarioWorkItemTypes(page) {
     await page.getByTestId('cwi-viewer').waitFor({ state: 'detached' })
   } finally {
     await page.unroute('**/api/cowork.artifact.detail*')
+    await page.unroute('**/api/cowork.artifact.status*')
     await page.unroute('**/api/cowork.artifact.file*')
     await page.unroute('**/api/cowork.artifact.edit*')
   }
@@ -1162,7 +1184,17 @@ async function scenarioWorkItemDraft(page) {
     }]
     await route.fulfill({ status: response.status(), contentType: 'application/json', body: JSON.stringify(body) })
   })
+  let retryCalls = 0
   await page.route('**/api/cowork.artifact.dispatch.retry*', async (route) => {
+    retryCalls += 1
+    if (retryCalls === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: { code: 'internal', message: 'retry fixture boom' } }),
+      })
+      return
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1237,8 +1269,11 @@ async function scenarioWorkItemDraft(page) {
   await page.getByTestId('cwi-thread-focus').first().click()
   await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
 
-  // A failed batch exposes retry; the mocked route proves the request and the
-  // optimistic state path without enqueueing a real model turn.
+  // A failed batch exposes retry; the mocked route proves both the failure
+  // receipt and the optimistic success path without enqueueing a real model
+  // turn.
+  await page.getByTestId('cwi-dispatch-retry').first().click()
+  await page.getByText(/重试失败/).first().waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-dispatch-retry').first().click()
   await page.getByText('已重新投递').waitFor({ timeout: 10_000 })
 

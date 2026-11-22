@@ -63,23 +63,15 @@ if (typeof document !== 'undefined') {
 /**
  * Mount one Excalidraw scene.
  *
- * The component mounts Excalidraw from `content` once per `sceneKey`; later
- * content updates arrive through the save path and the key changes only when
- * the server revision changes.
+ * The caller remounts this component through its React `key` when the server
+ * revision or edit session changes, so a mount's own state callback can never
+ * look like a user edit. Later content updates arrive through the save path.
  * @param props - scene text, mode, and the change sink.
  * @returns the canvas surface, or the reason the file is not a scene.
  */
 export function CanvasSurface({ content, editable, onChange, sceneKey }: CanvasSurfaceProps): ReactElement {
   const parsed = useMemo(() => parseCanvasScene(content), [content])
   const interacted = useRef(false)
-  const lastSceneKey = useRef(sceneKey)
-  // A remount (new server revision or entering edit mode) must not let the
-  // mount's own state callback look like a user edit. Reset during render so
-  // the flag is already false when the child's mount effects run.
-  if (lastSceneKey.current !== sceneKey) {
-    lastSceneKey.current = sceneKey
-    interacted.current = false
-  }
   if (!parsed.ok) {
     return (
       <div className="cwi-canvas-error" data-testid="cwi-canvas-error" role="alert">

@@ -50,8 +50,6 @@ import {
   type ArtifactCommentResponse,
   type ArtifactCommentResolveResponse,
   type ArtifactCommentsResponse,
-  type ArtifactConflictBody,
-  type ArtifactConflictRange,
   type ArtifactDetailResponse,
   type ArtifactEditResponse,
   type ArtifactEventV1,
@@ -74,41 +72,14 @@ import { ArtifactDomainError } from '../domains/artifact/errors.js'
 import { parseArtifactAnchor, deriveLineAnchor, relocateLineAnchor } from '../domains/artifact/anchor.js'
 import { isTextMediaType } from '../domains/artifact/paths.js'
 import { reconcileArtifactFile, sha256Hex, sha256HexBytes } from '../platform/artifact-files.js'
-import { mergeText } from '../domains/artifact/merge.js'
 import { attachmentMediaType, isUtf8, sniffImageMediaType } from '../domains/artifact/attachments.js'
 import { parseAttachmentRef } from '../store/artifact-schema.js'
 import { applyCommentEvent, applyStatusAction } from '../domains/artifact/state.js'
 import type { ArtifactStatusAction } from '../domains/artifact/state.js'
+import { writeArtifactEdit } from './artifact-edit.js'
 
 /** Recent delivery batches the detail response carries. */
 const DISPATCH_SUMMARY_LIMIT = 50
-
-/** The 1-based line range the conflict UI should highlight for a whole file. */
-function wholeFileRange(content: string): ArtifactConflictRange[] {
-  const lines = content.split('\n')
-  const count = lines.length > 1 && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length
-  return [{ startLine: 1, endLine: Math.max(1, count) }]
-}
-
-/** One 409 response for a save that could not be merged. */
-function conflictResponse(
-  kit: ArtifactRouteKit,
-  currentVersion: string | null,
-  revision: number,
-  conflictRanges: readonly ArtifactConflictRange[],
-): Response {
-  const body: ArtifactConflictBody = {
-    ok: false,
-    error: {
-      code: 'artifact/version-conflict',
-      message: 'the file changed since this revision; resolve the conflict and retry the save',
-    },
-    currentVersion: currentVersion ?? '',
-    revision,
-    conflictRanges,
-  }
-  return kit.jsonResponse(409, body)
-}
 
 /** One resolved project and its work-item runtime. */
 export interface ArtifactOpenedProject {
@@ -774,45 +745,77 @@ function parsePresenceRanges(value: unknown, kit: ArtifactRouteKit): { startLine
   })
 }
 
-/**
- * Resolve one stale edit base.
- *
- * A text file is three-way merged against the snapshot the browser held; an
- * overlap or a missing snapshot becomes a 409. A canvas scene is opaque JSON:
- * it has no line identity, so a stale base is always a conflict.
- */
-interface StaleBaseInput {
-  readonly canvas: boolean
-  readonly artifactId: string
-  readonly baseRevision: number
-  readonly current: { readonly content: string; readonly version: string | null }
-  readonly content: string
-  readonly fileRevision: number
+/** The committed file write that must update the record, events, and cache. */
+interface EditCommitInput {
   readonly runtime: ArtifactRuntime
   readonly kit: ArtifactRouteKit
+  readonly artifactId: string
+  readonly path: string
+  readonly now: Date
+  readonly content: string
+  readonly merged: boolean
+  readonly fsVersion: string | null
 }
 
-/** One resolved stale save: merged text, or the 409 response. */
-type StaleBaseResult =
-  | { readonly kind: 'content'; readonly content: string }
-  | { readonly kind: 'conflict'; readonly response: Response }
-
-async function resolveStaleBase(input: StaleBaseInput): Promise<StaleBaseResult> {
-  const conflict = (): StaleBaseResult => ({
-    kind: 'conflict',
-    response: conflictResponse(input.kit, input.current.version, input.fileRevision, wholeFileRange(input.current.content)),
+/**
+ * Commit a written edit and publish the resulting record events.
+ * @param input - the written content plus its version and merge state.
+ * @returns the successful 200 response.
+ */
+async function commitEdit(input: EditCommitInput): Promise<Response> {
+  const committed = await input.runtime.store.withLock(async () => {
+    let nextRevision = 0
+    const saved = await input.runtime.store.mutateRecordUnlocked(input.artifactId, (existing) => {
+      const target = existing.files.find((entry) => entry.path === input.path)
+      if (target === undefined) return null
+      nextRevision = target.revision + 1
+      const nextFile = {
+        ...target,
+        revision: nextRevision,
+        sha256: sha256Hex(input.content),
+        size: Buffer.byteLength(input.content, 'utf8'),
+        fsVersion: input.fsVersion ?? target.fsVersion,
+        missing: false,
+      }
+      return {
+        ...existing,
+        files: existing.files.map((entry) => (entry.path === input.path ? nextFile : entry)),
+        revision: existing.revision + 1,
+        updatedAt: input.now.toISOString(),
+      }
+    })
+    const events = [
+      await input.runtime.store.appendEventUnlocked(
+        createEventRow(input.artifactId, 'file.changed', input.now, { path: input.path, revision: nextRevision, merged: input.merged }),
+      ),
+    ]
+    const relocated = await relocateAnchorsUnlocked(input.runtime, saved, input.path, input.content, input.now)
+    events.push(...relocated.events)
+    events.push(await input.runtime.store.appendEventUnlocked(
+      createEventRow(input.artifactId, 'artifact.updated', input.now, { revision: saved.revision }),
+    ))
+    return { record: saved, events, revision: nextRevision }
   })
-  if (input.canvas) return conflict()
-  const base = await input.runtime.store.readRevision(input.artifactId, input.baseRevision)
-  if (base === null) return conflict()
-  const result = mergeText({ base, current: input.current.content, mine: input.content })
-  if (!result.ok) {
-    return {
-      kind: 'conflict',
-      response: conflictResponse(input.kit, input.current.version, input.fileRevision, result.conflictRanges),
-    }
+  publishAll(input.runtime, committed.events)
+  try {
+    await input.runtime.store.saveRevision(input.artifactId, committed.revision, input.content)
+  } catch {
+    // The save is committed; a missing snapshot only turns a later stale save
+    // into a 409 instead of a merge.
   }
-  return { kind: 'content', content: result.content }
+  // The guard's old_string lookup must see what the file now contains; without
+  // this refresh a later model edit using new text would find no match.
+  input.runtime.presence.cacheText(resolvePath(input.runtime.repoPath, input.path), input.content)
+  const response: ArtifactEditResponse = {
+    ok: true,
+    path: input.path,
+    content: input.content,
+    revision: committed.revision,
+    fsVersion: input.fsVersion,
+    record: committed.record,
+    merged: input.merged,
+  }
+  return input.kit.jsonResponse(200, response)
 }
 
 /**
@@ -852,110 +855,38 @@ async function handleEdit(
   const now = nowOf(ports)
   const reconciled = await reconcileRecord(runtime, record, now)
   publishAll(runtime, reconciled.events)
-  let current = await runtime.files.readText(path)
-  let source = reconciled.record
-  let file = registeredFile(source, path)
-  // A canvas scene is opaque JSON: a line-level merge cannot preserve its
-  // meaning, so a stale base is a conflict as the stage-4 contract states.
-  const canvasScene = source.type === 'canvas'
+  const current = await runtime.files.readText(path)
+  const source = reconciled.record
+  const file = registeredFile(source, path)
   if (content === current.content) {
     const unchanged: ArtifactEditResponse = {
       ok: true, path, content, revision: file.revision, fsVersion: current.version, record: source, merged: false,
     }
     return kit.jsonResponse(200, unchanged)
   }
-  const resolveStale = (): Promise<StaleBaseResult> => resolveStaleBase({
-    canvas: canvasScene,
-    artifactId,
-    baseRevision,
-    current,
-    content,
-    fileRevision: file.revision,
+  const written = await writeArtifactEdit({
     runtime,
     kit,
-  })
-  let nextContent = content
-  let merged = false
-  if (baseVersion === null || current.version === null || baseVersion !== current.version) {
-    const resolved = await resolveStale()
-    if (resolved.kind === 'conflict') return resolved.response
-    nextContent = resolved.content
-    merged = true
-  }
-  let written
-  let retries = 0
-  while (true) {
-    try {
-      written = await runtime.files.writeText(path, nextContent, current.version)
-      break
-    } catch (error) {
-      const conflict = error instanceof ArtifactDomainError && error.code === 'artifact/version-conflict'
-      if (!conflict || retries >= 2) {
-        if (conflict) return conflictResponse(kit, current.version, file.revision, wholeFileRange(current.content))
-        throw error
-      }
-      retries += 1
-      current = await runtime.files.readText(path)
-      const resolved = await resolveStale()
-      if (resolved.kind === 'conflict') return resolved.response
-      nextContent = resolved.content
-      merged = true
-    }
-  }
-  const committed = await runtime.store.withLock(async () => {
-    let nextRevision = 0
-    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (existing) => {
-      const target = existing.files.find((entry) => entry.path === path)
-      if (target === undefined) return null
-      nextRevision = target.revision + 1
-      const nextFile = {
-        ...target,
-        revision: nextRevision,
-        sha256: sha256Hex(nextContent),
-        size: Buffer.byteLength(nextContent, 'utf8'),
-        fsVersion: written.version ?? target.fsVersion,
-        missing: false,
-      }
-      return {
-        ...existing,
-        files: existing.files.map((entry) => (entry.path === path ? nextFile : entry)),
-        revision: existing.revision + 1,
-        updatedAt: now.toISOString(),
-      }
-    })
-    const events = [
-      await runtime.store.appendEventUnlocked(
-        createEventRow(artifactId, 'file.changed', now, { path, revision: nextRevision, merged }),
-      ),
-    ]
-    const relocated = await relocateAnchorsUnlocked(runtime, saved, path, nextContent, now)
-    events.push(...relocated.events)
-    events.push(await runtime.store.appendEventUnlocked(
-      createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
-    ))
-    file = registeredFile(saved, path)
-    return { record: saved, events, revision: nextRevision }
-  })
-  publishAll(runtime, committed.events)
-  try {
-    await runtime.store.saveRevision(artifactId, committed.revision, nextContent)
-  } catch {
-    // The save is committed; a missing snapshot only turns a later stale save
-    // into a 409 instead of a merge.
-  }
-  // The guard's old_string lookup must see what the file now contains; without
-  // this refresh a later model edit using new text would find no match.
-  runtime.presence.cacheText(resolvePath(runtime.repoPath, path), nextContent)
-  const response: ArtifactEditResponse = {
-    ok: true,
+    artifactId,
     path,
-    content: nextContent,
-    revision: committed.revision,
-    fsVersion: written.version,
-    record: committed.record,
-    merged,
-  }
-  return kit.jsonResponse(200, response)
+    recordType: source.type,
+    content,
+    baseRevision,
+    baseVersion,
+    current,
+    fileRevision: file.revision,
+  })
+  if (written.kind === 'conflict') return written.response
+  return commitEdit({
+    runtime,
+    kit,
+    artifactId,
+    path,
+    now,
+    content: written.content,
+    merged: written.merged,
+    fsVersion: written.fsVersion,
+  })
 }
 
 /** `POST /api/cowork.artifact.presence` — the browser's editing ranges. */
