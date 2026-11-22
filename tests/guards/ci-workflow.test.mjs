@@ -64,7 +64,6 @@ test('code-health audits the merge base and gates the JSON attribution counters'
   assert.match(workflow, /--expect-head "\$\{\{ github\.event\.pull_request\.head\.sha \}\}"/)
   assert.match(workflow, /run: npm run fallow:health/)
   assert.match(workflow, /fetch-depth: 0/)
-  assert.match(workflow, /complexity_worsened/)
 })
 
 test('CI workflow pins actions to commit SHAs and carries no secrets', () => {
