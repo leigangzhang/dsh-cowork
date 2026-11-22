@@ -15,8 +15,11 @@ import {
   HEAVY_COMMANDS,
   HEAVY_DISPLAY_CHECK,
   HEAVY_GATE_CONTEXT,
+  MISSING_COVERAGE_GAPS,
   mergeCommandResults,
   readCommandResults,
+  readCoverageGapReport,
+  sanitizeCoverageGapText,
   writeHeavyResult,
 } from '../../scripts/ci/publish-heavy.mjs'
 
@@ -136,12 +139,14 @@ test('command results reject duplicate and unknown names and preserve missing ex
 test('buildHeavyResult records the result identity and every command exit', () => {
   const commands = commandsWith({ 'e2e-bash': { exitCode: 1 } })
   const decision = { pass: true, reasons: [] }
+  const coverageGaps = { available: true, text: 'changed uncovered lines:\n  none', truncated: false }
   const result = buildHeavyResult({
     artifact: artifact(),
     currentMain: base,
     commands,
     decision,
     baseIsAncestor: true,
+    coverageGaps,
   })
   assert.equal(result.formatVersion, 1)
   assert.equal(result.head, head)
@@ -153,6 +158,27 @@ test('buildHeavyResult records the result identity and every command exit', () =
   assert.equal(result.commands.length, HEAVY_COMMANDS.length)
   assert.equal(result.commands.find((command) => command.name === 'e2e-bash').exitCode, 1)
   assert.equal(result.commands.find((command) => command.name === 'e2e-bash').blocking, false)
+  assert.deepEqual(result.coverageGaps, coverageGaps)
+  assert.equal(result.commands.find((command) => command.name === 'coverage-gaps').blocking, false)
+})
+
+test('the gap report is bounded, strips terminal controls, and never blocks publication', () => {
+  const project = mkdtempSync(join(tmpdir(), 'cowork-heavy-gaps-'))
+  try {
+    const reportPath = join(project, 'coverage-gaps.txt')
+    writeFileSync(reportPath, `\u001B[31mchanged\u001B[0m\r\n${'x'.repeat(13_000)}\n`)
+    const report = readCoverageGapReport(reportPath)
+    assert.equal(report.available, true)
+    assert.doesNotMatch(report.text, /\u001B/)
+    assert.match(report.text, /^changed\n/)
+    assert.equal(report.truncated, true)
+    assert.ok(report.text.length <= 12_000)
+
+    assert.deepEqual(readCoverageGapReport(join(project, 'missing.txt')), MISSING_COVERAGE_GAPS)
+    assert.equal(sanitizeCoverageGapText('a\u0000b\nc').text, 'ab\nc')
+  } finally {
+    rmSync(project, { recursive: true, force: true })
+  }
 })
 
 test('writeHeavyResult writes one stable JSON artifact', () => {
@@ -184,7 +210,9 @@ test('the heavy workflow runs every command, keeps host-bash observational, and 
   assert.match(workflow, /statuses: write/)
   assert.match(workflow, /checks: write/)
   assert.match(workflow, /HEAVY_BEFORE_ARTIFACT/)
+  assert.match(workflow, /HEAVY_GAP_REPORT: \$\{\{ runner\.temp \}\}\/coverage-gaps\.txt/)
   assert.match(workflow, /HEAVY_RESULT_PATH/)
+  assert.match(workflow, /npm run coverage:gaps -- --base/)
   assert.match(workflow, /node "\$RUNNER_TEMP\/heavy-trusted\/scripts\/ci\/publish-heavy\.mjs"/)
   assert.match(workflow, /if: \$\{\{ always\(\) && steps\.classify\.outputs\.docs_only != 'true' \}\}/)
   assert.match(workflow, /name: Versioned host-bash E2E \(observational\)[\s\S]*?continue-on-error: true/)
@@ -222,12 +250,15 @@ async function createPublisherFixture(project) {
     name: command.name,
     exitCode: command.name === 'e2e-bash' ? 1 : 0,
   })).join('\n') + '\n')
+  const gapReportPath = join(project, 'coverage-gaps.txt')
+  writeFileSync(gapReportPath, 'coverage gaps: base fixture head fixture\n\nchanged uncovered lines:\n  none\n')
   return {
     repo,
     baseSha,
     headSha,
     beforePath,
     commandsPath,
+    gapReportPath,
     resultPath: join(project, 'heavy-result.json'),
   }
 }
@@ -284,6 +315,7 @@ function runPublisher(env) {
         HEAVY_BASE_REF: prFixture.baseSha,
         HEAVY_COMMANDS_FILE: prFixture.commandsPath,
         HEAVY_BEFORE_ARTIFACT: prFixture.beforePath,
+        HEAVY_GAP_REPORT: prFixture.gapReportPath,
         HEAVY_RESULT_PATH: prFixture.resultPath,
         RUN_URL: 'https://example.test/run',
         ...env,
@@ -316,6 +348,8 @@ test('the publisher writes a clean success status and display check for the disp
     assert.equal(body.base, fixture.baseSha)
     assert.equal(body.currentMain, fixture.baseSha)
     assert.equal(body.commands.find((command) => command.name === 'e2e-bash').exitCode, 1)
+    assert.equal(body.coverageGaps.available, true)
+    assert.match(body.coverageGaps.text, /changed uncovered lines/)
     const status = requests.find((request) => request.method === 'POST' && request.path.includes('/statuses/'))
     assert.equal(status.body.context, HEAVY_GATE_CONTEXT)
     assert.equal(status.body.state, 'success')

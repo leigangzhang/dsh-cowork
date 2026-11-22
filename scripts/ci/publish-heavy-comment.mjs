@@ -1,24 +1,27 @@
 #!/usr/bin/env node
 /**
- * Publish one idempotent heavy summary comment on the pull request resolved for
- * a heavy run.
+ * Publish the idempotent heavy summary and coverage-gap comments for one
+ * resolved heavy run.
  *
  * The comment workflow resolves the tested head and pull request first with
  * `resolve-heavy-pr.mjs`: a `workflow_run`-triggered heavy run records the
  * default branch, so its own `head_sha` is not the pull-request head. This
  * publisher receives that resolution, reads the already-published status and
- * check run for the tested head, and writes the summary.
+ * check run for the tested head, and writes one heavy summary. When a published
+ * heavy result exists it also writes one separate coverage-gap comment.
  *
  * The workflow is deliberately separate from the heavy test job: it checks out
  * trusted main and receives only `pull-requests: write`. It never executes
- * pull-request code, so a branch cannot alter the comment publisher or run
- * commands under the write token.
+ * pull-request code. The gap report text originated in the heavy job, so it is
+ * treated as untrusted data: bounded, stripped of terminal controls, and placed
+ * inside a code fence rather than spliced into Markdown.
  */
 import { githubHeaders, readGithubResponse } from './github-response.mjs'
 import { HEAVY_DISPLAY_CHECK, HEAVY_GATE_CONTEXT } from './heavy-contract.mjs'
 import { readHeavyResult, readHeavyStatus } from './publish-gate.mjs'
 
 export const HEAVY_SUMMARY_MARKER = '<!-- heavy-gate-summary -->'
+export const COVERAGE_GAP_MARKER = '<!-- coverage-gap-report -->'
 const API_TIMEOUT_MS = 15_000
 const COMMIT_SHA = /^[0-9a-f]{40}$/
 
@@ -126,14 +129,98 @@ export function formatHeavySummary(input) {
 }
 
 /**
- * Create or update the single heavy summary comment for one resolved run.
+ * Put untrusted report text in a fenced block that no line in the report can
+ * close. Markdown fences need to be longer than any backtick run in the body.
+ *
+ * @param {string} text Sanitized report text.
+ * @returns {string} A `text` code fence.
+ */
+function fencedText(text) {
+  const longestRun = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length))
+  const fence = '`'.repeat(Math.max(3, longestRun + 1))
+  return `${fence}text\n${text === '' ? '(report is empty)' : text}\n${fence}`
+}
+
+/**
+ * Format the separate observational coverage-gap PR comment.
+ *
+ * @param {{head: string, runUrl: string,
+ *   coverageGaps?: {available?: boolean, reason?: string, text?: string, truncated?: boolean}|null}} input
+ *   Comment inputs.
+ * @returns {string} Comment body with the idempotency marker.
+ */
+export function formatCoverageGapComment(input) {
+  const gaps = input.coverageGaps
+  const available = gaps?.available === true
+  const lines = [
+    COVERAGE_GAP_MARKER,
+    '## Coverage gap report',
+    '',
+    `- Head: \`${input.head}\``,
+    `- Observational: this comment audits coverage gaps; it does not change \`heavy-gate\`.`,
+  ]
+  if (available) {
+    lines.push('', fencedText(typeof gaps.text === 'string' ? gaps.text : ''))
+    if (gaps.truncated === true) lines.push('', '- Truncated to fit the PR comment budget.')
+  } else {
+    lines.push('', `- Report: ${String(gaps?.reason ?? 'coverage gap report is unavailable')}`)
+  }
+  lines.push('', `- Run: [workflow logs](${input.runUrl})`, '')
+  return lines.join('\n')
+}
+
+/**
+ * Read the newest display-check summary for audit comments, regardless of the
+ * check conclusion. The gate still requires a successful check; a blocked
+ * heavy run should still show its command exits and coverage-gap report on the
+ * pull request.
+ *
+ * @param {Array<{name: string, output?: {summary?: string}, completed_at?: string, id?: number}>} checks
+ *   Check runs for the tested head.
+ * @returns {object|null} Parsed summary object, or null when unavailable.
+ */
+function latestAuditResult(checks) {
+  const candidate = (Array.isArray(checks) ? checks : [])
+    .filter((check) => check?.name === HEAVY_DISPLAY_CHECK)
+    .sort((left, right) => (
+      Date.parse(String(right.completed_at ?? '')) - Date.parse(String(left.completed_at ?? ''))
+      || Number(right.id ?? 0) - Number(left.id ?? 0)
+    ))[0]
+  if (candidate === undefined) return null
+  try {
+    const parsed = JSON.parse(candidate.output?.summary ?? '')
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+async function upsertComment(config, comments, marker, body, label) {
+  const existing = comments.find((comment) => String(comment?.body ?? '').includes(marker))
+  if (existing === undefined) {
+    await apiJson(config, `/repos/${config.repository}/issues/${String(config.prNumber)}/comments`, `creating ${label}`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    })
+    return 'created'
+  }
+  await apiJson(config, `/repos/${config.repository}/issues/comments/${String(existing.id)}`, `updating ${label}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ body }),
+  })
+  return 'updated'
+}
+
+/**
+ * Create or update the heavy summary and coverage-gap comments for one run.
  *
  * @param {{token: string, repository: string, head: string, prNumber: string|number,
  *   runUrl: string, conclusion?: string, apiUrl?: string,
  *   fetchImpl?: typeof fetch}} config Comment publisher inputs. `head` is the
  *   tested pull-request head resolved by `resolve-heavy-pr.mjs`.
- * @returns {Promise<{action: 'created'|'updated', prNumber: number}|{skipped: 'no-heavy-result'}>}
- *   Comment action, or the reason this run has no summary to publish.
+ * @returns {Promise<{action: 'created'|'updated', gapAction?: 'created'|'updated',
+ *   prNumber: number}|{skipped: 'no-heavy-result'}>}
+ *   Comment actions, or the reason this run has no summary to publish.
  * @throws {Error} When the resolved inputs are invalid or GitHub returns an
  *   unexpected response.
  */
@@ -153,31 +240,27 @@ export async function publishHeavyComment(config) {
   }
   const status = readHeavyStatus(statusRows, config.head)
   const result = readHeavyResult(checkRows, config.head)
+  const auditResult = result.value ?? latestAuditResult(checkRows)
 
   const body = formatHeavySummary({
     head: config.head,
     conclusion: config.conclusion,
     runUrl: config.runUrl,
     status: status.value,
-    result: result.value,
+    result: auditResult,
     statusError: status.error,
     resultError: result.error,
   })
   const comments = await listComments(config, prNumber)
-  const existing = comments
-    .find((comment) => String(comment?.body ?? '').includes(HEAVY_SUMMARY_MARKER))
-  if (existing === undefined) {
-    await apiJson(config, `/repos/${config.repository}/issues/${String(prNumber)}/comments`, 'creating heavy summary comment', {
-      method: 'POST',
-      body: JSON.stringify({ body }),
-    })
-    return { action: 'created', prNumber }
-  }
-  await apiJson(config, `/repos/${config.repository}/issues/comments/${String(existing.id)}`, 'updating heavy summary comment', {
-    method: 'PATCH',
-    body: JSON.stringify({ body }),
+  const action = await upsertComment(config, comments, HEAVY_SUMMARY_MARKER, body, 'heavy summary comment')
+  if (auditResult === null) return { action, prNumber }
+  const gapBody = formatCoverageGapComment({
+    head: config.head,
+    runUrl: config.runUrl,
+    coverageGaps: auditResult.coverageGaps,
   })
-  return { action: 'updated', prNumber }
+  const gapAction = await upsertComment(config, comments, COVERAGE_GAP_MARKER, gapBody, 'coverage gap comment')
+  return { action, gapAction, prNumber }
 }
 
 const invoked = process.argv[1]

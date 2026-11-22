@@ -17,6 +17,7 @@ export const HEAVY_COMMANDS = Object.freeze([
   Object.freeze({ name: 'build', command: 'npm run build', blocking: true }),
   Object.freeze({ name: 'host-smoke', command: 'DSH_HOST_SMOKE_STRICT=1 npm run test:host-smoke', blocking: true }),
   Object.freeze({ name: 'coverage-layered', command: 'npm run test:coverage:layered -- --base <base>', blocking: true }),
+  Object.freeze({ name: 'coverage-gaps', command: 'npm run coverage:gaps -- --base <base>', blocking: false }),
   Object.freeze({ name: 'e2e-keyless', command: 'npm run test:e2e', blocking: true }),
   Object.freeze({ name: 'e2e-bash', command: 'npm run test:e2e:bash', blocking: false }),
 ])
