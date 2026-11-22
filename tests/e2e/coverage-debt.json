@@ -3,6 +3,11 @@
   "comment": "Surface keys with no keyless scenario yet. Every entry states why it is uncovered and the exit condition that removes it; `npm run check` fails when a new key appears without a scenario or a debt entry, and when an entry goes stale.",
   "entries": [
     {
+      "key": "route:/api/cowork.artifact.open POST",
+      "reason": "The route hands a registered file to the host native file browser. The keyless lane must not drive a user-visible desktop action, and the host session controller has no injectable opener in that lane.",
+      "exitCondition": "A host-level injectable opener (or a consenting desktop lane) must exist before this route can be asserted headlessly; then delete this entry."
+    },
+    {
       "key": "route:/api/cowork.inbox.open POST",
       "reason": "The route reveals a plan or proposal through the host native file browser. The shipped host session controller has no injectable opener, and a headless keyless lane must not drive a user-visible desktop action.",
       "exitCondition": "A host-level injectable opener (or a consenting desktop lane) must exist before this route can be asserted headlessly; then delete this entry."

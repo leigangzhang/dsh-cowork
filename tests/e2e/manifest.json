@@ -121,7 +121,6 @@
         "route:/api/cowork.artifact.upload POST",
         "route:/api/cowork.artifact.attachment GET",
         "route:/api/cowork.artifact.events GET",
-        "route:/api/cowork.artifact.open POST",
         "preset:cowork-master"
       ]
     },
