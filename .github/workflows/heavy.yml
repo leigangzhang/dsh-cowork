@@ -149,13 +149,17 @@ jobs:
           echo "npm_config_cache=$cache_dir" >> "$GITHUB_ENV"
           echo "npm cache: $cache_dir"
 
+      - name: Verify npm configuration
+        if: steps.classify.outputs.docs_only != 'true'
+        run: |
+          registry="$(npm config get registry)"
+          test "${registry%/}" = "https://registry.npmjs.org"
+          test "$(npm config get cache)" = "$HOME/.cache/dsh-cowork/npm"
+
       - name: Install dependencies
         if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
-        run: |
-          test "$(npm config get registry)" = "https://registry.npmjs.org/"
-          test "$(npm config get cache)" = "$HOME/.cache/dsh-cowork/npm"
-          npm ci --prefer-offline --no-audit --no-fund
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Chromium
         if: steps.classify.outputs.docs_only != 'true'
