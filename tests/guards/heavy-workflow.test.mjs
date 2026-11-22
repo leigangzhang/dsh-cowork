@@ -85,6 +85,21 @@ test('heavy workflow runs its prerequisites in order', () => {
   assert.match(workflow, /node "\$RUNNER_TEMP\/heavy-trusted\/scripts\/review\/gate-artifact\.mjs"/)
 })
 
+test('heavy workflow uses a persistent npm cache and the official registry', () => {
+  assert.match(workflow, /npm_config_registry: https:\/\/registry\.npmjs\.org/)
+  assert.match(workflow, /name: Configure npm cache/)
+  assert.match(workflow, /cache_dir="\$HOME\/\.cache\/dsh-cowork\/npm"/)
+  assert.match(workflow, /mkdir -p "\$cache_dir"/)
+  assert.match(workflow, /echo "npm_config_cache=\$cache_dir" >> "\$GITHUB_ENV"/)
+  assert.match(workflow, /test "\$\(npm config get registry\)" = "https:\/\/registry\.npmjs\.org\/"/)
+  assert.match(workflow, /test "\$\(npm config get cache\)" = "\$HOME\/\.cache\/dsh-cowork\/npm"/)
+  assert.match(workflow, /npm ci --prefer-offline --no-audit --no-fund/)
+
+  const configure = workflow.indexOf('name: Configure npm cache')
+  const install = workflow.indexOf('name: Install dependencies')
+  assert.ok(configure >= 0 && install > configure, 'npm cache must be configured before npm ci')
+})
+
 test('heavy workflow downloads no actions and carries no secrets', () => {
   const uses = [...workflow.matchAll(/^\s+uses:\s+(\S+)(?:\s+#.*)?$/gm)].map((match) => match[1])
   assert.deepEqual(uses, [])

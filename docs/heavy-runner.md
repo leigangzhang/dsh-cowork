@@ -10,6 +10,7 @@
 - `gate-artifact` 现在是唯一 required context；docs-only PR 豁免 heavy，其他 PR 需要同 head 的 `heavy-gate` success 才能通过。
 - ruleset 仍不直接要求 `heavy-gate`。它是 `gate-artifact` 的输入，不是第二个 required check。
 - 新 commit 必须在新的 head 上重新产生结果；旧 status 不会自动迁移。
+- heavy 不继承 runner 用户的 npm registry 镜像：workflow 固定使用 `https://registry.npmjs.org`，并把 npm cache 放在 `$HOME/.cache/dsh-cowork/npm`。同一 runner 用户会复用 cache；新增依赖或首次冷装仍会下载。
 
 ## 触发方式
 
@@ -100,6 +101,7 @@ docs-only PR 由可信 main 树里的共享 path classifier 判定；判定为 d
 - **依赖旧 head 的绿色结果**：新 commit 没有 `heavy-gate`，gate 会 blocked；必须重新运行。
 - **只看 commit status 不看 result check**：status 是粗粒度裁决，base/diff/porcelain 身份在 `heavy-gate-result` summary 中。
 - **工作区不干净**：runner 上的未跟踪文件会进入 `porcelain`，publisher 必须发布 failure。
+- **`npm ci` 慢**：先看 npm debug log 里大 tarball 的下载源与耗时，再确认持久 cache 是否命中；不要靠修改 runner 的 `~/.npmrc` 回退到不稳定的镜像。
 - **让 PR checkout 执行 publisher**：分支可以改写 `publish-heavy.mjs` 来伪造 success；publisher、pre-run 身份记录和 classifier 必须从可信 main 树的临时导出执行。
 - **把评论 workflow 当成 gate**：`heavy-comment` 只写审计评论，失败或延迟不影响 `gate-artifact`；也不要给执行 PR 代码的 job 加 `pull-requests: write`。
 - **在默认分支还没有新 workflow 时期待自动触发**：`workflow_run` 使用默认分支上的 workflow 文件；合并前只能手动 dispatch。

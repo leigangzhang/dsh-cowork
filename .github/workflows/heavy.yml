@@ -52,6 +52,7 @@ jobs:
       GIT_COMMITTER_NAME: github-actions[bot]
       GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
       HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+      npm_config_registry: https://registry.npmjs.org
     steps:
       - name: Refresh source branch refs
         id: source
@@ -140,10 +141,21 @@ jobs:
           --head "$HEAD_SHA"
           > "$RUNNER_TEMP/heavy-artifact.before.json"
 
+      - name: Configure npm cache
+        if: steps.classify.outputs.docs_only != 'true'
+        run: |
+          cache_dir="$HOME/.cache/dsh-cowork/npm"
+          mkdir -p "$cache_dir"
+          echo "npm_config_cache=$cache_dir" >> "$GITHUB_ENV"
+          echo "npm cache: $cache_dir"
+
       - name: Install dependencies
         if: steps.classify.outputs.docs_only != 'true'
         continue-on-error: true
-        run: npm ci
+        run: |
+          test "$(npm config get registry)" = "https://registry.npmjs.org/"
+          test "$(npm config get cache)" = "$HOME/.cache/dsh-cowork/npm"
+          npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Chromium
         if: steps.classify.outputs.docs_only != 'true'
