@@ -14,7 +14,7 @@ Class: process
 
 ## Decision
 
-- `tools/fallow-health-baseline.json` 由 fallow 3.43.0 在 main `c9f7e84` 上重新生成。旧基线覆盖 184 条超阈值 finding 中的 101 条；83 条未覆盖的 finding 全部在 PR #74 的 base `6413911` 上已存在，没有一条由 #74/#78 引入。逐条审阅的分类接受理由、12 条 stale 条目的处理与基线计数变化见 [结果记录](../../../../docs/handoff/WORK_ITEM_HEALTH_RESULT.md)。没有改阈值、源码行为或 `.fallowrc.jsonc` 的 ignore。
+- `tools/fallow-health-baseline.json` 由 fallow 3.43.0 在 main `c9f7e84` 上重新生成。旧基线覆盖 184 条超阈值 finding 中的 101 条；83 条未覆盖的 finding 全部在 PR #74 的 base `6413911` 上已存在，没有一条由 #74/#78 引入。逐条审阅的分类接受理由、12 条 stale 条目的处理与基线计数变化见 [结果记录](../../../../docs/handoff/WORK_ITEM_HEALTH_RESULT.md)。合并 main `520f610`（PR #79）后在同一 PR 内增量刷新一次：新增 `scripts/ci/publish-heavy.mjs` 的 `publisherConfig`（CRAP-only moderate），最终 185 条 finding / 255 个计数，审阅见结果记录。没有改阈值、源码行为或 `.fallowrc.jsonc` 的 ignore。
 - `package.json` 精确固定 `devDependencies.fallow = 3.43.0`；lockfile 只新增 fallow、`detect-libc` 与 8 个平台 optional dependency，共 154 行，全部从 `https://registry.npmjs.org/` 解析。新增 `fallow:health` 与 `fallow:audit` 脚本，本地和 CI 跑同一命令。
 - `.github/workflows/ci.yml` 新增独立 `code-health` job，只在非 docs-only 的 PR 上运行：`npm ci` → 用 merge-base 解析 PR 的 base sha → `npm run --silent fallow:audit -- --base <sha> --format json` → `scripts/ci/fallow-gate.mjs` 断言 JSON 计数 → `npm run fallow:health`。`pr-gate` 把 `code-health` 列为必需 lane，并像 `unit` 一样拒绝 docs-only 变更里意外运行的 lane。
 - CI 不把 audit 的退出码当作唯一证据：`scripts/ci/fallow-gate.mjs` 直接断言 `complexity_introduced` 与 `complexity_worsened` 都为 0，并把报告绑定到 base、head（接受 fallow 输出的短 SHA 前缀）和固定 CLI 版本；退出码是汇总结果，无法证明报告对应的比较点、检出和 CLI 版本。
@@ -43,7 +43,7 @@ Class: process
 
 ## Testing
 
-- [A1] 在 main `c9f7e84` 上重新生成基线后，`npm run fallow:health` 退出 0：254/254 计数匹配、0 stale、0 remaining；83 条 finding 与 `6413911` 的对照说明已写入结果记录。 — `workflow`
+- [A1] 在 main `c9f7e84` 上重新生成基线、并在合并 `520f610` 后增量刷新，`npm run fallow:health` 退出 0：255/255 计数匹配、0 stale、0 remaining；83 条 finding 与 `6413911` 的对照及合并增量已写入结果记录。 — `workflow`
 - [A2] `fallow audit --base <merge-base> --format json` 的 `attribution.complexity_introduced` 与 `complexity_worsened` 由 `scripts/ci/fallow-gate.mjs` 断言；负例 fixture 证明任一计数非零时退出 1，短 head SHA 前缀可用，完整 head/base/版本不匹配时退出 1。 — `tests`
 - [A3] `package-lock.json` 的所有 `resolved` 指向 `https://registry.npmjs.org/`，`devDependencies.fallow` 是精确的 3.43.0；`npm ci` 在 hosted runner 上安装 linux-x64 平台包。 — `packaging`
 - [A4] `AGENTS.md`、`docs/testing.md` 与 code-review skill 把本地命令统一为 `npm run fallow:health` / `npm run fallow:audit`，并写明 `code-health` 的 JSON 断言与维护 PR 规则。 — `plan-docs`

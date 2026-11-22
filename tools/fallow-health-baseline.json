@@ -8,7 +8,7 @@
     },
     "scripts/ci/publish-heavy.mjs": {
       "crap_moderate": {
-        "count": 1
+        "count": 2
       }
     },
     "scripts/evidence/e2e.mjs": {

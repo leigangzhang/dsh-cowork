@@ -1,7 +1,7 @@
 # 工作项代码健康度回归修复结果
 
 - 状态：完成（2026-11-21）。P0/P1 已由 PR #78 交付，见 [交接](WORK_ITEM_HEALTH_HANDOFF.md)；本记录覆盖 P2（health 基线维护）与 P3（CI 强制）。
-- 基线：`main` `c9f7e84`（PR #77 合并后）。
+- 基线：`main` `c9f7e84`（PR #77 合并后）；合并 `main` `520f610`（PR #79）后在同一 PR 内做了一次增量刷新。
 - 工具：fallow 3.43.0。P3 把精确版本固定进 `package.json` 的 `devDependencies.fallow`；P2 的人工审阅也使用该版本。
 - 分支：`agent/fallow-health-gate`。
 
@@ -15,6 +15,7 @@
 | `fallow health --baseline tools/fallow-health-baseline.json`（旧基线） | exit 1：83 条剩余 finding、12 条 stale 条目 |
 | `fallow health --save-baseline tools/fallow-health-baseline.json` | 写入 184 条超阈值 finding / 254 个文件×类别计数 |
 | `fallow health --baseline tools/fallow-health-baseline.json`（新基线） | exit 0：254/254 matched、0 stale、0 remaining |
+| 合并 `main` `520f610` 后增量刷新 | 写入 185 条 finding / 255 个计数；`fallow health --baseline` exit 0（255/255、0 stale、0 remaining） |
 
 ### 审阅范围
 
@@ -71,7 +72,13 @@
 | 文件×类别计数 | 157 | 254 |
 | target key | 23 | 41 |
 
-剪掉 12 个 stale 计数、增加 109 个计数后，新基线覆盖全部 184 条 finding，`fallow health --baseline` 退出 0。逐条核对的 83 条 finding 与分类理由如上；target key 从 23 增加到 41（fallow 生成的重构目标标识），随同一次刷新保存。
+剪掉 12 个 stale 计数、增加 109 个计数后，该次基线覆盖当时全部 184 条 finding，`fallow health --baseline` 退出 0。逐条核对的 83 条 finding 与分类理由如上；target key 从 23 增加到 41（fallow 生成的重构目标标识），随同一次刷新保存。
+
+### 合并 main 后的增量
+
+合并 `520f610`（PR #79）后，`scripts/ci/publish-heavy.mjs` 多出一条 moderate CRAP-only finding：`publisherConfig`（CC 10 / cognitive 8 / 17 行 / CRAP 31.6）；同一文件/类别的 `beforeArtifactIdentityReasons`（已在 83 条审阅范围内，CRAP 43.1）计数从 1 增加到 2。两者都是静态覆盖率估算，没有实测运行时覆盖；按同一规则接受，基线在该文件/类别保存为 2。
+
+合并后重新保存基线：185 条 finding / 255 个文件×类别计数（+1 finding、+1 计数），`fallow health --baseline` 退出 0。
 
 ## P3 — CI 强制
 
@@ -100,3 +107,5 @@ P3 改变了「fallow 只做本地信号」的历史决策，新增 [decision re
 | `npm run test:e2e -- --record` | exit 0：6 个 keyless 场景 / 140 项检查，证据重录到 `65a0303` |
 | `npm run fallow:audit -- --base c9f7e84 --format json` + gate | exit 0：verdict pass，16 个变更文件，`complexity_introduced=0`、`complexity_worsened=0`；gate 在 `25ee373` 上通过 |
 | `npm run change-scope -- --base c9f7e84` | exit 0：committed 16，staged / unstaged / untracked 均为 0 |
+| `npm run fallow:health`（合并 `520f610` 后） | exit 0：255/255 matched、185 条 finding、0 stale、0 remaining |
+| `npm run fallow:audit -- --base 520f610 --format json`（合并后） | exit 0：verdict pass，16 个变更文件，`complexity_introduced=0`、`complexity_worsened=0` |
