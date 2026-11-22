@@ -695,19 +695,22 @@ async function scenarioWorkItemChain(page) {
   assert.equal(await created.getAttribute('data-resolved'), 'false')
   chainThreadId = await created.getAttribute('data-thread-id')
 
-  // Resolve it: the server appends one resolve row and the card folds.
+  // Resolve it: the server appends one resolve row and the rail groups it
+  // under the resolved summary.
   await created.getByTestId('cwi-thread-toggle').click()
+  await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-resolved-line').click()
   const resolvedCard = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
-  await page.waitForFunction((threadId) => {
-    const thread = document.querySelector(`[data-testid="cwi-thread"][data-thread-id="${threadId}"]`)
-    return thread?.getAttribute('data-resolved') === 'true'
-  }, chainThreadId)
+  await resolvedCard.waitFor({ timeout: 10_000 })
+  assert.equal(await resolvedCard.getAttribute('data-resolved'), 'true')
 
   // Back to the conversation, then reopen: the server serves the same thread.
   await page.getByTestId('cwi-back').click()
   const list = await openWorkItemTab(page)
   await list.waitFor()
   await card.click()
+  await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-resolved-line').click()
   const reopened = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
   await reopened.waitFor({ timeout: 10_000 })
   assert.equal(await reopened.getAttribute('data-resolved'), 'true')
@@ -1012,6 +1015,15 @@ async function scenarioWorkItemEdit(page, fixtures) {
   await card.waitFor({ timeout: 15_000 })
   await card.click()
   await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-viewer-footer').waitFor({ timeout: 10_000 })
+  // Overflow menu: copy path and refresh are the two local actions.
+  await page.getByTestId('cwi-more').click()
+  await page.getByTestId('cwi-menu-copy').click()
+  await page.getByText(/路径已复制|复制失败/).waitFor({ timeout: 5_000 })
+  await page.getByTestId('cwi-more').click()
+  await page.getByTestId('cwi-menu').waitFor({ timeout: 5_000 })
+  await page.getByTestId('cwi-menu-refresh').click()
+  await page.getByTestId('cwi-menu').waitFor({ state: 'detached', timeout: 5_000 })
   await page.getByTestId('cwi-edit').click()
   const editor = page.getByTestId('cwi-editor')
   await editor.waitFor({ timeout: 10_000 })
@@ -1271,6 +1283,9 @@ async function scenarioWorkItemDraft(page) {
   await page.getByTestId('cwi-thread-focus').first().click()
   await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
 
+  // The failed batch belongs to the thread resolved earlier; expand the
+  // resolved summary before reaching its retry action.
+  await page.getByTestId('cwi-resolved-line').click()
   // A failed batch exposes retry; the mocked route proves both the failure
   // receipt and the optimistic success path without enqueueing a real model
   // turn.
@@ -1563,6 +1578,8 @@ async function scenarioWorkItemRestore(page) {
   // unmount the session-scoped tab body.
   assert.match(await list.innerText(), /浏览器交付物/)
   await card.click()
+  await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-resolved-line').click()
   const thread = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
   await thread.waitFor({ timeout: 10_000 })
   assert.equal(await thread.getAttribute('data-resolved'), 'true')

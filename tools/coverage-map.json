@@ -98,6 +98,18 @@
       "lane": "browser"
     },
     {
+      "path": "src/client/work-item/viewer-footer.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewer-header.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewer-side-tabs.tsx",
+      "lane": "browser"
+    },
+    {
       "path": "src/client/work-item/viewers/canvas.tsx",
       "lane": "browser"
     },

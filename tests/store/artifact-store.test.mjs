@@ -248,6 +248,8 @@ test('revision snapshots are readable and keep only the newest twenty', async ()
     assert.equal(await store.readRevision(ARTIFACT, 2), 'content 2\n')
     assert.equal(await store.readRevision(ARTIFACT, 21), 'content 21\n')
     assert.equal(await store.readRevision(ARTIFACT, 99), null)
+    assert.deepEqual(await store.listRevisions(ARTIFACT), Array.from({ length: 20 }, (_, index) => 21 - index))
+    assert.deepEqual(await store.listRevisions('artifact-99999999-9999-4999-8999-999999999999'), [])
   })
 })
 

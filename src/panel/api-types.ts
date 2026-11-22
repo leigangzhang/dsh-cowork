@@ -22,6 +22,8 @@ export interface PanelSessionRow {
   readonly sessionId: string
   /** The session's working directory; the only accepted start for project discovery. */
   readonly cwd?: string
+  /** Display title, used by the work-item breadcrumb when the host carries it. */
+  readonly title?: string
 }
 
 /**

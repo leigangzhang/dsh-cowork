@@ -124,10 +124,15 @@ export function filterCount(
   }
 }
 
-/** The one-line activity a card or the viewer header shows, or null. */
-export function activeDispatchSummary(
-  dispatch: ActiveDispatchV1 | null,
-): { readonly label: string; readonly tone: 'pending' | 'active' | 'done' | 'error'; readonly terminal: boolean } | null {
+/** One-line activity badge the header and cards render. */
+export interface ActiveDispatchBadge {
+  readonly label: string
+  readonly tone: 'pending' | 'active' | 'done' | 'error'
+  readonly terminal: boolean
+}
+
+/** One-line badge for the viewer header's live activity pill. */
+export function activeDispatchSummary(dispatch: ActiveDispatchV1 | null): ActiveDispatchBadge | null {
   if (dispatch === null) return null
   const terminal = isTerminalDispatchState(dispatch.state)
   const tone = dispatch.state === 'replied'
@@ -543,7 +548,7 @@ export function changedLineRanges(before: string, after: string): LineSelection[
 
 /** One source line reduced for the read-only Markdown-ish view. */
 export interface ReadLine {
-  readonly kind: 'text' | 'h1' | 'h2' | 'h3' | 'list' | 'quote'
+  readonly kind: 'text' | 'h1' | 'h2' | 'h3' | 'list' | 'quote' | 'code' | 'fence'
   readonly text: string
 }
 
@@ -555,6 +560,32 @@ export function markdownLine(line: string): ReadLine {
   if (line.startsWith('- ') || line.startsWith('* ')) return { kind: 'list', text: line.slice(2) }
   if (line.startsWith('> ')) return { kind: 'quote', text: line.slice(2) }
   return { kind: 'text', text: line }
+}
+
+/**
+ * Classify a whole document, tracking fenced code blocks.
+ *
+ * Fence marker lines keep their row (line numbers stay aligned with the stored
+ * file) but render empty; the lines between them render in the code style.
+ * @param lines - stored file lines.
+ * @returns one classification per line, in order.
+ */
+export function markdownLines(lines: readonly string[]): ReadLine[] {
+  let fenced = false
+  return lines.map((line) => {
+    if (line.trimStart().startsWith('```')) {
+      fenced = !fenced
+      return { kind: 'fence', text: '' }
+    }
+    if (fenced) return { kind: 'code', text: line }
+    return markdownLine(line)
+  })
+}
+
+/** The last path segment, used by file headers and exports. */
+export function baseName(path: string): string {
+  const cut = path.lastIndexOf('/')
+  return cut === -1 ? path : path.slice(cut + 1)
 }
 
 /** One inline run of a read-mode Markdown line. */

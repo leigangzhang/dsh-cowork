@@ -30,11 +30,11 @@
       "functionCoverage": 96.77
     },
     "src/client/work-item/panel.tsx": {
-      "lineCoverage": 98.56,
-      "functionCoverage": 92.31
+      "lineCoverage": 96.26,
+      "functionCoverage": 91.11
     },
     "src/client/work-item/thread-card.tsx": {
-      "lineCoverage": 97.91,
+      "lineCoverage": 91.75,
       "functionCoverage": 80
     },
     "src/client/work-item/viewers/canvas.tsx": {
@@ -54,6 +54,18 @@
       "functionCoverage": 100.0
     },
     "src/client/work-item/viewers/viewer-document.tsx": {
+      "lineCoverage": 100.0,
+      "functionCoverage": 100.0
+    },
+    "src/client/work-item/viewer-header.tsx": {
+      "lineCoverage": 96.55,
+      "functionCoverage": 90.91
+    },
+    "src/client/work-item/viewer-footer.tsx": {
+      "lineCoverage": 100.0,
+      "functionCoverage": 100.0
+    },
+    "src/client/work-item/viewer-side-tabs.tsx": {
       "lineCoverage": 100.0,
       "functionCoverage": 100.0
     }

@@ -75,6 +75,15 @@ export async function runArtifactChain(ctx) {
   const baseRevision = file.body.revision
   const baseVersion = file.body.fsVersion
 
+  // The host may or may not expose a native file opener; either answer proves
+  // the route is wired and never fakes a success.
+  const opened = await ctx.client.panelPost('/api/cowork.artifact.open', { sessionId: masterId, artifactId })
+  ctx.check(
+    'open either hands the file to the host or reports the missing capability',
+    opened.status === 200 || (opened.status === 501 && opened.body?.error?.code === 'artifact/open-unsupported'),
+    `${opened.status} ${opened.body?.error?.code ?? ''}`,
+  )
+
   const viewed = await ctx.client.panelPost('/api/cowork.artifact.status', { sessionId: masterId, artifactId, action: 'view' })
   ctx.check('first view moves the status to pending-confirm', viewed.status === 200 && viewed.body?.record?.status === 'pending-confirm', viewed.body?.record?.status)
 

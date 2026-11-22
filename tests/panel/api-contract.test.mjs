@@ -387,7 +387,7 @@ test('the exported bounds keep the documented values and their relations', () =>
   assert.equal(MAX_REQUEST_BODY_BYTES, 8 * 1024, 'the write body cap is 8 KiB')
 })
 
-test('the twenty-three route paths are unique, absolute and stable', () => {
+test('the twenty-four route paths are unique, absolute and stable', () => {
   const paths = [...PANEL_PATHS]
   assert.deepEqual(paths, [
     '/api/cowork.overview',
@@ -413,6 +413,7 @@ test('the twenty-three route paths are unique, absolute and stable', () => {
     '/api/cowork.artifact.upload',
     '/api/cowork.artifact.attachment',
     '/api/cowork.artifact.events',
+  '/api/cowork.artifact.open',
   ])
   assert.equal(new Set(paths).size, paths.length, 'every route has its own path')
   for (const path of paths) assert.equal(path.startsWith('/api/'), true, `${path} stays below /api`)

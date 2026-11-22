@@ -1051,7 +1051,16 @@ export function registerCoworkApi(host: CoworkApiHost, ports: CoworkApiPorts): v
     ...inboxPanelRoutes(ports, inboxKit),
     ...(artifactKit === null || ports.artifact === undefined
       ? []
-      : artifactPanelRoutes({ runtimeFor: (repoPath) => ports.artifact!.runtimeFor(repoPath), now: ports.now, log: ports.log }, artifactKit)),
+      : artifactPanelRoutes({
+        runtimeFor: (repoPath) => ports.artifact!.runtimeFor(repoPath),
+        now: ports.now,
+        log: ports.log,
+        sessionTitle: async (sessionId) => {
+          const rows = await listSessionsBounded(ports)
+          return rows.find((row) => row.sessionId === sessionId)?.title ?? null
+        },
+        openWorkspacePath: ports.openWorkspacePath,
+      }, artifactKit)),
   ]
   for (const route of routes) {
     host.effect(() => connection.fetch.register(route), `dsh-cowork: panel route ${route.path}`)

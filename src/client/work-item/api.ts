@@ -17,6 +17,7 @@ import {
   ARTIFACT_FILE_PATH,
   ARTIFACT_ATTACHMENT_PATH,
   ARTIFACT_LIST_PATH,
+  ARTIFACT_OPEN_PATH,
   ARTIFACT_PRESENCE_PATH,
   ARTIFACT_UPLOAD_PATH,
   ARTIFACT_STATUS_PATH,
@@ -29,6 +30,7 @@ import {
   type ArtifactEditResponse,
   type ArtifactFileResponse,
   type ArtifactListResponse,
+  type ArtifactOpenResponse,
   type ArtifactPresenceResponse,
   type ArtifactStatusResponse,
   type ArtifactUploadResponse,
@@ -103,6 +105,12 @@ export interface PresenceInput {
   readonly ranges: readonly { readonly startLine: number; readonly endLine: number }[]
 }
 
+/** One "open in app" request. */
+export interface OpenInput {
+  readonly sessionId: string
+  readonly artifactId: string
+}
+
 /** One status action. */
 export interface StatusInput {
   readonly sessionId: string
@@ -118,6 +126,7 @@ export interface WorkItemApi {
   comments(sessionId: string, artifactId: string, after?: string): Promise<ArtifactCommentsResponse>
   comment(input: CommentInput): Promise<ArtifactCommentResponse>
   resolveComment(input: ResolveCommentInput): Promise<ArtifactCommentResolveResponse>
+  open(input: OpenInput): Promise<ArtifactOpenResponse>
   retryDispatch(input: { sessionId: string; artifactId: string; dispatchId: string }): Promise<ArtifactDispatchRetryResponse>
   status(input: StatusInput): Promise<ArtifactStatusResponse>
   edit(input: EditInput): Promise<ArtifactEditResponse>
@@ -208,6 +217,9 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
     },
     async retryDispatch(input) {
       return post<ArtifactDispatchRetryResponse>(ARTIFACT_DISPATCH_RETRY_PATH, input)
+    },
+    async open(input) {
+      return post<ArtifactOpenResponse>(ARTIFACT_OPEN_PATH, input)
     },
     async resolveComment(input) {
       return post<ArtifactCommentResolveResponse>(ARTIFACT_COMMENT_RESOLVE_PATH, input)

@@ -421,6 +421,7 @@ export const ARTIFACT_ERROR_CODES = [
   'artifact/limit-reached',
   'artifact/duplicate',
   'artifact/corrupt',
+  'artifact/open-unsupported',
 ] as const
 
 /** One artifact failure code. */
@@ -453,6 +454,7 @@ export const ARTIFACT_ERROR_STATUS: Readonly<Record<ArtifactErrorCode, number>> 
   'artifact/limit-reached': 409,
   'artifact/duplicate': 409,
   'artifact/corrupt': 500,
+  'artifact/open-unsupported': 501,
 }
 
 /** Human label of one collaboration state. */
@@ -571,6 +573,15 @@ export interface ArtifactDetailResponse {
   readonly eventsSeq: number
   /** Latest row of every batch that carried a comment of this work item. */
   readonly dispatches: readonly ArtifactDispatchSummary[]
+  /** Owning topic-session title, when the host listing carries it. */
+  readonly sessionTitle?: string | null
+  /** Kept snapshot revision numbers, newest first (at most 20). */
+  readonly revisions?: readonly number[]
+}
+
+/** Body of a successful `POST artifact.open`. */
+export interface ArtifactOpenResponse {
+  readonly ok: true
 }
 
 /** Body of a successful text `GET artifact.file`. */

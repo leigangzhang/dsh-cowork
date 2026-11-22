@@ -29,6 +29,8 @@ export interface ThreadCardProps {
   /** 1-based position in the rail; rendered as the `#N` anchor chip. */
   readonly ordinal: number
   readonly selected: boolean
+  /** Render a resolved card's body directly (rail group or resolved filter). */
+  readonly expandedByGroup?: boolean
   readonly now: Date
   readonly pending: boolean
   readonly dispatch: ArtifactDispatchSummary | null
@@ -126,6 +128,7 @@ export function ThreadCard({
   thread,
   ordinal,
   selected,
+  expandedByGroup = false,
   now,
   pending,
   dispatch,
@@ -143,7 +146,7 @@ export function ThreadCard({
   )
   const root = comments[0] ?? null
   const replies = comments.slice(1)
-  const compact = thread.resolved && !expanded
+  const compact = thread.resolved && !expanded && !expandedByGroup
   const open = !thread.resolved
   const statusLabel = anchorStatusLabel(thread.anchorStatus)
   const stale = thread.anchorStatus === 'stale'
@@ -237,16 +240,18 @@ export function ThreadCard({
               )}
       <div className="cwi-thread-actions">
         {thread.resolved
-          ? (
-              <button
-                type="button"
-                className="cwi-thread-action"
-                data-testid="cwi-thread-expand"
-                onClick={() => { setExpanded(value => !value) }}
-              >
-                {expanded ? `收起 ${String(comments.length)} 条` : `已解决 · 展开 ${String(comments.length)} 条`}
-              </button>
-            )
+          ? (expandedByGroup
+              ? null
+              : (
+                  <button
+                    type="button"
+                    className="cwi-thread-action"
+                    data-testid="cwi-thread-expand"
+                    onClick={() => { setExpanded(value => !value) }}
+                  >
+                    {expanded ? `收起 ${String(comments.length)} 条` : `已解决 · 展开 ${String(comments.length)} 条`}
+                  </button>
+                ))
           : (
               <button
                 type="button"

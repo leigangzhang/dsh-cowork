@@ -263,7 +263,9 @@ export async function createHarness(options = {}) {
   })
   const { ports } = fakePorts({
     root: repoPath,
-    sessions: [{ sessionId: SESSION, cwd: repoPath }],
+    sessions: [{ sessionId: SESSION, cwd: repoPath, ...(options.sessionTitle === undefined ? {} : { title: options.sessionTitle }) }],
+    ...(options.openWorkspacePath === undefined ? {} : { openWorkspacePath: options.openWorkspacePath }),
+    ...(options.listFailsAfterCalls === undefined ? {} : { listFailsAfterCalls: options.listFailsAfterCalls }),
     document: options.document ?? makeDocument({ projectId: PROJECT_ID }),
     now: options.now ?? (() => new Date(NOW)),
   })

@@ -14,7 +14,6 @@ import {
   ARTIFACT_EVENTS_PATH,
   ARTIFACT_PRESENCE_REPORT_INTERVAL_MS,
   ARTIFACT_SAVE_DEBOUNCE_MS,
-  ARTIFACT_STATUS_LABELS,
   type ArtifactAnchor,
   type ArtifactDispatchSummary,
   type ArtifactFileResponse,
@@ -34,17 +33,15 @@ import { DocumentSurface } from './viewers/viewer-document.tsx'
 import { applyRefreshedFile } from './viewers/viewer-refresh.ts'
 import {
   activeDispatchSummary,
+  baseName,
+  commentBody,
   anchorLabel,
   contentLines,
   errorPresentation,
-  fileSummary,
-  formatBytes,
   foldThreads,
-  formatRelativeTime,
   readPersistedDraft,
   removePersistedDraft,
   savePersistedDraft,
-  revisionSummary,
   saveStateLabel,
   selectLine,
   sortThreads,
@@ -55,7 +52,6 @@ import {
   dispatchForThread,
   dispatchDetailLabel,
   deliverySummary,
-  formatClock,
   formatElapsed,
   threadForDispatch,
   threadLinePins,
@@ -63,6 +59,9 @@ import {
 } from './model.ts'
 import { workItemOpenStore } from './store.ts'
 import { ThreadCard } from './thread-card.tsx'
+import { ViewerFooter } from './viewer-footer.tsx'
+import { ViewerHeader } from './viewer-header.tsx'
+import { AttachmentsPanel, VersionsPanel } from './viewer-side-tabs.tsx'
 
 /** The loaded viewer state; one snapshot per open work item. */
 interface ViewerData {
@@ -71,6 +70,8 @@ interface ViewerData {
   readonly events: readonly CommentEventV1[]
   readonly dispatches: readonly ArtifactDispatchSummary[]
   readonly commentsTruncated: boolean
+  readonly sessionTitle: string | null
+  readonly revisions: readonly number[]
 }
 
 const BYTE_ENCODER = new TextEncoder()
@@ -134,9 +135,11 @@ export function WorkItemViewer(): ReactElement {
   const [showConflictDiff, setShowConflictDiff] = useState(false)
   const [backArmed, setBackArmed] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentRefV1[]>([])
-  const [onlyPending, setOnlyPending] = useState(false)
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [opening, setOpening] = useState(false)
+  const [threadFilter, setThreadFilter] = useState<'all' | 'pending' | 'resolved'>('all')
+  const [showResolved, setShowResolved] = useState(false)
   const [sseNotice, setSseNotice] = useState<string | null>(null)
   const [sseToken, setSseToken] = useState(0)
   const editingRef = useRef(false)
@@ -212,7 +215,15 @@ export function WorkItemViewer(): ReactElement {
       }
       const comments = await workItemApi.comments(context.sessionId, context.artifactId)
       if (!active) return
-      setData({ record: detail.record, file, events: comments.events, dispatches: detail.dispatches, commentsTruncated: comments.truncated })
+      setData({
+        record: detail.record,
+        file,
+        events: comments.events,
+        dispatches: detail.dispatches,
+        commentsTruncated: comments.truncated,
+        sessionTitle: detail.sessionTitle ?? null,
+        revisions: detail.revisions ?? [],
+      })
       setFileNotice(notice)
       setNow(new Date())
       setEditing(false)
@@ -429,7 +440,15 @@ export function WorkItemViewer(): ReactElement {
     try {
       const latest = await workItemApi.file(context.sessionId, context.artifactId, data.file.path)
       const detail = await workItemApi.detail(context.sessionId, context.artifactId)
-      setData({ record: detail.record, file: latest, events: data.events, dispatches: detail.dispatches, commentsTruncated: data.commentsTruncated })
+      setData({
+        record: detail.record,
+        file: latest,
+        events: data.events,
+        dispatches: detail.dispatches,
+        commentsTruncated: data.commentsTruncated,
+        sessionTitle: detail.sessionTitle ?? data.sessionTitle,
+        revisions: detail.revisions ?? data.revisions,
+      })
       setEditDraft(latest.content)
       setSavedContent(latest.content)
       setConflict(null)
@@ -490,6 +509,8 @@ export function WorkItemViewer(): ReactElement {
           events: comments.events,
           dispatches: detail.dispatches,
           commentsTruncated: comments.truncated,
+          sessionTitle: detail.sessionTitle ?? current.sessionTitle,
+          revisions: detail.revisions ?? current.revisions,
         }
         return file === null || keepDraft ? next : { ...next, file }
       })
@@ -588,10 +609,19 @@ export function WorkItemViewer(): ReactElement {
   const threads = useMemo(() => sortThreads(foldThreads(data?.events ?? [])), [data?.events])
   const ordinals = useMemo(() => threadOrdinals(threads), [threads])
   const linePins = useMemo(() => threadLinePins(threads), [threads])
+  const openThreads = useMemo(() => threads.filter((thread) => !thread.resolved), [threads])
+  const resolvedThreads = useMemo(() => threads.filter((thread) => thread.resolved), [threads])
   const visibleThreads = useMemo(
-    () => (onlyPending ? threads.filter((thread) => !thread.resolved) : threads),
-    [threads, onlyPending],
+    () => (threadFilter === 'resolved' ? [] : openThreads),
+    [threadFilter, openThreads],
   )
+  const resolvedHint = useMemo(() => {
+    const first = resolvedThreads[0]
+    if (first === undefined) return ''
+    const root = first.comments.find((event) => event.type === 'create')
+    const text = root === undefined || !('body' in root) ? '' : commentBody(root)
+    return text.length > 28 ? `${text.slice(0, 28)}…` : text
+  }, [resolvedThreads])
   const activeThread = useMemo(
     () => (data?.record.activeDispatch == null
       ? null
@@ -629,6 +659,15 @@ export function WorkItemViewer(): ReactElement {
     () => [...anchoredLines].sort((left, right) => left - right),
     [anchoredLines],
   )
+  const staleLines = useMemo(() => {
+    const values = new Set<number>()
+    for (const thread of threads) {
+      if (thread.anchorStatus !== 'stale') continue
+      if (thread.anchor === null || thread.anchor.kind !== 'line-range') continue
+      for (let line = thread.anchor.startLine; line <= thread.anchor.endLine; line += 1) values.add(line)
+    }
+    return values
+  }, [threads])
 
   const attachmentRows = useMemo(() => {
     const rows: AttachmentRefV1[] = []
@@ -765,6 +804,47 @@ export function WorkItemViewer(): ReactElement {
     }
   }, [context, data, pendingThread])
 
+  const openInApp = useCallback(async () => {
+    if (context === null || data?.file == null) return
+    setOpening(true)
+    setReceipt(null)
+    try {
+      await workItemApi.open({ sessionId: context.sessionId, artifactId: context.artifactId })
+      setReceipt('已在本地应用中打开')
+    } catch (error) {
+      setReceipt(`打开失败：${messageOf(error)}`)
+    } finally {
+      setOpening(false)
+    }
+  }, [context, data?.file])
+
+  const exportCurrentFile = useCallback(() => {
+    if (data?.file == null) return
+    const content = data.file.content
+    const name = baseName(data.file.path)
+    const url = URL.createObjectURL(new Blob([content], { type: data.file.mediaType }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = name
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => { URL.revokeObjectURL(url) }, 0)
+    setReceipt(`已导出 ${name}`)
+  }, [data?.file])
+
+  const copyPath = useCallback(async () => {
+    const path = data?.record.primaryPath
+    if (path === undefined) return
+    try {
+      await navigator.clipboard.writeText(path)
+      setReceipt('路径已复制')
+    } catch {
+      setReceipt('复制失败：浏览器未授权剪贴板')
+    }
+  }, [data?.record.primaryPath])
+
   if (context === null) {
     return (
       <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="idle">
@@ -798,6 +878,31 @@ export function WorkItemViewer(): ReactElement {
       </div>
     )
   }
+  /** One rail card; resolved cards render open when the group is expanded. */
+  const renderThreadCard = (thread: WorkItemThread, expandedByGroup = false): ReactElement => (
+    <ThreadCard
+      key={thread.threadId}
+      thread={thread}
+      ordinal={ordinals.get(thread.threadId) ?? 1}
+      selected={selectedThreadId === thread.threadId}
+      now={now}
+      pending={pendingThread === thread.threadId}
+      dispatch={dispatchForThread(thread, data.dispatches)}
+      retrying={pendingDispatch !== null}
+      expandedByGroup={expandedByGroup}
+      onSelect={(selected) => { setSelectedThreadId(selected.threadId) }}
+      onToggle={toggleThread}
+      onReply={startReply}
+      onRetry={(dispatch) => { void retryDispatch(dispatch) }}
+      onFocus={focusThread}
+      attachmentUrl={(attachmentId) => workItemApi.attachmentUrl({
+        sessionId: context.sessionId,
+        artifactId: context.artifactId,
+        attachmentId,
+      })}
+    />
+  )
+
   const record = data.record
   const kind = viewerKindOf(record.type)
   // A canvas whose JSON cannot be parsed falls back to the source editor so a
@@ -806,62 +911,24 @@ export function WorkItemViewer(): ReactElement {
   const activity = activeDispatchSummary(record.activeDispatch)
   return (
     <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="ready" data-artifact-id={record.artifactId}>
-      <header className="cwi-viewer-header">
-        <div className="cwi-header-bar">
-          <button
-            type="button"
-            className="cwi-back"
-            data-testid="cwi-back"
-            onClick={requestClose}
-            disabled={!canReturn}
-            title={canReturn ? '返回会话' : '当前宿主没有主区域布局服务'}
-          >
-            <span className="cwi-back-icon" aria-hidden="true">←</span>
-            返回会话
-          </button>
-        </div>
-        <div className="cwi-title-row">
-          <h1 className="cwi-title" data-testid="cwi-title">{record.title}</h1>
-          <span className="cwi-chip cwi-type-chip">{typeLabel(record.type)}</span>
-          <span className="cwi-status" data-testid="cwi-status" data-status={record.status}>
-            {ARTIFACT_STATUS_LABELS[record.status]}
-          </span>
-          <span className="cwi-title-spacer" />
-          {record.status === 'confirmed' ? null : (
-            <button
-              type="button"
-              className="cwi-primary"
-              data-testid="cwi-confirm"
-              disabled={confirming}
-              onClick={() => { void confirmWork() }}
-            >
-              {confirming ? '确认中…' : '确认完成'}
-            </button>
-          )}
-          {data.file === null ? null : (
-            <button type="button" className="cwi-secondary" data-testid="cwi-edit" onClick={toggleEditing}>
-              {editing ? '退出编辑' : '编辑'}
-            </button>
-          )}
-        </div>
-        <div className="cwi-sub">
-          <span className="cwi-path" data-testid="cwi-primary-path">
-            {data.file === null
-              ? record.primaryPath
-              : fileSummary({ ...record.files[0], size: data.file.size })}
-          </span>
-          <span className="cwi-dot" aria-hidden="true" />
-          <span className="cwi-sub-fact">{revisionSummary(record.revision, record.commentCount, record.attachmentCount)}</span>
-          <span className="cwi-dot" aria-hidden="true" />
-          <span className="cwi-sub-fact">更新 {formatRelativeTime(record.updatedAt, now)}</span>
-          {activity === null ? null : (
-            <span className="cwi-live" data-tone={activity.tone} data-testid="cwi-activity">
-              <span className="cwi-live-dot" aria-hidden="true" />
-              {activity.label}
-            </span>
-          )}
-        </div>
-      </header>
+      <ViewerHeader
+        record={record}
+        file={data.file}
+        sessionTitle={data.sessionTitle}
+        activity={activity}
+        now={now}
+        editing={editing}
+        confirming={confirming}
+        opening={opening}
+        canReturn={canReturn}
+        onReturn={requestClose}
+        onConfirm={() => { void confirmWork() }}
+        onToggleEditing={toggleEditing}
+        onOpen={() => { void openInApp() }}
+        onExport={exportCurrentFile}
+        onRefresh={() => { setRefreshToken(token => token + 1) }}
+        onCopyPath={() => { void copyPath() }}
+      />
       <div className="cwi-toolbar">
         <div className="cwi-view-tabs" role="tablist" aria-label="工作项视图">
           {(['document', 'versions', 'attachments'] as const).map((tab) => (
@@ -876,7 +943,7 @@ export function WorkItemViewer(): ReactElement {
               aria-selected={viewTab === tab}
               onClick={() => { setViewTab(tab) }}
             >
-              {tab === 'document' ? '文档' : (tab === 'versions' ? '版本' : `附件${attachmentRows.length === 0 ? '' : ` ${String(attachmentRows.length)}`}`)}
+              {tab === 'document' ? '文档' : (tab === 'versions' ? `版本${data.revisions.length === 0 ? '' : ` ${String(data.revisions.length)}`}` : `附件${attachmentRows.length === 0 ? '' : ` ${String(attachmentRows.length)}`}`)}
             </button>
           ))}
         </div>
@@ -972,6 +1039,7 @@ export function WorkItemViewer(): ReactElement {
             selection={selection}
             lines={lines}
             anchoredLines={anchoredLines}
+            staleLines={staleLines}
             pins={linePins}
             attachments={attachmentRows}
             onChangeDraft={(content) => { setEditDraft(content); setBackArmed(false) }}
@@ -981,48 +1049,17 @@ export function WorkItemViewer(): ReactElement {
             onPickLine={pickLine}
           />
           {viewTab === 'versions' ? (
-            <div className="cwi-panel" data-testid="cwi-versions">
-              <div className="cwi-panel-title">当前版本</div>
-              <dl className="cwi-meta-list">
-                <dt>文件</dt><dd>{record.primaryPath}</dd>
-                <dt>版本</dt><dd>r{data.file?.revision ?? record.revision}</dd>
-                <dt>大小</dt><dd>{data.file === null ? '—' : formatBytes(data.file.size)}</dd>
-                <dt>类型</dt><dd>{data.file?.mediaType ?? record.files[0]?.mediaType ?? '—'}</dd>
-                <dt>SHA-256</dt><dd className="cwi-mono">{data.file?.sha256 ?? record.files[0]?.sha256 ?? '—'}</dd>
-                <dt>文件系统版本</dt><dd className="cwi-mono">{data.file?.fsVersion ?? '—'}</dd>
-              </dl>
-              <p className="cwi-hint">服务端为每个工作项保留最近 20 份文本快照；此视图展示当前文件的版本元数据。</p>
-            </div>
+            <VersionsPanel record={record} file={data.file} revisions={data.revisions} />
           ) : null}
           {viewTab === 'attachments' ? (
-            <div className="cwi-panel" data-testid="cwi-attachments">
-              <div className="cwi-panel-title">附件（{attachmentRows.length}）</div>
-              {attachmentRows.length === 0 ? <p className="cwi-hint">还没有附件。在批注或回复里添加图片或文本文件。</p> : null}
-              {attachmentRows.map((attachment) => (
-                <div key={attachment.attachmentId} className="cwi-attachment-row" data-testid="cwi-attachment-row">
-                  {attachment.mediaType.startsWith('image/') ? (
-                    <img
-                      className="cwi-attachment-thumb"
-                      data-testid="cwi-attachment-thumb"
-                      src={workItemApi.attachmentUrl({ sessionId: context.sessionId, artifactId: context.artifactId, attachmentId: attachment.attachmentId })}
-                      alt={attachment.name}
-                    />
-                  ) : null}
-                  <div className="cwi-attachment-info">
-                    <span>{attachment.name}</span>
-                    <span className="cwi-hint">{attachment.mediaType} · {formatBytes(attachment.size)}</span>
-                  </div>
-                  <a
-                    className="cwi-secondary"
-                    data-testid="cwi-attachment-link"
-                    href={workItemApi.attachmentUrl({ sessionId: context.sessionId, artifactId: context.artifactId, attachmentId: attachment.attachmentId })}
-                    download={attachment.name}
-                  >
-                    下载
-                  </a>
-                </div>
-              ))}
-            </div>
+            <AttachmentsPanel
+              attachments={attachmentRows}
+              urlFor={(attachmentId) => workItemApi.attachmentUrl({
+                sessionId: context.sessionId,
+                artifactId: context.artifactId,
+                attachmentId,
+              })}
+            />
           ) : null}
         </div>
         <aside className="cwi-rail" data-testid="cwi-rail" hidden={!showRail}>
@@ -1034,12 +1071,23 @@ export function WorkItemViewer(): ReactElement {
               <span className="cwi-rail-sort">按位置排序</span>
             </div>
             <div className="cwi-rail-tools">
+              <select
+                className="cwi-select"
+                data-testid="cwi-thread-filter"
+                aria-label="评论筛选"
+                value={threadFilter}
+                onChange={(event) => { setThreadFilter(event.target.value as 'all' | 'pending' | 'resolved') }}
+              >
+                <option value="all">全部评论</option>
+                <option value="pending">待处理</option>
+                <option value="resolved">已解决</option>
+              </select>
               <label className="cwi-switch">
                 <input
                   type="checkbox"
                   data-testid="cwi-rail-pending-filter"
-                  checked={onlyPending}
-                  onChange={(event) => { setOnlyPending(event.target.checked) }}
+                  checked={threadFilter === 'pending'}
+                  onChange={(event) => { setThreadFilter(event.target.checked ? 'pending' : 'all') }}
                 />
                 <span className="cwi-switch-track" aria-hidden="true"><span className="cwi-switch-thumb" /></span>
                 只看待处理
@@ -1057,35 +1105,30 @@ export function WorkItemViewer(): ReactElement {
             </div>
           )}
           <div className="cwi-threads">
-            {visibleThreads.length === 0
-              ? (
-                  <p className="cwi-rail-empty">
-                    {onlyPending ? '没有待处理的批注。' : '还没有批注。选中行后点“批注”，或直接写整体批注。'}
-                  </p>
-                )
+            {visibleThreads.length === 0 && resolvedThreads.length === 0
+              ? <p className="cwi-rail-empty">{threadFilter === 'pending' ? '没有待处理的批注。' : '还没有批注。选中行后点“批注”，或直接写整体批注。'}</p>
               : null}
-            {visibleThreads.map((thread) => (
-              <ThreadCard
-                key={thread.threadId}
-                thread={thread}
-                ordinal={ordinals.get(thread.threadId) ?? 1}
-                selected={selectedThreadId === thread.threadId}
-                now={now}
-                pending={pendingThread === thread.threadId}
-                dispatch={dispatchForThread(thread, data.dispatches)}
-                retrying={pendingDispatch !== null}
-                onSelect={(selected) => { setSelectedThreadId(selected.threadId) }}
-                onToggle={toggleThread}
-                onReply={startReply}
-                onRetry={(dispatch) => { void retryDispatch(dispatch) }}
-                onFocus={focusThread}
-                attachmentUrl={(attachmentId) => workItemApi.attachmentUrl({
-                  sessionId: context.sessionId,
-                  artifactId: context.artifactId,
-                  attachmentId,
-                })}
-              />
-            ))}
+            {visibleThreads.map((thread) => renderThreadCard(thread))}
+            {threadFilter !== 'resolved' && resolvedThreads.length > 0 ? (
+              <button
+                type="button"
+                className="cwi-resolved-line"
+                data-testid="cwi-resolved-line"
+                aria-expanded={showResolved}
+                onClick={() => { setShowResolved(value => !value) }}
+              >
+                <span className="cwi-resolved-dot" aria-hidden="true">✓</span>
+                <span className="cwi-resolved-text">
+                  {showResolved
+                    ? `收起已解决 ${String(resolvedThreads.length)} 条`
+                    : `已解决 ${String(resolvedThreads.length)} 条：${ordinals.get(resolvedThreads[0].threadId) === undefined ? '' : `#${String(ordinals.get(resolvedThreads[0].threadId))} `}${resolvedHint}`}
+                </span>
+                <span className="cwi-resolved-arrow" aria-hidden="true">{showResolved ? '⌃' : '›'}</span>
+              </button>
+            ) : null}
+            {(threadFilter === 'resolved' || showResolved)
+              ? resolvedThreads.map((thread) => renderThreadCard(thread, true))
+              : null}
           </div>
           <div className="cwi-composer">
             <p className="cwi-composer-lead">在文档中选择行后批注；也可以直接评论整份文档。</p>
@@ -1162,13 +1205,11 @@ export function WorkItemViewer(): ReactElement {
           </div>
         </aside>
       </div>
-      <footer className="cwi-viewer-foot" data-testid="cwi-viewer-footer">
-        <span className="cwi-foot-summary">{footerSummary}</span>
-        <span className="cwi-foot-spacer" />
-        <span className="cwi-foot-meta">内容版本 r{data.file?.revision ?? record.revision}</span>
-        <span className="cwi-foot-dot" aria-hidden="true" />
-        <span className="cwi-foot-meta">更新于 {formatClock(record.updatedAt)}</span>
-      </footer>
+      <ViewerFooter
+        summary={footerSummary}
+        revision={data.file?.revision ?? record.revision}
+        updatedAt={record.updatedAt}
+      />
     </div>
   )
 }

@@ -164,6 +164,7 @@ function renderProjectMemory(repoPath: string): MemoryRender | null {
 interface HostSessionListRow {
   sessionId: string
   cwd?: string
+  title?: string
 }
 
 /** The host default-model service slice (M9.3b). */

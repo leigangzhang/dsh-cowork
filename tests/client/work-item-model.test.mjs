@@ -449,3 +449,26 @@ test('dispatch ownership and the footer delivery summary use rail ordinals', () 
   assert.equal(model.deliverySummary(threads, dispatches), '模型已回复 #1 · #3 思考中 · #2 位置待确认')
   assert.equal(model.deliverySummary([], []), '还没有模型回复')
 })
+
+test('markdownLines hides fences and styles code blocks', () => {
+  const lines = ['# Title', '```ts', 'const a = 1', '```', 'after']
+  assert.deepEqual(model.markdownLines(lines), [
+    { kind: 'h1', text: 'Title' },
+    { kind: 'fence', text: '' },
+    { kind: 'code', text: 'const a = 1' },
+    { kind: 'fence', text: '' },
+    { kind: 'text', text: 'after' },
+  ])
+  assert.deepEqual(model.markdownLines(['   ```', 'x', '```', 'y']), [
+    { kind: 'fence', text: '' },
+    { kind: 'code', text: 'x' },
+    { kind: 'fence', text: '' },
+    { kind: 'text', text: 'y' },
+  ])
+})
+
+test('baseName keeps the last path segment', () => {
+  assert.equal(model.baseName('docs/spec.md'), 'spec.md')
+  assert.equal(model.baseName('spec.md'), 'spec.md')
+  assert.equal(model.baseName(''), '')
+})

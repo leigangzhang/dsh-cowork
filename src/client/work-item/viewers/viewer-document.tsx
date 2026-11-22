@@ -41,6 +41,7 @@ export interface DocumentSurfaceProps {
   readonly lines: readonly string[]
   readonly anchoredLines: ReadonlySet<number>
   readonly pins: ReadonlyMap<number, ThreadPin>
+  readonly staleLines: ReadonlySet<number>
   readonly attachments: readonly PaperAttachment[]
   readonly onChangeDraft: (content: string) => void
   readonly onSaveDraft: () => void
@@ -200,12 +201,13 @@ function SourceSurface({
   selection,
   lines,
   anchoredLines,
+  staleLines,
   pins,
   markdown,
   onAnnotate,
   onClearSelection,
   onPickLine,
-}: Pick<DocumentSurfaceProps, 'selection' | 'lines' | 'anchoredLines' | 'pins' | 'onAnnotate' | 'onClearSelection' | 'onPickLine'> & {
+}: Pick<DocumentSurfaceProps, 'selection' | 'lines' | 'anchoredLines' | 'staleLines' | 'pins' | 'onAnnotate' | 'onClearSelection' | 'onPickLine'> & {
   readonly markdown: boolean
 }): ReactElement {
   return (
@@ -228,6 +230,7 @@ function SourceSurface({
         lines={lines}
         selection={selection}
         anchoredLines={anchoredLines}
+        staleLines={staleLines}
         pins={pins}
         markdown={markdown}
         onPick={onPickLine}
@@ -242,6 +245,7 @@ function ReadSurface({
   file,
   typeName,
   attachments,
+  staleLines,
   pins,
   readMode,
   selection,
@@ -255,6 +259,7 @@ function ReadSurface({
   | 'file'
   | 'typeName'
   | 'attachments'
+  | 'staleLines'
   | 'pins'
   | 'readMode'
   | 'selection'
@@ -294,6 +299,7 @@ function ReadSurface({
         selection={selection}
         lines={lines}
         anchoredLines={anchoredLines}
+        staleLines={staleLines}
         pins={pins}
         markdown={sourceLinesMarkdown(kind, readMode)}
         onAnnotate={onAnnotate}
