@@ -12,7 +12,8 @@
  * adapter itself is exercised against a fake host service.
  */
 import { createHash } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import { open, realpath, stat, type FileHandle } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { ArtifactFileV1 } from '../panel/artifact-contract.js'
 import { isTextMediaType, normalizeArtifactPath } from '../domains/artifact/paths.js'
@@ -153,6 +154,45 @@ export async function resolveInsideRepo(repoPath: string, path: string): Promise
     throw new ArtifactDomainError('artifact/path-not-allowed', `path is not a regular file: ${path}`, path)
   }
   return real
+}
+
+/**
+ * Read the raw bytes of one project file after proving where it resolves.
+ *
+ * Binary content (a generated PNG, for instance) cannot ride `ctx.fs.readText`,
+ * so the local filesystem supplies the bytes. The path is first proven inside
+ * the repository by {@link resolveInsideRepo}; `stat` runs before the read so an
+ * oversized file is refused without being loaded.
+ *
+ * @param repoPath - absolute repository root.
+ * @param path - project-relative POSIX path.
+ * @param maxBytes - hard byte cap; a larger file is `artifact/file-too-large`.
+ * @returns the file's bytes.
+ */
+export async function readBytesInsideRepo(
+  repoPath: string,
+  path: string,
+  maxBytes: number,
+): Promise<Uint8Array> {
+  const real = await resolveInsideRepo(repoPath, path)
+  if (real === null) {
+    throw new ArtifactDomainError('artifact/file-missing', `file does not exist: ${path}`, path)
+  }
+  let handle: FileHandle | undefined
+  try {
+    // The resolved path is the real file, so O_NOFOLLOW only rejects a file
+    // swapped for a symlink between the check and this open.
+    handle = await open(real, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
+    const info = await handle.stat()
+    if (info.size > maxBytes) {
+      throw new ArtifactDomainError('artifact/file-too-large', `file is larger than the attachment limit: ${path}`, path)
+    }
+    return await handle.readFile()
+  } catch (error) {
+    throw mapFsError(error, path)
+  } finally {
+    if (handle !== undefined) await handle.close()
+  }
 }
 
 /**

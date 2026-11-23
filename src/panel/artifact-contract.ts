@@ -389,6 +389,9 @@ export const MAX_ARTIFACT_TEXT_LINES = 20_000
 export const MAX_ARTIFACT_ATTACHMENTS_PER_COMMENT = 5
 export const MAX_ARTIFACT_ATTACHMENT_BYTES = 5 * 1024 * 1024
 
+/** Longest display name of one attachment. */
+export const MAX_ARTIFACT_ATTACHMENT_NAME_CHARS = 200
+
 /** Revision snapshots kept per file. */
 export const MAX_ARTIFACT_REVISIONS_PER_FILE = 20
 

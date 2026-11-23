@@ -26,6 +26,7 @@ import {
   type ArtifactEventV1,
   type ArtifactFileV1,
   type ArtifactRecordV1,
+  type AttachmentPublishV1,
   type AttachmentRefV1,
   type CommentEventV1,
   type DispatchRecordV1,
@@ -66,6 +67,33 @@ export function parseAttachmentRef(value: unknown): AttachmentRefV1 | null {
     mediaType,
     size: count(value.size),
     sha256: nonEmptyString(value.sha256) ?? '',
+  }
+}
+
+/**
+ * One published-attachment row of `attachments.jsonl`, or null when it is not
+ * one.
+ *
+ * The row is the published-attachment truth: an id, its display name, the
+ * canonical bytes facts, and who published it. A damaged row is skipped so the
+ * rest of the log stays readable.
+ */
+export function parseAttachmentPublish(value: unknown): AttachmentPublishV1 | null {
+  if (!isRecord(value) || value.version !== 1) return null
+  const attachmentId = nonEmptyString(value.attachmentId)
+  const name = nonEmptyString(value.name)
+  const mediaType = nonEmptyString(value.mediaType)
+  if (attachmentId === null || name === null || mediaType === null) return null
+  if (value.source !== 'user' && value.source !== 'model') return null
+  return {
+    version: 1,
+    attachmentId,
+    name,
+    mediaType,
+    size: count(value.size),
+    sha256: nonEmptyString(value.sha256) ?? '',
+    source: value.source,
+    publishedAt: timestamp(value.publishedAt, '1970-01-01T00:00:00.000Z'),
   }
 }
 
