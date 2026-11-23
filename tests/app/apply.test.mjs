@@ -403,6 +403,8 @@ test('apply registers the business surface and dispose releases every effect', a
   assert.deepEqual(
     host.effects.map((entry) => entry.label).sort(),
     [
+      'dsh-cowork: agent created fan-out',
+      'dsh-cowork: annotation prompt',
       'dsh-cowork: artifact dispatch dispose',
       'dsh-cowork: artifact dispatch events',
       'dsh-cowork: artifact runtimes',
@@ -565,19 +567,22 @@ test('a host without remoteExportList keeps the internal presets and logs the fa
 /* ------------------------------------------------------------------ */
 
 /** One agent whose system-prompt section registration is captured. */
-function memoryAgent(id, cwd, { sectionThrows = false } = {}) {
+function memoryAgent(id, cwd, { sectionThrows = false, preset = 'cowork-master' } = {}) {
   const sections = []
   return {
     sections,
     agent: {
       id,
-      session: { header: { cwd, agentPreset: 'cowork-master' } },
+      session: { header: { cwd, agentPreset: preset } },
       ctx: {
         systemPrompt: {
           section(section) {
             if (sectionThrows) throw new Error(`${section.name}: section already registered`)
-            sections.push(section)
-            return () => {}
+            const record = { ...section, released: false }
+            sections.push(record)
+            return () => {
+              record.released = true
+            }
           },
         },
       },
@@ -670,6 +675,48 @@ test('a duplicate memory section is skipped and reported once per agent', async 
     )
     assert.equal(host.tools.length, 25)
   })
+})
+
+test('the annotation section registers for topic agents only and is released with the fiber', async () => {
+  const topicRecorder = memoryAgent('agent-topic', undefined, { preset: 'cowork-topic' })
+  const masterRecorder = memoryAgent('agent-master', undefined)
+  const host = makeHost({ agents: [topicRecorder.agent, masterRecorder.agent] })
+  apply(host.ctx, config())
+  await settle()
+
+  const annotation = topicRecorder.sections.find((section) => section.name === 'cowork:annotation')
+  assert.ok(annotation, 'a cowork-topic agent must receive the annotation section')
+  assert.equal(annotation.order, 950)
+  assert.equal(annotation.interpolate, false)
+  assert.equal(typeof annotation.text, 'string')
+  assert.match(annotation.text, /cowork_artifact_reply/)
+  assert.equal(
+    masterRecorder.sections.some((section) => section.name === 'cowork:annotation'),
+    false,
+    'the master must not inherit annotation handling rules',
+  )
+
+  // One host `agent/created` subscription serves both prompt-section modules.
+  assert.equal(host.listeners.filter((entry) => entry.name === 'agent/created').length, 1)
+  const agentCreated = host.listeners.find((entry) => entry.name === 'agent/created')
+
+  // An agent created after apply reaches the annotation registration through
+  // the shared fan-out.
+  const lateTopic = memoryAgent('agent-late-topic', undefined, { preset: 'cowork-topic' })
+  agentCreated.handler({ agent: lateTopic.agent, source: 'create' })
+  assert.equal(lateTopic.sections.filter((section) => section.name === 'cowork:annotation').length, 1)
+
+  const effect = host.effects.find((entry) => entry.label === 'dsh-cowork: annotation prompt')
+  assert.ok(effect, 'the annotation section must be a labeled effect')
+  await effect.disposer()
+  assert.equal(annotation.released, true, 'dispose must release the registered section')
+  assert.equal(lateTopic.sections[0].released, true)
+
+  // The released registration stopped listening: a newer topic agent gets no
+  // stale annotation section even though the fiber-owned fan-out still runs.
+  const afterDispose = memoryAgent('agent-after-dispose', undefined, { preset: 'cowork-topic' })
+  agentCreated.handler({ agent: afterDispose.agent, source: 'create' })
+  assert.equal(afterDispose.sections.length, 0)
 })
 
 /* ------------------------------------------------------------------ */
