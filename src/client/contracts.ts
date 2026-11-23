@@ -16,7 +16,7 @@
  * and degrades to disabled actions instead of failing to apply.
  */
 import { useSyncExternalStore } from 'react'
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
 /** Tab implementation identity; also the key its body and title register under. */
 export const COWORK_TAB_ID = '@dsh-external/dsh-cowork/panel'
@@ -124,6 +124,12 @@ export interface SlotRegisterOptions {
   readonly key?: string
   readonly id?: string
   readonly order?: number
+  /**
+   * Cell shadowing rank for a keyed/single entry: ascending, default 0, and the
+   * lowest rank renders. A second entry for the same key at the same rank is
+   * rejected, so a replacement must pick a smaller value than the host's 0.
+   */
+  readonly priority?: number
   /** Node kind a conversation-chat seat matches (A2 only; unused under B). */
   readonly kind?: string
   /**
@@ -136,6 +142,17 @@ export interface SlotRegisterOptions {
    * the current session id; the seat merges the result under its own props.
    */
   readonly inject?: (sessionId: string) => Readonly<Record<string, unknown>>
+  /**
+   * Child slots this registration renders itself. Declaring one makes the seat
+   * pass the matching `renderSlot`/`renderSlotChain` prop to the component.
+   */
+  readonly children?: Readonly<Record<string, SlotChildDeclaration>>
+}
+
+/** One child-slot declaration carried by a keyed registration. */
+export interface SlotChildDeclaration {
+  readonly kind: 'single' | 'chain' | 'keyed' | 'list'
+  readonly scope: 'root' | 'session' | 'session-maybe'
 }
 
 /** A slot component as the registration accepts it (props are owned by the seat). */
@@ -149,11 +166,79 @@ export interface SlotsService {
 }
 
 /**
+ * Payload of one durable user message; the seat hands it to the renderer as
+ * `node.data`.
+ *
+ * The host passes a `ContentBlock[]` array, but a rendering projection may hand
+ * a plain string, so the type stays open and the renderer narrows at runtime.
+ * `referenceLabels`/`skillNames` come from the adjacent recall and
+ * skill-invocation projections.
+ */
+export interface ChatUserMessageData {
+  /** Durable identity; absent only in synthetic projections. */
+  readonly messageId?: string
+  readonly seq?: number
+  /** Unix epoch ms from the source session event. */
+  readonly time?: number
+  readonly content?: unknown
+  /** Durable message source the `conversation.chat.user.before` chain elects on. */
+  readonly source?: unknown
+  readonly referenceLabels?: readonly string[]
+  readonly skillNames?: readonly string[]
+}
+
+/** The keyed `user` Chat node; the message payload lives under `data`. */
+export interface ChatUserMessageNode {
+  readonly kind: 'user'
+  readonly data: ChatUserMessageData
+}
+
+/** One user-message attachment in the host content factory's display shape. */
+export interface UserContentAttachmentView {
+  readonly type: 'image' | 'file'
+  readonly image?: unknown
+  readonly file?: unknown
+}
+
+/** Prepared user contents the host `conversation.chat.user.content` factory accepts. */
+export interface UserContentDataView {
+  readonly text: string
+  readonly attachments: readonly UserContentAttachmentView[]
+  readonly extraBlocks: readonly unknown[]
+  readonly referenceLabels?: readonly string[]
+}
+
+/** Render one host Component Factory occurrence (only the user-content seat is used). */
+export interface RenderFactorySlotView {
+  (name: string, props: Readonly<Record<string, unknown>>, options?: { readonly fallback?: ReactNode }): ReactNode
+}
+
+/** Render a declared chain child slot from a keyed node renderer. */
+export interface RenderSlotChainView {
+  (key: string, owner: Readonly<Record<string, unknown>>, options?: { readonly fallback?: ReactNode }): ReactNode
+}
+
+/**
+ * Props the host's keyed `conversation.chat.node` seat passes to a `user`
+ * renderer: the durable node, the render seats, and the shared image loader.
+ * Everything is optional except `node`, so a host that omits a seat degrades to
+ * the renderer's own fallback instead of throwing.
+ */
+export interface ChatUserNodeProps {
+  readonly node: ChatUserMessageNode
+  readonly renderFactorySlot?: RenderFactorySlotView
+  readonly renderSlotChain?: RenderSlotChainView
+  readonly loadImage?: unknown
+}
+
+/**
  * The client context the panel is applied with. Only `slots` is required: the
  * plugin's `inject` array names it, so the host guarantees it before `apply`.
  */
 export interface ClientContext {
   readonly slots: SlotsService
+  /** Cordis' built-in logger; optional so a minimal host still applies. */
+  readonly logger?: { warn?(message: string): void }
   readonly sidebarRight?: SidebarRightService
   readonly sidebarRightTabs?: SidebarRightTabsService
   readonly uiWorkspace?: UiWorkspaceService
