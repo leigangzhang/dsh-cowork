@@ -122,20 +122,13 @@ export function RebindFileEntry({ state, context, record, onRecord, reloadFile, 
   )
 }
 
-/** The viewer's idle, loading, and error states. */
+/** The viewer's loading and error states. */
 export function ViewerPlaceholder({ phase, error, onRetry, onBack }: {
-  readonly phase: 'idle' | 'loading' | 'error'
+  readonly phase: 'loading' | 'error'
   readonly error?: unknown
   readonly onRetry?: () => void
   readonly onBack?: () => void
 }): ReactElement {
-  if (phase === 'idle') {
-    return (
-      <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="idle" data-conversation-composer-overlay="">
-        <div className="cwi-viewer-empty">从右栏的「工作项」标签打开一份交付物。</div>
-      </div>
-    )
-  }
   if (phase === 'loading') {
     return (
       <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="loading" aria-busy="true" data-conversation-composer-overlay="">

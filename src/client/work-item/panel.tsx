@@ -203,7 +203,7 @@ export interface WorkItemViewProps {
 }
 
 /** The work-item viewer. */
-export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement {
+export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement | null {
   const services = useClientServices()
   const context = useOpenContext()
   const narrow = useNarrowLayout()
@@ -930,8 +930,10 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement {
     }
   }, [data?.record.primaryPath])
 
-  if (context === null) return <ViewerPlaceholder phase="idle" />
-  if (phase === 'loading') return <ViewerPlaceholder phase="loading" />
+  // The view is registered only while an item is open; a null context here is
+  // the closing frame before the registration is disposed.
+  if (context === null) return null
+  if (phase === 'loading' || phase === 'idle') return <ViewerPlaceholder phase="loading" />
   if (phase === 'error' || data === null) {
     const onRetry = (): void => { setRefreshToken(token => token + 1) }
     return <ViewerPlaceholder phase="error" error={error} onRetry={onRetry} onBack={close} />

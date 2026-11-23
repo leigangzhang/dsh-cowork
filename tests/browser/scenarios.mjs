@@ -731,6 +731,9 @@ async function scenarioWorkItemViewTab(page) {
   await coworkTab(page).click()
   await viewer.waitFor({ timeout: 10_000 })
   assert.equal(await page.getByTestId('cwi-title').innerText(), '浏览器交付物')
+  // A remount returns to the default projection: the rail is collapsed again.
+  assert.equal(await page.getByTestId('cwi-rail').isHidden(), true)
+  assert.equal(await page.getByTestId('cwi-rail-toggle').getAttribute('aria-expanded'), 'false')
 
   // T2: closing disposes the registration; the plugin tab disappears and the
   // composer is usable again.
@@ -1916,6 +1919,8 @@ async function scenarioWorkItemError(page) {
  * all come back from the host, not from browser memory.
  */
 async function scenarioWorkItemRestore(page) {
+  // T7: the open state is in memory only; after the reload no view is registered.
+  assert.equal(await coworkTab(page).count(), 0, 'a reload leaves no open work item')
   const list = await openWorkItemTab(page)
   const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
   await card.waitFor({ timeout: 15_000 })
@@ -2202,6 +2207,27 @@ async function scenarioWorkItemNarrow(page) {
     })
     assert.ok(overflow.document <= 1, `the page overflows horizontally by ${overflow.document}px`)
     assert.ok(overflow.viewer <= 1, `the viewer overflows horizontally by ${overflow.viewer}px`)
+
+    // The 390 px tier: no horizontal overflow, a visible footer, no composer,
+    // and the rail still starts collapsed.
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 5_000 })
+    const small = await page.evaluate(() => {
+      const viewer = document.querySelector('[data-testid="cwi-viewer"]')
+      const footer = document.querySelector('[data-testid="cwi-viewer-footer"]')
+      return {
+        document: document.documentElement.scrollWidth - window.innerWidth,
+        viewer: viewer === null ? 0 : viewer.scrollWidth - viewer.clientWidth,
+        footerVisible: footer !== null && footer.getBoundingClientRect().bottom <= window.innerHeight + 1,
+      }
+    })
+    assert.ok(small.document <= 1, `the 390 px page overflows horizontally by ${small.document}px`)
+    assert.ok(small.viewer <= 1, `the 390 px viewer overflows horizontally by ${small.viewer}px`)
+    assert.equal(small.footerVisible, true, 'the footer is not clipped at 390 px')
+    assert.equal(await composerSeat(page).evaluate(element => getComputedStyle(element).display), 'none')
+    // The right sidebar is not the subject of this tier; restore a width where
+    // the panel is reachable before leaving the viewer.
+    await page.setViewportSize({ width: 820, height: 900 })
     await page.getByTestId('cwi-back').click()
     await backToTopicTab(page)
   } finally {
