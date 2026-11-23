@@ -2523,6 +2523,24 @@ async function scenarioWorkItemNarrow(page) {
     await page.getByTestId('cwi-rail-backdrop').click({ position: { x: 8, y: 8 } })
     assert.equal(await page.getByTestId('cwi-rail').isHidden(), true)
 
+    // The desktop and tablet tiers: the reading column and its scroll
+    // containers stay inside the viewport at 1024 and 768.
+    for (const width of [1024, 768]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.getByTestId('cwi-viewer').waitFor({ timeout: 5_000 })
+      const tier = await page.evaluate(() => {
+        const viewer = document.querySelector('[data-testid="cwi-viewer"]')
+        return {
+          document: document.documentElement.scrollWidth - window.innerWidth,
+          viewer: viewer === null ? 0 : viewer.scrollWidth - viewer.clientWidth,
+        }
+      })
+      assert.ok(tier.document <= 1, `the ${width}px page overflows horizontally by ${tier.document}px`)
+      assert.ok(tier.viewer <= 1, `the ${width}px viewer overflows horizontally by ${tier.viewer}px`)
+    }
+    await page.setViewportSize({ width: 820, height: 900 })
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 5_000 })
+
     // Nothing on the viewer surface overflows horizontally at this width.
     const overflow = await page.evaluate(() => {
       const viewer = document.querySelector('[data-testid="cwi-viewer"]')
