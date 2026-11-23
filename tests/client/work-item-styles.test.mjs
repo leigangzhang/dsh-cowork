@@ -44,10 +44,24 @@ test('a host without a document is a no-op', () => {
 })
 
 test('the sheet covers the list, viewer, rail, and the narrow layout', () => {
-  for (const selector of ['.cwi-list', '.cwi-filter', '.cwi-card', '.cwi-viewer', '.cwi-rail', '.cwi-thread', '.cwi-composer']) {
+  for (const selector of [
+    '.cwi-list', '.cwi-filter', '.cwi-card', '.cwi-viewer', '.cwi-cross',
+    '.cwi-rail', '.cwi-thread', '.cwi-composer',
+  ]) {
     assert.ok(WORK_ITEM_CSS.includes(selector), selector)
   }
   assert.match(WORK_ITEM_CSS, /@media \(max-width: 900px\)/)
   assert.match(WORK_ITEM_CSS, /prefers-reduced-motion/)
   assert.match(WORK_ITEM_CSS, /:focus-visible/)
+})
+
+test('the Cowork view hides the host composer only while it is mounted', () => {
+  // The host exposes no per-view composer switch; the rule must stay scoped to
+  // the viewer's own root class so Chat gets its composer and draft back.
+  assert.match(
+    WORK_ITEM_CSS,
+    /\[data-conversation-scroll\]:has\(\.cwi-viewer\) > \[data-composer-seat\] \{ display: none; \}/,
+  )
+  // No leftover breadcrumb styling: the host header owns the session identity.
+  assert.equal(WORK_ITEM_CSS.includes('cwi-crumbs'), false)
 })

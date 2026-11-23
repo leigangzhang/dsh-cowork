@@ -10,23 +10,27 @@ test('open, replace, and close one context', () => {
   const unsubscribe = store.subscribe(() => seen.push(store.getSnapshot()))
   assert.deepEqual(store.getSnapshot(), { context: null })
 
-  store.open({ sessionId: 'session-1', artifactId: 'artifact-1' })
-  assert.deepEqual(store.getSnapshot(), { context: { sessionId: 'session-1', artifactId: 'artifact-1' } })
+  store.open({ ownerSessionId: 'session-1', artifactId: 'artifact-1' })
+  assert.deepEqual(store.getSnapshot(), { context: { ownerSessionId: 'session-1', artifactId: 'artifact-1' } })
   assert.equal(seen.length, 1)
 
   // Re-opening the same pair must not emit or replace the snapshot object.
   const stable = store.getSnapshot()
-  store.open({ sessionId: 'session-1', artifactId: 'artifact-1' })
+  store.open({ ownerSessionId: 'session-1', artifactId: 'artifact-1' })
   assert.equal(store.getSnapshot(), stable)
   assert.equal(seen.length, 1)
 
-  store.open({ sessionId: 'session-1', artifactId: 'artifact-2' })
+  store.open({ ownerSessionId: 'session-1', artifactId: 'artifact-2' })
   assert.equal(seen.length, 2)
   assert.equal(store.getSnapshot().context.artifactId, 'artifact-2')
 
+  store.open({ ownerSessionId: 'session-2', artifactId: 'artifact-2' })
+  assert.equal(seen.length, 3)
+  assert.equal(store.getSnapshot().context.ownerSessionId, 'session-2')
+
   unsubscribe()
-  store.open({ sessionId: 'session-1', artifactId: 'artifact-3' })
-  assert.equal(seen.length, 2)
+  store.open({ ownerSessionId: 'session-1', artifactId: 'artifact-3' })
+  assert.equal(seen.length, 3)
 
   store.close()
   assert.deepEqual(store.getSnapshot(), { context: null })

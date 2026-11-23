@@ -17,22 +17,23 @@ Cowork 右栏（session scope）
 └─ 内部标签：主题 / 工作项 / 活动记录 / 项目记忆
    └─ 工作项
       └─ WorkItemList（筛选 + 分组卡片）
-           └─ 点击卡片 → openWorkItem({ sessionId, artifactId })
+           └─ 点击卡片 → workItemOpenStore.open({ artifactId, ownerSessionId })
 
-主区域（root scope，keyed panel）
-└─ WorkItemPanel（查看器）
-   ├─ 顶部：返回会话 / 面包屑 / 标题 / 类型 / 状态；确认、编辑、在应用中打开、导出、更多
+会话区 conversation.view（session scope，标签「Cowork」）
+└─ WorkItemViewer
+   ├─ 跨会话只读提示条（仅跨会话）
+   ├─ 顶部：返回会话 / 标题 / 类型 / 状态；确认、编辑、在应用中打开、导出、更多
    ├─ 工具条：文档 / 版本（计数）/ 附件（计数）；阅读 / 源码；保存状态；批注
    ├─ 内容：当前渲染器
-   ├─ 右侧：CommentRail（窄屏为抽屉）
+   ├─ 右侧：CommentRail（默认收起，窄屏为抽屉）
    └─ 底部：投递摘要 / 内容版本与更新时间
 ```
 
 - 右栏工作项列表挂在 Cowork 面板的内部标签里。`src/client/panel.tsx` 有主题 / 工作项 / 活动记录 / 项目记忆四个标签：主题标签承载主题页 v2 + 收件箱（宽面板内容宽 ≥620px 时为 318px 主题列 + 独立滚动的收件箱列，窄面板为单列主题列表 + “需要你处理”横幅）；工作项标签渲染 `WorkItemList`；活动记录与项目记忆是占位。列表是 session-scoped，不新增 `sidebar.panellist` 入口。
-- 查看器注册为 root `main` 的 keyed panel（`ctx.slots.register({ name: 'main', key: 'cowork-work-item' }, …)`）；从列表打开时把 `{sessionId, artifactId}` 写进客户端 store，再 `ctx.layout.selectPanel('cowork-work-item')`。`selectPanel` 只接受已注册的 main key，未注册会抛错。
-- 顶部“返回会话”调用 `selectPanel(null)`，回到当前会话；关闭查看器不清空工作项状态，也不删除未保存草稿。
-- 左侧栏切换会话时，查看器自动关闭。宿主没有单独的“当前选中会话”事件服务，但 `ctx.sessions.retainInfo(sessionId)` 暴露 `retainedBy.mainView`：ui-workspace 打开会话时以 `source:'mainView'` retain，切换会话会释放旧会话。查看器订阅打开时 `sessionId` 的 retain info，`mainView` 归零即关闭并提示。
-- 宿主没有 `layout` 服务时，列表卡片不打开主区域，显示“当前宿主无法打开主区域”；不降级成右栏全屏查看器，避免两套布局。
+- 查看器注册为宿主 session 作用域 `conversation.view`（单标签 `cowork-work-item`，文案 `Cowork`，order 20），有打开项才注册、关闭即注销。承载面、打开/关闭、跨会话只读与 composer 隐藏由 [work-item-main-view-tab.md](work-item-main-view-tab.md) 拥有；本页只消费它的查看器内容。
+- 从列表打开时把 `{artifactId, ownerSessionId}` 写进客户端 store，再点击宿主 tab strip 切到 Cowork；所有 `artifact.*` 调用固定用 `ownerSessionId` 解析项目。
+- 顶部“返回会话”关闭工作项（清空 store、注销标签），回到 Chat；关闭查看器不删除未保存草稿，切到 Chat 才卸载查看器并按现有语义持久化草稿。
+- 会话切换不关闭工作项：标签注册是全局的，非 owner 会话自动降级为跨会话只读；从全新（blank）会话打开时宿主没有 view 区域，列表显示可读的 `tab-missing` 错误与重试。
 - 不在 `sidebar.panellist` 再注册一个入口；工作项列表是 Cowork 面板内的标签。
 
 ## 前端模块
@@ -222,7 +223,7 @@ queued → sent → thinking → working → replied
 
 ## 布局、响应式与无障碍
 
-- 查看器占满主区域；评论栏 320–360px，窄屏（<900px）改为底部抽屉/浮层，内容区不被挤压。
+- 查看器占满会话视图区；批注栏默认收起，展开 336px，窄屏（<900px）改为底部抽屉，内容区不被挤压。
 - 工具条允许换行；标题单行省略，类型/状态不换行。
 - 焦点顺序：返回 → 标题操作 → 工具条 → 正文 → 评论栏 → 输入框；打开抽屉后焦点进入抽屉，关闭后回到触发按钮。
 - 行/元素/区域批注有键盘入口；颜色不是唯一状态提示；对比度满足 WCAG AA。
@@ -253,7 +254,7 @@ queued → sent → thinking → working → replied
 
 ### 批次 B：契约扩展与剩余细节
 
-- 详情响应补 `sessionTitle`（宿主会话列表的标题）：头部面包屑显示“Cowork / 主题「…」/ 工作项”；宿主没有标题时只显示“Cowork / 工作项”。
+- 详情响应补 `sessionTitle`（工作项所属会话的标题）：跨会话只读提示条显示“所属：主题「…」”；宿主没有标题时只显示只读说明。同会话时顶部会话名由宿主 header 提供，查看器不再重复面包屑。
 - 详情响应补 `revisions`（保留的快照版本号，最新在前）：版本 tab 显示计数，版本页显示保留快照列表。
 - 新增 `POST /api/cowork.artifact.open`：把登记的主文件交给宿主 `openWorkspacePath`；宿主没有该能力时返回 501，不伪造成功。
 - 头部补“在应用中打开 / 导出 / ⋯”：导出是浏览器下载当前文本文件；“⋯”提供复制路径与刷新。
@@ -314,7 +315,7 @@ queued → sent → thinking → working → replied
 - **Excalidraw 资源和 chunk 接入未原型。** 客户端上限已放宽到 100 MB，但 CJS/chunk、CSS/字体授权路由、`EXCALIDRAW_ASSET_PATH` 仍是实现期第一风险。
 - **SSE/并发/模型回复未真机验证。** 源码支持不代表端到端可用；阶段 2 必须先在真实宿主跑通再扩类型。
 - **同行锁可被 bash 绕过。** 工具守卫只覆盖结构化写工具；需要提示词约束 + 保存后二次校验，不能宣称完全阻止。
-- **会话切换感知。** 自动关闭依赖 `ctx.sessions.retainInfo(sessionId).retainedBy.mainView` 由正变零；这是宿主 ui-workspace 的会话选择保留语义，不是专门的切换事件，升级宿主时要回归。
+- **会话切换感知。** 打开态由客户端 store 持有，宿主切会话后视图重挂载并按 `ownerSessionId` 判定只读；跨会话「在所属会话打开」依赖 `sessions.list` 的 `retainedBy.mainView` 校验切换结果，升级宿主时要回归。
 - **TipTap/Excalidraw 依赖版本。** TipTap 表格扩展不在 StarterKit，当前版本解析有偏差；Excalidraw 锁定 0.18.1，升级要重跑体积和字体检查。
 - **主题页/收件箱已实现。** 右栏当前是主题页 v2 + 收件箱（宽面板两列、窄面板横幅入口；`src/client/panel.tsx`、`list.tsx`、`inbox.tsx`）；工作项标签壳要在现有 Cowork tab body 上加，改动集中在壳这一处，避免重写主题列表和收件箱的数据逻辑。
 - **旧 `workItems` 语义。** 新功能用 `artifacts` 记录；不复用代码隔离工作项的字段和状态，避免语义混淆。

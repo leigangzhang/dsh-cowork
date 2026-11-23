@@ -35,6 +35,8 @@ export interface ThreadCardProps {
   readonly pending: boolean
   readonly dispatch: ArtifactDispatchSummary | null
   readonly retrying: boolean
+  /** Cross-session preview: reply and resolve stay visible but disabled. */
+  readonly readOnly: boolean
   readonly onSelect: (thread: WorkItemThread) => void
   readonly onToggle: (thread: WorkItemThread) => void
   readonly onReply: (thread: WorkItemThread) => void
@@ -136,6 +138,7 @@ export function ThreadCard({
   pending,
   dispatch,
   retrying,
+  readOnly,
   onSelect,
   onToggle,
   onReply,
@@ -269,7 +272,8 @@ export function ThreadCard({
                 type="button"
                 className="cwi-thread-action"
                 data-testid="cwi-thread-reply"
-                disabled={pending}
+                disabled={pending || readOnly}
+                title={readOnly ? '跨会话只读：切到所属会话后才能回复' : undefined}
                 onClick={(event) => { event.stopPropagation(); onReply(thread) }}
               >
                 回复
@@ -289,7 +293,8 @@ export function ThreadCard({
           className="cwi-thread-action"
           data-testid="cwi-thread-toggle"
           data-resolved={thread.resolved ? 'true' : 'false'}
-          disabled={pending}
+          disabled={pending || readOnly}
+          title={readOnly ? '跨会话只读：切到所属会话后才能修改批注状态' : undefined}
           onClick={(event) => { event.stopPropagation(); onToggle(thread) }}
         >
           {thread.resolved ? '重新打开' : '标记已解决 ✓'}

@@ -27,6 +27,19 @@ export const COWORK_TAB_KIND = 'cowork'
 /** Tab chip and guide entry title. */
 export const COWORK_TAB_TITLE = 'Cowork'
 
+/**
+ * Conversation view identity: the registered view id, its tab id, and the value
+ * the host stores in `dsh.conversation.<sessionId>.view`.
+ */
+export const COWORK_VIEW_ID = 'cowork-work-item'
+
+/**
+ * Conversation tab label. The host has no `selectView` service, so opening the
+ * view from the right rail means clicking the tab whose text equals this label;
+ * the value is fixed and short so a narrow tab never truncates it.
+ */
+export const COWORK_VIEW_LABEL = 'Cowork'
+
 /** Icon component a guide entry may contribute; the host supplies size and class. */
 export type GuideIcon = ComponentType<{ readonly size?: number; readonly className?: string }>
 
@@ -57,28 +70,30 @@ export interface SidebarRightService {
   openTab(kind: string): void
 }
 
-/** One session's retention snapshot: who currently holds it. */
-export interface SessionRetainSnapshot {
-  readonly retainedBy: Readonly<Record<string, number | undefined>>
+/** One row of the host session list; only the retention ledger is read here. */
+export interface SessionListRow {
+  readonly retainedBy?: Readonly<Record<string, number | undefined>>
 }
 
-/** The observable retain-info object for one session (`ctx.sessions.retainInfo`). */
-export interface SessionRetainInfo {
-  getSnapshot(): SessionRetainSnapshot
+/** The host `sessions.list` snapshot: ids plus their retention rows. */
+export interface SessionListSnapshot {
+  readonly ids: readonly string[]
+  readonly byId: Readonly<Record<string, SessionListRow | undefined>>
+}
+
+/** Read-only snapshot source of the host session list (`sessions.list`). */
+export interface SessionListSource {
+  getSnapshot(): SessionListSnapshot
   subscribe(listener: () => void): () => void
 }
 
 /** The host session service slice the work-item viewer observes. */
 export interface SessionsService {
-  retainInfo(sessionId: string): SessionRetainInfo
-}
-
-/**
- * The host main-area layout controller. `selectPanel(key)` shows one registered
- * keyed `main` panel and `selectPanel(null)` returns to the conversation.
- */
-export interface LayoutService {
-  selectPanel(key: string | null): void
+  /**
+   * The live session catalog. The retention ledger is how the viewer tells
+   * whether a session is the one the main area is showing: `mainView > 0`.
+   */
+  readonly list: SessionListSource
 }
 
 /** Workspace navigation: selects a Session and shows its Conversation. */
@@ -111,6 +126,16 @@ export interface SlotRegisterOptions {
   readonly order?: number
   /** Node kind a conversation-chat seat matches (A2 only; unused under B). */
   readonly kind?: string
+  /**
+   * Tab text for a `conversation.view` entry. The host resolves a function at
+   * read time, following the active locale; the value must stay short.
+   */
+  readonly label?: () => string
+  /**
+   * Props injected into a session-scoped entry. `conversation.view` receives
+   * the current session id; the seat merges the result under its own props.
+   */
+  readonly inject?: (sessionId: string) => Readonly<Record<string, unknown>>
 }
 
 /** A slot component as the registration accepts it (props are owned by the seat). */
@@ -132,7 +157,6 @@ export interface ClientContext {
   readonly sidebarRight?: SidebarRightService
   readonly sidebarRightTabs?: SidebarRightTabsService
   readonly uiWorkspace?: UiWorkspaceService
-  readonly layout?: LayoutService
   readonly sessions?: SessionsService
   readonly sessionNotices?: SessionNoticesService
   /** Optional dependency injection: runs `callback` only once `services` exist. */
@@ -165,9 +189,7 @@ export interface PanelErrorInfo {
 export interface ClientServices {
   sidebarRight?: SidebarRightService
   uiWorkspace?: UiWorkspaceService
-  /** Main-area layout; absent hosts cannot open the work-item viewer. */
-  layout?: LayoutService
-  /** Session retention; absent hosts cannot auto-close the viewer on switch. */
+  /** Session catalog; absent hosts cannot verify "open in the owning session". */
   sessions?: SessionsService
 }
 

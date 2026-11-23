@@ -82,7 +82,7 @@ export function ViewerToolbar({
         className="cwi-rail-toggle"
         data-testid="cwi-rail-toggle"
         data-visible={showRail ? 'true' : 'false'}
-        aria-pressed={showRail}
+        aria-expanded={showRail}
         onClick={onToggleRail}
       >
         批注{threadCount === 0 ? '' : ` ${String(threadCount)}`}

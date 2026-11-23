@@ -442,8 +442,8 @@ async function scenarioSessionSwitch(page, fixtures) {
   const primaryFilter = page.locator(`.cw-card[data-topic-id="${BROWSER_TOPICS.running}"] [data-testid="cw-topic-filter"]`)
   if ((await primaryFilter.getAttribute('aria-pressed')) !== 'true') await primaryFilter.click()
 
-  // Open the work-item viewer; selecting another session must close it. The
-  // viewer owns the main area and closes the panel, so do panel work first.
+  // Open a work item first: the plugin tab is registered globally, and the
+  // switch below proves it survives without leaking into the new Session.
   await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
   const workCard = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
   await workCard.waitFor({ timeout: 15_000 })
@@ -466,8 +466,9 @@ async function scenarioSessionSwitch(page, fixtures) {
   const selectedSessionId = (await created.json()).result.value.sessionId
   const secondary = await fixtures.prepareSecondarySession(selectedSessionId)
 
-  // The session switch released the old session's main view, so the viewer
-  // must have closed itself instead of showing an idle work-item panel.
+  // The new Session is blank, so the host renders no conversation view at all:
+  // the viewer is not on screen, but the open context survives for the return
+  // below (the design keeps one open work item per browser tab).
   await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 15_000 })
   await ensurePanel(page)
   // The new session may have read the panel before the fixture landed. Force
@@ -624,6 +625,322 @@ async function fillEditor(page, text) {
   await page.getByTestId('cwi-editor').fill(text)
 }
 
+/**
+ * Start one deterministic conversation in the selected Session.
+ *
+ * A Session is blank until its first prompt, and the host renders no
+ * conversation view (and no view tabs) for a blank Session. The work-item tab
+ * therefore needs a started conversation, exactly like a real user switching
+ * away from the hero composer. The scripted provider echoes the prompt, so the
+ * wait names the turn that completed instead of sleeping.
+ */
+export async function engageSession(page, message) {
+  const input = page.locator('[data-composer-input][contenteditable="true"]').first()
+  await input.waitFor({ timeout: 30_000 })
+  await input.click()
+  await page.keyboard.type(message)
+  await page.keyboard.press('Enter')
+  await page.getByText(`收到：${message}`, { exact: false }).first().waitFor({ timeout: 60_000 })
+}
+
+/** Open the collapsed comment rail through its toolbar toggle. */
+async function openRail(page) {
+  const rail = page.getByTestId('cwi-rail')
+  if (await rail.isVisible().catch(() => false)) return rail
+  await page.getByTestId('cwi-rail-toggle').click()
+  await rail.waitFor({ timeout: 10_000 })
+  return rail
+}
+
+/** The host tab strip buttons in the conversation header. */
+function viewTabs(page) {
+  return page.locator('[data-conversation-tabs] button[role="tab"]')
+}
+
+/** The host composer seat inside the conversation scroll body. */
+function composerSeat(page) {
+  return page.locator('[data-conversation-scroll] > [data-composer-seat]')
+}
+
+/** The Cowork tab button in the host tab strip. */
+function coworkTab(page) {
+  return viewTabs(page).filter({ hasText: 'Cowork' })
+}
+
+/** The host's Chat tab; its label follows the host locale. */
+function chatTab(page) {
+  return viewTabs(page).filter({ hasText: /对话|Chat/ }).first()
+}
+
+/**
+ * The work-item view tab integration: opening registers the tab, the viewer
+ * occupies the conversation area, and closing removes the tab again.
+ *
+ * The host renders view tabs only for a started conversation, so this scenario
+ * relies on the lane's initial engagement turn. The composer assertion is the
+ * regression net for the host's DOM hooks changing underneath the CSS rule.
+ */
+async function scenarioWorkItemViewTab(page) {
+  const list = await openWorkItemTab(page)
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+
+  // The rail starts with the document-only layout; the tab appears only now.
+  assert.equal(await page.getByTestId('cwi-rail').isHidden(), true, 'the rail starts collapsed')
+  assert.equal(await coworkTab(page).count(), 0, 'no Cowork tab before a work item is open')
+
+  await card.click()
+  const viewer = page.getByTestId('cwi-viewer')
+  await viewer.waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+
+  // T1: the host tab strip gains the Cowork tab and selects it. Other host
+  // views (trajectory here, context/fleet on a user host) stay untouched.
+  const tabs = viewTabs(page)
+  await tabs.first().waitFor({ timeout: 10_000 })
+  assert.ok(await tabs.count() >= 2)
+  assert.equal(await page.locator('[data-conversation-tabs] [aria-selected="true"]').count(), 1)
+  const cowork = coworkTab(page)
+  assert.equal((await cowork.innerText()).trim(), 'Cowork')
+  assert.equal(await cowork.getAttribute('aria-selected'), 'true')
+  assert.equal(await chatTab(page).getAttribute('aria-selected'), 'false')
+
+  // T13: the viewer draws no second breadcrumb line.
+  assert.equal(await page.getByTestId('cwi-crumbs').count(), 0)
+
+  // T10: the conversation composer is hidden while the Cowork view is active
+  // and the footer stays visible at the viewer's bottom edge.
+  assert.equal(await composerSeat(page).evaluate(element => getComputedStyle(element).display), 'none')
+  assert.equal(await page.getByTestId('cwi-viewer-footer').isVisible(), true)
+
+  // T14: the rail is collapsed and the toolbar toggle expands it.
+  const toggle = page.getByTestId('cwi-rail-toggle')
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'false')
+  assert.equal(await page.getByTestId('cwi-rail').isHidden(), true)
+  await openRail(page)
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'true')
+  await toggle.click()
+  assert.equal(await page.getByTestId('cwi-rail').isHidden(), true)
+
+  // Chat is reachable without closing the work item; the composer returns and
+  // switching back keeps the same open document.
+  await chatTab(page).click()
+  await viewer.waitFor({ state: 'detached', timeout: 10_000 })
+  assert.notEqual(await composerSeat(page).evaluate(element => getComputedStyle(element).display), 'none')
+  assert.equal(await page.getByTestId('cwi-rail').count(), 0)
+  await coworkTab(page).click()
+  await viewer.waitFor({ timeout: 10_000 })
+  assert.equal(await page.getByTestId('cwi-title').innerText(), '浏览器交付物')
+
+  // T2: closing disposes the registration; the plugin tab disappears and the
+  // composer is usable again.
+  await page.getByTestId('cwi-back').click()
+  await viewer.waitFor({ state: 'detached', timeout: 10_000 })
+  assert.equal(await coworkTab(page).count(), 0)
+  // Other host views keep the strip: it falls back to Chat instead of vanishing.
+  assert.equal(await chatTab(page).getAttribute('aria-selected'), 'true')
+  assert.notEqual(await composerSeat(page).evaluate(element => getComputedStyle(element).display), 'none')
+  await list.waitFor()
+  await backToTopicTab(page)
+}
+
+/**
+ * A work item opened from another Session stays a read-only preview, and
+ * "open in the owning session" is the only way to switch.
+ *
+ * The second Session lives in the same project, so the rail lists the same
+ * work item while its owner is the first Session.
+ */
+async function scenarioWorkItemCrossSession(page, fixtures) {
+  await page.locator(`[data-row-key="workspace:${fixtures.primaryWorkspaceId}"]`).hover()
+  const create = page.locator('button[aria-label*="primary-repo"][aria-label*="新建会话"]')
+  await create.waitFor({ state: 'visible', timeout: 10_000 })
+  const [created] = await Promise.all([
+    page.waitForResponse((response) => {
+      try {
+        return new URL(response.url()).pathname === '/api/session/create'
+      } catch {
+        return false
+      }
+    }),
+    create.click(),
+  ])
+  const otherSessionId = (await created.json()).result.value.sessionId
+  assert.notEqual(otherSessionId, fixtures.primarySessionId)
+  await engageSession(page, '跨会话第二会话')
+
+  await ensurePanel(page)
+  await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+
+  // T5: no editor, confirm, reply, resolve, or comment submission is offered.
+  const banner = page.getByTestId('cwi-cross-banner')
+  await banner.waitFor({ timeout: 10_000 })
+  assert.match(await banner.innerText(), /当前会话不是该工作项所属会话/)
+  assert.match(await banner.innerText(), /在所属会话打开/)
+  assert.equal(await page.getByTestId('cwi-edit').isDisabled(), true)
+  assert.equal(await page.getByTestId('cwi-confirm').isDisabled(), true)
+  await openRail(page)
+  assert.equal(await page.getByTestId('cwi-thread-reply').first().isDisabled(), true)
+  assert.equal(await page.getByTestId('cwi-thread-toggle').first().isDisabled(), true)
+  assert.equal(await page.getByTestId('cwi-composer').isDisabled(), true)
+  assert.equal(await page.getByTestId('cwi-submit').isDisabled(), true)
+  await page.locator('[data-testid="cwi-line"][data-line="4"]').click()
+  assert.equal(await page.getByTestId('cwi-annotate').isDisabled(), true)
+  await page.locator('.cwi-selection-bar').getByRole('button', { name: '取消' }).click()
+
+  // T8: the cross-session preview reads the same artifact through its owner
+  // session, and "open in the owning session" switches without a reload.
+  await page.getByTestId('cwi-cross-open').click()
+  await page.locator(`[data-conversation-session="${fixtures.primarySessionId}"]`).waitFor({ timeout: 20_000 })
+  await banner.waitFor({ state: 'detached', timeout: 20_000 })
+  assert.equal(await page.getByTestId('cwi-edit').isEnabled(), true)
+  assert.equal(await page.getByTestId('cwi-cross-error').count(), 0)
+
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
+/**
+ * Opening a work item from a blank Session fails visibly in the rail.
+ *
+ * The host renders no conversation view for a blank Session (no tab strip, no
+ * view area), so the tab activation cannot succeed. The rail must say so and
+ * offer a retry instead of silently staying on Chat; the item stays open and
+ * appears as soon as a started Session is selected.
+ */
+async function scenarioWorkItemTabFailure(page, fixtures) {
+  await page.locator(`[data-row-key="workspace:${fixtures.primaryWorkspaceId}"]`).hover()
+  const create = page.locator('button[aria-label*="primary-repo"][aria-label*="新建会话"]')
+  await create.waitFor({ state: 'visible', timeout: 10_000 })
+  const [created] = await Promise.all([
+    page.waitForResponse((response) => {
+      try {
+        return new URL(response.url()).pathname === '/api/session/create'
+      } catch {
+        return false
+      }
+    }),
+    create.click(),
+  ])
+  const blankSessionId = (await created.json()).result.value.sessionId
+  assert.notEqual(blankSessionId, fixtures.primarySessionId)
+
+  await ensurePanel(page)
+  await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  await card.click()
+  const failure = page.getByTestId('cwi-list-switch-error')
+  await failure.waitFor({ timeout: 20_000 })
+  assert.match(await failure.innerText(), /没有找到「Cowork」会话标签/)
+  assert.equal(await page.getByTestId('cwi-viewer').count(), 0)
+
+  // The retry re-attempts the bounded activation and reports the same reason.
+  await page.getByTestId('cwi-list-switch-retry').click()
+  await failure.waitFor({ timeout: 20_000 })
+  assert.match(await failure.innerText(), /没有找到「Cowork」会话标签/)
+
+  // Returning to a started Session completes the open; closing clears it.
+  await page.locator(`[data-row-key="session:${fixtures.primarySessionId}"]`).click()
+  const ownerTab = coworkTab(page)
+  await ownerTab.waitFor({ timeout: 20_000 })
+  if (await ownerTab.getAttribute('aria-selected') !== 'true') await ownerTab.click()
+  await page.getByTestId('cwi-viewer').waitFor({ timeout: 20_000 })
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
+/** The owner session id a work item can name without the host knowing it. */
+const GHOST_OWNER = 'session-browser-missing'
+
+/**
+ * A work item whose owner session is gone still opens as a read-only preview,
+ * and "open in the owning session" fails visibly instead of pretending.
+ *
+ * The list and the owner-scoped reads are proxied to the real fixture so the
+ * viewer has content; only the owner identity is impossible to navigate to.
+ */
+async function scenarioWorkItemOwnerFailure(page, fixtures) {
+  const ghost = 'artifact-browser-ownerless'
+  await ensurePanel(page)
+  await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+  await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).waitFor({ timeout: 15_000 })
+
+  // Append one listed item whose owner the host does not know.
+  await page.route('**/api/cowork.artifact.list*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.items = [...body.items, {
+      ...body.items[0],
+      artifactId: ghost,
+      title: '所属会话已不可用',
+      ownerSessionId: GHOST_OWNER,
+    }]
+    // A list request can be superseded by a newer read; only the latest one is
+    // the catalog this scenario intends to see.
+    await route.fulfill({ response, json: body }).catch(() => {})
+  })
+  const proxy = async (route) => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('artifactId') !== ghost) {
+      await route.continue().catch(() => {})
+      return
+    }
+    url.searchParams.set('sessionId', fixtures.primarySessionId)
+    url.searchParams.set('artifactId', BROWSER_ARTIFACT)
+    const response = await route.fetch({ url: url.toString() })
+    const body = await response.json().catch(() => null)
+    if (body === null) {
+      await route.fulfill({ response }).catch(() => {})
+      return
+    }
+    if (body.record !== undefined) body.record = { ...body.record, artifactId: ghost, title: '所属会话已不可用' }
+    if (body.artifactId !== undefined) body.artifactId = ghost
+    await route.fulfill({ response, json: body }).catch(() => {})
+  }
+  await page.route('**/api/cowork.artifact.detail*', proxy)
+  await page.route('**/api/cowork.artifact.file*', proxy)
+  await page.route('**/api/cowork.artifact.comments*', proxy)
+  try {
+    // Re-enter the tab so the list reads the patched catalog.
+    await page.locator('[data-testid="cw-tab"][data-tab="topics"]').click()
+    await waitForOverview(page)
+    await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+    const ghostCard = page.locator(`[data-testid="cwi-card"][data-artifact-id="${ghost}"]`)
+    await ghostCard.waitFor({ timeout: 15_000 })
+    await ghostCard.click()
+    await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+    await page.getByTestId('cwi-cross-banner').waitFor({ timeout: 10_000 })
+    assert.equal(await page.getByTestId('cwi-edit').isDisabled(), true)
+
+    // The host refuses the unknown session; the failure is visible and the
+    // viewer stays a read-only preview.
+    await page.getByTestId('cwi-cross-open').click()
+    const failure = page.getByTestId('cwi-cross-error')
+    await failure.waitFor({ timeout: 10_000 })
+    assert.match(await failure.innerText(), /切换会话失败|切换后没有进入所属会话/)
+    await page.getByTestId('cwi-cross-retry').click()
+    await failure.waitFor({ timeout: 10_000 })
+    assert.equal(await page.getByTestId('cwi-edit').isDisabled(), true)
+    assert.equal(await page.getByTestId('cwi-cross-banner').count(), 1)
+
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  } finally {
+    await page.unroute('**/api/cowork.artifact.list*')
+    await page.unroute('**/api/cowork.artifact.detail*')
+    await page.unroute('**/api/cowork.artifact.file*')
+    await page.unroute('**/api/cowork.artifact.comments*')
+  }
+  await backToTopicTab(page)
+}
+
 /** Open the work-item tab and return the rail locator. */
 async function openWorkItemTab(page) {
   await ensurePanel(page)
@@ -654,7 +971,9 @@ async function scenarioWorkItemChain(page) {
       delayed = true
       await new Promise((resolve) => setTimeout(resolve, 500))
     }
-    await route.continue()
+    // The loading probe holds one request; a session or panel transition may
+    // release the route before this handler resumes, which is not the check.
+    await route.continue().catch(() => {})
   })
   await ensurePanel(page)
   await ensureTopicList(page)
@@ -678,6 +997,7 @@ async function scenarioWorkItemChain(page) {
   const viewer = page.getByTestId('cwi-viewer')
   await viewer.waitFor({ timeout: 15_000 })
   assert.equal(await page.getByTestId('cwi-title').innerText(), '浏览器交付物')
+  await openRail(page)
   assert.match(await page.getByTestId('cwi-status').innerText(), /需反馈/)
   const existing = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '已有的浏览器批注' })
   await existing.waitFor({ timeout: 10_000 })
@@ -727,6 +1047,7 @@ async function scenarioWorkItemChain(page) {
   const list = await openWorkItemTab(page)
   await list.waitFor()
   await card.click()
+  await openRail(page)
   await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-resolved-line').click()
   const reopened = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
@@ -1292,10 +1613,14 @@ async function scenarioWorkItemDraft(page) {
   await mode.click()
   assert.notEqual(await mode.getAttribute('data-mode'), before)
 
+  // The rail starts collapsed; the toolbar toggle is the expand/collapse entry.
+  const rail = page.getByTestId('cwi-rail')
+  assert.equal(await rail.isHidden(), true)
   await page.getByTestId('cwi-rail-toggle').click()
-  assert.equal(await page.getByTestId('cwi-rail').isVisible(), false)
+  await rail.waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-rail-toggle').click()
-  await page.getByTestId('cwi-rail').waitFor({ timeout: 10_000 })
+  assert.equal(await rail.isHidden(), true)
+  await openRail(page)
 
   await page.getByTestId('cwi-line-pin').first().waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-thread-focus').first().click()
@@ -1365,6 +1690,7 @@ async function scenarioWorkItemEdges(page, fixtures) {
   await page.route('**/api/cowork.artifact.events*', (route) => route.abort())
   await card.click()
   await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await openRail(page)
   const sseNotice = page.getByTestId('cwi-sse-notice')
   await sseNotice.waitFor({ timeout: 25_000 })
   assert.match(await sseNotice.innerText(), /实时更新中断/)
@@ -1475,6 +1801,7 @@ async function scenarioWorkItemLive(page, fixtures) {
   await card.waitFor({ timeout: 15_000 })
   await card.click()
   await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await openRail(page)
 
   // A model edit arrives through the file.changed SSE event; the read-only
   // viewer must reload the content instead of keeping stale lines.
@@ -1596,6 +1923,7 @@ async function scenarioWorkItemRestore(page) {
   // unmount the session-scoped tab body.
   assert.match(await list.innerText(), /浏览器交付物/)
   await card.click()
+  await openRail(page)
   await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-resolved-line').click()
   const thread = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
@@ -1743,6 +2071,7 @@ function pagedComments(before) {
 async function scenarioWorkItemKeyboard(page) {
   await openWorkItemTab(page)
   await openWorkItemViewer(page)
+  await openRail(page)
 
   // Toolbar buttons, thread cards, and pins all sit in the tab order.
   const tabbable = await page.evaluate(() => {
@@ -1832,10 +2161,13 @@ async function scenarioWorkItemNarrow(page) {
     assert.ok(listLayout.overflow <= 1, `the rail list overflows horizontally by ${listLayout.overflow}px`)
 
     await openWorkItemViewer(page)
-    assert.equal(await page.getByTestId('cwi-rail').getAttribute('data-drawer'), 'true')
+    const rail = page.getByTestId('cwi-rail')
+    assert.equal(await rail.getAttribute('data-drawer'), 'true')
+    assert.equal(await rail.isHidden(), true, 'the narrow drawer also starts collapsed')
     const bodyDirection = await page.locator('.cwi-body').evaluate(element => getComputedStyle(element).flexDirection)
     assert.equal(bodyDirection, 'column')
-    const railBox = await page.getByTestId('cwi-rail').boundingBox()
+    await openRail(page)
+    const railBox = await rail.boundingBox()
     assert.notEqual(railBox, null)
     assert.ok(railBox.x >= 0 && railBox.x + railBox.width <= 821, 'the drawer must stay inside the viewport')
     assert.equal(await page.getByTestId('cwi-rail-backdrop').count(), 1)
@@ -1910,6 +2242,7 @@ async function scenarioWorkItemPaging(page) {
     await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
     const request = await initialRequest
     assert.equal(new URL(request.url()).searchParams.get('limit'), '200')
+    await openRail(page)
     await page.locator('[data-testid="cwi-load-older"]').waitFor({ timeout: 15_000 })
     assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 2)
 
@@ -2088,6 +2421,10 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioNoteOpen(page)
   await scenarioOverviewRetry(page)
   await scenarioPanelTabs(page)
+  await scenarioWorkItemViewTab(page)
+  await scenarioWorkItemTabFailure(page, fixtures)
+  await scenarioWorkItemCrossSession(page, fixtures)
+  await scenarioWorkItemOwnerFailure(page, fixtures)
   await scenarioWorkItemChain(page)
   await scenarioWorkItemTypes(page)
   await scenarioWorkItemListLive(page, fixtures)

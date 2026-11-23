@@ -2,8 +2,14 @@
  * Right-rail work-item list (the second internal tab of the Cowork panel).
  *
  * It owns only the list projection: load, filter, group, empty/error states,
- * and the click that opens the main-area viewer. The topic tab's data logic is
- * untouched; this component is a sibling inside the same panel shell.
+ * and the click that opens the work item in the Cowork conversation view. The
+ * topic tab's data logic is untouched; this component is a sibling inside the
+ * same panel shell.
+ *
+ * Opening writes the shared open-work-item store and then activates the host
+ * tab. The activation has no host API: it clicks the tab and verifies
+ * `aria-selected`, so a failure is shown here with a retry instead of leaving
+ * the user on Chat with no work item to see.
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
@@ -14,7 +20,6 @@ import {
   type ArtifactListResponse,
   type ArtifactSummaryV1,
 } from '../../panel/artifact-contract.js'
-import { useClientServices } from '../contracts.ts'
 import { WorkItemApiError, workItemApi } from './api.ts'
 import {
   activeDispatchSummary,
@@ -29,6 +34,7 @@ import {
   type WorkItemFilter,
 } from './model.ts'
 import { workItemOpenStore } from './store.ts'
+import { activateViewTab } from './view-tab.ts'
 
 /** Coalesce a burst of project events into one list read. */
 const LIST_REFRESH_DEBOUNCE_MS = 250
@@ -122,13 +128,13 @@ function WorkItemGroupSection({
 
 /** The work-item tab body. */
 export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
-  const services = useClientServices()
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [data, setData] = useState<ArtifactListResponse | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [filter, setFilter] = useState<WorkItemFilter>('all')
-  const [openError, setOpenError] = useState<string | null>(null)
+  const [switchError, setSwitchError] = useState<string | null>(null)
+  const [switching, setSwitching] = useState(false)
   const [sseNotice, setSseNotice] = useState<string | null>(null)
   const [sseToken, setSseToken] = useState(0)
   const [now, setNow] = useState(() => new Date())
@@ -204,16 +210,31 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
     setSseToken(token => token + 1)
   }, [])
 
-  const open = useCallback((item: ArtifactSummaryV1) => {
-    const layout = services.layout
-    if (layout === undefined || typeof layout.selectPanel !== 'function') {
-      setOpenError('当前宿主没有主区域布局服务，无法打开工作项。')
-      return
+  /** Make the registered Cowork view active, surfacing any bounded failure. */
+  const switchToView = useCallback(async () => {
+    setSwitching(true)
+    try {
+      await activateViewTab()
+      setSwitchError(null)
+    } catch (reason) {
+      setSwitchError(messageOf(reason))
+    } finally {
+      setSwitching(false)
     }
-    setOpenError(null)
-    workItemOpenStore.open({ sessionId, artifactId: item.artifactId })
-    layout.selectPanel('cowork-work-item')
-  }, [services.layout, sessionId])
+  }, [])
+
+  /**
+   * Open one work item in the conversation view.
+   *
+   * The store write registers the view synchronously; the tab click then runs
+   * inside the same user gesture. A failed activation keeps the item open so
+   * the retry only re-attempts the switch.
+   */
+  const open = useCallback((item: ArtifactSummaryV1) => {
+    setSwitchError(null)
+    workItemOpenStore.open({ artifactId: item.artifactId, ownerSessionId: item.ownerSessionId })
+    void switchToView()
+  }, [switchToView])
 
   const retry = useCallback(() => { setRefreshToken(token => token + 1) }, [])
 
@@ -283,7 +304,20 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
           </button>
         ))}
       </div>
-      {openError === null ? null : <div className="cwi-error" role="alert">{openError}</div>}
+      {switchError === null ? null : (
+        <div className="cwi-error" role="alert" data-testid="cwi-list-switch-error">
+          {switchError}{' '}
+          <button
+            type="button"
+            className="cwi-secondary"
+            data-testid="cwi-list-switch-retry"
+            disabled={switching}
+            onClick={() => { void switchToView() }}
+          >
+            重试切换
+          </button>
+        </div>
+      )}
       {liveNotice}
       {phase === 'error' ? (
         <div className="cwi-error" role="alert" data-testid="cwi-list-error">

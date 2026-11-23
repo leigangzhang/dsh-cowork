@@ -468,20 +468,20 @@ export function withOlderPage<T extends { readonly events: readonly CommentEvent
 
 /** One load-older request, or null when the viewer is not ready for it. */
 export interface OlderCall {
-  readonly sessionId: string
+  readonly ownerSessionId: string
   readonly artifactId: string
   readonly before: string
 }
 
 /** Build a load-older request, or null while the viewer is busy or idle. */
 export function olderCall(
-  context: { readonly sessionId: string; readonly artifactId: string } | null,
+  context: { readonly ownerSessionId: string; readonly artifactId: string } | null,
   data: { readonly events: readonly CommentEventV1[] } | null,
   pending: boolean,
   before: string,
 ): OlderCall | null {
   if (context === null || data === null || pending) return null
-  return { sessionId: context.sessionId, artifactId: context.artifactId, before }
+  return { ownerSessionId: context.ownerSessionId, artifactId: context.artifactId, before }
 }
 
 /** One validated line-range annotation, or null when the range is empty. */

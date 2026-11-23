@@ -1,8 +1,8 @@
 # Cowork 工作项主区 View 标签集成设计
 
-Status: proposed（design，2026-11-23）
+Status: implemented（design，2026-11-23；实现落点见 [view-registration.ts](../../../src/client/work-item/view-registration.ts)、[view-tab.ts](../../../src/client/work-item/view-tab.ts)、[session-open.ts](../../../src/client/work-item/session-open.ts)）
 
-本页只设计「工作项查看器如何挂进宿主会话区的 View 标签」，不改查看器内部的文档/批注/编辑交互，也不改右侧栏列表。查看器内部结构以 [work-item-artifact-viewer.md](work-item-artifact-viewer.md) 为准，前端承载面原方案见 [work-item-frontend.md](work-item-frontend.md)，后端契约见 [work-item-backend.md](work-item-backend.md)，视觉尺寸以共享基线 [visual-acceptance.md](visual-acceptance.md) 为准。为什么选 `conversation.view` 而放弃全屏 `selectPanel`，见决策记录 [2026-11-23-work-item-main-view-tab.md](../../../.agents/notes/proposed/architecture/2026-11-23-work-item-main-view-tab.md)。
+本页只设计「工作项查看器如何挂进宿主会话区的 View 标签」，不改查看器内部的文档/批注/编辑交互，也不改右侧栏列表。查看器内部结构以 [work-item-artifact-viewer.md](work-item-artifact-viewer.md) 为准，前端承载面原方案见 [work-item-frontend.md](work-item-frontend.md)，后端契约见 [work-item-backend.md](work-item-backend.md)，视觉尺寸以共享基线 [visual-acceptance.md](visual-acceptance.md) 为准。为什么选 `conversation.view` 而放弃全屏 `selectPanel`，见决策记录 [2026-11-23-work-item-main-view-tab.md](../../../.agents/notes/implemented/architecture/2026-11-23-work-item-main-view-tab.md)。
 
 本页还拥有三条与宿主页面 chrome 的边界：顶部不重复画会话面包屑、Cowork 标签下隐藏会话 composer、批注栏默认折叠。前两条是集成层决定；批注栏的内部交互与状态归 [work-item-rail-and-annotation.md](work-item-rail-and-annotation.md)。
 
@@ -10,8 +10,8 @@ Status: proposed（design，2026-11-23）
 
 ### 背景
 
-- 现状：查看器是 root `main` 的 keyed panel（`src/client/index.tsx:36-39` 注册 `main/key=cowork-work-item`；`src/client/work-item/list.tsx:207-216` 用 `layout.selectPanel('cowork-work-item')` 打开；`src/client/work-item/panel.tsx:429-432` 用 `selectPanel(null)` 返回）。全屏替换会盖住会话区，用户要回到会话必须显式「返回会话」。
 - 需求（附件《工作项样式和功能优化》与 2026-11-23 验收意见）：点击右栏工作项后，在左侧会话框位置新增「Cowork / 工作项」标签页展示文档和批注；用户确认/编辑文档的同时能随时切回会话继续讨论，顺序查看多个文档可从右栏快速切换；默认不显示，只有打开文档时才显示。验收补充：顶部显示文档对应的会话名，查看器内删除重复的小字面包屑；批注栏默认折叠；Cowork 标签下不显示浮动的会话输入框。
+- 为什么放弃全屏 `selectPanel`，见决策记录 [2026-11-23-work-item-main-view-tab.md](../../../.agents/notes/implemented/architecture/2026-11-23-work-item-main-view-tab.md)。
 
 ### 目标
 
@@ -79,6 +79,7 @@ scrollBody（宿主，data-conversation-scroll）
   - `data-conversation-scroll`、`[data-composer-seat]` 是宿主 DOM hook（不是 CSS Module 哈希），但不是公开 API；风险与验证见 §10 R6。
 - 查看器根仍声明 `data-conversation-composer-overlay`：这是宿主唯一让 `.viewArea` 变为 `flex:1 1 0; overflow:hidden`、由视图自持滚动的开关。它同时把 composer seat 变成绝对定位覆盖层，本设计随后把该覆盖层隐藏，不再作为界面的一部分。
 - 因为 composer 不显示，查看器不再预留 `--dsh-composer-height` clearance；footer 直接贴查看器底边，加载/错误态同样满高。
+- 操作回执：批注栏展开时由 composer 显示评论/附件回执；批注栏收起时，头部与更多菜单动作（复制路径、导出、保存失败等）的回执改由内容区顶部条显示，同一消息不在隐藏的 composer 里重复一份。
 
 ### 层叠关系（关键）
 
@@ -204,7 +205,7 @@ export interface WorkItemOpenContext {
 
 - `SlotRegisterOptions` 增加 `label?: () => string` 与 `inject?: (sessionId: string) => Readonly<Record<string, unknown>>`（`conversation.view` 注册需要 id/order/label/inject）。
 - `SessionsService` 增加 `list`（当前会话列表快照与订阅），供「在所属会话打开」校验当前会话是否已切换。
-- `LayoutService` 保留为可选（其它路径仍可能用），但查看器打开/返回不再依赖 `selectPanel`。
+- `LayoutService` 与 `ClientServices.layout` 删除：查看器打开/返回不再依赖 `selectPanel`，也没有其它生产调用方。
 
 ### 5.3 常量
 
@@ -291,14 +292,14 @@ export interface WorkItemOpenContext {
 - R6 隐藏宿主 composer 依赖 DOM hook：规则匹配 `[data-conversation-scroll]`、`[data-composer-seat]`，它们不是公开 API。宿主改属性名或把 seat 移出 scrollBody 后，composer 会重新出现；T10 的 DOM 断言会把这种回归变成红灯。备选（不采用）：注册 `conversation.composer` 条目（additive，无法移除 fallback）、把整个 view 改成 host shell（范围更大）；若长期需要，向宿主申请按 view 隐藏 composer 的公开能力。
 - R7 顶部会话身份边界：宿主 header 不能替换成文档所属会话名；跨会话时顶部仍是当前会话。所属会话名由提示条承担，用户若要求「顶部始终显示所属会话」，需宿主提供 header 插槽，届时另立设计。
 
-### 未核实（实现期 E2E 门禁）
+### 实现期核实结果（浏览器 lane + 宿主源码）
 
-- 真实宿主 `SessionsService.list` 的精确快照形状（当前契约只写了 `retainInfo`）。
-- 已绑定会话上 openSession 是否触发 `restoreView` 重读 localStorage（决定跨会话回退是否必需）。
-- tab `textContent` 在极窄宽度省略下是否仍保留完整文本（`ViewTabLabel` 用 CSS 省略，DOM `textContent` 理论保留全文，需实测）。
-- 卸载 `conversation.view` 注册后宿主 `refreshViews`→`resolveActiveView` 是否稳定回退 Chat（源码路径已核对，真机回归确认）。
-- 对 `[data-composer-seat]` 设 `display:none` 后，宿主的 seat 尺寸 observer、草稿持久化与切 view 时的焦点逻辑是否仍正常（源码未见依赖可见高度，必须在真实宿主回归）。
-- 宿主当前 Chromium 版本对 `:has([data-conversation-composer-overlay])` 与样式表 `:has(.cwi-viewer)` 的支持（Electron/Chromium 现代版本支持，实现期以真实宿主确认）。
+- `SessionsService.list` 是快照源 `{ ids, byId }`，`byId[id].retainedBy.mainView > 0` 即主区域当前会话；已按此实现 `mainSessionId`/`waitForMainSession`。
+- 已绑定会话上 openSession 不触发 `restoreView` 重读 localStorage，因此写偏好只对未 materialize 的会话有效；已 materialize 的会话由 tab 点击兜底（实现见 `session-open.ts`）。
+- tab 的 `textContent` 在正常宽度下保留完整文案；实现按 `textContent.trim()` 精确匹配 `Cowork`。
+- 卸载 `conversation.view` 后宿主稳定回退 Chat；浏览器 lane 断言「关闭 → 本插件标签消失、composer 恢复、Chat 选中」。
+- `[data-composer-seat]` 设为 `display:none` 后 composer 草稿与焦点逻辑未受影响；切回 Chat 后 composer 与草稿恢复，浏览器 lane 的计算样式断言覆盖这一回归。
+- 宿主当前 Chromium 支持 `:has(...)`，但**宿主对 blank 会话不渲染任何 conversation view**（无 `.viewArea`、无 tab strip）：从全新会话打开工作项会得到 `tab-missing` 可见错误，需要先开始对话；浏览器 lane 因此先发一轮消息再验收标签。
 
 ### 回滚 / 降级
 
@@ -309,7 +310,7 @@ export interface WorkItemOpenContext {
 
 ## 相关文档
 
-- [决策记录](../../../.agents/notes/proposed/architecture/2026-11-23-work-item-main-view-tab.md)
+- [决策记录](../../../.agents/notes/implemented/architecture/2026-11-23-work-item-main-view-tab.md)
 - [共享视觉基线](visual-acceptance.md)
 - [查看器设计](work-item-artifact-viewer.md)
 - [前端设计](work-item-frontend.md)

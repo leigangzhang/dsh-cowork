@@ -217,7 +217,7 @@ export async function seedBrowserProject(repoPath, masterSessionId) {
   }
   await mkdir(join(repoPath, 'docs'), { recursive: true })
   await writeFile(join(repoPath, 'docs', 'browser-plan.md'), '# Browser lane plan\n\nFixture only.\n', 'utf8')
-  await seedArtifact(repoPath)
+  await seedArtifact(repoPath, masterSessionId)
   await store.appendActivity(buildActivityEvent({
     type: 'review-verdict',
     topicId: BROWSER_TOPICS.inbox,
@@ -243,11 +243,13 @@ export async function seedBrowserProject(repoPath, masterSessionId) {
 /**
  * Seed one work item with one anchored thread.
  *
- * The record deliberately carries `fsVersion: null`: the first detail read
- * reconciles it against the host fs token, which is exactly the path a real
- * registration takes when the fs version is unavailable at create time.
+ * The owner is the real primary Session: every `artifact.*` call resolves the
+ * project through `ownerSessionId`, so a synthetic id would make the viewer
+ * unreadable. The record deliberately carries `fsVersion: null`: the first
+ * detail read reconciles it against the host fs token, which is exactly the path
+ * a real registration takes when the fs version is unavailable at create time.
  */
-async function seedArtifact(repoPath) {
+async function seedArtifact(repoPath, ownerSessionId) {
   await writeFile(join(repoPath, 'docs', 'browser-spec.md'), BROWSER_SPEC, 'utf8')
   const createdAt = new Date().toISOString()
   const artifactDir = join(repoPath, '.dsh-cowork', 'artifacts', BROWSER_ARTIFACT)
@@ -256,7 +258,7 @@ async function seedArtifact(repoPath) {
     version: 1,
     artifactId: BROWSER_ARTIFACT,
     projectId: BROWSER_PROJECT_ID,
-    ownerSessionId: BROWSER_TOPICS.running,
+    ownerSessionId,
     title: '浏览器交付物',
     type: 'text',
     status: 'needs-feedback',

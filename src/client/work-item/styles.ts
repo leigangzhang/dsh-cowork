@@ -7,13 +7,17 @@
  * system that reads as part of the host. Every colour and size resolves through
  * a public host token with a literal fallback, so a host without the newer
  * aliases still renders and the dark theme keeps working. The one local alias is
- * `--cw-surface-muted` on the Cowork panel; this sheet does not inherit it
- * (the viewer is a root main panel), so it defines its own `--cwi-*` scale.
+ * `--cw-surface-muted` on the Cowork panel; this sheet does not inherit it (the
+ * viewer renders in the conversation area, not inside the panel), so it defines
+ * its own `--cwi-*` scale.
  *
- * Layout: the viewer fills the main slot; the comment rail is 336px beside the
- * content and becomes a stacked block under 900px. Text-based families render
- * on a centred paper card; HTML and canvas fill the remaining height inside
- * their own card.
+ * Layout: the viewer is the body of the session-scoped Cowork conversation
+ * view, so it fills the host's view area and owns its scrolling; the comment
+ * rail starts collapsed, is 336px beside the content when opened, and becomes a
+ * drawer under 900px. Text-based families render on a centred paper card; HTML
+ * and canvas fill the remaining height inside their own card. While the viewer
+ * is mounted, the host conversation composer is hidden (see the rule below the
+ * root block) because the document — not the chat — owns this area.
  */
 export const WORK_ITEM_STYLE_ID = '@dsh-external/dsh-cowork/work-item'
 
@@ -129,18 +133,23 @@ body[data-ds-dark-theme] .cwi-list {
 @keyframes cwi-pulse { 50% { opacity: .55; } }
 
 /* ---------- viewer shell ---------- */
-.cwi-viewer { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--cwi-page); }
+.cwi-viewer { isolation: isolate; display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: var(--cwi-page); }
+/* The Cowork view occupies the conversation area while it is mounted. The host
+   composer seat stays in the DOM (its overlay slot cannot be unregistered), so
+   it is hidden only while this view is present; Chat restores it with its
+   draft and input state untouched. */
+[data-conversation-scroll]:has(.cwi-viewer) > [data-composer-seat] { display: none; }
 .cwi-viewer-header { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 20px 12px; background: var(--cwi-surface); border-bottom: 1px solid var(--cwi-border-soft); }
 .cwi-header-bar { display: flex; align-items: center; gap: 8px; min-height: 22px; }
 .cwi-back { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 5px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--cwi-muted); font: inherit; font-size: 12px; cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
 .cwi-back:hover { background: var(--cwi-surface-muted); color: var(--cwi-ink); }
 .cwi-back:disabled { opacity: .5; cursor: default; }
 .cwi-back-icon { font-size: 13px; line-height: 1; }
-.cwi-header-sep { color: var(--cwi-border); }
-.cwi-crumbs { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--cwi-soft); font-size: 10.5px; }
-.cwi-crumbs b { color: var(--cwi-muted); font-weight: 650; }
-.cwi-crumb-sep { color: var(--cwi-border); }
-.cwi-crumb-topic { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cwi-cross { flex: none; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 16px; border-bottom: 1px solid var(--cwi-border); background: var(--cwi-danger-soft); color: var(--cwi-danger); font-size: 12px; }
+.cwi-cross-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cwi-cross .cwi-secondary, .cwi-cross-error .cwi-secondary { flex: none; border-color: currentColor; color: inherit; background: var(--cwi-surface); font-size: 11.5px; }
+.cwi-cross-error { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 16px; border-bottom: 1px solid var(--cwi-border); background: var(--cwi-danger-soft); color: var(--cwi-danger); font-size: 12px; }
+.cwi-cross-error > span { flex: 1; min-width: 0; }
 .cwi-more-wrap { position: relative; flex: none; }
 .cwi-more-button { min-width: 28px; padding: 4px 8px; font-weight: 700; }
 .cwi-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 132px; padding: 4px; border: 1px solid var(--cwi-border); border-radius: var(--cwi-radius-sm); background: var(--cwi-surface); box-shadow: 0 8px 24px #1018281f; display: flex; flex-direction: column; }

@@ -651,13 +651,13 @@ test('withRecord and withOlderPage keep the rest of the view', () => {
   assert.equal(model.withOlderPage(null, page), null)
 })
 
-test('olderCall carries the cursor only when the viewer is idle', () => {
-  const context = { sessionId: 'session-1', artifactId: 'artifact-1' }
+test('olderCall carries the owner scope and cursor only when the viewer is idle', () => {
+  const context = { ownerSessionId: 'session-1', artifactId: 'artifact-1' }
   assert.equal(model.olderCall(null, { events: [] }, false, 'event-1'), null)
   assert.equal(model.olderCall(context, null, false, 'event-1'), null)
   assert.equal(model.olderCall(context, { events: [] }, true, 'event-1'), null)
   assert.deepEqual(model.olderCall(context, { events: [] }, false, 'event-1'), {
-    sessionId: 'session-1',
+    ownerSessionId: 'session-1',
     artifactId: 'artifact-1',
     before: 'event-1',
   })

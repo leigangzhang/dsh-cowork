@@ -41,6 +41,8 @@ export interface DocumentSurfaceProps {
   readonly conflict: SaveConflict | null
   readonly selection: LineSelection | null
   readonly lines: readonly string[]
+  /** Cross-session preview: the selection bar's annotate entry is disabled. */
+  readonly readOnly: boolean
   readonly anchoredLines: ReadonlySet<number>
   readonly pins: ReadonlyMap<number, ThreadPin>
   readonly staleLines: ReadonlySet<number>
@@ -205,6 +207,7 @@ function SourceSurface({
   staleLines,
   pins,
   markdown,
+  readOnly,
   onAnnotate,
   onAnnotateLine,
   onClearSelection,
@@ -216,6 +219,7 @@ function SourceSurface({
   | 'anchoredLines'
   | 'staleLines'
   | 'pins'
+  | 'readOnly'
   | 'onAnnotate'
   | 'onAnnotateLine'
   | 'onClearSelection'
@@ -232,7 +236,14 @@ function SourceSurface({
             已选第 {selection.startLine}
             {selection.endLine === selection.startLine ? '' : `–${selection.endLine}`} 行
           </span>
-          <button type="button" className="cwi-primary" data-testid="cwi-annotate" onClick={onAnnotate}>
+          <button
+            type="button"
+            className="cwi-primary"
+            data-testid="cwi-annotate"
+            disabled={readOnly}
+            title={readOnly ? '跨会话只读：切到所属会话后才能批注' : undefined}
+            onClick={onAnnotate}
+          >
             批注
           </button>
           <button type="button" className="cwi-secondary" onClick={onClearSelection}>
@@ -269,6 +280,7 @@ function ReadSurface({
   selection,
   lines,
   anchoredLines,
+  readOnly,
   onAnnotate,
   onAnnotateLine,
   onClearSelection,
@@ -285,6 +297,7 @@ function ReadSurface({
   | 'selection'
   | 'lines'
   | 'anchoredLines'
+  | 'readOnly'
   | 'onAnnotate'
   | 'onAnnotateLine'
   | 'onClearSelection'
@@ -313,9 +326,11 @@ function ReadSurface({
       file={file}
       typeName={typeName}
       attachments={attachments}
-      footer={sourceLinesMarkdown(kind, readMode)
-        ? '选中行后可直接批注 · 模型回复会挂到批注上'
-        : '源码按行展示 · 选中行后可直接批注'}
+      footer={readOnly
+        ? '跨会话只读预览 · 批注和回复在所属会话中进行'
+        : (sourceLinesMarkdown(kind, readMode)
+          ? '选中行后可直接批注 · 模型回复会挂到批注上'
+          : '源码按行展示 · 选中行后可直接批注')}
     >
       <SourceSurface
         selection={selection}
@@ -324,6 +339,7 @@ function ReadSurface({
         staleLines={staleLines}
         pins={pins}
         markdown={sourceLinesMarkdown(kind, readMode)}
+        readOnly={readOnly}
         onAnnotate={onAnnotate}
         onAnnotateLine={onAnnotateLine}
         onClearSelection={onClearSelection}

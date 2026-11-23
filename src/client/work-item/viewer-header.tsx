@@ -1,10 +1,11 @@
 /**
- * The work-item viewer's header: breadcrumb, title/type/status, file facts, and
- * the action row (confirm, edit, open in app, export, overflow).
+ * The work-item viewer's header: title/type/status, file facts, and the action
+ * row (confirm, edit, open in app, export, close, overflow).
  *
  * The header owns only presentation and the overflow menu's open state; every
  * action is a callback owned by the viewer container, which holds the request
- * context and the save/draft state.
+ * context and the save/draft state. The host conversation header above already
+ * shows the current session, so this header draws no second breadcrumb.
  */
 import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
@@ -25,13 +26,13 @@ import {
 export interface ViewerHeaderProps {
   readonly record: ArtifactRecordV1
   readonly file: ArtifactFileResponse | null
-  readonly sessionTitle: string | null
   readonly activity: ActiveDispatchBadge | null
   readonly now: Date
   readonly editing: boolean
   readonly confirming: boolean
   readonly opening: boolean
-  readonly canReturn: boolean
+  /** Cross-session preview: edit and confirm stay visible but disabled. */
+  readonly readOnly: boolean
   readonly onReturn: () => void
   readonly onConfirm: () => void
   readonly onToggleEditing: () => void
@@ -41,41 +42,26 @@ export interface ViewerHeaderProps {
   readonly onCopyPath: () => void
 }
 
-/** The location breadcrumb: project shell, owning topic, work item. */
-function Crumbs({ sessionTitle }: { readonly sessionTitle: string | null }): ReactElement {
-  return (
-    <nav className="cwi-crumbs" data-testid="cwi-crumbs" aria-label="位置">
-      <span>Cowork</span>
-      <span className="cwi-crumb-sep" aria-hidden="true">/</span>
-      {sessionTitle === null ? null : (
-        <>
-          <span className="cwi-crumb-topic" title={sessionTitle}>主题「{sessionTitle}」</span>
-          <span className="cwi-crumb-sep" aria-hidden="true">/</span>
-        </>
-      )}
-      <b>工作项</b>
-    </nav>
-  )
-}
+/** The reason a disabled edit control carries, for both title and aria. */
+const READ_ONLY_REASON = '跨会话只读：切到所属会话后才能操作。'
 
 /**
  * Render the viewer header.
  * @param props - record/file facts, action state, and action callbacks.
  * @returns the header with the overflow menu it owns.
  */
-// Breadcrumb/title/action row plus the overflow menu. The conditional actions
-// are the header's state matrix; the browser lane owns the interactions.
+// Title/action rows plus the overflow menu. The conditional actions are the
+// header's state matrix; the browser lane owns the interactions.
 // fallow-ignore-next-line complexity
 export function ViewerHeader({
   record,
   file,
-  sessionTitle,
   activity,
   now,
   editing,
   confirming,
   opening,
-  canReturn,
+  readOnly,
   onReturn,
   onConfirm,
   onToggleEditing,
@@ -121,14 +107,11 @@ export function ViewerHeader({
           className="cwi-back"
           data-testid="cwi-back"
           onClick={onReturn}
-          disabled={!canReturn}
-          title={canReturn ? '返回会话' : '当前宿主没有主区域布局服务'}
+          title="关闭工作项，回到会话"
         >
           <span className="cwi-back-icon" aria-hidden="true">←</span>
           返回会话
         </button>
-        <span className="cwi-header-sep" aria-hidden="true">/</span>
-        <Crumbs sessionTitle={sessionTitle} />
       </div>
       <div className="cwi-title-row">
         <h1 className="cwi-title" data-testid="cwi-title">{record.title}</h1>
@@ -142,14 +125,22 @@ export function ViewerHeader({
             type="button"
             className="cwi-primary"
             data-testid="cwi-confirm"
-            disabled={confirming}
+            disabled={confirming || readOnly}
+            title={readOnly ? READ_ONLY_REASON : undefined}
             onClick={onConfirm}
           >
             {confirming ? '确认中…' : '确认完成'}
           </button>
         )}
         {file === null ? null : (
-          <button type="button" className="cwi-secondary" data-testid="cwi-edit" onClick={onToggleEditing}>
+          <button
+            type="button"
+            className="cwi-secondary"
+            data-testid="cwi-edit"
+            disabled={readOnly}
+            title={readOnly ? READ_ONLY_REASON : undefined}
+            onClick={onToggleEditing}
+          >
             {editing ? '退出编辑' : '编辑'}
           </button>
         )}
