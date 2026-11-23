@@ -66,6 +66,11 @@ export function CommentComposer({
       {pendingAnchor === null ? null : (
         <div className="cwi-thread-meta">
           <span>{anchorLabel(pendingAnchor)}</span>
+          {pendingAnchor.kind !== 'line-range' || pendingAnchor.selectedText === undefined ? null : (
+            <span className="cwi-composer-selected" data-testid="cwi-selected-text" title={pendingAnchor.selectedText}>
+              {pendingAnchor.selectedText}
+            </span>
+          )}
           <button type="button" className="cwi-secondary" onClick={onCancelAnchor}>
             取消位置
           </button>

@@ -349,7 +349,7 @@ test('creating a comment derives a line anchor from the file', async () => {
         sessionId: SESSION,
         artifactId: ARTIFACT,
         body: 'tighten this',
-        anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 3, endLine: 4, quote: 'stale quote' },
+        anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 3, endLine: 4, quote: 'stale quote', selectedText: 'second paragraph' },
       },
     })
     assert.equal(response.status, 200)
@@ -358,6 +358,7 @@ test('creating a comment derives a line anchor from the file', async () => {
     assert.equal(body.comment.type, 'create')
     assert.equal(body.comment.threadId, body.comment.commentId)
     assert.equal(body.comment.anchor.quote, 'first paragraph\nsecond paragraph')
+    assert.equal(body.comment.anchor.selectedText, 'second paragraph')
     assert.equal(body.comment.anchor.contextBefore, '')
     assert.equal(body.comment.fileRevision, 1)
     assert.equal(body.record.status, 'needs-feedback')

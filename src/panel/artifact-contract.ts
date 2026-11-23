@@ -164,7 +164,9 @@ export interface ArtifactRegion {
  * A `line-range` anchor stores the quoted lines plus one line of context on
  * each side so the server can relocate it after an edit; the other kinds are
  * the per-renderer identities the design fixes. Every anchor names one
- * registered file path.
+ * registered file path. `selectedText` is the user's sub-line selection when
+ * the comment came from a text selection: it is display and dispatch-prompt
+ * data only, and relocation never reads it.
  */
 export type ArtifactAnchor =
   | {
@@ -175,6 +177,7 @@ export type ArtifactAnchor =
       readonly quote: string
       readonly contextBefore?: string
       readonly contextAfter?: string
+      readonly selectedText?: string
     }
   | { readonly kind: 'block'; readonly path: string; readonly blockId?: string; readonly quote: string }
   | { readonly kind: 'diagram-node'; readonly path: string; readonly nodeId?: string; readonly line?: number }

@@ -18,7 +18,13 @@
  * and canvas fill the remaining height inside their own card. While the viewer
  * is mounted, the host conversation composer is hidden (see the rule below the
  * root block) because the document — not the chat — owns this area.
+ *
+ * The Markdown reading rhythm lives in `reading-styles.ts` and is concatenated
+ * into this one mounted sheet; keeping it separate holds both files under the
+ * single-file read budget.
  */
+import { MARKDOWN_READ_CSS } from './reading-styles.ts'
+
 export const WORK_ITEM_STYLE_ID = '@dsh-external/dsh-cowork/work-item'
 
 /** The work-item stylesheet text. */
@@ -285,6 +291,8 @@ body[data-ds-dark-theme] .cwi-list {
 .cwi-editor-host .cm-lineNumbers .cm-gutterElement { padding: 0 8px 0 14px; font-size: 10.5px; }
 .cwi-editor-host .cm-line.cwi-editor-anchored { background: var(--cwi-accent-soft); box-shadow: inset 2px 0 0 var(--cwi-accent); }
 
+${MARKDOWN_READ_CSS}
+
 /* ---------- diagram ---------- */
 .cwi-figure { flex: 1; display: flex; align-items: center; justify-content: center; padding: 22px 20px; overflow: auto; }
 .cwi-diagram { --pele-bg: transparent; --pele-fg: var(--cwi-ink); --pele-muted: var(--cwi-muted); --pele-surface: var(--cwi-surface); --pele-surface-alt: var(--cwi-surface-muted); --pele-line: var(--cwi-muted); --pele-border: var(--cwi-border); --pele-accent: var(--cwi-accent); --pele-font: var(--dsw-font-family, sans-serif); --pele-radius: 6px; max-width: 100%; }
@@ -399,6 +407,7 @@ body[data-ds-dark-theme] .cwi-list {
 .cwi-composer { flex: none; display: flex; flex-direction: column; gap: 6px; margin: 0 10px 10px; padding: 8px 9px; border: 1px solid var(--cwi-border); border-radius: 9px; background: var(--cwi-surface); box-shadow: 0 3px 10px #1018280a; }
 .cwi-composer:focus-within { border-color: var(--cwi-accent); box-shadow: 0 0 0 2px var(--cwi-accent-soft); }
 .cwi-composer-lead { margin: 0; color: var(--cwi-soft); font-size: 9.5px; line-height: 1.4; }
+.cwi-composer-selected { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cwi-muted); font-size: 11px; line-height: 16px; }
 .cwi-composer textarea { width: 100%; min-height: 56px; max-height: 200px; resize: vertical; border: 1px solid var(--cwi-border-soft); border-radius: var(--cwi-radius-sm); background: var(--cwi-surface); color: inherit; padding: 6px 8px; font: inherit; font-size: 11.5px; line-height: 1.6; }
 .cwi-composer textarea:focus-visible { outline: none; border-color: var(--cwi-accent); }
 .cwi-composer-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
@@ -451,6 +460,24 @@ body[data-ds-dark-theme] .cwi-list {
   .cwi-rail-backdrop { position: absolute; inset: 0; z-index: 30; background: #10182866; }
   .cwi-paper { max-width: none; }
   .cwi-path { max-width: 40%; }
+}
+@media (max-width: 1023px) {
+  .cwi-md-read { padding: 24px 32px 40px 20px; }
+  .cwi-md-pin { right: -25px; }
+}
+@media (max-width: 899px) {
+  .cwi-md-read { padding: 24px 28px 40px 20px; }
+  .cwi-md-read h1 { font-size: 28px; line-height: 36px; }
+  .cwi-md-read h2 { font-size: 20px; line-height: 27px; }
+  .cwi-md-read h3 { font-size: 16px; line-height: 22px; }
+  .cwi-md-pin { right: -21px; }
+}
+@media (max-width: 639px) {
+  .cwi-md-read { padding: 20px 24px 32px 16px; font-size: 15px; line-height: 25px; }
+  .cwi-md-read h1 { font-size: 26px; line-height: 34px; }
+  .cwi-md-read h2 { font-size: 19px; line-height: 26px; }
+  .cwi-md-read h3 { font-size: 16px; line-height: 22px; }
+  .cwi-md-pin { right: -17px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .cwi-skeleton, .cwi-live-dot, .cwi-activity-dot, .cwi-save-dot, .cwi-tstate-icon, .cwi-viewer[data-phase="loading"] .cwi-viewer-empty { animation: none; }

@@ -60,6 +60,42 @@ function optionalName(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
 
+
+/**
+ * Parse the one anchor kind with optional quote/context/selection text.
+ *
+ * Kept separate so the kind switch stays a flat dispatch; the wire shape is
+ * the same for every call.
+ */
+// The optional text fields mirror the wire object one for one.
+// fallow-ignore-next-line complexity
+function parseLineRangeAnchor(value: Record<string, unknown>, path: string): AnchorCheck {
+  const { startLine, endLine } = value
+  if (!isPositiveInt(startLine) || !isPositiveInt(endLine)) {
+    return { ok: false, reason: 'line-range anchor needs positive startLine and endLine' }
+  }
+  if (endLine < startLine) return { ok: false, reason: 'line-range anchor endLine is before startLine' }
+  const quote = typeof value.quote === 'string' ? boundQuote(value.quote) : ''
+  // The sub-line selection is display data. An empty or non-string value
+  // degrades to "no selection" instead of rejecting the whole anchor.
+  const selectedText = typeof value.selectedText === 'string' && value.selectedText.trim() !== ''
+    ? boundQuote(value.selectedText)
+    : null
+  return {
+    ok: true,
+    anchor: {
+      kind: 'line-range',
+      path,
+      startLine,
+      endLine,
+      quote,
+      ...(typeof value.contextBefore === 'string' ? { contextBefore: boundQuote(value.contextBefore) } : {}),
+      ...(typeof value.contextAfter === 'string' ? { contextAfter: boundQuote(value.contextAfter) } : {}),
+      ...(selectedText === null ? {} : { selectedText }),
+    },
+  }
+}
+
 /**
  * Validate one anchor object from the wire and normalize its path.
  *
@@ -74,24 +110,8 @@ export function parseArtifactAnchor(value: unknown): AnchorCheck {
   if (!pathCheck.ok) return { ok: false, reason: `anchor.path: ${pathCheck.reason}` }
   const path = pathCheck.path
   switch (kind) {
-    case 'line-range': {
-      const { startLine, endLine } = value
-      if (!isPositiveInt(startLine) || !isPositiveInt(endLine)) {
-        return { ok: false, reason: 'line-range anchor needs positive startLine and endLine' }
-      }
-      if (endLine < startLine) return { ok: false, reason: 'line-range anchor endLine is before startLine' }
-      const quote = typeof value.quote === 'string' ? boundQuote(value.quote) : ''
-      const anchor: Extract<ArtifactAnchor, { kind: 'line-range' }> = {
-        kind,
-        path,
-        startLine,
-        endLine,
-        quote,
-        ...(typeof value.contextBefore === 'string' ? { contextBefore: boundQuote(value.contextBefore) } : {}),
-        ...(typeof value.contextAfter === 'string' ? { contextAfter: boundQuote(value.contextAfter) } : {}),
-      }
-      return { ok: true, anchor }
-    }
+    case 'line-range':
+      return parseLineRangeAnchor(value, path)
     case 'block': {
       if (typeof value.quote !== 'string' || value.quote.trim() === '') {
         return { ok: false, reason: 'block anchor needs a quote' }
@@ -209,6 +229,13 @@ export function deriveLineAnchor(
   }
 }
 
+
+/** Copy the display-only sub-line selection onto a re-derived anchor. */
+function keepSelection(original: ArtifactAnchor, derived: ArtifactAnchor): ArtifactAnchor {
+  if (original.kind !== 'line-range' || original.selectedText === undefined) return derived
+  return derived.kind === 'line-range' ? { ...derived, selectedText: original.selectedText } : derived
+}
+
 /** Outcome of relocating one thread after a file edit. */
 export interface AnchorRelocation {
   readonly status: 'unchanged' | 'moved' | 'stale'
@@ -276,5 +303,7 @@ export function relocateLineAnchor(content: string, anchor: ArtifactAnchor): Anc
     && derived.anchor.quote === anchor.quote
     && sameContext(anchor.contextBefore, derived.anchor.contextBefore)
     && sameContext(anchor.contextAfter, derived.anchor.contextAfter)
-  return { status: unchanged ? 'unchanged' : 'moved', anchor: derived.anchor }
+  // The derived anchor addresses the new lines; the stored sub-line selection
+  // is display data about the same quote, so a move keeps it.
+  return { status: unchanged ? 'unchanged' : 'moved', anchor: keepSelection(anchor, derived.anchor) }
 }

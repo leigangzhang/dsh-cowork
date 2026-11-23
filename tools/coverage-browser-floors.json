@@ -21,6 +21,10 @@
       "lineCoverage": 95.89,
       "functionCoverage": 97.37
     },
+    "src/client/work-item/comment-composer.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
+    },
     "src/client/work-item/editor.tsx": {
       "lineCoverage": 100,
       "functionCoverage": 100
@@ -28,6 +32,10 @@
     "src/client/work-item/list.tsx": {
       "lineCoverage": 97.7,
       "functionCoverage": 96.77
+    },
+    "src/client/work-item/panel-frames.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
     },
     "src/client/work-item/panel.tsx": {
       "lineCoverage": 95.16,
@@ -37,51 +45,47 @@
       "lineCoverage": 91.75,
       "functionCoverage": 80
     },
-    "src/client/work-item/viewers/canvas.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 100.0
+    "src/client/work-item/thread-list.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 92.31
     },
-    "src/client/work-item/viewers/diagram.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 100.0
-    },
-    "src/client/work-item/viewers/html.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 100.0
-    },
-    "src/client/work-item/viewers/source-lines.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 100.0
-    },
-    "src/client/work-item/viewers/viewer-document.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 100.0
+    "src/client/work-item/viewer-footer.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
     },
     "src/client/work-item/viewer-header.tsx": {
       "lineCoverage": 95.33,
       "functionCoverage": 90.91
     },
-    "src/client/work-item/viewer-footer.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 100.0
-    },
     "src/client/work-item/viewer-side-tabs.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 100.0
-    },
-    "src/client/work-item/comment-composer.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 100.0
-    },
-    "src/client/work-item/thread-list.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 92.31
+      "lineCoverage": 100,
+      "functionCoverage": 100
     },
     "src/client/work-item/viewer-toolbar.tsx": {
-      "lineCoverage": 100.0,
-      "functionCoverage": 100.0
+      "lineCoverage": 100,
+      "functionCoverage": 100
     },
-    "src/client/work-item/panel-frames.tsx": {
+    "src/client/work-item/viewers/canvas.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
+    },
+    "src/client/work-item/viewers/diagram.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
+    },
+    "src/client/work-item/viewers/html.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
+    },
+    "src/client/work-item/viewers/markdown-view.tsx": {
+      "lineCoverage": 95.03,
+      "functionCoverage": 98.31
+    },
+    "src/client/work-item/viewers/source-lines.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
+    },
+    "src/client/work-item/viewers/viewer-document.tsx": {
       "lineCoverage": 100,
       "functionCoverage": 100
     }

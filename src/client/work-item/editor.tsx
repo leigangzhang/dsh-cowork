@@ -65,6 +65,35 @@ function anchoredLineMarkers(lines: readonly number[]) {
   })
 }
 
+/** Reveal one 1-based source line and focus the editor. */
+function revealLine(view: EditorView, lineNumber: number): void {
+  const line = view.state.doc.line(Math.min(Math.max(lineNumber, 1), view.state.doc.lines))
+  view.dispatch({
+    selection: { anchor: line.from },
+    effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+  })
+  view.focus()
+}
+
+/** The viewer content scroller, with the document root as a safe fallback. */
+function scrollerOf(element: HTMLElement): HTMLElement {
+  return element.closest<HTMLElement>('[data-testid="cwi-content"]') ?? document.documentElement
+}
+
+/**
+ * The source line at the top of the editor viewport.
+ *
+ * CM6 is mounted with a min-height instead of its own scroll viewport, so a
+ * long document scrolls in the viewer content. The line block is looked up at
+ * the outer scroller's top rather than at `scrollDOM.scrollTop`, which stays 0.
+ */
+function topLine(view: EditorView): number {
+  const viewportTop = scrollerOf(view.dom).getBoundingClientRect().top
+  const offset = viewportTop - view.dom.getBoundingClientRect().top
+  const block = view.lineBlockAtHeight(Math.max(0, offset + 4))
+  return view.state.doc.lineAt(block.from).number
+}
+
 /** One text editor; the caller owns the draft and the save schedule. */
 export interface TextEditorProps {
   /** Current document text; external changes replace the editor document. */
@@ -84,6 +113,13 @@ export interface TextEditorProps {
    */
   readonly anchorsAuthoritative: boolean
   /**
+   * First 1-based line to reveal when the editor mounts. The reading surface
+   * passes its top block's line so a surface switch keeps the place.
+   */
+  readonly initialLine: number
+  /** Reports the source line at the top of the editor viewport on scroll. */
+  readonly onViewportLine?: ((line: number) => void) | undefined
+  /**
    * Syntax mode for the file. `plain` is used by formats with no editor
    * language (Mermaid source); the line numbers and anchors still work.
    */
@@ -98,6 +134,9 @@ function languageExtension(language: 'markdown' | 'html' | 'plain'): Extension {
 }
 
 /** The controlled CodeMirror editor used by the work-item viewer. */
+// The controlled-editor lifecycle: one mount, two value/anchor effects, and
+// the imperative view teardown are the CodeMirror contract.
+// fallow-ignore-next-line complexity
 export function TextEditor({
   value,
   onChange,
@@ -105,6 +144,8 @@ export function TextEditor({
   ariaLabel,
   anchoredLines,
   anchorsAuthoritative,
+  initialLine,
+  onViewportLine,
   language = 'markdown',
 }: TextEditorProps): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -114,6 +155,8 @@ export function TextEditor({
   const onBlurRef = useRef(onBlur)
   const anchoredLinesRef = useRef(anchoredLines)
   const anchorsAuthoritativeRef = useRef(anchorsAuthoritative)
+
+  const onViewportLineRef = useRef(onViewportLine)
   const [anchoredCompartment] = useState(() => new Compartment())
 
   valueRef.current = value
@@ -121,6 +164,7 @@ export function TextEditor({
   onBlurRef.current = onBlur
   anchoredLinesRef.current = anchoredLines
   anchorsAuthoritativeRef.current = anchorsAuthoritative
+  onViewportLineRef.current = onViewportLine
 
   // The view is created once; props flow through refs so a parent render never
   // destroys the editor state (history, selection) mid-edit.
@@ -154,10 +198,23 @@ export function TextEditor({
     })
     const view = new EditorView({ state, parent })
     viewRef.current = view
+    const report = (): void => {
+      if (disposed) return
+      onViewportLineRef.current?.(topLine(view))
+    }
+    revealLine(view, initialLine)
+    // The scroll effect is measured after this commit; reporting before that
+    // would hand the reading surface line 1 instead of the revealed line.
+    requestAnimationFrame(() => { requestAnimationFrame(report) })
+    view.scrollDOM.addEventListener('scroll', report, { passive: true })
+    const outerScroller = scrollerOf(view.dom)
+    outerScroller.addEventListener('scroll', report, { passive: true })
     return () => {
       // A blur while the host is being removed must not schedule a second save
       // next to the explicit "exit edit" flush.
       disposed = true
+      view.scrollDOM.removeEventListener('scroll', report)
+      outerScroller.removeEventListener('scroll', report)
       view.destroy()
       viewRef.current = null
     }

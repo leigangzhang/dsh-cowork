@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import '../support/ts-hook.mjs'
 const model = await import('../../src/client/work-item/model.ts')
+const artifactContract = await import('../../src/panel/artifact-contract.ts')
 
 /** One summary row with every field the rail reads. */
 function summary(overrides = {}) {
@@ -674,6 +675,16 @@ test('lineRangeAnnotation clamps the range and falls back to the primary path', 
   assert.equal(model.lineRangeAnnotation(['a'], { path: 'docs/f.md' }, 'docs/p.md', 1, 1).path, 'docs/f.md')
 })
 
+test('lineRangeAnnotation carries a bounded sub-line selection', () => {
+  const withSelection = model.lineRangeAnnotation(['alpha beta'], null, 'docs/p.md', 1, 1, '  beta  ')
+  assert.equal(withSelection.selectedText, 'beta')
+  assert.equal(withSelection.quote, 'alpha beta')
+  const blank = model.lineRangeAnnotation(['alpha'], null, 'docs/p.md', 1, 1, '   ')
+  assert.equal('selectedText' in blank, false)
+  const long = model.lineRangeAnnotation(['x'], null, 'docs/p.md', 1, 1, 's'.repeat(5000))
+  assert.equal(Array.from(long.selectedText).length, artifactContract.MAX_ARTIFACT_QUOTE_CHARS)
+})
+
 test('olderEntryVisible and the Escape rules match the drawer state', () => {
   assert.equal(model.olderEntryVisible(true, 'event-1'), true)
   assert.equal(model.olderEntryVisible(true, null), false)
@@ -738,4 +749,34 @@ test('rebindOldPath prefers the registered primary entry and falls back to prima
     model.rebindOldPath({ files: [{ path: 'docs/old.md' }], primaryPath: 'docs/gone.md' }),
     'docs/gone.md',
   )
+})
+
+test('saveTarget refuses a read-only preview and reports the addressed file', () => {
+  const context = { ownerSessionId: 'session-1', artifactId: 'artifact-1' }
+  const file = { path: 'docs/spec.md', revision: 2 }
+  assert.equal(model.saveTarget(true, context, file), null)
+  assert.equal(model.saveTarget(false, null, file), null)
+  assert.equal(model.saveTarget(false, context, null), null)
+  assert.deepEqual(model.saveTarget(false, context, file), { owner: context, file })
+})
+
+test('readOwnDraft hides the stored draft from a cross-session preview', () => {
+  const storage = new Map()
+  const savedWindow = globalThis.window
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => { storage.set(key, value) },
+      removeItem: (key) => { storage.delete(key) },
+    },
+  }
+  try {
+    model.savePersistedDraft('artifact-1', { content: 'draft', baseRevision: 2, baseVersion: 'v2', savedAt: 'now' })
+    assert.equal(model.readOwnDraft('artifact-1', true), null)
+    assert.deepEqual(model.readOwnDraft('artifact-1', false), {
+      content: 'draft', baseRevision: 2, baseVersion: 'v2', savedAt: 'now',
+    })
+  } finally {
+    globalThis.window = savedWindow
+  }
 })

@@ -12,7 +12,11 @@ interface ViewerToolbarProps {
   readonly attachments: number
   readonly editing: boolean
   readonly readMode: boolean
+  /** Whether the read/source switch applies to the current surface. */
+  readonly showMode: boolean
   readonly savePhase: SavePhase
+  /** A pending draft keeps the save state live even outside the editor. */
+  readonly dirty: boolean
   readonly revision: number
   readonly showRail: boolean
   readonly threadCount: number
@@ -30,7 +34,9 @@ export function ViewerToolbar({
   attachments,
   editing,
   readMode,
+  showMode,
   savePhase,
+  dirty,
   revision,
   showRail,
   threadCount,
@@ -58,7 +64,7 @@ export function ViewerToolbar({
         ))}
       </div>
       <span className="cwi-spacer" />
-      {viewTab === 'document' && !editing ? (
+      {showMode ? (
         <button
           type="button"
           className="cwi-mode"
@@ -73,9 +79,9 @@ export function ViewerToolbar({
           <span className="cwi-mode-option" data-active={readMode ? 'false' : 'true'}>源码</span>
         </button>
       ) : null}
-      <span className="cwi-save" data-testid="cwi-save-state" data-phase={editing ? savePhase : 'readonly'}>
+      <span className="cwi-save" data-testid="cwi-save-state" data-phase={editing || dirty ? savePhase : 'readonly'}>
         <span className="cwi-save-dot" aria-hidden="true" />
-        {editing ? saveStateLabel(savePhase, revision) : '只读'}
+        {editing || dirty ? saveStateLabel(savePhase, revision) : '只读'}
       </span>
       <button
         type="button"

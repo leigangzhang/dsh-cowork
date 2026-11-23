@@ -11,6 +11,7 @@ import {
   ARTIFACT_STATUS_LABELS,
   ARTIFACT_TYPE_LABELS,
   DISPATCH_STATE_LABELS,
+  MAX_ARTIFACT_QUOTE_CHARS,
   isTerminalDispatchState,
   type ActiveDispatchV1,
   type ArtifactAnchor,
@@ -490,24 +491,49 @@ interface LineRangeAnnotation {
   readonly startLine: number
   readonly endLine: number
   readonly quote: string
+  /**
+   * The user's sub-line selection, bounded like the quote. Display and prompt
+   * data only: the server rebuilds quote/context and relocation ignores it.
+   */
+  readonly selectedText?: string
 }
 
-/** Build the annotation one line range implies, or null for an empty range. */
+/** Cut a sub-line selection to the quote cap without splitting a code point. */
+function boundSelectedText(text: string): string | undefined {
+  const value = text.trim()
+  if (value === '') return undefined
+  const points = Array.from(value)
+  return points.length <= MAX_ARTIFACT_QUOTE_CHARS ? value : points.slice(0, MAX_ARTIFACT_QUOTE_CHARS).join('')
+}
+
+/**
+ * Build the annotation one line range implies, or null for an empty range.
+ * @param lines - source lines of the file.
+ * @param file - the file the range addresses, when known.
+ * @param primaryPath - fallback path when the file entry is missing.
+ * @param startLine - 1-based inclusive first line.
+ * @param endLine - 1-based inclusive last line.
+ * @param selectedText - the browser's sub-line selection, when it has one.
+ * @returns the line range with its full-line quote and optional selection.
+ */
 export function lineRangeAnnotation(
   lines: readonly string[],
   file: { readonly path: string } | null,
   primaryPath: string,
   startLine: number,
   endLine: number,
+  selectedText?: string,
 ): LineRangeAnnotation | null {
   const start = Math.max(1, startLine)
   const end = Math.min(endLine, Math.max(1, lines.length))
   if (end < start) return null
+  const bounded = selectedText === undefined ? undefined : boundSelectedText(selectedText)
   return {
     path: file?.path ?? primaryPath,
     startLine: start,
     endLine: end,
     quote: lines.slice(start - 1, end).join('\n'),
+    ...(bounded === undefined ? {} : { selectedText: bounded }),
   }
 }
 
@@ -1061,6 +1087,25 @@ export function removePersistedDraft(artifactId: string): void {
   } catch {
     // A storage failure must not break saving or closing.
   }
+}
+
+/** The owner-side draft lookup: a cross-session preview reads no draft. */
+export function readOwnDraft(artifactId: string, crossSession: boolean): PersistedDraft | null {
+  return crossSession ? null : readPersistedDraft(artifactId)
+}
+
+/** The owner context and file one save may address, or null when it may not. */
+export function saveTarget<
+  Owner extends { readonly ownerSessionId: string; readonly artifactId: string },
+  File extends { readonly path: string },
+>(
+  readOnly: boolean,
+  context: Owner | null,
+  file: File | null,
+): { readonly owner: Owner; readonly file: File } | null {
+  if (readOnly) return null
+  if (context === null || file === null) return null
+  return { owner: context, file }
 }
 
 /** A compact attachment size label. */

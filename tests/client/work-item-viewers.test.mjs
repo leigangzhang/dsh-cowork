@@ -101,9 +101,10 @@ test('readSurfaceKind renders only available files in read mode', () => {
   assert.equal(document.readSurfaceKind('diagram', true, true), 'diagram')
   assert.equal(document.readSurfaceKind('html', true, true), 'html')
   assert.equal(document.readSurfaceKind('canvas', true, true), 'canvas')
+  assert.equal(document.readSurfaceKind('text', true, true), 'markdown')
   assert.equal(document.readSurfaceKind('diagram', false, true), 'source')
   assert.equal(document.readSurfaceKind('diagram', true, false), 'source')
-  assert.equal(document.readSurfaceKind('text', true, true), 'source')
+  assert.equal(document.readSurfaceKind('text', true, false), 'source')
 })
 
 test('editorLanguage keeps HTML, diagram source, and canvas fallback distinct', () => {
@@ -111,10 +112,4 @@ test('editorLanguage keeps HTML, diagram source, and canvas fallback distinct', 
   assert.equal(document.editorLanguage('diagram', false), 'plain')
   assert.equal(document.editorLanguage('canvas', true), 'plain')
   assert.equal(document.editorLanguage('text', false), 'markdown')
-})
-
-test('sourceLinesMarkdown only renders Markdown for text in read mode', () => {
-  assert.equal(document.sourceLinesMarkdown('text', true), true)
-  assert.equal(document.sourceLinesMarkdown('text', false), false)
-  assert.equal(document.sourceLinesMarkdown('diagram', true), false)
 })

@@ -1,12 +1,12 @@
 # Cowork 工作项：Markdown 阅读与批注设计
 
-Status: proposed（2026-11-23，参考实现核实后修订）
+Status: implemented（2026-11-23；实现与验收见[决策记录](../../../.agents/notes/implemented/feature/2026-11-23-wysiwyg-markdown-editor.md)）
 
-本文拥有 Markdown / PLAN 的**阅读面**：markdown-it 渲染的流式排版、块级 pin、选区批注入口、frontmatter 展示和阅读/源码切换的阅读侧。源码态沿用 [`editor.tsx`](../../../src/client/work-item/editor.tsx) 的 CodeMirror 6 编辑器与既有保存/冲突路径；页面外壳、批注栏、附件和共享视觉基线见[查看器设计](work-item-artifact-viewer.md)、[批注栏设计](work-item-rail-and-annotation.md)与[视觉验收基线](visual-acceptance.md)，保存/冲突见[前端方案](work-item-frontend.md)与[后端方案](work-item-backend.md)。方向与取舍见[决策记录](../../../.agents/notes/proposed/feature/2026-11-23-wysiwyg-markdown-editor.md)。
+本文拥有 Markdown / PLAN 的**阅读面**：markdown-it 渲染的流式排版、块级 pin、选区批注入口、frontmatter 展示和阅读/源码切换的阅读侧。源码态沿用 [`editor.tsx`](../../../src/client/work-item/editor.tsx) 的 CodeMirror 6 编辑器与既有保存/冲突路径；页面外壳、批注栏、附件和共享视觉基线见[查看器设计](work-item-artifact-viewer.md)、[批注栏设计](work-item-rail-and-annotation.md)与[视觉验收基线](visual-acceptance.md)，保存/冲突见[前端方案](work-item-frontend.md)与[后端方案](work-item-backend.md)。方向与取舍见[决策记录](../../../.agents/notes/implemented/feature/2026-11-23-wysiwyg-markdown-editor.md)。
 
 ## 背景与调研
 
-当前 `text` 类型的阅读态是 [`source-lines.tsx`](../../../src/client/work-item/viewers/source-lines.tsx) + [`model.ts`](../../../src/client/work-item/model.ts) 的逐行「Markdown-ish」渲染：只有标题、列表、引用和行内粗斜体/代码，没有 GFM 表格、图片、链接、任务列表和完整代码块。源码态是 CM6 编辑器。用户要求阅读态达到 Typora 级别的排版，同时保留行号 anchor、批注和源码编辑。
+实现前 `text` 类型的阅读态是 [`source-lines.tsx`](../../../src/client/work-item/viewers/source-lines.tsx) + [`model.ts`](../../../src/client/work-item/model.ts) 的逐行「Markdown-ish」渲染：只有标题、列表、引用和行内粗斜体/代码，没有 GFM 表格、图片、链接、任务列表和完整代码块。用户要求阅读态达到 Typora 级别的排版，同时保留行号 anchor、批注和源码编辑。
 
 本机已有一个可运行的参考实现，用于核实「markdown-it 渲染 + CM6 源码编辑」的实际观感与边界：
 
@@ -59,7 +59,7 @@ Status: proposed（2026-11-23，参考实现核实后修订）
 
 ## 目标
 
-- 一个**阅读面**：markdown-it 将完整源文本渲染为流式 HTML；标题、段落、列表、任务列表、引用、链接、粗体/斜体/删除线、行内代码、围栏代码块、表格、图片、分割线、frontmatter 全部呈现。
+- 一个**阅读面**：markdown-it 将完整源文本渲染为流式 React 元素；标题、段落、列表、任务列表、引用、链接、粗体/斜体/删除线、行内代码、围栏代码块、表格、图片、分割线、frontmatter 全部呈现。
 - 一个**源码面**：保留现有 CM6 编辑器；文档、撤销/重做、自动保存、版本冲突、`line-range` anchor 和 quote 重定位都以完整 Markdown 源文本为真相。
 - 阅读面可批注：块级 pin 定位现有线程；选中文字后出现浮动「批注」入口，创建 `line-range` anchor（整行 quote + 可选 `selectedText`），不写源文件。
 - 阅读面不伪造逐行行号：块级 pin 和行范围提示；精确到源码行的操作在源码态完成。
@@ -93,7 +93,7 @@ ArtifactFileResponse.content（完整源文本）
         └─ CM6 源码态（editor.tsx，完整 content，含 frontmatter）
 ```
 
-- **依赖**：新增 `markdown-it`（MIT）。GFM 表格、删除线、自动链接由内核提供；任务列表由一个小型 custom list-item 规则实现，不引入插件。代码高亮 v1 不做，不引入 highlighter。
+- **依赖**：新增 `markdown-it@15.0.3`（MIT），固定版本并随锁文件提交。GFM 表格、删除线、自动链接由内核提供；任务列表由渲染层识别首个文本标记实现，不引入插件。代码高亮 v1 不做，不引入 highlighter。
 - **不做 HTML 字符串**：`md.render` 只用于参考实现对比；Cowork 用 `md.parse` 的 token 树渲染 React 元素，所有文本由 React 转义，图片/链接在创建节点前过 URL 白名单。
 - **token 渲染覆盖**：heading、paragraph、bullet/ordered list、list item、blockquote、fence、code、table/thead/tbody/tr/th/td、inline（text/strong/em/del/code/link/image/softbreak/hardbreak/html_inline）、hr、html_block（按字面）。
 - **块属性**：`data-src-start`、`data-src-end` 来自 token.map；`data-src-kind` 取 `heading`/`paragraph`/`list`/`item`/`quote`/`fence`/`table`/`hr`/`frontmatter`。容器和叶子都带属性，pin 取包含 anchor 行的**最深叶子块**。图片是段落内的 inline token，不单独成块，pin 落到所在段落。
@@ -200,7 +200,7 @@ interface MarkdownBlock {
 ### 链接、图片、表格、任务列表、代码块
 
 - 链接：`http(s)` 外链渲染 `<a target="_blank" rel="noopener noreferrer">`，点击直接打开；相对路径/锚点/其它 scheme 渲染为普通文字（v1 不支持站内跳转）。
-- 图片：`http(s)`、`cowork-attachment://<id>`、项目内相对路径按[附件管线](attachment-pipeline.md)解析；失败显示虚线占位块，不显示破图；alt 缺失时不伪造 alt，figure 下显示 11px「未提供图片说明」。
+- 图片：`http(s)` 直连；`cowork-attachment://<id>` 走现有附件读取路由；项目内相对路径通过白名单但在 v1 没有读取路由，渲染为 11px「图片地址不可用」占位；加载失败显示虚线占位块，不显示破图；alt 缺失时不伪造 alt，figure 下显示 11px「未提供图片说明」。
 - 表格：渲染完整表格；点击单元格不进入编辑；窄屏横向滚动在表格容器内，不撑破纸面；编辑切源码。
 - 任务列表：checkbox 14×14、disabled、不可点击；`[x]` 有勾，`[ ]` 为空；修改切源码。
 - 代码块：`<pre><code class="language-*">`，无高亮；横向滚动在块内；点击不进入编辑。
@@ -224,15 +224,16 @@ interface MarkdownBlock {
 
 - 不新增 wire 路由；渲染只消费 `ArtifactFileResponse.content`，保存/冲突/批注复用 `artifact.edit` / `artifact.comment` / `artifact.version-conflict`。
 - `line-range` anchor 增加可选 `selectedText?: string`（由[批注栏设计](work-item-rail-and-annotation.md)拥有）；`deriveLineAnchor` 仍从文件全文推导 quote/context，`relocateLineAnchor` 不使用 `selectedText`。
-- 客户端新增纯函数（`src/client/work-item/`，React-free，`node --test` 覆盖）：
+- 客户端新增纯函数（`src/client/work-item/viewers/markdown.ts`，React-free，`node --test` 覆盖）；渲染组件在 `viewers/markdown-view.tsx`，阅读态样式在 `reading-styles.ts`：
+  - `splitFrontmatter(content): { frontmatter: string | null; body: string; bodyStartLine: number }`
   - `parseMarkdownBlocks(content, bodyStartLine): MarkdownBlock[]`
   - `blockAtLine(blocks, line): MarkdownBlock | null`
-  - `splitFrontmatter(content): { frontmatter: string; body: string; bodyStartLine: number }`
   - `lineRangeForSelection(blocks, lines, startBlock, endBlock, selectedText): { startLine; endLine }`
   - `sanitizeLinkHref(href): string | null`
   - `sanitizeImageSrc(src, allow): string | null`
   - `renderTaskMarker(text): { checked: boolean; text: string } | null`
-- 图片 URL 解析复用[附件管线](attachment-pipeline.md)与宿主 `/api/file`；无新路由。
+  - `readFallbackReason(content): string | null`（2 MB / 20k 行降级判断）
+- 图片 URL 解析复用既有附件读取路由；无新路由。项目内相对图片没有宿主读取入口，v1 只保留白名单校验与占位，不伪造请求。
 - 版本/冲突/附件 chip/活动时长沿用现有契约；不添加 diff 字段（v1 无行级 diff）。
 - 权限边界不变：编辑写权限沿用 `artifact/edit` 的 `editable` + owner 校验；跨会话只读由 `ownerSessionId` 判定。
 
@@ -325,9 +326,9 @@ interface MarkdownBlock {
 
 | 层 | 检查 | 哪个会红 |
 |---|---|---|
-| 单测（`node --test`） | `splitFrontmatter` 偏移、`parseMarkdownBlocks` 的 token map（标题/段落/列表项/引用/围栏/表格行）、`blockAtLine`、`lineRangeForSelection` 唯一命中/重复/跨块回退、`sanitizeLinkHref`、`sanitizeImageSrc`、任务标记 | `tests/client/work-item-*` 红 |
-| 单测 | 渲染路径无 `innerHTML`/`dangerouslySetInnerHTML`；原始 HTML 字面；`javascript:`/`data:` 拒绝；表格对齐只接受三值 | 安全单测/静态检查红 |
-| 浏览器（`npm run test:browser`） | 阅读态构造渲染、选区浮动入口、120ms debounce、pin 点击/线程高亮、阅读↔源码滚动映射、dirty 时 pin/批注禁用、Esc、四档宽度、暗色 | `tests/client/work-item/*` + `test:browser` 红 |
+| 单测（`node --test`） | `splitFrontmatter` 偏移、`parseMarkdownBlocks` 的 token map（标题/段落/列表项/引用/围栏/表格行）、`blockAtLine`、`lineRangeForSelection` 唯一命中/重复/跨块回退、`sanitizeLinkHref`、`sanitizeImageSrc`、任务标记、降级阈值 | `tests/client/work-item-markdown.test.mjs` 红 |
+| 单测 | 渲染路径无 `innerHTML`/`dangerouslySetInnerHTML`；原始 HTML 字面；`javascript:`/`data:` 拒绝；表格对齐只接受三值 | 安全单测/静态检查红；浏览器 `scenarioWorkItemMarkdown` 断言 |
+| 浏览器（`npm run test:browser`） | 阅读态构造渲染（表格/任务/代码/图片成功与失败占位/data: 拒绝/frontmatter）、块级 pin（含 table 外置容器）与 Escape 清除高亮、选区浮动入口与同任务内不出现的 debounce 断言、阅读↔源码滚动位置、dirty 时 pin/批注禁用与保存恢复、跨会话可切到只读源码面、不可进入编辑、1024/768/820/390 无横向溢出、降级提示 | `tests/browser/scenarios.mjs` 的 `scenarioWorkItemMarkdown` 与跨会话/草稿场景红 |
 | 浏览器 | 保存/冲突三选、跨会话只读、图片失败占位、任务列表不可勾选 | 浏览器 lane 红 |
 | 真实宿主 | 图片粘贴上传 → 附件引用 → 阅读态渲染；保存 → anchor 重定位 | `test:host-smoke` / 真机 E2E |
 | 截图 | 1280/1024/768/390 亮暗各一；关键盒 ±2px；双板 demo 实际生成 | 交付闸门 `page-verify` + `dev_visual_check` |
@@ -339,11 +340,12 @@ interface MarkdownBlock {
 - **token map 覆盖**：实测 `th/td` 无 map；表格单元格不设行级地址。若后续要单元格批注，走 `table-cell` anchor（契约已有 kind，但当前无创建/重定位路径），不在本次实现。
 - **选区行范围启发式**：去标记纯文本匹配在复杂行内格式/重复文本上会回退整块；`selectedText` 仍准确，行范围可能比选区宽。实现期用 fixture 语料核对准确率，必要时在 composer 显示「整块范围」提示。
 - **frontmatter 边界**：YAML 内出现 `---` 行、文件不以 `---` 开头等场景需 fixture；v1 只按首尾 `---` 拆分，不解析 YAML。
-- **阅读 DOM 性能**：大文件/长表格的节点数；按 2 MB / 20k 行阈值降级源码态，不做无界渲染。
-- **新增依赖**：`markdown-it` 的版本、打包体积、许可证在实现期核对；不安装未锁定版本。
+- **阅读 DOM 性能**：大文件/长表格的节点数；按 2 MB / 20k 行阈值降级为编号源码视图（保留 Markdown-ish 行内样式），不做无界渲染。降级路径的 2 MB 浏览器 fixture 布局很慢，浏览器 lane 只断言降级分支挂载与提示文案。
+- **新增依赖**：`markdown-it@15.0.3`（MIT），由客户端 esbuild 闭包内联；版本固定在 `package.json`，锁文件随依赖提交。代码高亮未引入。
 - **代码高亮缺失**：v1 代码块纯文本，视觉上弱于 Typora；高亮作为后续独立变更，不阻塞阅读/批注验收。
 - **dirty 时禁批注**：用户可能期望边改边批注；这是 anchor 与已保存版本一致性的取舍，提示文案必须清楚。
-- **源码态暗色**：现有 CM6 主题若未完全跟随宿主暗色，需在实现期核对；不在本文重写编辑器。
+- **源码态暗色**：CM6 仍用默认浅色高亮，未随宿主暗色重写；这是既有行为，不在本文重写编辑器。阅读态复用宿主 alias token，但浏览器 lane 没有暗色截图，暗色可读性仍属未核实。
+- **项目内相对图片**：白名单接受该写法，但当前没有宿主读取路由，渲染为占位；需要真实开发时另加受控读取入口，不给 `<img>` 直接拼宿主路径。
 - **大文件/超长行**：无自动换行的源码态是既有行为；阅读态流式换行不受影响。
-- **回滚**：阅读态是新增渲染路径，旧 `source-lines.tsx` 的逐行阅读可保留为逃生门；出问题切回旧路径，不改 anchor/保存/批注契约。删除旧路径前必须完成浏览器 lane 与四档截图验收。
-- **未核实**：宿主 `/api/file` 对项目相对图片的真实边界；跨会话只读下已有 pin 的可点击性；390 档表格/长链接的截断；CM6 源码态滚动定位 API 的最终调用面。
+- **回滚**：阅读态是新增渲染路径，旧 `source-lines.tsx` 的逐行阅读保留为逃生门（也是大文件降级面）；出问题切回旧路径，不改 anchor/保存/批注契约。删除旧路径前必须完成浏览器 lane 与四档截图验收。
+- **未核实**：跨会话只读下已有 pin 的可点击性（浏览器 lane 只断言了批注入口禁用）；390 档表格/长链接的截断与四档逐像素截图；CM6 在超长行下的滚动定位手感。

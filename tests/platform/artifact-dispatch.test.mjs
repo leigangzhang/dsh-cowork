@@ -283,12 +283,13 @@ test('the prompt carries the anchor quote and its surrounding lines', () => {
       body: 'please fix',
       anchor: {
         kind: 'line-range', path: 'docs/spec.md', startLine: 2, endLine: 2,
-        quote: 'body', contextBefore: '# Spec', contextAfter: '',
+        quote: 'body', contextBefore: '# Spec', contextAfter: '', selectedText: 'selected words',
       },
     })],
     repoPath: '/repo',
   })
   assert.match(text, /Quote: body/)
+  assert.match(text, /Selected: selected words/)
   assert.match(text, /Before: # Spec/)
 })
 

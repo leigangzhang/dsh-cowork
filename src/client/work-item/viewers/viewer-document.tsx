@@ -15,13 +15,13 @@ import type { ReactElement } from 'react'
 import type { ArtifactFileResponse } from '../../../panel/artifact-contract.js'
 import type { SaveConflict } from '../api.ts'
 import { TextEditor } from '../editor.tsx'
-import { formatBytes, type LineSelection, type ThreadPin,
-  baseName,
-} from '../model.ts'
+import { formatBytes, type LineSelection, type ThreadPin, baseName } from '../model.ts'
 import { CanvasSurface } from './canvas.tsx'
-import { editorLanguage, readSurfaceKind, sourceLinesMarkdown, type ViewerKind } from './document.ts'
+import type { ReadingSurfaceConfig } from '../reading-surface.ts'
+import { editorLanguage, readSurfaceKind, type ViewerKind } from './document.ts'
 import { DiagramView } from './diagram.tsx'
 import { HtmlPreview } from './html.tsx'
+import { MarkdownReadView } from './markdown-view.tsx'
 import { SourceLines } from './source-lines.tsx'
 
 /** Props shared by the document-tab renderers. */
@@ -47,6 +47,10 @@ export interface DocumentSurfaceProps {
   readonly pins: ReadonlyMap<number, ThreadPin>
   readonly staleLines: ReadonlySet<number>
   readonly attachments: readonly PaperAttachment[]
+  /** Markdown read-mode state; non-text families ignore it. */
+  readonly reading: ReadingSurfaceConfig
+  /** First source line the editor should show when it mounts. */
+  readonly editorStartLine: number
   readonly onChangeDraft: (content: string) => void
   readonly onSaveDraft: () => void
   readonly onAnnotate: () => void
@@ -161,6 +165,8 @@ function EditorSurface({
   anchoredLineList,
   dirty,
   conflict,
+  editorStartLine,
+  reading,
   onChangeDraft,
   onSaveDraft,
 }: Pick<DocumentSurfaceProps,
@@ -175,6 +181,8 @@ function EditorSurface({
   | 'anchoredLineList'
   | 'dirty'
   | 'conflict'
+  | 'editorStartLine'
+  | 'reading'
   | 'onChangeDraft'
   | 'onSaveDraft'
 >): ReactElement {
@@ -191,11 +199,54 @@ function EditorSurface({
           ariaLabel="编辑文件内容"
           anchoredLines={anchoredLineList}
           anchorsAuthoritative={!dirty}
+          initialLine={editorStartLine}
+          onViewportLine={reading.onViewportLine}
           onChange={onChangeDraft}
           onBlur={() => { if (dirty && conflict === null) onSaveDraft() }}
         />
       </div>
     </Paper>
+  )
+}
+
+/** The range annotation bar above the numbered source lines. */
+// The disabled reason and range label are the bar's whole state matrix.
+// fallow-ignore-next-line complexity
+function SelectionBar({
+  selection,
+  readOnly,
+  annotateDisabled,
+  onAnnotate,
+  onClearSelection,
+}: {
+  readonly selection: LineSelection
+  readonly readOnly: boolean
+  readonly annotateDisabled: boolean
+  readonly onAnnotate: () => void
+  readonly onClearSelection: () => void
+}): ReactElement {
+  return (
+    <div className="cwi-selection-bar">
+      <span>
+        已选第 {selection.startLine}
+        {selection.endLine === selection.startLine ? '' : `–${selection.endLine}`} 行
+      </span>
+      <button
+        type="button"
+        className="cwi-primary"
+        data-testid="cwi-annotate"
+        disabled={readOnly || annotateDisabled}
+        title={readOnly
+          ? '跨会话只读：切到所属会话后才能批注'
+          : (annotateDisabled ? '未保存草稿或版本冲突：处理后可批注' : undefined)}
+        onClick={onAnnotate}
+      >
+        批注
+      </button>
+      <button type="button" className="cwi-secondary" onClick={onClearSelection}>
+        取消
+      </button>
+    </div>
   )
 }
 
@@ -208,6 +259,7 @@ function SourceSurface({
   pins,
   markdown,
   readOnly,
+  annotateDisabled = false,
   onAnnotate,
   onAnnotateLine,
   onClearSelection,
@@ -227,29 +279,19 @@ function SourceSurface({
   | 'onPickPin'
 > & {
   readonly markdown: boolean
+  /** An unsaved draft or a conflict also blocks new line annotations. */
+  readonly annotateDisabled?: boolean
 }): ReactElement {
   return (
     <>
       {selection === null ? null : (
-        <div className="cwi-selection-bar">
-          <span>
-            已选第 {selection.startLine}
-            {selection.endLine === selection.startLine ? '' : `–${selection.endLine}`} 行
-          </span>
-          <button
-            type="button"
-            className="cwi-primary"
-            data-testid="cwi-annotate"
-            disabled={readOnly}
-            title={readOnly ? '跨会话只读：切到所属会话后才能批注' : undefined}
-            onClick={onAnnotate}
-          >
-            批注
-          </button>
-          <button type="button" className="cwi-secondary" onClick={onClearSelection}>
-            取消
-          </button>
-        </div>
+        <SelectionBar
+          selection={selection}
+          readOnly={readOnly}
+          annotateDisabled={annotateDisabled}
+          onAnnotate={onAnnotate}
+          onClearSelection={onClearSelection}
+        />
       )}
       <SourceLines
         lines={lines}
@@ -263,6 +305,37 @@ function SourceSurface({
         onPickPin={onPickPin}
       />
     </>
+  )
+}
+
+/** Footer hint of the Markdown reading surface. */
+function readingFooter(reading: ReadingSurfaceConfig, readOnly: boolean): string {
+  if (readOnly) return '跨会话只读预览 · 批注和回复在所属会话中进行'
+  if (reading.dirty) return '未保存草稿：保存后可批注'
+  if (reading.annotateDisabled) return '当前状态不可批注'
+  return '选中文字后点「批注」 · 模型回复会挂到批注上'
+}
+
+/** The Markdown flow surface, or the numbered fallback when it is too large. */
+function MarkdownSurface({ reading }: {
+  readonly reading: ReadingSurfaceConfig
+}): ReactElement {
+  return (
+    <MarkdownReadView
+      content={reading.content}
+      threads={reading.threads}
+      pinsVisible={!reading.dirty}
+      annotateDisabled={reading.annotateDisabled}
+      annotateReason={reading.annotateReason}
+      selectedAnchor={reading.selectedAnchor}
+      focusLine={reading.focusLine}
+      focusToken={reading.focusToken}
+      imageUrl={reading.imageUrl}
+      onAnnotate={reading.onAnnotate}
+      onPickPin={reading.onPickPin}
+      onViewportLine={reading.onViewportLine}
+      onClearThread={reading.onClearThread}
+    />
   )
 }
 
@@ -281,6 +354,7 @@ function ReadSurface({
   lines,
   anchoredLines,
   readOnly,
+  reading,
   onAnnotate,
   onAnnotateLine,
   onClearSelection,
@@ -298,6 +372,7 @@ function ReadSurface({
   | 'lines'
   | 'anchoredLines'
   | 'readOnly'
+  | 'reading'
   | 'onAnnotate'
   | 'onAnnotateLine'
   | 'onClearSelection'
@@ -320,6 +395,35 @@ function ReadSurface({
     const sceneKey = `view-${String(file!.revision)}`
     return <CanvasSurface key={sceneKey} content={file!.content} editable={false} sceneKey={sceneKey} />
   }
+  if (surface === 'markdown' && reading.fallback === null) {
+    return (
+      <Paper kind={kind} file={file} typeName={typeName} attachments={attachments} footer={readingFooter(reading, readOnly)}>
+        <MarkdownSurface reading={reading} />
+      </Paper>
+    )
+  }
+  if (surface === 'markdown') {
+    return (
+      <Paper kind={kind} file={file} typeName={typeName} attachments={attachments} footer="文件较大 · 已切换为源码视图">
+        <div className="cwi-receipt" data-testid="cwi-md-fallback">{reading.fallback}</div>
+        <SourceSurface
+          selection={selection}
+          lines={lines}
+          anchoredLines={anchoredLines}
+          staleLines={staleLines}
+          pins={pins}
+          markdown={kind === 'text'}
+          readOnly={readOnly}
+          annotateDisabled={reading.annotateDisabled}
+          onAnnotate={onAnnotate}
+          onAnnotateLine={onAnnotateLine}
+          onClearSelection={onClearSelection}
+          onPickLine={onPickLine}
+          onPickPin={onPickPin}
+        />
+      </Paper>
+    )
+  }
   return (
     <Paper
       kind={kind}
@@ -328,9 +432,7 @@ function ReadSurface({
       attachments={attachments}
       footer={readOnly
         ? '跨会话只读预览 · 批注和回复在所属会话中进行'
-        : (sourceLinesMarkdown(kind, readMode)
-          ? '选中行后可直接批注 · 模型回复会挂到批注上'
-          : '源码按行展示 · 选中行后可直接批注')}
+        : '源码按行展示 · 选中行后可直接批注'}
     >
       <SourceSurface
         selection={selection}
@@ -338,7 +440,7 @@ function ReadSurface({
         anchoredLines={anchoredLines}
         staleLines={staleLines}
         pins={pins}
-        markdown={sourceLinesMarkdown(kind, readMode)}
+        markdown={false}
         readOnly={readOnly}
         onAnnotate={onAnnotate}
         onAnnotateLine={onAnnotateLine}

@@ -1,6 +1,7 @@
 /** User-outcome scenarios for the real DSH browser panel lane. */
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { BROWSER_ARTIFACT, BROWSER_REQUESTS, BROWSER_SPEC, BROWSER_SPEC_PATH, BROWSER_TOPICS } from './fixtures.mjs'
 
@@ -793,15 +794,25 @@ async function scenarioWorkItemCrossSession(page, fixtures) {
   assert.match(await banner.innerText(), /当前会话不是该工作项所属会话/)
   assert.match(await banner.innerText(), /在所属会话打开/)
   assert.equal(await page.getByTestId('cwi-edit').isDisabled(), true)
+  // A read-only preview can read the numbered source but never opens an editor.
+  const mode = page.getByTestId('cwi-mode')
+  assert.equal(await mode.getAttribute('data-mode'), 'read')
+  await mode.click()
+  assert.equal(await mode.getAttribute('data-mode'), 'source')
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+  assert.equal(await page.getByTestId('cwi-editor').count(), 0)
+  await mode.click()
+  await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
   assert.equal(await page.getByTestId('cwi-confirm').isDisabled(), true)
   await openRail(page)
   assert.equal(await page.getByTestId('cwi-thread-reply').first().isDisabled(), true)
   assert.equal(await page.getByTestId('cwi-thread-toggle').first().isDisabled(), true)
   assert.equal(await page.getByTestId('cwi-composer').isDisabled(), true)
   assert.equal(await page.getByTestId('cwi-submit').isDisabled(), true)
-  await page.locator('[data-testid="cwi-line"][data-line="4"]').click()
+  await selectReadingText(page, '第二段')
   assert.equal(await page.getByTestId('cwi-annotate').isDisabled(), true)
-  await page.locator('.cwi-selection-bar').getByRole('button', { name: '取消' }).click()
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-md-selection').waitFor({ state: 'detached', timeout: 5_000 })
 
   // T8: the cross-session preview reads the same artifact through its owner
   // session, and "open in the owning session" switches without a reload.
@@ -1046,13 +1057,26 @@ async function scenarioWorkItemChain(page) {
   await existing.waitFor({ timeout: 10_000 })
   assert.equal(await existing.getAttribute('data-resolved'), 'false')
 
-  // A line and a shift-extended range become one anchored comment.
-  await page.locator('[data-testid="cwi-line"][data-line="4"]').click()
-  await page.locator('[data-testid="cwi-line"][data-line="5"]').click({ modifiers: ['Shift'] })
+  // A cross-block text selection becomes one anchored comment; the anchor
+  // keeps the selected text beside the full-line quote.
+  await selectReadingRange(page, '第一段：逐行批注。', '第二段：模型与用户共享的版本。')
   await page.getByTestId('cwi-annotate').click()
+  assert.match(await page.getByTestId('cwi-rail').innerText(), /第 3–4 行/)
   const composer = page.getByTestId('cwi-composer')
+  const commentRequest = page.waitForRequest((request) => {
+    try {
+      return new URL(request.url()).pathname === '/api/cowork.artifact.comment'
+    } catch {
+      return false
+    }
+  })
   await composer.fill('浏览器 lane 的新批注')
   await page.getByTestId('cwi-submit').click()
+  const postedAnchor = (await commentRequest).postDataJSON().anchor
+  assert.equal(postedAnchor.startLine, 3)
+  assert.equal(postedAnchor.endLine, 4)
+  assert.match(postedAnchor.selectedText, /第一段/)
+  assert.match(postedAnchor.selectedText, /第二段/)
   const created = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '浏览器 lane 的新批注' })
   await created.waitFor({ timeout: 10_000 })
   assert.equal(await created.getAttribute('data-resolved'), 'false')
@@ -1121,6 +1145,474 @@ async function toggleTextEditing(page) {
   await page.getByTestId('cwi-edit').click()
 }
 
+/** Select one substring inside the rendered Markdown and wait for the entry. */
+async function selectReadingText(page, needle) {
+  const found = await page.evaluate((text) => {
+    const root = document.querySelector('[data-testid="cwi-md-read"]')
+    if (root === null) return false
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    const nodes = []
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) nodes.push(node)
+    const target = nodes
+      .map((node) => ({ node, index: node.textContent?.indexOf(text) ?? -1 }))
+      .find((entry) => entry.index >= 0)
+    if (target === undefined) return false
+    const range = document.createRange()
+    range.setStart(target.node, target.index)
+    range.setEnd(target.node, target.index + text.length)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return true
+  }, needle)
+  assert.equal(found, true, `reading text not found: ${needle}`)
+  await page.getByTestId('cwi-md-selection').waitFor({ timeout: 10_000 })
+}
+
+/** Start a reading selection and report whether the entry is still absent. */
+async function selectReadingTextImmediately(page, needle) {
+  return page.evaluate((text) => {
+    const root = document.querySelector('[data-testid="cwi-md-read"]')
+    if (root === null) return false
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    const nodes = []
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) nodes.push(node)
+    const target = nodes
+      .map((node) => ({ node, index: node.textContent?.indexOf(text) ?? -1 }))
+      .find((entry) => entry.index >= 0)
+    if (target === undefined) return false
+    const range = document.createRange()
+    range.setStart(target.node, target.index)
+    range.setEnd(target.node, target.index + text.length)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    // The entry is debounced, so it cannot exist in this same task.
+    return document.querySelector('[data-testid="cwi-md-selection"]') === null
+  }, needle)
+}
+
+/** Select from one substring through another, spanning rendered blocks. */
+async function selectReadingRange(page, startText, endText) {
+  const found = await page.evaluate(({ start, end }) => {
+    const root = document.querySelector('[data-testid="cwi-md-read"]')
+    if (root === null) return false
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    const nodes = []
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) nodes.push(node)
+    const locate = (text) => {
+      for (const node of nodes) {
+        const index = node.textContent?.indexOf(text) ?? -1
+        if (index >= 0) return { node, index }
+      }
+      return null
+    }
+    const matches = [locate(start), locate(end)]
+    if (matches.some((match) => match === null)) return false
+    const [first, last] = matches
+    const range = document.createRange()
+    range.setStart(first.node, first.index)
+    range.setEnd(last.node, last.index + end.length)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return true
+  }, { start: startText, end: endText })
+  assert.equal(found, true, `reading range not found: ${startText} … ${endText}`)
+  await page.getByTestId('cwi-md-selection').waitFor({ timeout: 10_000 })
+}
+
+/**
+ * The Markdown reading surface: rich block rendering, block pins, selection
+ * annotate, the dirty-draft gate, and frontmatter as a read-only header.
+ *
+ * The seeded file is mocked twice so one scenario can exercise frontmatter,
+ * tables, task lists, links, images, raw HTML, and the large-file layout
+ * without committing a second fixture to the workspace profile.
+ */
+/** One mocked file response for the Markdown scenario. */
+function markdownFile(content) {
+  return {
+    ok: true,
+    artifactId: BROWSER_ARTIFACT,
+    path: BROWSER_SPEC_PATH,
+    mediaType: 'text/markdown',
+    content,
+    size: Buffer.byteLength(content, 'utf8'),
+    sha256: '',
+    revision: 1,
+    fsVersion: 'fixture-markdown',
+  }
+}
+
+/** The rich Markdown fixture; all three table rows stay on lines 14–16. */
+function richMarkdown(imageBase) {
+  return [
+    '# 富文本标题',
+    '',
+    '正文含 **粗体**、*斜体*、~~删除~~、`行内代码`、[外链](https://example.com/spec) 与 [相对](./docs/x.md)。',
+    '',
+    '- [x] 已完成任务',
+    '- [ ] 未完成任务',
+    '',
+    '> 引用段落',
+    '',
+    '```ts',
+    'const a = 1',
+    '```',
+    '',
+    '| 左 | 中 | 右 |',
+    '|:--|:-:|--:|',
+    '| 1 | 2 | 3 |',
+    '',
+    '3. 三',
+    '4. 四',
+    '',
+    `![成功的图片](${imageBase}/pixel.png)`,
+    '![有说明的图片](https://127.0.0.1:9/a.png)',
+    '![](https://127.0.0.1:9/b.png)',
+    '',
+    '![坏图](data:image/png;base64,AAAA)',
+    '',
+    '<img src=x onerror=alert(1)> 按字面显示',
+    '',
+    ...Array.from({ length: 40 }, (_, index) => `填充段落 ${index}。`).flatMap(line => [line, '']),
+    '滚动锚点段落。',
+    '',
+    ...Array.from({ length: 20 }, (_, index) => `尾部段落 ${index}。`).flatMap(line => [line, '']),
+    '---',
+  ].join('\n')
+}
+
+const FRONTMATTER_MARKDOWN = [
+  '---',
+  'status: proposed',
+  'owner: 工作项页设计',
+  '---',
+  '# 元数据文档',
+  '',
+  '正文。',
+].join('\n')
+
+/** One comment row anchored in the mocked table (line 14 of the rich text). */
+const TABLE_COMMENT = {
+  version: 1,
+  eventId: 'comment-event-browser-table',
+  artifactId: BROWSER_ARTIFACT,
+  commentId: 'comment-browser-table',
+  threadId: 'comment-browser-table',
+  type: 'create',
+  author: 'user',
+  body: '表格批注',
+  anchor: {
+    kind: 'line-range',
+    path: BROWSER_SPEC_PATH,
+    startLine: 14,
+    endLine: 14,
+    quote: '| 1 | 2 | 3 |',
+  },
+  createdAt: '2026-01-01T00:00:00.000Z',
+}
+
+async function scenarioWorkItemMarkdown(page, fixtures) {
+  // A local image endpoint proves the successful <img> path without external
+  // network: the reading surface only needs a real decodable response.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+  const imageServer = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'image/png' })
+    response.end(png)
+  })
+  await new Promise((resolve) => { imageServer.listen(0, '127.0.0.1', resolve) })
+  const address = imageServer.address()
+  const imageBase = `http://127.0.0.1:${address.port}`
+  let fileContent = richMarkdown(imageBase)
+  await page.route('**/api/cowork.artifact.file*', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(markdownFile(fileContent)) })
+  })
+  // The seeded file has no line 14; mock one thread there so the table block's
+  // pin is exercised without inventing a server-side anchor.
+  await page.route('**/api/cowork.artifact.comments*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.events = [...(body.events ?? []), TABLE_COMMENT]
+    await route.fulfill({ response, json: body })
+  })
+  try {
+    await openWorkItemTab(page)
+    await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
+    const reading = page.getByTestId('cwi-md-read')
+    await reading.waitFor({ timeout: 15_000 })
+
+    // Rich block rendering.
+    assert.equal(await page.getByTestId('cwi-md-frontmatter').count(), 0)
+    assert.match(await reading.innerText(), /富文本标题/)
+    assert.ok(await page.locator('.cwi-md-read strong').count() >= 1)
+    assert.equal(await page.locator('.cwi-md-read del').count(), 1)
+    assert.ok(await page.locator('.cwi-md-read code').count() >= 1)
+    const link = page.locator('.cwi-md-link').first()
+    assert.equal(await link.getAttribute('href'), 'https://example.com/spec')
+    assert.equal(await link.getAttribute('target'), '_blank')
+    assert.equal(await link.getAttribute('rel'), 'noopener noreferrer')
+    assert.equal(await page.locator('a[href="./docs/x.md"]').count(), 0, 'relative links stay text')
+    assert.match(await reading.innerText(), /<img src=x onerror=alert\(1\)> 按字面显示/)
+    assert.equal(await page.locator('.cwi-md-hr').count(), 1)
+    assert.match(await page.locator('.cwi-md-pre').innerText(), /const a = 1/)
+
+    const boxes = page.getByTestId('cwi-md-task')
+    assert.equal(await boxes.count(), 2)
+    assert.equal(await boxes.nth(0).isChecked(), true)
+    assert.equal(await boxes.nth(1).isChecked(), false)
+    assert.equal(await boxes.nth(0).isDisabled(), true)
+
+    const ordered = page.locator('.cwi-md-read ol')
+    assert.equal(await ordered.count(), 1)
+    assert.equal(await ordered.getAttribute('start'), '3')
+    assert.match(await ordered.innerText(), /三/)
+
+    const headers = page.locator('.cwi-md-table th')
+    assert.equal(await headers.count(), 3)
+    assert.equal(await headers.nth(0).evaluate(element => element.style.textAlign), 'left')
+    assert.equal(await headers.nth(1).evaluate(element => element.style.textAlign), 'center')
+    assert.equal(await headers.nth(2).evaluate(element => element.style.textAlign), 'right')
+
+    // Reading ↔ source keeps the place: scroll the quote to the top, switch to
+    // the editor and back, and the same block is near the reading top.
+    const scrollSetup = await page.evaluate(() => {
+      const content = document.querySelector('[data-testid="cwi-content"]')
+      const marker = [...document.querySelectorAll('[data-src-kind="paragraph"]')]
+        .find(element => element.textContent?.trim() === '滚动锚点段落。')
+      if (content === null || marker === undefined) return null
+      const targetLine = Number(marker.getAttribute('data-src-start'))
+      content.scrollTop += marker.getBoundingClientRect().top - content.getBoundingClientRect().top
+      return {
+        targetLine,
+        scrollTop: content.scrollTop,
+        maxScroll: content.scrollHeight - content.clientHeight,
+      }
+    })
+    assert.notEqual(scrollSetup, null, 'the reading content and scroll marker must exist')
+    assert.ok(scrollSetup.scrollTop > 0, `the reading content must scroll (${JSON.stringify(scrollSetup)})`)
+    await page.evaluate(() => new Promise((resolve) => {
+      requestAnimationFrame(() => { requestAnimationFrame(resolve) })
+    }))
+    await page.waitForFunction((line) => {
+      const article = document.querySelector('[data-testid="cwi-md-read"]')
+      return Number(article?.getAttribute('data-viewport-line') ?? '0') === line
+    }, scrollSetup.targetLine, { timeout: 5_000 })
+    await page.getByTestId('cwi-mode').click()
+    await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+    await page.locator('.cm-line').filter({ hasText: '滚动锚点段落。' }).first().waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-mode').click()
+    await reading.waitFor({ timeout: 10_000 })
+    // The focus scroll is a passive effect after the remount; wait for it
+    // instead of sampling the pre-effect layout.
+    await page.waitForFunction(() => {
+      const content = document.querySelector('[data-testid="cwi-content"]')
+      const marker = [...document.querySelectorAll('[data-src-kind="paragraph"]')]
+        .find(element => element.textContent?.trim() === '滚动锚点段落。')
+      if (marker === undefined || content === null) return false
+      return marker.getBoundingClientRect().top - content.getBoundingClientRect().top < 140
+    }, undefined, { timeout: 5_000 })
+    const markerTop = await page.evaluate(() => {
+      const content = document.querySelector('[data-testid="cwi-content"]')
+      const marker = [...document.querySelectorAll('[data-src-kind="paragraph"]')]
+        .find(element => element.textContent?.trim() === '滚动锚点段落。')
+      return marker === undefined || content === null
+        ? Number.POSITIVE_INFINITY
+        : marker.getBoundingClientRect().top - content.getBoundingClientRect().top
+    })
+    assert.ok(markerTop < 140, `the scroll marker should be near the reading top (top=${markerTop})`)
+
+    // The successful image loads from the local endpoint; the two closed-port
+    // images keep the dashed placeholder, and the missing alt gets a caption.
+    // Wait for both closed-port images to settle into placeholders before
+    // counting: the successful image renders immediately, the failed ones only
+    // after their error event.
+    await page.getByTestId('cwi-md-image-failed').first().waitFor({ timeout: 20_000 })
+    assert.equal(await page.getByTestId('cwi-md-image-failed').count(), 2)
+    await page.waitForFunction(() => {
+      const image = document.querySelector('[data-testid="cwi-md-image"]')
+      return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0
+    }, undefined, { timeout: 20_000 })
+    assert.equal(await page.getByTestId('cwi-md-image').count(), 1)
+    assert.match(await page.getByTestId('cwi-md-image-failed').nth(1).innerText(), /未提供图片说明/)
+    // markdown-it accepts data:image by default; the allowlist must refuse it.
+    assert.equal(await page.getByTestId('cwi-md-image-unavailable').count(), 1)
+    assert.equal(await page.locator('img[src^="data:"]').count(), 0)
+
+    // Paragraph pin: the seeded and chain threads group on line 3.
+    const pin = page.getByTestId('cwi-md-pin').first()
+    await pin.waitFor({ timeout: 10_000 })
+    assert.match(await pin.getAttribute('aria-label'), /第 1 条批注，共 2 条，第 3 行/)
+    await pin.click()
+    await page.locator('.cwi-md-thread-target').first().waitFor({ timeout: 10_000 })
+    // Escape drops the selected-thread highlight and the floating entry.
+    await page.keyboard.press('Escape')
+    await page.locator('.cwi-md-thread-target').waitFor({ state: 'detached', timeout: 10_000 })
+    // Clicking another block also drops the highlight.
+    await pin.click()
+    await page.locator('.cwi-md-thread-target').first().waitFor({ timeout: 10_000 })
+    await page.locator('[data-src-kind="paragraph"]').filter({ hasText: '尾部段落 0。' }).click()
+    await page.locator('.cwi-md-thread-target').waitFor({ state: 'detached', timeout: 10_000 })
+
+    // Table pin: the outer block owns it, so the inner scroller cannot clip it
+    // or grow the paper with phantom overflow.
+    const tablePin = page.locator('.cwi-md-table-block [data-testid="cwi-md-pin"]')
+    await tablePin.waitFor({ timeout: 10_000 })
+    assert.equal(await tablePin.isVisible(), true)
+    // The table may legitimately scroll inside the paper; the pin must not add
+    // its own overflow to that scroller.
+    const scroll = await page.locator('.cwi-md-table-wrap').evaluate((element) => ({
+      wrapScrollWidth: element.scrollWidth,
+      tableWidth: element.querySelector('table')?.scrollWidth ?? 0,
+    }))
+    assert.ok(
+      scroll.wrapScrollWidth <= scroll.tableWidth + 1,
+      `the table pin adds phantom overflow: ${JSON.stringify(scroll)}`,
+    )
+    await tablePin.click()
+    await page.locator('[data-testid="cwi-thread"]').filter({ hasText: '表格批注' }).waitFor({ timeout: 10_000 })
+    await page.keyboard.press('Escape')
+
+    // Back to the paragraph at the top: a real user can only select visible
+    // text, and the entry position derives from the selection rectangle.
+    await page.evaluate(() => {
+      const content = document.querySelector('[data-testid="cwi-content"]')
+      if (content !== null) content.scrollTop = 0
+    })
+    await page.waitForFunction(() => {
+      const article = document.querySelector('[data-testid="cwi-md-read"]')
+      return Number(article?.getAttribute('data-viewport-line') ?? '0') === 1
+    }, undefined, { timeout: 5_000 })
+
+    // Selection annotate: the entry is debounced, the anchor keeps the sub-line
+    // text, and the composer shows that text beside the line range.
+    await page.route('**/api/cowork.artifact.comment*', async (route) => {
+      await route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), dispatch: false }) })
+    })
+    assert.equal(await selectReadingTextImmediately(page, '粗体'), true, 'the floating entry is deferred')
+    // A zero-delay render would already be in the DOM after this short window;
+    // the debounce constant keeps it out until the real boundary.
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 30)))
+    assert.equal(await page.getByTestId('cwi-md-selection').count(), 0, 'the entry respects the debounce window')
+    await page.getByTestId('cwi-md-selection').waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-annotate').click()
+    assert.match(await page.getByTestId('cwi-rail').innerText(), /第 3 行/)
+    assert.equal(await page.getByTestId('cwi-selected-text').innerText(), '粗体')
+    const commentRequest = page.waitForRequest((request) => {
+      try {
+        return new URL(request.url()).pathname === '/api/cowork.artifact.comment'
+      } catch {
+        return false
+      }
+    })
+    await page.getByTestId('cwi-composer').fill('阅读态选区批注')
+    await page.getByTestId('cwi-submit').click()
+    const anchor = (await commentRequest).postDataJSON().anchor
+    assert.equal(anchor.startLine, 3)
+    assert.equal(anchor.endLine, 3)
+    assert.equal(anchor.selectedText, '粗体')
+    await page.locator('[data-testid="cwi-thread"]').filter({ hasText: '阅读态选区批注' }).waitFor({ timeout: 10_000 })
+    assert.match(await page.getByTestId('cwi-md-pin').first().getAttribute('aria-label'), /共 3 条/)
+    await page.unroute('**/api/cowork.artifact.comment*')
+
+    // Back to the real file for the draft-gate and frontmatter checks.
+    await page.unroute('**/api/cowork.artifact.file*')
+    await page.getByTestId('cwi-more').click()
+    await page.getByTestId('cwi-menu-refresh').click()
+    await reading.filter({ hasText: '第一段：逐行批注。' }).waitFor({ timeout: 15_000 })
+
+    // A dirty draft renders the draft but hides pins and disables annotating.
+    await page.getByTestId('cwi-edit').click()
+    await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+    await page.route('**/api/cowork.artifact.edit*', route => route.abort())
+    await page.getByTestId('cwi-editor').locator('.cm-line').first().click({ position: { x: 2, y: 5 } })
+    await page.keyboard.press('End')
+    await page.keyboard.insertText('草稿')
+    await page.getByTestId('cwi-mode').click()
+    await reading.waitFor({ timeout: 10_000 })
+    assert.equal(await page.getByTestId('cwi-md-pin').count(), 0, 'pins hide while the draft is unsaved')
+    await page.getByText(/未保存草稿：保存后可批注/).first().waitFor({ timeout: 10_000 })
+    await selectReadingText(page, '第一段')
+    assert.equal(await page.getByTestId('cwi-annotate').isDisabled(), true)
+    await page.keyboard.press('Escape')
+
+    // Saving the draft restores the pins.
+    await page.unroute('**/api/cowork.artifact.edit*')
+    await page.getByTestId('cwi-edit').click()
+    await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+    const saved = waitForPost(page, '/api/cowork.artifact.edit')
+    await page.getByTestId('cwi-editor').locator('.cm-line').first().click({ position: { x: 2, y: 5 } })
+    await page.keyboard.press('End')
+    await page.keyboard.insertText('已保存')
+    assert.equal((await saved).status(), 200)
+    await page.getByTestId('cwi-mode').click()
+    await reading.waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-md-pin').first().waitFor({ timeout: 10_000 })
+
+    // Frontmatter is a collapsed, read-only block: an anchor inside it gets no
+    // pin, and selecting its text must not open the annotate entry.
+    fileContent = FRONTMATTER_MARKDOWN
+    await page.route('**/api/cowork.artifact.file*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(markdownFile(fileContent)) })
+    })
+    await page.getByTestId('cwi-more').click()
+    await page.getByTestId('cwi-menu-refresh').click()
+    const frontmatter = page.getByTestId('cwi-md-frontmatter')
+    await frontmatter.waitFor({ timeout: 15_000 })
+    // The details element is collapsed: read the stored text, not innerText.
+    assert.match(await page.locator('.cwi-md-frontmatter-body').textContent(), /status: proposed/)
+    assert.equal(await page.getByTestId('cwi-md-pin').count(), 0)
+    await frontmatter.locator('summary').click()
+    await page.evaluate(() => {
+      const body = document.querySelector('.cwi-md-frontmatter-body')
+      if (body === null) return
+      const range = document.createRange()
+      range.selectNodeContents(body)
+      const selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
+    })
+    await page.waitForTimeout(200)
+    assert.equal(await page.getByTestId('cwi-md-selection').count(), 0, 'frontmatter is not annotatable')
+
+    // A file over the read threshold falls back to the numbered Markdown-ish
+    // source lines: the notice names the reason and line work stays available.
+    fileContent = [
+      '# 大文件',
+      '',
+      '**粗体** 一行文本',
+      ...Array.from({ length: 2100 }, (_, index) => `第 ${index} 行 ${'x'.repeat(1000)}`),
+    ].join('\n')
+    await page.getByTestId('cwi-more').click()
+    await page.getByTestId('cwi-menu-refresh').click()
+    // Layout of 2 MB in the DOM is slow on purpose; attached is the branch
+    // check, and the visible notice text is read without forcing innerText.
+    await page.getByTestId('cwi-md-fallback').waitFor({ state: 'attached', timeout: 60_000 })
+    assert.match(await page.getByTestId('cwi-md-fallback').textContent(), /2 MB/)
+    assert.equal(await page.getByTestId('cwi-md-read').count(), 0)
+
+    await page.unroute('**/api/cowork.artifact.file*')
+    await page.getByTestId('cwi-more').click()
+    await page.getByTestId('cwi-menu-refresh').click()
+    await reading.filter({ hasText: '第一段：逐行批注。' }).waitFor({ timeout: 15_000 })
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+    // Restore the seeded bytes: the draft-gate step saved an extra line.
+    await writeFile(join(fixtures.primary.repoPath, BROWSER_SPEC_PATH), BROWSER_SPEC, 'utf8')
+    await backToTopicTab(page)
+  } finally {
+    await page.unroute('**/api/cowork.artifact.file*').catch(() => {})
+    await page.unroute('**/api/cowork.artifact.edit*').catch(() => {})
+    await page.unroute('**/api/cowork.artifact.comment*').catch(() => {})
+    await page.unroute('**/api/cowork.artifact.comments*').catch(() => {})
+    await new Promise((resolve) => { imageServer.close(resolve) })
+  }
+}
+
 /**
  * The stage-4 renderers: one seeded work item is opened three times with a
  * mocked detail/file response, once per new type. The mocks keep the rail's
@@ -1138,7 +1630,7 @@ async function scenarioWorkItemTypes(page) {
   await openWorkItemTab(page)
   const card = await artifactCard(page)
 
-  const diagramSource = 'flowchart LR\n  A[开始] --> B[结束]\n'
+  const diagramSource = 'flowchart LR\n  A[开始] --> B[结束]\n  B --> C[完成]\n'
   const htmlSource = '<!doctype html><html><body><h1 id="title">静态标题</h1><script>document.getElementById("title").textContent = "脚本已运行"</script></body></html>'
   const canvasSource = JSON.stringify({
     type: 'excalidraw',
@@ -1251,6 +1743,24 @@ async function scenarioWorkItemTypes(page) {
     assert.match(await diagram.evaluate(element => element.textContent ?? ''), /开始/)
     assert.equal(await diagram.locator('svg').count(), 1)
     await assertSourceText(page, /flowchart LR/)
+    // The numbered source keeps line picking, the range bar, keyboard
+    // annotation, and line pins usable for non-Markdown families.
+    await page.locator('[data-testid="cwi-line"][data-line="1"]').click()
+    await page.locator('.cwi-selection-bar').waitFor({ timeout: 10_000 })
+    assert.equal(await page.getByTestId('cwi-annotate').isDisabled(), false)
+    await page.locator('.cwi-selection-bar').getByRole('button', { name: '取消' }).click()
+    await page.getByTestId('cwi-lines').focus()
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute('data-testid') === 'cwi-composer',
+      undefined,
+      { timeout: 10_000 },
+    )
+    assert.match(await page.getByTestId('cwi-rail').innerText(), /第 2 行/)
+    await page.getByTestId('cwi-rail').getByRole('button', { name: '取消位置' }).click()
+    await page.getByTestId('cwi-line-pin').first().click()
+    assert.equal(await page.locator('[data-testid="cwi-thread"][data-selected="true"]').count(), 1)
     await toggleTextEditing(page)
     await closeViewerAndReopenList(page)
 
@@ -1497,8 +2007,8 @@ async function scenarioWorkItemEdit(page, fixtures) {
   await reloadedMarker.waitFor({ timeout: 10_000 })
   assert.match(await reloadedMarker.innerText(), /第一段：逐行批注。/)
   await page.getByTestId('cwi-edit').click()
-  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
-  assert.match(await page.getByTestId('cwi-lines').innerText(), /模型并发行。/)
+  await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
+  assert.match(await page.getByTestId('cwi-md-read').innerText(), /模型并发行。/)
 
   // 4) A second conflict resolved with "keep mine" overwrites with the draft.
   await page.getByTestId('cwi-edit').click()
@@ -1543,6 +2053,9 @@ async function scenarioWorkItemEdit(page, fixtures) {
   // Let the retained draft save so later scenarios open this work item read-only.
   await page.unroute('**/api/cowork.artifact.edit*')
   const recoveredSave = waitForEdit()
+  await editor.locator('.cm-line').first().click({ position: { x: 2, y: 5 } })
+  await page.keyboard.press('End')
+  await page.keyboard.insertText('恢复保存')
   assert.equal((await recoveredSave).status(), 200)
   await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-back').click()
@@ -1625,6 +2138,9 @@ async function scenarioWorkItemDraft(page) {
   await card.click()
   await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
   await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+  // A restored draft opens in the source surface, so the segmented control and
+  // the editor agree instead of claiming read mode.
+  assert.equal(await page.getByTestId('cwi-mode').getAttribute('data-mode'), 'source')
   assert.match(await editorText(page), /未保存草稿恢复验证/)
   const saveResponse = page.waitForResponse((response) => {
     try {
@@ -1637,18 +2153,25 @@ async function scenarioWorkItemDraft(page) {
   assert.equal((await saveResponse).status(), 200)
   await page.getByTestId('cwi-save-state').filter({ hasText: '已保存' }).waitFor({ timeout: 15_000 })
   await page.getByTestId('cwi-edit').click()
+  await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
 
   await page.getByTestId('cwi-view-tab').filter({ hasText: '版本' }).click()
   await page.getByTestId('cwi-versions').waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-view-tab').filter({ hasText: '附件' }).click()
   await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-view-tab').filter({ hasText: '文档' }).click()
-  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
 
+  // The segmented control is the read/source switch: for Markdown the source
+  // surface is the editor, and switching back restores the flow view.
   const mode = page.getByTestId('cwi-mode')
-  const before = await mode.getAttribute('data-mode')
+  assert.equal(await mode.getAttribute('data-mode'), 'read')
   await mode.click()
-  assert.notEqual(await mode.getAttribute('data-mode'), before)
+  await page.getByTestId('cwi-editor').waitFor({ timeout: 10_000 })
+  assert.equal(await mode.getAttribute('data-mode'), 'source')
+  await mode.click()
+  await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
+  assert.equal(await mode.getAttribute('data-mode'), 'read')
 
   // The rail starts collapsed; the toolbar toggle is the expand/collapse entry.
   const rail = page.getByTestId('cwi-rail')
@@ -1659,9 +2182,9 @@ async function scenarioWorkItemDraft(page) {
   assert.equal(await rail.isHidden(), true)
   await openRail(page)
 
-  await page.getByTestId('cwi-line-pin').first().waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-md-pin').first().waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-thread-focus').first().click()
-  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
 
   // The failed batch belongs to the thread resolved earlier; expand the
   // resolved summary before reaching its retry action.
@@ -1802,7 +2325,7 @@ async function scenarioWorkItemEdges(page, fixtures) {
   await page.getByTestId('cwi-conflict-keep').click()
   await page.getByTestId('cwi-conflict').waitFor({ state: 'detached', timeout: 15_000 })
   await page.getByTestId('cwi-edit').click()
-  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
 
   // A failed file read still opens the viewer and names the missing file.
   await page.getByTestId('cwi-back').click()
@@ -1852,7 +2375,7 @@ async function scenarioWorkItemLive(page, fixtures) {
     })).json()
   }, { sessionId: fixtures.primarySessionId, artifactId: BROWSER_ARTIFACT, path: BROWSER_SPEC_PATH })
   assert.equal(refreshed.ok, true)
-  await page.getByTestId('cwi-lines').filter({ hasText: '模型刷新行' }).waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-md-read').filter({ hasText: '模型刷新行' }).waitFor({ timeout: 15_000 })
 
   // Create the comment in the page's own origin, so EventSource and fetch share
   // the browser cookie and the stream is the only reason the rail updates.
@@ -2031,7 +2554,7 @@ const REBOUND_SPEC = '# 已重新绑定\n\n新文件内容。'
 async function openWorkItemViewer(page) {
   await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
   await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
-  await page.locator('[data-testid="cwi-line"][data-line="1"]').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-md-read').waitFor({ timeout: 15_000 })
 }
 
 /** Assert a group of elements is reachable with Tab (tabIndex >= 0). */
@@ -2091,24 +2614,26 @@ async function scenarioWorkItemKeyboard(page) {
   await openWorkItemViewer(page)
   await openRail(page)
 
-  // Toolbar buttons, thread cards, and pins all sit in the tab order.
+  // Toolbar buttons, thread cards, and block pins all sit in the tab order.
   const tabbable = await page.evaluate(() => {
     const read = (selector) => Array.from(document.querySelectorAll(selector)).map(element => element.tabIndex)
     return {
       tabs: read('[data-testid="cwi-view-tab"]'),
       railToggle: read('[data-testid="cwi-rail-toggle"]'),
       cards: read('[data-testid="cwi-thread"]'),
-      pins: read('[data-testid="cwi-line-pin"]'),
+      pins: read('[data-testid="cwi-md-pin"]'),
     }
   })
   assertTabbable(tabbable.tabs, 'view tabs')
   assertTabbable(tabbable.railToggle, 'rail toggle')
   assertTabbable(tabbable.cards, 'thread cards')
-  assertTabbable(tabbable.pins, 'line pins')
-  assert.equal(await page.getByTestId('cwi-line-pin').first().evaluate(element => element.tagName), 'BUTTON')
+  assertTabbable(tabbable.pins, 'block pins')
+  assert.equal(await page.getByTestId('cwi-md-pin').first().evaluate(element => element.tagName), 'BUTTON')
+  // Reading mode is flow content: the annotated lines are not focusable rows.
+  assert.equal(await page.locator('[data-testid="cwi-line"]').count(), 0)
 
   // Focus is visible as a ring, not only as a colour change, for the toolbar,
-  // a thread card, and a line pin. Tab into each one so :focus-visible applies.
+  // a thread card, and a block pin. Tab into each one so :focus-visible applies.
   await page.getByTestId('cwi-more').focus()
   await page.keyboard.press('Tab')
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-view-tab')
@@ -2120,29 +2645,23 @@ async function scenarioWorkItemKeyboard(page) {
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-thread')
   assertRing(await outlineOf(page.getByTestId('cwi-thread').first()), 'a focused thread card')
 
-  await page.getByTestId('cwi-lines').focus()
-  await page.keyboard.press('Tab')
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'cwi-line-pin')
-  assertRing(await outlineOf(page.getByTestId('cwi-line-pin').first()), 'a focused line pin')
-
-  // Arrow keys move the active line; Enter opens that line's comment entry.
-  await page.getByTestId('cwi-lines').focus()
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
-  assert.equal(
-    await page.evaluate(() => document.activeElement?.getAttribute('data-testid')),
-    'cwi-composer',
-    'Enter on the line list must focus the composer',
-  )
-  assert.match(await page.getByTestId('cwi-rail').innerText(), /第 2 行/)
-  await page.getByTestId('cwi-rail').getByRole('button', { name: '取消位置' }).click()
+  // Tab from the last toolbar control into the document until the block pin
+  // takes focus; the pin must paint the same ring.
+  await page.getByTestId('cwi-rail-toggle').focus()
+  let pinFocused = false
+  for (let step = 0; step < 40 && !pinFocused; step += 1) {
+    await page.keyboard.press('Tab')
+    pinFocused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'cwi-md-pin')
+  }
+  assert.equal(pinFocused, true, 'a block pin must be reachable with Tab')
+  assertRing(await outlineOf(page.getByTestId('cwi-md-pin').first()), 'a focused block pin')
 
   // A card selects itself with Enter; a pin opens the thread it numbers.
   const card = page.getByTestId('cwi-thread').first()
   await card.focus()
   await page.keyboard.press('Enter')
   assert.equal(await card.getAttribute('data-selected'), 'true')
-  const pin = page.getByTestId('cwi-line-pin').first()
+  const pin = page.getByTestId('cwi-md-pin').first()
   await pin.focus()
   await page.keyboard.press('Enter')
   assert.equal(await page.locator('[data-testid="cwi-thread"][data-selected="true"]').count(), 1)
@@ -2209,6 +2728,24 @@ async function scenarioWorkItemNarrow(page) {
     // The drawer covers the lower part of the body; dismiss by the free area above it.
     await page.getByTestId('cwi-rail-backdrop').click({ position: { x: 8, y: 8 } })
     assert.equal(await page.getByTestId('cwi-rail').isHidden(), true)
+
+    // The desktop and tablet tiers: the reading column and its scroll
+    // containers stay inside the viewport at 1024 and 768.
+    for (const width of [1024, 768]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.getByTestId('cwi-viewer').waitFor({ timeout: 5_000 })
+      const tier = await page.evaluate(() => {
+        const viewer = document.querySelector('[data-testid="cwi-viewer"]')
+        return {
+          document: document.documentElement.scrollWidth - window.innerWidth,
+          viewer: viewer === null ? 0 : viewer.scrollWidth - viewer.clientWidth,
+        }
+      })
+      assert.ok(tier.document <= 1, `the ${width}px page overflows horizontally by ${tier.document}px`)
+      assert.ok(tier.viewer <= 1, `the ${width}px viewer overflows horizontally by ${tier.viewer}px`)
+    }
+    await page.setViewportSize({ width: 820, height: 900 })
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 5_000 })
 
     // Nothing on the viewer surface overflows horizontally at this width.
     const overflow = await page.evaluate(() => {
@@ -2430,7 +2967,7 @@ async function scenarioWorkItemRebind(page) {
     // Success applies the returned record and re-reads the new path.
     await page.getByTestId('cwi-rebind-submit').click()
     await page.getByTestId('cwi-rebind').waitFor({ state: 'detached', timeout: 10_000 })
-    await page.getByTestId('cwi-lines').filter({ hasText: '已重新绑定' }).waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-md-read').filter({ hasText: '已重新绑定' }).waitFor({ timeout: 10_000 })
     assert.match(await page.getByTestId('cwi-primary-path').innerText(), new RegExp(REBOUND_PATH.replace('.', '\\.')))
     await page.getByRole('status').filter({ hasText: '已重新绑定到' }).waitFor({ timeout: 10_000 })
     assert.equal(await page.getByTestId('cwi-open').isDisabled(), false)
@@ -2465,6 +3002,7 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioWorkItemCrossSession(page, fixtures)
   await scenarioWorkItemOwnerFailure(page, fixtures)
   await scenarioWorkItemChain(page)
+  await scenarioWorkItemMarkdown(page, fixtures)
   await scenarioWorkItemTypes(page)
   await scenarioWorkItemListLive(page, fixtures)
   await scenarioWorkItemEdit(page, fixtures)

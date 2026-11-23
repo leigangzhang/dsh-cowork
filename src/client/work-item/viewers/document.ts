@@ -17,10 +17,11 @@ const VIEWER_KINDS = ['text', 'diagram', 'html', 'canvas', 'source'] as const
 export type ViewerKind = (typeof VIEWER_KINDS)[number]
 
 /** A read-mode surface that renders a file instead of numbered source lines. */
-export type ReadSurfaceKind = 'diagram' | 'html' | 'canvas' | 'source'
+export type ReadSurfaceKind = 'diagram' | 'html' | 'canvas' | 'markdown' | 'source'
 
 /** Read-mode surfaces keyed by their viewer family. */
 const READ_SURFACES: Partial<Record<ViewerKind, ReadSurfaceKind>> = {
+  text: 'markdown',
   diagram: 'diagram',
   html: 'html',
   canvas: 'canvas',
@@ -183,7 +184,8 @@ export function refreshResetsCanvas(kind: ViewerKind, editing: boolean, previous
  * Pick the read-mode surface for one file.
  *
  * A viewer only replaces the numbered source lines when the file exists and
- * read mode is active. Feature types without a renderer stay on source lines.
+ * read mode is active. Markdown renders as flow content; feature types without
+ * a renderer stay on source lines.
  * @param kind - the active presentation family.
  * @param readMode - whether the user chose the rendered read mode.
  * @param hasFile - whether the current file content is available.
@@ -201,16 +203,6 @@ export function readSurfaceKind(kind: ViewerKind, readMode: boolean, hasFile: bo
  */
 export function editorLanguage(kind: ViewerKind, canvasBroken: boolean): 'html' | 'plain' | 'markdown' {
   return canvasBroken ? 'plain' : EDITOR_LANGUAGES[kind] ?? 'markdown'
-}
-
-/**
- * Decide whether the source-line surface may render Markdown inline styles.
- * @param kind - the active presentation family.
- * @param readMode - whether the user chose the rendered read mode.
- * @returns true only for text files in read mode.
- */
-export function sourceLinesMarkdown(kind: ViewerKind, readMode: boolean): boolean {
-  return kind === 'text' && readMode
 }
 
 /**
