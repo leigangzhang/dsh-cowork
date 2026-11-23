@@ -7,9 +7,9 @@ Status: design baseline（2026-11-23）
 ## 1. 验收画板与测量口径
 
 - 参考画板：`1280 × 900`，其中 App 内容盒 `1208 × 828`，居中。
-- 产品实际宽度：`300–1200px`；右侧栏最小 300px，工作项文档纸面最大 920px，批注栏默认 336px。
+- 产品实际宽度：`300–1200px`；右侧栏最小 300px，工作项文档纸面最大 920px，批注栏默认收起、展开 336px。
 - 截图：Chromium headless，`deviceScaleFactor=2`，亮/暗各一套；单状态交付图逻辑尺寸 1280×900。多状态拼接板允许更大，但每个状态板必须保持 1280×900 的内容比例，并在 100% 缩放下读清关键文案。
-- 关键布局盒（tab strip、header、toolbar、paper、rail、composer、footer）位置容差 `±2px`；内部文字基线、图标中心和边框宽度容差 `±1px`。
+- 关键布局盒（tab strip、header、toolbar、paper、rail、footer）位置容差 `±2px`；内部文字基线、图标中心和边框宽度容差 `±1px`。
 - 间距、圆角、边框宽度只用整数 px；字号优先宿主 token，不照搬设计稿的 8.5–11px 小字。
 - 125% / 150% 浏览器缩放下不得出现重叠、裁切或非预期横向滚动。
 - 任何“看起来差不多”但无法在截图中稳定复现的差异，不作为验收项。
@@ -64,10 +64,11 @@ Status: design baseline（2026-11-23）
 | tab active 指示线 | 高 2px，圆角 2px；left/right 0；颜色 accent |
 | tab hover | 文字变 `label-primary`；背景不铺满整行 |
 | tab focus-visible | 2px accent outline，offset 2px |
-| viewArea 与 composer | composer 覆盖时 View 自持滚动，底部预留 `--dsh-composer-height`，不得被 composer 永久遮挡 |
+| 会话 composer | Cowork 视图挂载期间 `[data-composer-seat]` 为 `display:none`；View 自持滚动，底部不预留 composer clearance；切回 Chat 自动恢复 |
+| 顶部会话身份 | 宿主 header 的会话面包屑 + tab strip；查看器不画第二行小字面包屑 |
 | 窄屏 | < 900px 时批注栏改为底部抽屉；tab 行允许换行，不出现横向滚动 |
 
-验收：1280/1024/768/390 四档，点击 tab 后 `aria-selected` 与 active 下划线同时切换；composer 覆盖层不会盖住最后一行正文或 footer。
+验收：1280/1024/768/390 四档，点击 tab 后 `aria-selected` 与 active 下划线同时切换；会话 composer 在 Cowork 档不出现，footer 贴底且不被裁切。
 
 ## 4. 工作项纸面与工具栏
 
@@ -158,14 +159,14 @@ Status: design baseline（2026-11-23）
 | 保存中 | 蓝点脉冲；文案“保存中” |
 | 已保存 | 绿点 + `已保存 · rN` |
 | 冲突 | `danger` 边框/底；提供查看差异/加载最新/保留我的 |
-| 跨会话只读 | 顶部 36px 提示条；文案明确“当前会话不是该工作项所属会话”；提供“在所属会话打开”；编辑/批注 composer 禁用 |
+| 跨会话只读 | 顶部 36px 提示条；文案明确“当前会话不是该工作项所属会话”并给出所属会话名；提供“在所属会话打开”；编辑/批注 composer 禁用 |
 | stale | warn-soft 底；文案“位置待确认”；保留内容，不猜位置 |
 | 投递失败/阻塞 | danger/warn 底；原因 + 重试/打开会话；不自动重试 |
 
 ## 7. 可访问性与键盘
 
 - 全局焦点环：2px accent outline，offset 2px；暗色用 brand token。
-- Tab 顺序：会话 header tabs → 工作项 header 操作 → 工具栏 → 文档内容 → pin/批注栏 → composer → footer。
+- Tab 顺序：会话 header tabs → 工作项 header 操作 → 工具栏 → 文档内容 → pin/批注栏（展开时）→ 批注 composer（会话态）→ footer。Cowork 标签下没有会话 composer，发消息要先切到 Chat。
 - 文档内容：阅读态选中文字后出现浮动「批注」入口；源码态 Enter 批注当前行、Shift+Enter 扩展、方向键移动活动行；Esc 关闭浮动层/取消线程选中并把焦点还给触发元素。
 - 批注栏：列表卡可 Enter 打开详情；详情返回按钮 Esc 返回列表；宽度手柄用 ←/→ 调整 8px。
 - `prefers-reduced-motion: reduce`：关闭脉冲、旋转和高度过渡；状态仍有文字。
@@ -176,9 +177,9 @@ Status: design baseline（2026-11-23）
 
 | 宽度 | 规则 |
 |---|---|
-| ≥ 1024 | 文档 + 右侧批注栏并排；批注栏 336px 默认 |
-| 900–1023 | 批注栏可缩到 280px；纸面最大 920px |
-| 640–899 | 批注栏改为底部抽屉，最大高度 `min(72%, 560px)`；正文不被永久压缩 |
+| ≥ 1024 | 文档满宽；批注栏默认收起，展开后 336px 并排 |
+| 900–1023 | 批注栏默认收起；展开可缩到 280px；纸面最大 920px |
+| 640–899 | 批注栏改为底部抽屉，最大高度 `min(72%, 560px)`；收起时正文满宽 |
 | < 640 | 单列；工具栏允许换行；附件 chip 最多 1 个 + `+N`；pin 仍可在右侧点击 |
 | < 390 | 不出现横向滚动；长路径/标题省略；tab 行可换行 |
 
@@ -186,20 +187,20 @@ Status: design baseline（2026-11-23）
 
 每个复杂场景至少两张图：亮色 1280×900、窄屏 768×900；暗色至少一张关键状态。
 
-1. 主区“会话 / 工作项”标签 + composer 覆盖；active 下划线和 `aria-selected` 一致。
+1. 主区会话 header（会话名 + Chat/Cowork 标签）+ 工作项查看器；会话 composer 不出现，footer 贴底；active 下划线和 `aria-selected` 一致。
 2. 右栏列表：搜索入口、待确认合并、已完成折叠卡、来源会话名、无路径/无会话 ID。
 3. 文档阅读态：标题、列表、表格、图片、链接、代码块、任务列表、引用；块级 pin、选区浮动入口。
 4. 源码态：CM6 行号、anchor 行标记、保存/冲突；阅读态块级 pin 与选区浮动入口。
 5. 批注栏列表态：只读摘要，无回复输入框；选中环和 `#N` chip。
 6. 批注会话态：消息、附件缩略图、预览弹层、投递状态、返回列表。
-7. 跨会话只读：提示条、禁用 composer、所属会话入口。
+7. 跨会话只读：提示条、禁用批注 composer、所属会话入口；顶部仍是当前会话名。
 8. 附件页：图片/文本缩略图、模型生成标识、预览和下载。
 9. 加载/空/错误/冲突/失败态各一张，文案不得被截断。
 
 ## 10. 不可作为验收证据的项
 
 - 只写“样式已对齐”的文字说明。
-- 只截局部而看不到 composer/tab/批注栏关系的图。
+- 只截局部而看不到 tab/批注栏/footer 关系的图。
 - 用 8.5–11px 的 mock 字号替代产品可读字号。
 - 未实际生成的 demo 截图或复用旧截图。
 - 对没有 diff 数据的行伪造绿色/红色底色。
