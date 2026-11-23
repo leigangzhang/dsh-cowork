@@ -206,7 +206,7 @@ interface AttachmentPublishV1 {
 
 ### 9.2 图片预览：填满页面并按尺寸自适应
 
-参考两种真实图片形态：宽图（宽高比 ≥ 1.4）和长图（高宽比 ≥ 1.4）。弹层不再固定 860×640，而是占满可用视口；图片按自身尺寸选择贴边方向，不裁剪、不拉伸。
+参考两种真实图片形态：宽图（宽高比 ≥ 1.4）和长图（高度超过 2 个视口）。弹层不再固定 860×640，而是占满可用视口；图片按自身尺寸选择贴边方向，不裁剪、不拉伸。
 
 | 项 | 规格 |
 |---|---|
@@ -215,7 +215,7 @@ interface AttachmentPublishV1 {
 | 结构 | header 44px（标题 + 模型生成 badge + 关闭） / body `flex:1; min-height:0` / footer 44px（缩放、适应模式、下载） |
 | 图片舞台 | body 内 `display:flex; align-items:center; justify-content:center; overflow:auto; padding:12px 56px 52px`；背景 `--cwi-canvas`；底部 52px 给悬浮工具条留位 |
 | 宽图（默认 `fit=contain`） | `max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain`；宽度贴满舞台，高度按比例；高度超出时纵向滚动，不裁切 |
-| 长图（默认 `fit=width`） | `width:100%; height:auto; max-height:none`；按宽度铺满、纵向滚动，避免长截图被压成细条；footer 可切「适应页面」回到 contain |
+| 长图（`naturalHeight > 2 × stageHeight`，默认 `fit=width`） | `width:100%; height:auto; max-height:none`；按宽度铺满、纵向滚动，避免长截图被压成细条；footer 可切「适应页面」回到 contain |
 | 普通/小图 | `contain` 居中；原图小于舞台时按 1:1 显示，不强制放大到模糊；用户可 + 放大 |
 | 缩放 | `+`/`-` 10% 步进，`100%` 复位；放大后舞台双向滚动，拖拽平移；不裁切原图 |
 | 图片失败 | 虚线占位 + 附件名 + 「下载」；不显示 broken image |
@@ -223,7 +223,7 @@ interface AttachmentPublishV1 {
 
 行为约束：
 
-- 图片自然尺寸在 `load` 后读取；长图判断用 `naturalHeight > 2 × stageHeight`，不是固定像素阈值。
+- 图片自然尺寸在 `load` 后读取；长图判断用 `naturalHeight > 2 × stageHeight`，不是固定像素阈值；普通肖像图仍按 contain 高度贴合。
 - 切换「适应页面 / 适合宽度」只改舞台滚动与图片 CSS，不重新请求字节、不重置缩放。
 - 关闭（Esc/遮罩/关闭按钮）后焦点回到触发缩略图/chip；背景滚动锁定。
 - 文本预览复用同一弹层骨架，但 body 是只读 `pre`，不套图片填充规则。
