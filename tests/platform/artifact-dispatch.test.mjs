@@ -13,9 +13,11 @@ import {
 /**
  * The dispatcher owns batching, the state machine, retries, and restart
  * recovery. Prompts and timers are injected, so a test drives every transition
- * without a model or a real clock.
+ * without a model or a real clock. The message format itself is covered by
+ * `annotation-prompt.test.mjs`.
  */
-const { ArtifactDispatcher, buildDispatchPrompt } = await import('../../src/platform/artifact-dispatch.ts')
+const { ArtifactDispatcher } = await import('../../src/platform/artifact-dispatch.ts')
+const { ANNOTATION_MARKER } = await import('../../src/platform/annotation-prompt.ts')
 const ARTIFACT = 'artifact-11111111-1111-4111-8111-111111111111'
 
 /** Poll until `predicate` holds or the deadline passes. */
@@ -101,9 +103,13 @@ test('a queued batch becomes sent, then follows turn and tool events', async () 
     assert.ok(events.filter((event) => event.type === 'dispatch.updated').length >= 4)
     assert.equal(await dispatcher.markReplied(dispatch.dispatchId), false)
     assert.equal(dispatcher.inFlightFor(ARTIFACT), null)
-    // The prompt carried the annotation as data and the reply instruction.
-    assert.match(calls[0].content[0].text, /annotation comment-1/)
-    assert.match(calls[0].content[0].text, /cowork_artifact_reply/)
+    // The delivered message is the marker format: summary, then the structured
+    // context. Static rules moved to the system-prompt section, so none appear.
+    const text = calls[0].content[0].text
+    assert.ok(text.startsWith(`${ANNOTATION_MARKER}\n`))
+    assert.match(text, /--- annotation comment-1 ---/)
+    assert.match(text, /Body: please fix 1/)
+    assert.equal(text.includes('cowork_artifact_reply'), false)
     assert.equal(calls[0].requestId, dispatch.promptRequestId)
   })
 })
@@ -275,37 +281,7 @@ test('dispose cancels the pending flush', async () => {
   })
 })
 
-test('the prompt carries the anchor quote and its surrounding lines', () => {
-  const text = buildDispatchPrompt({
-    record: makeRecord(),
-    comments: [makeComment({
-      eventId: 'comment-event-anchor', commentId: 'comment-anchor', threadId: 'comment-anchor',
-      body: 'please fix',
-      anchor: {
-        kind: 'line-range', path: 'docs/spec.md', startLine: 2, endLine: 2,
-        quote: 'body', contextBefore: '# Spec', contextAfter: '', selectedText: 'selected words',
-      },
-    })],
-    repoPath: '/repo',
-  })
-  assert.match(text, /Quote: body/)
-  assert.match(text, /Selected: selected words/)
-  assert.match(text, /Before: # Spec/)
-})
-
-test('the prompt text is bounded and names the registered file', async () => {
-  const text = buildDispatchPrompt({
-    record: makeRecord(),
-    comments: [comment(1)],
-    repoPath: '/repo',
-  })
-  assert.match(text, /artifact-11111111/)
-  assert.match(text, /docs\/spec\.md/)
-  assert.match(text, /cowork_artifact_reply/)
-  assert.ok(text.length <= 20_000)
-})
-
-test('non-line anchors and the prompt data split are summarized', async () => {
+test('non-line anchors still name the registered file and omit line fields', async () => {
   await withRuntime(async ({ runtime, record, calls }) => {
     const paged = makeComment({
       eventId: 'comment-event-page', commentId: 'comment-page', threadId: 'comment-page',
@@ -313,7 +289,10 @@ test('non-line anchors and the prompt data split are summarized', async () => {
     })
     await runtime.dispatch.enqueue({ record, commentIds: ['comment-page'], comments: [paged] })
     await waitUntil(() => calls.length === 1, 'prompt')
-    assert.match(calls[0].content[0].text, /\(page\)/)
+    const text = calls[0].content[0].text
+    assert.match(text, /--- annotation comment-page ---/)
+    assert.match(text, /File: docs\/spec\.md/)
+    assert.equal(/^Lines:/m.test(text), false)
   })
 })
 
@@ -756,24 +735,6 @@ test('the total image bytes of one prompt are capped', async () => {
     const images = calls[0].content.filter((part) => part.type === 'image')
     assert.equal(images.length, 1)
   })
-})
-
-test('a reply-only batch carries its thread anchor context', async () => {
-  const reply = makeComment({
-    eventId: 'comment-event-reply', commentId: 'comment-reply', threadId: 'comment-root',
-    type: 'reply', body: 'what changed?',
-  })
-  const text = buildDispatchPrompt({
-    record: makeRecord(),
-    comments: [reply],
-    repoPath: '/repo',
-    threadAnchors: new Map([['comment-root', {
-      kind: 'line-range', path: 'docs/spec.md', startLine: 2, endLine: 2,
-      quote: 'body', contextBefore: '# Spec',
-    }]]),
-  })
-  assert.match(text, /annotation comment-reply \(lines 2-2\)/)
-  assert.match(text, /Quote: body/)
 })
 
 test('enqueue proceeds when a lazy recovery already rejected', async () => {
