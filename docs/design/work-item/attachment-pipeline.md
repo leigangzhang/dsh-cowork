@@ -161,8 +161,8 @@ interface AttachmentPublishV1 {
 - **thread 内缩略图**：模型回复里 `image/*` 附件渲染 `cwi-attachment-thumb`（复用 [thread-card.tsx](../../../src/client/work-item/thread-card.tsx) 的 `Attachments`），文本附件渲染下载链接；「模型生成」badge 显示在缩略图/链接旁，来源于该评论 `author === 'model'`，不改变 chip 尺寸。
 - **附件页**：工具条「附件」tab 渲染 [viewer-side-tabs.tsx](../../../src/client/work-item/viewer-side-tabs.tsx) 的 `AttachmentsPanel`，数据源从「评论引用」扩展为 `detail.publishedAttachments`；每行缩略图/文件色块 + 名称 + 类型·大小 + 下载，模型生成行加 badge。
 - **点击最前层预览弹层**：点击缩略图或 chip 打开 `role="dialog"` `aria-modal="true"` 预览：
-  - 图片：缩放（+/-/复位/拖拽平移），`alt` 为附件名；关闭后焦点返回触发元素。
-  - 文本（txt/md/markdown/csv/tsv/json）：只读 `<pre>` 预览，显示前 N KB 并注明截断；「下载」按钮取全量。
+  - 图片：弹层尺寸与图片填充见 §9.2；缩放（+/-/复位/拖拽平移），`alt` 为附件名；关闭后焦点返回触发元素。
+  - 文本（txt/md/markdown/csv/tsv/json）：同一弹层内只读 `<pre>` 预览，显示前 N KB 并注明截断；「下载」按钮取全量。
   - 未知类型（理论上被白名单排除）：下载，不预览。
 - **失败/空/加载**：
   - 附件页空：`还没有附件。在批注或回复里添加图片或文本文件。`
@@ -204,6 +204,30 @@ interface AttachmentPublishV1 {
 - 附件页出现同一附件且 badge 正确；预览弹层可打开/缩放/Esc 关闭/焦点返回。
 - 失败注入：sourcePath 越界、类型不允许、attach 失败、文档编辑失败、reply 失败各一条，均不产生坏链接或假回复。
 
+### 9.2 图片预览：填满页面并按尺寸自适应
+
+参考两种真实图片形态：宽图（宽高比 ≥ 1.4）和长图（高宽比 ≥ 1.4）。弹层不再固定 860×640，而是占满可用视口；图片按自身尺寸选择贴边方向，不裁剪、不拉伸。
+
+| 项 | 规格 |
+|---|---|
+| 遮罩 | `position: fixed; inset: 0; z-index` 高于 composer；背景 `rgba(16,24,40,.72)`；padding 12px（<640 为 6px） |
+| 弹层 | `width: min(calc(100vw - 24px), 1600px)`；`height: min(calc(100vh - 24px), 1100px)`；圆角 14px；不透明 surface；阴影 `0 24px 80px rgba(16,24,40,.35)` |
+| 结构 | header 44px（标题 + 模型生成 badge + 关闭） / body `flex:1; min-height:0` / footer 44px（缩放、适应模式、下载） |
+| 图片舞台 | body 内 `display:flex; align-items:center; justify-content:center; overflow:auto; padding:12px 56px 52px`；背景 `--cwi-canvas`；底部 52px 给悬浮工具条留位 |
+| 宽图（默认 `fit=contain`） | `max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain`；宽度贴满舞台，高度按比例；高度超出时纵向滚动，不裁切 |
+| 长图（默认 `fit=width`） | `width:100%; height:auto; max-height:none`；按宽度铺满、纵向滚动，避免长截图被压成细条；footer 可切「适应页面」回到 contain |
+| 普通/小图 | `contain` 居中；原图小于舞台时按 1:1 显示，不强制放大到模糊；用户可 + 放大 |
+| 缩放 | `+`/`-` 10% 步进，`100%` 复位；放大后舞台双向滚动，拖拽平移；不裁切原图 |
+| 图片失败 | 虚线占位 + 附件名 + 「下载」；不显示 broken image |
+| 窄屏 390 | 弹层内边距 6px；header/footer 允许两行；图片仍按上述规则，不横向撑破；工具条不遮图片底部 |
+
+行为约束：
+
+- 图片自然尺寸在 `load` 后读取；长图判断用 `naturalHeight > 2 × stageHeight`，不是固定像素阈值。
+- 切换「适应页面 / 适合宽度」只改舞台滚动与图片 CSS，不重新请求字节、不重置缩放。
+- 关闭（Esc/遮罩/关闭按钮）后焦点回到触发缩略图/chip；背景滚动锁定。
+- 文本预览复用同一弹层骨架，但 body 是只读 `pre`，不套图片填充规则。
+
 ## 10. 可访问性
 
 - 图片缩略图 `alt=附件名`；预览弹层 `role=dialog` + `aria-modal=true`，打开后焦点入弹层，Esc 关闭并把焦点还给触发 chip；背景交互锁定。
@@ -218,8 +242,8 @@ interface AttachmentPublishV1 {
 
 - 附件 chip：高 18px、padding 1px 6px、圆角 5px、字号 9.5px、边框 1px（沿用 §5.4）；「模型生成」badge 字号 8.5px、`--cwi-model` 底 `--cwi-model-soft`，置于 chip 右侧，不改变 chip 尺寸。
 - 附件页行高：图片缩略图 32×32 圆角 6px；行 padding 8px 10px、行距 6px；名称 12px、meta 9.5px `--cwi-soft`；下载按钮高 26px。
-- 预览弹层：居中，最大宽 `min(860px, 92vw)`，最大高 `min(640px, 86vh)`；遮罩 `rgba(16,24,40,.45)`；图片缩放控件 26px 圆角 7px；标题栏 40px、底边 1px `--cwi-border-soft`。
-- 四档 1280/1024/768/390 与 ±2px 容差；预览弹层与附件页在 768/390 下不产生横向滚动、不遮挡 composer。
+- 预览弹层：填满可用视口（`min(100vw - 24px, 1600px) × min(100vh - 24px, 1100px)`）；宽图宽度贴边、长图默认适合宽度纵向滚动、普通图 contain 居中；遮罩 `rgba(16,24,40,.72)`；缩放控件 26px 圆角 7px；header/footer 44px、底边 1px `--cwi-border-soft`；详见 §9.2。
+- 四档 1280/1024/768/390 与 ±2px 容差；预览弹层与附件页在 768/390 下不产生横向滚动；弹层打开时按模态锁定背景，关闭后 composer 恢复可操作。
 - 复杂场景必须有 HTML demo 与实际截图（§12）。
 
 ## 12. Demo
@@ -227,6 +251,7 @@ interface AttachmentPublishV1 {
 - 交互稿：[attachment-pipeline-demo.html](assets/attachment-pipeline-demo.html)（`?view=main|flow|empty`）
 - 截图：[attachment-pipeline-demo.png](assets/attachment-pipeline-demo.png)（1280×900 亮色，headless Chrome `deviceScaleFactor=2`；队长已用 read_image 目检缩略图并通过）
 - 端到端流程：[attachment-flow-demo.png](assets/attachment-flow-demo.png)（生成文件 → attach → 写入 `cowork-attachment://` → reply + 缩略图；队长已用 read_image 目检）
+- 图片预览填充：[attachment-preview-demo.html](assets/attachment-preview-demo.html)（`?view=wide|long`）· [宽图](assets/attachment-preview-wide.png) · [长图](assets/attachment-preview-long.png)
 
 主视图覆盖：用户上传 PNG（附件页 + thread）、模型生成 PNG（badge + thread 缩略图 + 预览弹层）、文本附件、附件页行、预览弹层、上传失败态——7 个元素，超过「至少 4 个」要求；`?view=empty` 单独覆盖空态。
 

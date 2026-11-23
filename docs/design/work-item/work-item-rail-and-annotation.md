@@ -145,7 +145,7 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 
 **宽度拖拽。** 拖 `.cwi-rail-grip` 水平调整；实时钳制；松手写 localStorage。焦点在 grip 时 ←/→ 每次 8px 调整。窄屏无拖拽（抽屉固定）。正文 `min-width` 保底，不因拉宽批注栏而不可读。
 
-**附件预览弹层。** 点会话消息里的图片/文本附件缩略图 → 打开 [attachment-pipeline.md](attachment-pipeline.md) §9 定义的预览弹层；本页只负责触发、焦点返回和窄屏不遮挡，不重复定义图片缩放/文本预览规格。
+**附件预览弹层。** 点会话消息里的图片/文本附件缩略图 → 打开 [attachment-pipeline.md](attachment-pipeline.md) §9.2 定义的预览弹层；本页只负责触发、焦点返回和窄屏不遮挡，不重复定义图片缩放/文本预览规格。
 
 ## 5. 数据 / 接口 / 契约变化
 
@@ -191,7 +191,7 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 | 批注栏宽度 | 默认 336px，范围 280–560px（`min(560, container − 360)`）；grip 左缘 6px 宽，hover/focus accent |
 | 列表态摘要卡 | 紧凑卡；`#N` chip 与字号见 §7.1；选中环 `0 0 0 2px accent-soft`；无 composer |
 | 会话态消息 | 用户消息 surface 底；模型回复 `--cwi-model-soft` 底 + `--cwi-model-border` 边框；字号/行高见 §7.1；附件缩略图 max 220×160 圆角 8px |
-| 附件预览弹层 | 规格由 [attachment-pipeline.md](attachment-pipeline.md) §11 拥有；本页只验收触发、Esc/遮罩关闭、焦点返回和窄屏不遮 composer |
+| 附件预览弹层 | 规格由 [attachment-pipeline.md](attachment-pipeline.md) §9.2 拥有；本页只验收触发、Esc/遮罩关闭、焦点返回和窄屏不遮 composer |
 
 ### 7.1 批注栏与批注内容排版
 
