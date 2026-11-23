@@ -41,6 +41,25 @@ test('every route is built from the shared contract path', async () => {
   assert.equal(calls[0].init, undefined)
 })
 
+test('the list read carries search, merged status, and one abort signal', async () => {
+  const { calls, impl } = fakeFetch(() => ok({ ok: true, items: [], counts: {}, truncated: false }))
+  const api = createWorkItemApi(impl)
+  const controller = new AbortController()
+  await api.list('session-1', { q: 'spec', status: 'pending-confirm', signal: controller.signal })
+  assert.equal(
+    calls[0].input,
+    '/api/cowork.artifact.list?sessionId=session-1&q=spec&status=pending-confirm',
+  )
+  assert.equal(calls[0].init.signal, controller.signal)
+  // No signal means no init at all, keeping the simple GET shape.
+  await api.list('session-1', { q: 'ready' })
+  assert.equal(calls[1].input, '/api/cowork.artifact.list?sessionId=session-1&q=ready')
+  assert.equal(calls[1].init, undefined)
+  // Empty query/status are omitted rather than sent as empty filters.
+  await api.list('session-1', { q: '', status: undefined })
+  assert.equal(calls[2].input, '/api/cowork.artifact.list?sessionId=session-1')
+})
+
 test('the reads carry the expected query parameters', async () => {
   const { calls, impl } = fakeFetch(() => ok({ ok: true }))
   const api = createWorkItemApi(impl)

@@ -40,24 +40,28 @@ function comment(overrides = {}) {
   }
 }
 
-test('the five filters map to their counts and labels', () => {
+test('the merged rail filters map to their counts and labels', () => {
   const counts = {
     total: 6, pendingView: 1, pendingConfirm: 2, needsFeedback: 5, inProgress: 3, confirmed: 4,
   }
+  assert.deepEqual(model.WORK_ITEM_FILTERS, [
+    'all', 'pending-confirm', 'needs-feedback', 'in-progress', 'confirmed',
+  ])
   assert.equal(model.filterLabel('all'), '全部')
   assert.equal(model.filterLabel('pending-confirm'), '待确认')
+  assert.equal(model.filterLabel('confirmed'), '已完成')
   for (const filter of model.WORK_ITEM_FILTERS) {
     assert.equal(typeof model.filterCount(counts, filter), 'number', filter)
   }
   assert.equal(model.filterCount(counts, 'all'), 6)
-  assert.equal(model.filterCount(counts, 'pending-view'), 1)
-  assert.equal(model.filterCount(counts, 'pending-confirm'), 2)
+  // 待查看 is shown as 待确认, so the chip counts both stored statuses.
+  assert.equal(model.filterCount(counts, 'pending-confirm'), 3)
   assert.equal(model.filterCount(counts, 'needs-feedback'), 5)
   assert.equal(model.filterCount(counts, 'in-progress'), 3)
   assert.equal(model.filterCount(counts, 'confirmed'), 4)
 })
 
-test('filtering and grouping keep rail order and fold confirmed by default', () => {
+test('filtering and grouping merge pending-view into the confirmed-rail order', () => {
   const items = [
     summary({ artifactId: 'a', status: 'confirmed' }),
     summary({ artifactId: 'b', status: 'pending-confirm' }),
@@ -67,13 +71,58 @@ test('filtering and grouping keep rail order and fold confirmed by default', () 
   ]
   assert.equal(model.filterArtifacts(items, 'all').length, 5)
   assert.deepEqual(model.filterArtifacts(items, 'confirmed').map((item) => item.artifactId), ['a'])
+  // The merged filter keeps both stored statuses and preserves their order.
+  assert.deepEqual(model.filterArtifacts(items, 'pending-confirm').map((item) => item.artifactId), ['b', 'e'])
+  assert.deepEqual(model.filterArtifacts(items, 'needs-feedback').map((item) => item.artifactId), ['c'])
   const groups = model.groupArtifacts(items)
   assert.deepEqual(groups.map((group) => group.status), [
-    'pending-confirm', 'needs-feedback', 'in-progress', 'pending-view', 'confirmed',
+    'pending-confirm', 'needs-feedback', 'in-progress', 'confirmed',
   ])
-  assert.deepEqual(groups.map((group) => group.collapsedByDefault), [false, false, false, false, true])
+  assert.deepEqual(groups.map((group) => group.collapsedByDefault), [false, false, false, true])
   assert.equal(groups[0].label, '待确认')
+  assert.deepEqual(groups[0].items.map((item) => item.artifactId), ['b', 'e'])
+  assert.equal(groups[3].label, '已完成')
   assert.deepEqual(model.groupArtifacts([]), [])
+})
+
+test('a stored pending-view card keeps its raw status and the merged label', () => {
+  const item = summary({ artifactId: 'e', status: 'pending-view' })
+  assert.equal(item.status, 'pending-view')
+  assert.equal(artifactContract.railStatusLabel(item.status), '待确认')
+  assert.equal(model.cardTitle(item), 'Spec')
+  assert.equal(model.sourceLabel('主题 A'), '来源：主题 A')
+  assert.equal(model.sourceLabel(null), '来源：未命名会话')
+  assert.equal(model.sourceLabel(undefined), '来源：未命名会话')
+})
+
+test('the search query is trimmed, capped, and becomes one status value', () => {
+  assert.equal(model.boundSearchQuery('  spec  '), 'spec')
+  assert.equal(model.boundSearchQuery('   '), '')
+  const long = 'x'.repeat(artifactContract.MAX_ARTIFACT_SEARCH_CHARS + 50)
+  assert.equal(model.boundSearchQuery(long).length, artifactContract.MAX_ARTIFACT_SEARCH_CHARS)
+  assert.equal(model.searchStatusOf('all'), null)
+  assert.equal(model.searchStatusOf('pending-confirm'), 'pending-confirm')
+  assert.equal(model.searchStatusOf('confirmed'), 'confirmed')
+})
+
+test('the empty, truncation, and fold copy follows the active query', () => {
+  assert.equal(model.listEmptyMessage(''), '这个筛选下没有工作项。')
+  assert.equal(model.listEmptyMessage('spec'), '没有匹配「spec」的工作项')
+  assert.equal(model.LIST_TRUNCATED_MESSAGE, '匹配结果超过 200 条，仅显示前 200 条')
+  assert.equal(model.LIST_SEARCH_DEBOUNCE_MS, 150)
+  const open = { status: 'pending-confirm', label: '待确认', items: [], collapsedByDefault: false }
+  const folded = { status: 'confirmed', label: '已完成', items: [], collapsedByDefault: true }
+  assert.equal(model.groupStartsExpanded(open), true)
+  assert.equal(model.groupStartsExpanded(folded), false)
+  assert.equal(model.toggledGroupExpanded(false), true)
+  assert.equal(model.toggledGroupExpanded(true), false)
+})
+
+test('only an abort of a superseded read is ignored', () => {
+  assert.equal(model.isAbortError(Object.assign(new Error('aborted'), { name: 'AbortError' })), true)
+  assert.equal(model.isAbortError(new Error('network down')), false)
+  assert.equal(model.isAbortError(null), false)
+  assert.equal(model.isAbortError('AbortError'), false)
 })
 
 test('the dispatch badge names all eight states', () => {

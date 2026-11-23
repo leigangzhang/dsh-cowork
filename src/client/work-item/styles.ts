@@ -100,11 +100,23 @@ body[data-ds-dark-theme] .cwi-list {
 
 /* ---------- right-rail work-item list ---------- */
 .cwi-list { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 18px; min-height: 0; overflow: auto; }
-.cwi-filter-row { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 6px; background: var(--dsw-alias-bg-base, #fff); }
+.cwi-list-toolbar { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: column; gap: 4px; padding: 2px 0 6px; background: var(--dsw-alias-bg-base, #fff); }
+.cwi-filter-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.cwi-list-tools { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 26px; }
+.cwi-search-toggle, .cwi-search-input { height: 26px; border: 1px solid var(--cwi-border); border-radius: 7px; background: var(--cwi-surface); color: var(--cwi-ink); font: inherit; font-size: 11.5px; }
+.cwi-search-toggle { padding: 0 10px; font-weight: 600; cursor: pointer; }
+.cwi-search-input { width: 168px; padding: 3px 8px; }
+.cwi-search-input:focus-visible { outline: none; border-color: var(--cwi-accent); box-shadow: 0 0 0 2px var(--cwi-accent-soft); }
+.cwi-search { display: flex; align-items: center; gap: 4px; }
+.cwi-search-clear { flex: none; width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--cwi-muted); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
+.cwi-search-toggle:hover, .cwi-search-clear:hover, .cwi-group-summary:hover { background: var(--cwi-surface-muted); color: var(--cwi-ink); }
+.cwi-search-toggle:focus-visible, .cwi-search-clear:focus-visible, .cwi-group-summary:focus-visible { outline: 2px solid var(--cwi-accent); outline-offset: 1px; }
+.cwi-search-loading { color: var(--cwi-soft); font-size: 10.5px; }
 .cwi-filter { border: 1px solid var(--cwi-border); background: transparent; color: var(--cwi-muted); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 11.5px; cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
 .cwi-filter:hover { background: var(--cwi-surface-muted); color: var(--cwi-ink); }
 .cwi-filter[data-active="true"] { border-color: transparent; background: var(--cwi-accent-soft); color: var(--cwi-accent); font-weight: 600; }
 .cwi-filter:focus-visible { outline: 2px solid var(--cwi-accent); outline-offset: 1px; }
+.cwi-group { display: flex; flex-direction: column; gap: 6px; }
 .cwi-group-title { width: 100%; border: 0; background: transparent; color: var(--cwi-soft); text-align: left; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 10px 0 4px; padding: 0 2px; font: inherit; font-size: 11px; font-weight: 650; letter-spacing: .03em; }
 .cwi-group-title:hover { color: var(--cwi-muted); }
 .cwi-group-title > span:last-child { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--cwi-surface-muted); color: var(--cwi-muted); font-size: 10px; font-weight: 600; line-height: 18px; text-align: center; }
@@ -119,8 +131,8 @@ body[data-ds-dark-theme] .cwi-list {
 .cwi-kind[data-type="diagram"] { background: var(--cwi-success-soft); color: var(--cwi-success); }
 .cwi-kind[data-type="html"] { background: var(--cwi-surface-muted); color: var(--cwi-muted); }
 .cwi-card-status { margin-left: auto; padding: 1px 7px; border-radius: 999px; background: var(--cwi-surface-muted); color: var(--cwi-muted); font-size: 10px; font-weight: 650; }
-.cwi-card-status[data-status="pending-view"] { background: var(--cwi-warn-soft); color: var(--cwi-warn); }
-.cwi-card-status[data-status="pending-confirm"] { background: var(--cwi-accent-soft); color: var(--cwi-accent); }
+/* 待查看 is shown as 待确认: both stored statuses take the same chip. */
+.cwi-card-status[data-status="pending-view"], .cwi-card-status[data-status="pending-confirm"] { background: var(--cwi-accent-soft); color: var(--cwi-accent); }
 .cwi-card-status[data-status="needs-feedback"] { background: var(--cwi-danger-soft); color: var(--cwi-danger); }
 .cwi-card-status[data-status="in-progress"] { background: var(--cwi-accent-soft); color: var(--cwi-accent); }
 .cwi-card-status[data-status="confirmed"] { background: var(--cwi-success-soft); color: var(--cwi-success); }
@@ -128,8 +140,10 @@ body[data-ds-dark-theme] .cwi-list {
 .cwi-card-meta { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 11px; color: var(--cwi-muted); }
 .cwi-card-meta .cwi-chip { padding: 0 6px; line-height: 17px; font-size: 10.5px; font-weight: 500; }
 .cwi-card-time { margin-left: auto; color: var(--cwi-soft); font-size: 10.5px; white-space: nowrap; }
-.cwi-card .cwi-path { color: var(--cwi-soft); font-size: 10.5px; }
 .cwi-card-source { color: var(--cwi-soft); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cwi-group-summary { width: 100%; min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px dashed var(--cwi-border); border-radius: 10px; background: var(--cwi-surface); color: var(--cwi-muted); font: inherit; font-size: 11px; font-weight: 600; text-align: left; cursor: pointer; }
+.cwi-group-check { flex: none; width: 15px; height: 15px; display: grid; place-items: center; border-radius: 50%; background: var(--cwi-success-soft); color: var(--cwi-success); font-size: 8px; font-weight: 800; }
+.cwi-group-summary-text { flex: 1; }
 .cwi-empty, .cwi-error, .cwi-loading { padding: 22px 14px; text-align: center; font-size: 12px; color: var(--cwi-soft); }
 .cwi-error { color: var(--cwi-danger); }
 .cwi-skeleton-card { border: 1px solid var(--cwi-border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--cwi-surface); }

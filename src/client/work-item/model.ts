@@ -8,11 +8,13 @@
  * to cover them.
  */
 import {
-  ARTIFACT_STATUS_LABELS,
   ARTIFACT_TYPE_LABELS,
   DISPATCH_STATE_LABELS,
   MAX_ARTIFACT_QUOTE_CHARS,
+  MAX_ARTIFACT_SEARCH_CHARS,
+  artifactStatusMatches,
   isTerminalDispatchState,
+  railStatusLabel,
   type ActiveDispatchV1,
   type ArtifactAnchor,
   type ArtifactDetailResponse,
@@ -27,13 +29,15 @@ import {
   type DispatchState,
 } from '../../panel/artifact-contract.js'
 
-/** The right-rail filters, in card order. `all` is not a status. */
+/**
+ * The right-rail filters, in card order. `all` is not a status; `pending-view`
+ * is not a filter because it is shown as 待确认 (see `artifactStatusMatches`).
+ */
 export const WORK_ITEM_FILTERS = [
   'all',
   'pending-confirm',
   'needs-feedback',
   'in-progress',
-  'pending-view',
   'confirmed',
 ] as const
 
@@ -41,14 +45,14 @@ export const WORK_ITEM_FILTERS = [
 export type WorkItemFilter = (typeof WORK_ITEM_FILTERS)[number]
 
 /**
- * Group order of the rail: things waiting on the user first, `pending-view`
- * after active work, and `confirmed` last (collapsed by default).
+ * Group order of the rail: things waiting on the user first, then active work,
+ * and `confirmed` last (collapsed by default). Stored `pending-view` rows join
+ * the 待确认 group instead of getting a group of their own.
  */
 export const WORK_ITEM_GROUP_ORDER: readonly ArtifactStatus[] = [
   'pending-confirm',
   'needs-feedback',
   'in-progress',
-  'pending-view',
   'confirmed',
 ]
 
@@ -61,9 +65,9 @@ export interface WorkItemGroup {
   readonly collapsedByDefault: boolean
 }
 
-/** Label of one filter chip. */
+/** Label of one filter chip under the merged rail projection. */
 export function filterLabel(filter: WorkItemFilter): string {
-  return filter === 'all' ? '全部' : ARTIFACT_STATUS_LABELS[filter]
+  return filter === 'all' ? '全部' : railStatusLabel(filter)
 }
 
 /** Human label of one artifact type. */
@@ -76,23 +80,33 @@ export function dispatchLabel(state: DispatchState): string {
   return DISPATCH_STATE_LABELS[state]
 }
 
-/** Keep only the items one filter names; `all` keeps everything. */
+/**
+ * Keep only the items one filter names; `all` keeps everything.
+ *
+ * `pending-confirm` keeps both stored statuses because the rail merges
+ * 待查看 into 待确认; the contract owns that rule.
+ */
 export function filterArtifacts(
   items: readonly ArtifactSummaryV1[],
   filter: WorkItemFilter,
 ): ArtifactSummaryV1[] {
-  return filter === 'all' ? [...items] : items.filter((item) => item.status === filter)
+  if (filter === 'all') return [...items]
+  return items.filter((item) => artifactStatusMatches(filter, item.status))
 }
 
-/** Group items in rail order, skipping empty groups. */
+/**
+ * Group items in rail order under the merged status, skipping empty groups.
+ * @param items - summaries; their stored `status` stays untouched on the cards.
+ * @returns groups whose status is the merged rail status.
+ */
 export function groupArtifacts(items: readonly ArtifactSummaryV1[]): WorkItemGroup[] {
   const groups: WorkItemGroup[] = []
   for (const status of WORK_ITEM_GROUP_ORDER) {
-    const grouped = items.filter((item) => item.status === status)
+    const grouped = items.filter((item) => artifactStatusMatches(status, item.status))
     if (grouped.length === 0) continue
     groups.push({
       status,
-      label: ARTIFACT_STATUS_LABELS[status],
+      label: railStatusLabel(status),
       items: grouped,
       collapsedByDefault: status === 'confirmed',
     })
@@ -115,10 +129,9 @@ export function filterCount(
   switch (filter) {
     case 'all':
       return counts.total
-    case 'pending-view':
-      return counts.pendingView
     case 'pending-confirm':
-      return counts.pendingConfirm
+      // 待查看 is shown as 待确认, so the chip counts both stored statuses.
+      return counts.pendingView + counts.pendingConfirm
     case 'needs-feedback':
       return counts.needsFeedback
     case 'in-progress':
@@ -126,6 +139,70 @@ export function filterCount(
     case 'confirmed':
       return counts.confirmed
   }
+}
+
+/** How long typed search text rests before it becomes one server request. */
+export const LIST_SEARCH_DEBOUNCE_MS = 150
+
+/** The note shown when the server capped a result set at 200 rows. */
+export const LIST_TRUNCATED_MESSAGE = '匹配结果超过 200 条，仅显示前 200 条'
+
+/**
+ * Trim search text and cap it to the server's accepted length.
+ * @param raw - the input's current value.
+ * @returns the request-safe query; empty means "no search".
+ */
+export function boundSearchQuery(raw: string): string {
+  const text = raw.trim()
+  const points = Array.from(text)
+  return points.length <= MAX_ARTIFACT_SEARCH_CHARS
+    ? text
+    : points.slice(0, MAX_ARTIFACT_SEARCH_CHARS).join('')
+}
+
+/**
+ * The `status` query value for one filter.
+ * @param filter - active rail filter.
+ * @returns the merged status the server filters on, or null for `all`.
+ */
+export function searchStatusOf(filter: WorkItemFilter): ArtifactStatus | null {
+  return filter === 'all' ? null : filter
+}
+
+/** The card's source line: the owning session name or the unnamed fallback. */
+export function sourceLabel(sessionTitle: string | null | undefined): string {
+  return `来源：${sessionTitle ?? '未命名会话'}`
+}
+
+/** The card's tooltip: the title only, never the stored path. */
+export function cardTitle(item: ArtifactSummaryV1): string {
+  return item.title
+}
+
+/**
+ * Empty-list copy for the active query.
+ * @param query - the committed (trimmed) server query, or ''.
+ * @returns the no-result text with the query echoed, or the filter-only text.
+ */
+export function listEmptyMessage(query: string): string {
+  return query === '' ? '这个筛选下没有工作项。' : `没有匹配「${query}」的工作项`
+}
+
+/** Whether one group starts open (every group except 已完成). */
+export function groupStartsExpanded(group: WorkItemGroup): boolean {
+  return !group.collapsedByDefault
+}
+
+/** Toggle one group's remembered expansion state. */
+export function toggledGroupExpanded(expanded: boolean): boolean {
+  return !expanded
+}
+
+/** Whether a thrown value is the abort of a superseded list request. */
+export function isAbortError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && (error as { readonly name?: unknown }).name === 'AbortError'
 }
 
 /** One-line activity badge the header and cards render. */
