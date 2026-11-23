@@ -49,6 +49,8 @@ export interface MarkdownReadViewProps {
   readonly selectedAnchor: ArtifactAnchor | null
   /** Source line to bring to the top after a source-to-read switch. */
   readonly focusLine: number | null
+  /** Bumped on every focus request so the same line scrolls again. */
+  readonly focusToken: number
   /** Resolve one sanitized image source to its final URL, or null. */
   readonly imageUrl: (src: string) => string | null
   /** Create a comment for the mapped line range. */
@@ -57,6 +59,8 @@ export interface MarkdownReadViewProps {
   readonly onPickPin: (ordinal: number) => void
   /** Report the source line of the block at the top of the viewport. */
   readonly onViewportLine: (line: number) => void
+  /** Clear the selected thread highlight. */
+  readonly onClearThread: () => void
 }
 
 /** The state behind the floating annotate entry. */
@@ -151,6 +155,26 @@ function visibleLineAt(article: HTMLElement, top: number): number | null {
   return null
 }
 
+/** The viewer's scroll container, addressed by the known test hook first. */
+function scrollContainerOf(article: HTMLElement): HTMLElement | null {
+  return article.closest<HTMLElement>('[data-testid="cwi-content"]') ?? scrollParent(article)
+}
+
+/** Scroll the block containing one source line to the viewer's top. */
+function scrollBlockToTop(article: HTMLElement, blocks: readonly MarkdownBlock[], line: number): void {
+  const block = blockAtLine(blocks, line)
+  if (block === null) return
+  const matches = article.querySelectorAll<HTMLElement>(
+    `[data-src-kind="${block.kind}"][data-src-start="${String(block.startLine)}"][data-src-end="${String(block.endLine)}"]`,
+  )
+  const target = matches[matches.length - 1]
+  const container = scrollContainerOf(article)
+  if (target === undefined || container === null) return
+  // Align through the scroll container directly: switching surfaces changes the
+  // content height, and scroll anchoring would otherwise fight scrollIntoView.
+  container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top
+}
+
 /** The scrollable ancestor the article sits in, if any. */
 function scrollParent(element: HTMLElement): HTMLElement | null {
   let node = element.parentElement
@@ -169,9 +193,9 @@ function entryPosition(rect: SelectionDraft['rect']): { left: number; top: numbe
   const left = Math.min(Math.max(center - ENTRY_WIDTH / 2, ENTRY_GAP), maxLeft)
   const below = rect.top + rect.height + ENTRY_GAP
   const above = rect.top - ENTRY_HEIGHT - ENTRY_GAP
-  const top = below + ENTRY_HEIGHT <= window.innerHeight - ENTRY_GAP
+  const top = below >= ENTRY_GAP && below + ENTRY_HEIGHT <= window.innerHeight - ENTRY_GAP
     ? below
-    : Math.max(ENTRY_GAP, above)
+    : Math.max(ENTRY_GAP, Math.min(above, window.innerHeight - ENTRY_HEIGHT - ENTRY_GAP))
   return { left, top }
 }
 
@@ -442,8 +466,14 @@ function renderContainer(
       return <p key={key} {...props}>{pin}{children}</p>
     case 'bullet_list_open':
       return <ul key={key} {...props}>{pin}{children}</ul>
-    case 'ordered_list_open':
-      return <ol key={key} {...props}>{pin}{children}</ol>
+    case 'ordered_list_open': {
+      const start = Number(token.attrGet('start'))
+      return (
+        <ol key={key} {...props} {...(Number.isInteger(start) && start > 1 ? { start } : {})}>
+          {pin}{children}
+        </ol>
+      )
+    }
     case 'list_item_open': {
       const task = taskMarkerOf(slice)
       return (
@@ -460,9 +490,13 @@ function renderContainer(
     case 'blockquote_open':
       return <blockquote key={key} {...props}>{pin}{children}</blockquote>
     case 'table_open':
+      // The outer block owns the pin; the inner scroller owns overflow, so a
+      // pin is never clipped by the table's own scroll container.
       return (
-        <div key={key} {...props} className={`${className} cwi-md-table-wrap`}>
-          <table className="cwi-md-table">{children}</table>
+        <div key={key} {...props} className={`${className} cwi-md-table-block`}>
+          <div className="cwi-md-table-wrap">
+            <table className="cwi-md-table">{children}</table>
+          </div>
           {pin}
         </div>
       )
@@ -566,7 +600,10 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
   const debounceRef = useRef<number | null>(null)
   const viewportLineRef = useRef(-1)
   const onViewportLineRef = useRef(props.onViewportLine)
+  const onClearThreadRef = useRef(props.onClearThread)
+  const blocksRef = useRef<readonly MarkdownBlock[]>([])
   onViewportLineRef.current = props.onViewportLine
+  onClearThreadRef.current = props.onClearThread
 
   const lines = useMemo(() => contentLines(props.content), [props.content])
   const split = useMemo(() => splitFrontmatter(props.content), [props.content])
@@ -576,6 +613,7 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
     [split.body, split.bodyStartLine],
   )
   const pins = useMemo(() => blockPins(blocks, props.threads), [blocks, props.threads])
+  blocksRef.current = blocks
   const selectedKey = useMemo(() => {
     if (props.selectedAnchor === null || props.selectedAnchor.kind !== 'line-range') return null
     const block = blockAtLine(blocks, props.selectedAnchor.startLine)
@@ -619,8 +657,16 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
         setDraft(null)
         return
       }
+      // Frontmatter is a read-only header: it has no pin and no anchor.
+      if (startBlock.kind === 'frontmatter' || endBlock.kind === 'frontmatter') {
+        setDraft(null)
+        return
+      }
       const rect = selectionRect(range)
-      if (rect === null) {
+      // A selection that is entirely outside the viewport has no usable entry
+      // position; treat it as closed instead of pinning a control off-screen.
+      if (rect === null || rect.top + rect.height < 0 || rect.top > window.innerHeight
+        || rect.left + rect.width < 0 || rect.left > window.innerWidth) {
         setDraft(null)
         return
       }
@@ -642,7 +688,9 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
       setDraft(null)
     }
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setDraft(null)
+      if (event.key !== 'Escape') return
+      setDraft(null)
+      onClearThreadRef.current()
     }
     // A scroll or resize moves the selection rectangle away from the entry.
     const onViewportChange = (): void => { setDraft(null) }
@@ -666,12 +714,15 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
   useEffect(() => {
     const article = articleRef.current
     if (article === null) return
-    const container = scrollParent(article)
+    const container = scrollContainerOf(article)
     if (container === null) return
     let frame = 0
     const report = (): void => {
       frame = 0
       const line = visibleLineAt(article, container.getBoundingClientRect().top + 4)
+      // Exposed for the browser lane's read↔source handoff assertion; it has no
+      // other reader and mirrors the line the switch will use.
+      article.dataset.viewportLine = line === null ? '' : String(line)
       if (line === null || line === viewportLineRef.current) return
       viewportLineRef.current = line
       onViewportLineRef.current(line)
@@ -690,21 +741,22 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
   }, [blocks])
 
   // Source → read: bring the block that contains the editor's top line up.
+  // The token makes a repeated request for the same line scroll again, and a
+  // content refresh must not re-apply an old focus request.
   useEffect(() => {
-    if (props.focusLine === null) return
-    const article = articleRef.current
-    if (article === null) return
-    const block = blockAtLine(blocks, props.focusLine)
-    if (block === null) return
-    const matches = article.querySelectorAll<HTMLElement>(
-      `[data-src-kind="${block.kind}"][data-src-start="${String(block.startLine)}"][data-src-end="${String(block.endLine)}"]`,
-    )
-    matches[matches.length - 1]?.scrollIntoView({ block: 'start' })
-  }, [blocks, props.focusLine])
+    if (props.focusLine === null || articleRef.current === null) return
+    scrollBlockToTop(articleRef.current, blocksRef.current, props.focusLine)
+  }, [props.focusLine, props.focusToken])
 
   const position = draft === null ? null : entryPosition(draft.rect)
   return (
-    <article className="cwi-md-read" data-testid="cwi-md-read" ref={articleRef} aria-label="Markdown 文档">
+    <article
+      className="cwi-md-read"
+      data-testid="cwi-md-read"
+      ref={articleRef}
+      aria-label="Markdown 文档"
+      onClick={(event) => { if (event.target === event.currentTarget) onClearThreadRef.current() }}
+    >
       {split.frontmatter === null ? null : (
         <details
           className="cwi-md-frontmatter"

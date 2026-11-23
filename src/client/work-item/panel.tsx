@@ -182,6 +182,45 @@ function ownerAttachmentUrl(context: WorkItemOpenContext | null, attachmentId: s
   })
 }
 
+/** The owner context and file a save may address, or null when it may not. */
+function savingTarget(
+  readOnly: boolean,
+  context: WorkItemOpenContext | null,
+  data: ViewerData | null,
+): { readonly owner: WorkItemOpenContext; readonly file: ArtifactFileResponse } | null {
+  if (readOnly || context === null || data === null) return null
+  return data.file === null ? null : { owner: context, file: data.file }
+}
+
+/** Reopen a persisted draft for the owning session, never for a preview. */
+function restoreDraft(
+  file: ArtifactFileResponse | null,
+  crossSession: boolean,
+  artifactId: string,
+  sinks: {
+    readonly setEditing: (value: boolean) => void
+    readonly setReadMode: (value: boolean) => void
+    readonly setReadFocusToken: (value: number) => void
+    readonly setEditDraft: (value: string) => void
+    readonly setDraftBase: (value: { revision: number; baseVersion: string | null } | null) => void
+    readonly setReceipt: (value: string | null) => void
+  },
+): void {
+  if (file === null) return
+  const restored = crossSession ? null : readPersistedDraft(artifactId)
+  if (restored === null) return
+  if (restored.content === file.content) {
+    removePersistedDraft(artifactId)
+    return
+  }
+  sinks.setEditing(true)
+  sinks.setReadMode(false)
+  sinks.setReadFocusToken(0)
+  sinks.setEditDraft(restored.content)
+  sinks.setDraftBase({ revision: restored.baseRevision, baseVersion: restored.baseVersion })
+  sinks.setReceipt('已恢复上次未保存的草稿')
+}
+
 /** The open context as a React value. */
 function useOpenContext() {
   return useSyncExternalStore(
@@ -294,6 +333,8 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   const [readMode, setReadMode] = useState(true)
   /** Block line to bring to the top after switching source → read. */
   const [readFocusLine, setReadFocusLine] = useState<number | null>(null)
+  /** Bumped on every focus request so the same line scrolls again. */
+  const [readFocusToken, setReadFocusToken] = useState(0)
   /** Top visible source line of the active surface, shared by the switch. */
   const viewportLineRef = useRef(1)
   const [showRail, setShowRail] = useState(false)
@@ -349,14 +390,14 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
 
   /** Persist the user's only copy locally; reopening restores it. */
   const persistDraft = useCallback(() => {
-    if (context === null || data?.file == null || editDraft === savedContent) return
+    if (context === null || data?.file == null || readOnly || editDraft === savedContent) return
     savePersistedDraft(context.artifactId, {
       content: editDraft,
       baseRevision: draftBase?.revision ?? data.file.revision,
       baseVersion: draftBase?.baseVersion ?? data.file.fsVersion,
       savedAt: new Date().toISOString(),
     })
-  }, [context, data?.file, draftBase, editDraft, savedContent])
+  }, [context, data?.file, draftBase, editDraft, readOnly, savedContent])
 
   const clearPersistedDraft = useCallback(() => {
     if (context === null) return
@@ -409,17 +450,9 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
       setSavePhase('saved')
       setBackArmed(false)
       setDraftBase(null)
-      if (file !== null) {
-        const restored = readPersistedDraft(context.artifactId)
-        if (restored !== null && restored.content !== file.content) {
-          setEditing(true)
-          setEditDraft(restored.content)
-          setDraftBase({ revision: restored.baseRevision, baseVersion: restored.baseVersion })
-          setReceipt('已恢复上次未保存的草稿')
-        } else if (restored !== null) {
-          removePersistedDraft(context.artifactId)
-        }
-      }
+      restoreDraft(file, crossSession, context.artifactId, {
+        setEditing, setReadMode, setReadFocusToken, setEditDraft, setDraftBase, setReceipt,
+      })
       setPhase('ready')
       // Opening the viewer records first-view; the server is idempotent and the
       // failure must not block reading.
@@ -441,7 +474,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
       // Switching to another work item must leave the old draft recoverable.
       persistDraftRef.current()
     }
-  }, [context, refreshToken])
+  }, [context, crossSession, refreshToken])
 
   // A different work item starts with the default rail projection.
   useEffect(() => {
@@ -474,15 +507,16 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     readonly baseRevision?: number
     readonly content?: string
   }) => {
-    if (context === null || data === null || data.file === null) return
-    const file = data.file
+    const target = savingTarget(readOnly, context, data)
+    if (target === null) return
+    const { owner, file } = target
     const content = options?.content ?? editDraft
     setSavePhase('saving')
     setBackArmed(false)
     try {
       const response = await workItemApi.edit({
-        sessionId: context.ownerSessionId,
-        artifactId: context.artifactId,
+        sessionId: owner.ownerSessionId,
+        artifactId: owner.artifactId,
         path: file.path,
         baseRevision: options?.baseRevision ?? draftBase?.revision ?? file.revision,
         baseVersion: options?.baseVersion === undefined
@@ -520,7 +554,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
         setSavePhase('conflict')
         if (info !== null) {
           try {
-            const latest = await workItemApi.file(context.ownerSessionId, context.artifactId, file.path)
+            const latest = await workItemApi.file(owner.ownerSessionId, owner.artifactId, file.path)
             setConflictLatest(latest.content)
           } catch {
             setConflictLatest('')
@@ -531,7 +565,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
       setSavePhase('failed')
       setReceipt(`保存失败：${messageOf(error)}`)
     }
-  }, [clearPersistedDraft, context, data, draftBase, editDraft])
+  }, [clearPersistedDraft, context, data, draftBase, editDraft, readOnly])
 
   // Debounced autosave: every edit restarts the 800 ms window; a conflict
   // pauses saving until the user picks a resolution.
@@ -798,6 +832,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     setShowRail(true)
     setSelection({ startLine: anchor.startLine, endLine: anchor.endLine })
     setReadFocusLine(anchor.startLine)
+    setReadFocusToken(token => token + 1)
     requestAnimationFrame(() => {
       document.querySelector(`[data-line="${String(anchor.startLine)}"]`)?.scrollIntoView({ block: 'center' })
     })
@@ -976,10 +1011,12 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   const reading = createReadingSurface({
     kind, file: data.file, record, lines, threads, pins: linePins, selectedThreadId, selection,
     dirty, conflict, readOnly, editing, readMode, editDraft, savedContent, viewportLineRef,
-    focusLine: readFocusLine, viewTab, attachmentUrl,
+    focusLine: readFocusLine, focusToken: readFocusToken, viewTab, attachmentUrl,
   }, {
     setEditing, setReadMode, setEditDraft, setSavedContent, setSavePhase, setConflict, setReceipt,
-    setSelection, setPendingAnchor, setViewTab, setShowRail, setReadFocusLine,
+    setSelection, setPendingAnchor, setReplyTarget, setViewTab, setShowRail,
+    setReadFocusLine: (line) => { setReadFocusLine(line); setReadFocusToken(token => token + 1) },
+    clearThread: () => { setSelectedThreadId(null) },
     focusComposer: () => { focusComposerAfterFlush(composerRef) },
     openThread: focusThread,
   })
@@ -1036,6 +1073,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
         readMode={readMode}
         showMode={reading.showMode}
         savePhase={savePhase}
+        dirty={dirty}
         revision={data.file?.revision ?? record.revision}
         showRail={showRail}
         threadCount={threads.length}

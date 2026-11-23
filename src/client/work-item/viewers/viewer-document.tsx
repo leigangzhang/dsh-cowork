@@ -329,10 +329,12 @@ function MarkdownSurface({ reading }: {
       annotateReason={reading.annotateReason}
       selectedAnchor={reading.selectedAnchor}
       focusLine={reading.focusLine}
+      focusToken={reading.focusToken}
       imageUrl={reading.imageUrl}
       onAnnotate={reading.onAnnotate}
       onPickPin={reading.onPickPin}
       onViewportLine={reading.onViewportLine}
+      onClearThread={reading.onClearThread}
     />
   )
 }

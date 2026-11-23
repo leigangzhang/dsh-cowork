@@ -47,7 +47,8 @@ body[data-ds-dark-theme] .cwi-md-read ::selection { background: color-mix(in srg
 .cwi-md-read blockquote p { margin: 0; }
 .cwi-md-hr { margin: 27px 0; }
 .cwi-md-hr hr { margin: 0; border: 0; border-top: 1px solid var(--cwi-border-soft); }
-.cwi-md-table-wrap { margin: 0 0 15px; overflow-x: auto; border-radius: 6px; }
+.cwi-md-table-block { margin: 0 0 15px; }
+.cwi-md-table-wrap { overflow-x: auto; border-radius: 6px; }
 .cwi-md-table { width: 100%; border-collapse: collapse; font-size: 15px; line-height: 26.25px; }
 .cwi-md-table th, .cwi-md-table td { padding: 6px 12px; border: 1px solid var(--cwi-border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
 .cwi-md-table th { background: var(--dsw-alias-bg-layer-2, var(--cwi-surface-muted)); font-weight: 600; }

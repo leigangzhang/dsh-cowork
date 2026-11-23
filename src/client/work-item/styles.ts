@@ -407,6 +407,7 @@ ${MARKDOWN_READ_CSS}
 .cwi-composer { flex: none; display: flex; flex-direction: column; gap: 6px; margin: 0 10px 10px; padding: 8px 9px; border: 1px solid var(--cwi-border); border-radius: 9px; background: var(--cwi-surface); box-shadow: 0 3px 10px #1018280a; }
 .cwi-composer:focus-within { border-color: var(--cwi-accent); box-shadow: 0 0 0 2px var(--cwi-accent-soft); }
 .cwi-composer-lead { margin: 0; color: var(--cwi-soft); font-size: 9.5px; line-height: 1.4; }
+.cwi-composer-selected { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cwi-muted); font-size: 11px; line-height: 16px; }
 .cwi-composer textarea { width: 100%; min-height: 56px; max-height: 200px; resize: vertical; border: 1px solid var(--cwi-border-soft); border-radius: var(--cwi-radius-sm); background: var(--cwi-surface); color: inherit; padding: 6px 8px; font: inherit; font-size: 11.5px; line-height: 1.6; }
 .cwi-composer textarea:focus-visible { outline: none; border-color: var(--cwi-accent); }
 .cwi-composer-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }

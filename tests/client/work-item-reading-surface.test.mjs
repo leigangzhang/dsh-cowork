@@ -21,9 +21,11 @@ function sinks() {
     setReceipt: set('receipt'),
     setSelection: set('selection'),
     setPendingAnchor: set('pendingAnchor'),
+    setReplyTarget: set('replyTarget'),
     setViewTab: set('viewTab'),
     setShowRail: set('showRail'),
     setReadFocusLine: set('readFocusLine'),
+    clearThread: () => { calls.push(['clearThread', null]) },
     focusComposer: () => { calls.push(['focusComposer', null]) },
     openThread: (thread) => { calls.push(['openThread', thread.threadId]) },
   }
@@ -72,6 +74,7 @@ function input(overrides = {}) {
     savedContent: 'saved text',
     viewportLineRef: { current: 7 },
     focusLine: null,
+    focusToken: 0,
     viewTab: 'document',
     attachmentUrl: (id) => `/api/cowork.artifact.attachment?attachmentId=${id}`,
     ...overrides,
@@ -87,6 +90,7 @@ test('the reading config renders the saved text and exposes the selected anchor'
   assert.equal(surface.config.fallback, null)
   assert.equal(surface.config.selectedAnchor.startLine, 1)
   assert.equal(surface.config.focusLine, null)
+  assert.equal(surface.config.focusToken, 0)
   assert.equal(surface.showMode, true)
 })
 
@@ -140,6 +144,15 @@ test('the mode switch enters and leaves editing without discarding a draft', () 
   ])
 })
 
+test('a cross-session preview cannot enter the editor or switch surfaces', () => {
+  const calls = sinks()
+  const surface = reading.createReadingSurface(input({ readOnly: true, editing: true, readMode: false }), calls)
+  surface.toggleEditing()
+  surface.toggleReadMode()
+  assert.deepEqual(calls.calls, [])
+  assert.equal(surface.showMode, false)
+})
+
 test('non-Markdown families toggle the numbered source surface only', () => {
   const calls = sinks()
   reading.createReadingSurface(input({ kind: 'diagram' }), calls).toggleReadMode()
@@ -159,6 +172,7 @@ test('annotating a selection maps it to a line-range anchor and opens the rail',
   assert.equal(anchor.endLine, 2)
   assert.equal(anchor.selectedText, 'picked')
   assert.deepEqual(calls.calls.filter(([name]) => name !== 'pendingAnchor'), [
+    ['replyTarget', null],
     ['selection', { startLine: 1, endLine: 2 }],
     ['viewTab', 'document'],
     ['showRail', true],
@@ -217,6 +231,13 @@ test('the viewport callback feeds the shared slot', () => {
   const surface = reading.createReadingSurface(input({ viewportLineRef: slot }), sinks())
   surface.config.onViewportLine(9)
   assert.equal(slot.current, 9)
+})
+
+test('clearing the thread selection goes through the sink', () => {
+  const calls = sinks()
+  const surface = reading.createReadingSurface(input(), calls)
+  surface.config.onClearThread()
+  assert.deepEqual(calls.calls, [['clearThread', null]])
 })
 
 test('the mode switch only shows on the document tab of a loaded file', () => {

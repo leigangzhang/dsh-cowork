@@ -37,6 +37,8 @@ export interface ReadingSurfaceConfig {
   readonly selectedAnchor: ArtifactAnchor | null
   /** Source line to bring to the top after a source-to-read switch. */
   readonly focusLine: number | null
+  /** Bumped on every focus request so the same line can scroll again. */
+  readonly focusToken: number
   /** Set when the file is too large to render; the source lines take over. */
   readonly fallback: string | null
   readonly threads: readonly WorkItemThread[]
@@ -44,6 +46,8 @@ export interface ReadingSurfaceConfig {
   readonly onAnnotate: (startLine: number, endLine: number, selectedText: string) => void
   readonly onPickPin: (ordinal: number) => void
   readonly onViewportLine: (line: number) => void
+  /** Clear the selected thread highlight. */
+  readonly onClearThread: () => void
 }
 
 /** One mutable viewport-line slot shared by both surfaces. */
@@ -71,6 +75,7 @@ export interface ReadingSurfaceInput {
   readonly savedContent: string
   readonly viewportLineRef: ViewportLineSlot
   readonly focusLine: number | null
+  readonly focusToken: number
   /** The visible toolbar tab: only the document tab shows the mode switch. */
   readonly viewTab: 'document' | 'versions' | 'attachments'
   /** URL of one stored attachment, or null when there is no owner context. */
@@ -88,9 +93,11 @@ export interface ReadingSurfaceSinks {
   readonly setReceipt: (value: string | null) => void
   readonly setSelection: (value: LineSelection | null) => void
   readonly setPendingAnchor: (value: ArtifactAnchor | null) => void
+  readonly setReplyTarget: (value: null) => void
   readonly setViewTab: (tab: 'document') => void
   readonly setShowRail: (value: boolean) => void
   readonly setReadFocusLine: (line: number | null) => void
+  readonly clearThread: () => void
   readonly focusComposer: () => void
   readonly openThread: (thread: WorkItemThread) => void
 }
@@ -175,6 +182,7 @@ export function createReadingSurface(
 
   /** Enter the editor without replacing a draft the user still owns. */
   const enterEditing = (): void => {
+    if (input.readOnly) return
     if (input.editDraft === input.savedContent && input.file !== null) {
       sinks.setEditDraft(input.file.content)
       sinks.setSavedContent(input.file.content)
@@ -186,6 +194,7 @@ export function createReadingSurface(
   }
 
   const toggleEditing = (): void => {
+    if (input.readOnly) return
     if (!input.editing) {
       enterEditing()
       sinks.setReadMode(false)
@@ -197,6 +206,8 @@ export function createReadingSurface(
   }
 
   const toggleReadMode = (): void => {
+    // A cross-session preview must never open an editor for the owner's file.
+    if (input.readOnly) return
     if (input.kind !== 'text') {
       sinks.setReadMode(!input.readMode)
       return
@@ -222,6 +233,8 @@ export function createReadingSurface(
       selectedText,
     )
     if (range === null) return
+    // A new annotation is not a reply: the composer must not inherit a thread.
+    sinks.setReplyTarget(null)
     sinks.setSelection({ startLine: range.startLine, endLine: range.endLine })
     sinks.setPendingAnchor({ kind: 'line-range', ...range })
     sinks.setViewTab('document')
@@ -253,12 +266,14 @@ export function createReadingSurface(
     annotateReason: annotateReason(input),
     selectedAnchor,
     focusLine: input.focusLine,
+    focusToken: input.focusToken,
     fallback: readFallback,
     threads: input.threads,
     imageUrl: (src) => readingImageUrl(src, input.attachmentUrl),
     onAnnotate: (startLine, endLine, selectedText) => { annotateRange(startLine, endLine, selectedText) },
     onPickPin: focusPinOrdinal,
     onViewportLine: (line) => { input.viewportLineRef.current = line },
+    onClearThread: () => { sinks.clearThread() },
   }
 
   return {
@@ -268,6 +283,7 @@ export function createReadingSurface(
     annotate,
     annotateLine: line => { annotateRange(line, line) },
     focusPin,
-    showMode: input.viewTab === 'document' && input.file !== null && (input.kind === 'text' || !input.editing),
+    showMode: input.viewTab === 'document' && input.file !== null && !input.readOnly
+      && (input.kind === 'text' || !input.editing),
   }
 }

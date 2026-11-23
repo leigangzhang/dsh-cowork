@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import '../support/ts-hook.mjs'
@@ -284,4 +286,18 @@ test('readFallbackReason degrades only oversized content', () => {
   assert.match(markdown.readFallbackReason(bytes), /2 MB/)
   const lines = 'line\n'.repeat(20_001)
   assert.match(markdown.readFallbackReason(lines), /20000 行/)
+})
+
+test('the reading renderer never writes an HTML string', () => {
+  const files = [
+    'src/client/work-item/viewers/markdown-view.tsx',
+    'src/client/work-item/viewers/markdown.ts',
+    'src/client/work-item/reading-surface.ts',
+  ]
+  for (const file of files) {
+    const source = readFileSync(resolve(import.meta.dirname, '../..', file), 'utf8')
+    // Doc comments may name the rule; executable code must not pass HTML.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    assert.equal(/innerHTML|dangerouslySetInnerHTML/.test(code), false, file)
+  }
 })

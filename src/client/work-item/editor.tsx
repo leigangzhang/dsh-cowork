@@ -75,9 +75,31 @@ function revealLine(view: EditorView, lineNumber: number): void {
   view.focus()
 }
 
-/** The source line at the top of the editor viewport. */
+/** The nearest scrollable ancestor above the editor. */
+function scrollerOf(element: HTMLElement): HTMLElement | null {
+  let node = element.parentElement
+  while (node !== null) {
+    const overflow = window.getComputedStyle(node).overflowY
+    if (overflow === 'auto' || overflow === 'scroll') return node
+    node = node.parentElement
+  }
+  return null
+}
+
+/**
+ * The source line at the top of the editor viewport.
+ *
+ * CM6 is mounted with a min-height instead of its own scroll viewport, so a
+ * long document scrolls in the viewer content. The line block is looked up at
+ * the outer scroller's top rather than at `scrollDOM.scrollTop`, which stays 0.
+ */
 function topLine(view: EditorView): number {
-  const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 4)
+  const scroller = scrollerOf(view.dom)
+  const viewportTop = scroller === null
+    ? view.dom.getBoundingClientRect().top
+    : scroller.getBoundingClientRect().top
+  const offset = viewportTop - view.dom.getBoundingClientRect().top
+  const block = view.lineBlockAtHeight(Math.max(0, offset + 4))
   return view.state.doc.lineAt(block.from).number
 }
 
@@ -187,17 +209,27 @@ export function TextEditor({
     const view = new EditorView({ state, parent })
     viewRef.current = view
     const startLine = initialLineRef.current
-    if (startLine !== undefined) revealLine(view, startLine)
     const report = (): void => {
-      if (!disposed) onViewportLineRef.current?.(topLine(view))
+      if (disposed) return
+      onViewportLineRef.current?.(topLine(view))
+    }
+    if (startLine !== undefined) {
+      revealLine(view, startLine)
+      // The scroll effect is measured after this commit; reporting before that
+      // would hand the reading surface line 1 instead of the revealed line.
+      requestAnimationFrame(() => { requestAnimationFrame(report) })
+    } else {
+      report()
     }
     view.scrollDOM.addEventListener('scroll', report, { passive: true })
-    report()
+    const outerScroller = scrollerOf(view.dom)
+    outerScroller?.addEventListener('scroll', report, { passive: true })
     return () => {
       // A blur while the host is being removed must not schedule a second save
       // next to the explicit "exit edit" flush.
       disposed = true
       view.scrollDOM.removeEventListener('scroll', report)
+      outerScroller?.removeEventListener('scroll', report)
       view.destroy()
       viewRef.current = null
     }

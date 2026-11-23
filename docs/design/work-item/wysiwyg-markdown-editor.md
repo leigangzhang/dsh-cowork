@@ -328,7 +328,7 @@ interface MarkdownBlock {
 |---|---|---|
 | 单测（`node --test`） | `splitFrontmatter` 偏移、`parseMarkdownBlocks` 的 token map（标题/段落/列表项/引用/围栏/表格行）、`blockAtLine`、`lineRangeForSelection` 唯一命中/重复/跨块回退、`sanitizeLinkHref`、`sanitizeImageSrc`、任务标记、降级阈值 | `tests/client/work-item-markdown.test.mjs` 红 |
 | 单测 | 渲染路径无 `innerHTML`/`dangerouslySetInnerHTML`；原始 HTML 字面；`javascript:`/`data:` 拒绝；表格对齐只接受三值 | 安全单测/静态检查红；浏览器 `scenarioWorkItemMarkdown` 断言 |
-| 浏览器（`npm run test:browser`） | 阅读态构造渲染、选区浮动入口、120ms debounce、pin 点击/线程高亮、阅读↔源码滚动映射、dirty 时 pin/批注禁用、Esc、降级提示 | `tests/browser/scenarios.mjs` 的 `scenarioWorkItemMarkdown` 红 |
+| 浏览器（`npm run test:browser`） | 阅读态构造渲染（表格/任务/代码/图片成功与失败占位/data: 拒绝/frontmatter）、块级 pin（含 table 外置容器）与 Escape 清除高亮、选区浮动入口与同任务内不出现的 debounce 断言、阅读↔源码滚动位置、dirty 时 pin/批注禁用与保存恢复、跨会话无表面开关、1024/768/820/390 无横向溢出、降级提示 | `tests/browser/scenarios.mjs` 的 `scenarioWorkItemMarkdown` 与跨会话/草稿场景红 |
 | 浏览器 | 保存/冲突三选、跨会话只读、图片失败占位、任务列表不可勾选 | 浏览器 lane 红 |
 | 真实宿主 | 图片粘贴上传 → 附件引用 → 阅读态渲染；保存 → anchor 重定位 | `test:host-smoke` / 真机 E2E |
 | 截图 | 1280/1024/768/390 亮暗各一；关键盒 ±2px；双板 demo 实际生成 | 交付闸门 `page-verify` + `dev_visual_check` |
@@ -344,7 +344,7 @@ interface MarkdownBlock {
 - **新增依赖**：`markdown-it@15.0.3`（MIT），由客户端 esbuild 闭包内联；版本固定在 `package.json`，锁文件随依赖提交。代码高亮未引入。
 - **代码高亮缺失**：v1 代码块纯文本，视觉上弱于 Typora；高亮作为后续独立变更，不阻塞阅读/批注验收。
 - **dirty 时禁批注**：用户可能期望边改边批注；这是 anchor 与已保存版本一致性的取舍，提示文案必须清楚。
-- **源码态暗色**：CM6 仍用默认浅色高亮，未随宿主暗色重写；这是既有行为，不在本文重写编辑器。
+- **源码态暗色**：CM6 仍用默认浅色高亮，未随宿主暗色重写；这是既有行为，不在本文重写编辑器。阅读态复用宿主 alias token，但浏览器 lane 没有暗色截图，暗色可读性仍属未核实。
 - **项目内相对图片**：白名单接受该写法，但当前没有宿主读取路由，渲染为占位；需要真实开发时另加受控读取入口，不给 `<img>` 直接拼宿主路径。
 - **大文件/超长行**：无自动换行的源码态是既有行为；阅读态流式换行不受影响。
 - **回滚**：阅读态是新增渲染路径，旧 `source-lines.tsx` 的逐行阅读保留为逃生门（也是大文件降级面）；出问题切回旧路径，不改 anchor/保存/批注契约。删除旧路径前必须完成浏览器 lane 与四档截图验收。
