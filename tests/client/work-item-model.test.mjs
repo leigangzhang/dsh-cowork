@@ -750,3 +750,17 @@ test('rebindOldPath prefers the registered primary entry and falls back to prima
     'docs/gone.md',
   )
 })
+
+test('saveTarget refuses a read-only preview and reports the addressed file', () => {
+  const context = { ownerSessionId: 'session-1', artifactId: 'artifact-1' }
+  const file = { path: 'docs/spec.md', revision: 2 }
+  assert.equal(model.saveTarget(true, context, file), null)
+  assert.equal(model.saveTarget(false, null, file), null)
+  assert.equal(model.saveTarget(false, context, null), null)
+  assert.deepEqual(model.saveTarget(false, context, file), { owner: context, file })
+})
+
+test('readOwnDraft hides the stored draft from a cross-session preview', () => {
+  assert.equal(model.readOwnDraft('artifact-1', true), null)
+  assert.equal(model.readOwnDraft('artifact-1', false), null)
+})

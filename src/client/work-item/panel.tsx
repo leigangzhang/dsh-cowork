@@ -49,10 +49,11 @@ import {
   olderCursor,
   olderEntryVisible,
   olderPageAvailable,
-  readPersistedDraft,
+  readOwnDraft,
   rebindFailure,
   removePersistedDraft,
   savePersistedDraft,
+  saveTarget,
   selectLine,
   sortThreads,
   staleLineNumbers,
@@ -182,16 +183,6 @@ function ownerAttachmentUrl(context: WorkItemOpenContext | null, attachmentId: s
   })
 }
 
-/** The owner context and file a save may address, or null when it may not. */
-function savingTarget(
-  readOnly: boolean,
-  context: WorkItemOpenContext | null,
-  data: ViewerData | null,
-): { readonly owner: WorkItemOpenContext; readonly file: ArtifactFileResponse } | null {
-  if (readOnly || context === null || data === null) return null
-  return data.file === null ? null : { owner: context, file: data.file }
-}
-
 /** Reopen a persisted draft for the owning session, never for a preview. */
 function restoreDraft(
   file: ArtifactFileResponse | null,
@@ -207,7 +198,7 @@ function restoreDraft(
   },
 ): void {
   if (file === null) return
-  const restored = crossSession ? null : readPersistedDraft(artifactId)
+  const restored = readOwnDraft(artifactId, crossSession)
   if (restored === null) return
   if (restored.content === file.content) {
     removePersistedDraft(artifactId)
@@ -507,7 +498,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     readonly baseRevision?: number
     readonly content?: string
   }) => {
-    const target = savingTarget(readOnly, context, data)
+    const target = saveTarget(readOnly, context, data === null ? null : data.file)
     if (target === null) return
     const { owner, file } = target
     const content = options?.content ?? editDraft

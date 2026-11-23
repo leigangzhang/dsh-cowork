@@ -1089,6 +1089,25 @@ export function removePersistedDraft(artifactId: string): void {
   }
 }
 
+/** The owner-side draft lookup: a cross-session preview reads no draft. */
+export function readOwnDraft(artifactId: string, crossSession: boolean): PersistedDraft | null {
+  return crossSession ? null : readPersistedDraft(artifactId)
+}
+
+/** The owner context and file one save may address, or null when it may not. */
+export function saveTarget<
+  Owner extends { readonly ownerSessionId: string; readonly artifactId: string },
+  File extends { readonly path: string },
+>(
+  readOnly: boolean,
+  context: Owner | null,
+  file: File | null,
+): { readonly owner: Owner; readonly file: File } | null {
+  if (readOnly) return null
+  if (context === null || file === null) return null
+  return { owner: context, file }
+}
+
 /** A compact attachment size label. */
 export function formatBytes(size: number): string {
   if (size < 1024) return `${String(size)} B`

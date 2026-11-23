@@ -112,6 +112,7 @@
     "parseTopicRow",
     "presetDefinitions",
     "projectIdFor",
+    "readPersistedDraft",
     "renderMemoryEntry",
     "REQUEST_ACTION_STATUS",
     "REQUEST_ACTIONS",
