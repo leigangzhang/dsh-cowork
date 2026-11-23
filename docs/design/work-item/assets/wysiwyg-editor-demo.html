@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Cowork 工作项 · WYSIWYG Markdown 编辑器设计</title>
+<style>
+  :root {
+    --ink: #101828;
+    --muted: #475467;
+    --soft: #98a2b3;
+    --line: #e4e7ec;
+    --line-soft: #eef0f3;
+    --canvas: #eef1f5;
+    --card: #fff;
+    --blue: #175cd3;
+    --blue-soft: #eff8ff;
+    --green: #067647;
+    --green-soft: #ecfdf3;
+    --amber: #b54708;
+    --amber-soft: #fffaeb;
+    --red: #b42318;
+    --red-soft: #fef3f2;
+    --violet: #6941c6;
+    --violet-soft: #f4f3ff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: #dfe3e8;
+    color: var(--ink);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { width: 1280px; height: 900px; padding: 32px; display: flex; align-items: flex-start; justify-content: center; background: radial-gradient(900px 520px at 18% 10%, #fff 0%, rgba(255,255,255,0) 68%), radial-gradient(720px 520px at 92% 92%, #e7ebf2 0%, rgba(231,235,242,0) 70%), var(--canvas); }
+  .app { position: relative; width: 1208px; height: 828px; display: flex; overflow: hidden; border: 1px solid #dfe3e8; border-radius: 18px; background: #fff; box-shadow: 0 22px 60px rgba(16,24,40,.12), 0 2px 8px rgba(16,24,40,.06); }
+  .badge { position: absolute; top: 14px; right: 14px; z-index: 20; padding: 4px 9px; border: 1px solid #d1e9ff; border-radius: 999px; background: rgba(239,248,255,.94); color: var(--blue); font-size: 10.5px; font-weight: 650; }
+
+  .viewer { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fcfcfd; border-right: 1px solid var(--line); }
+  .vhead { flex: none; padding: 14px 20px 12px; border-bottom: 1px solid var(--line-soft); background: rgba(255,255,255,.86); }
+  .crumbs { display: flex; align-items: center; gap: 6px; color: var(--soft); font-size: 10.5px; }
+  .crumbs b { color: var(--muted); font-weight: 600; }
+  .vtitle-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+  .vtitle { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #101828; font-size: 17px; font-weight: 720; }
+  .vsub { display: flex; align-items: center; gap: 7px; margin-top: 5px; color: var(--soft); font-size: 10.5px; }
+  .vsub .dot { width: 3px; height: 3px; border-radius: 50%; background: #d0d5dd; }
+  .vactions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .btn { display: inline-flex; align-items: center; gap: 5px; height: 27px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .btn.primary { border-color: #101828; background: #101828; color: #fff; }
+
+  .vtoolbar { flex: none; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 20px; border-bottom: 1px solid var(--line-soft); background: #fff; }
+  .tabs { display: flex; align-items: center; gap: 14px; height: 100%; }
+  .tab { position: relative; display: flex; align-items: center; gap: 5px; height: 100%; color: var(--muted); font-size: 11px; font-weight: 600; }
+  .tab.active { color: var(--blue); }
+  .tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--blue); }
+  .tab .n { color: var(--soft); font-weight: 500; }
+  .tb-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .seg { display: inline-flex; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: #f9fafb; }
+  .seg span { padding: 2px 7px; border-radius: 5px; color: var(--muted); font-size: 10px; font-weight: 600; }
+  .seg span.on { background: #fff; color: #101828; box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+  .save { display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: 10px; font-weight: 600; }
+  .save .ok { width: 13px; height: 13px; display: grid; place-items: center; border-radius: 50%; background: var(--green-soft); font-size: 8px; }
+
+  .vbody { flex: 1; min-height: 0; display: flex; padding: 12px 14px 10px 16px; gap: 12px; }
+  .doc { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+  .doc-head { flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 11px; border-bottom: 1px solid var(--line-soft); background: #fcfcfd; }
+  .file-icon { width: 19px; height: 19px; display: grid; place-items: center; border: 1px solid #d1e9ff; border-radius: 5px; background: var(--blue-soft); color: var(--blue); font-size: 9px; font-weight: 800; }
+  .file-name { color: #344054; font: 10.5px/1.3 var(--mono); }
+  .doc-head .rev { color: var(--soft); font-size: 9.5px; }
+  .doc-head .grow { flex: 1; }
+  .attach-mini { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9.5px; }
+  .attach-mini i { width: 16px; height: 13px; border: 1px solid var(--line); border-radius: 3px; background: linear-gradient(135deg, #fff 45%, #dbeafe 45%, #dbeafe 70%, #fff 70%); }
+
+  /* paper: the hybrid editor surface */
+  .paper { flex: 1; min-height: 0; overflow: auto; padding: 14px 12px 10px 4px; background: linear-gradient(90deg, #fbfcfd 0 33px, #f1f3f6 33px, #f1f3f6 34px, #fff 34px); }
+  .dline { position: relative; display: flex; align-items: flex-start; min-height: 20px; }
+  .ln { flex: none; width: 26px; padding-right: 8px; color: #b4bbc7; font: 9px/20px var(--mono); text-align: right; user-select: none; }
+  .dt { position: relative; flex: 1; padding: 0 26px 0 4px; color: #344054; font-size: 10.5px; line-height: 20px; }
+  .dline.h1 .dt { color: #101828; font-size: 15px; font-weight: 720; line-height: 26px; }
+  .dline.h2 .dt { color: #101828; font-size: 12px; font-weight: 700; line-height: 24px; }
+  .dline.quote .dt { color: #667085; font-size: 10px; border-left: 2px solid var(--line); padding-left: 8px; }
+  .dline.list .dt { padding-left: 16px; }
+  .dline.list .dt::before { content: "•"; position: absolute; left: 6px; color: var(--soft); }
+  .dline.task .dt { padding-left: 20px; }
+  .dline.task .dt::before { content: "✓"; position: absolute; left: 3px; top: 2px; width: 13px; height: 13px; display: grid; place-items: center; border: 1px solid #b7ddb0; border-radius: 3px; background: #ecfdf3; color: var(--green); font-size: 8px; }
+  .dline.task.unchecked .dt::before { content: ""; border-color: var(--line); background: #fff; }
+  .dline.code .dt { color: #475467; font: 9.5px/18px var(--mono); background: #f9fafb; border-radius: 4px; padding: 2px 6px; }
+  a.link { color: var(--blue); text-decoration: none; }
+  b.strong { font-weight: 650; }
+  code.ic { font-family: var(--mono); font-size: .9em; background: #f2f4f7; border-radius: 3px; padding: 0 3px; }
+
+  /* current-block source state */
+  .dline.src .dt { color: #101828; font: 11px/22px var(--mono); background: var(--blue-soft); border: 1px solid #b2ddff; border-radius: 5px; padding: 2px 6px 2px 8px; box-shadow: inset 2px 0 0 var(--blue); }
+  .src-tag { position: absolute; right: 30px; top: -9px; padding: 1px 6px; border-radius: 4px; background: var(--blue); color: #fff; font-size: 7.5px; font-weight: 700; }
+
+  /* table */
+  .table-wrap { margin: 2px 0 2px 30px; padding: 0 26px 0 4px; }
+  table.md-table { border-collapse: collapse; font-size: 9.5px; color: #344054; }
+  table.md-table th, table.md-table td { border: 1px solid var(--line-soft); padding: 3px 8px; text-align: left; }
+  table.md-table th { background: #f9fafb; font-weight: 700; }
+
+  /* image */
+  .figure { margin: 3px 0 3px 30px; display: inline-block; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
+  .figure .img { width: 220px; height: 74px; display: grid; place-items: center; background: linear-gradient(135deg,#eff8ff,#dbeafe); color: #175cd3; font-size: 9px; font-weight: 700; }
+  .figure .cap { padding: 3px 8px; color: var(--soft); font-size: 8.5px; }
+
+  .pin { position: absolute; right: 5px; top: 2px; min-width: 17px; height: 17px; padding: 0 4px; display: inline-grid; place-items: center; border: 2px solid #fff; border-radius: 999px; background: var(--blue); color: #fff; font-size: 8px; font-weight: 800; box-shadow: 0 1px 3px rgba(16,24,40,.18); }
+  .pin.resolved { background: var(--green); }
+  .pin.stale { background: var(--amber); }
+  .paper-foot { flex: none; display: flex; align-items: center; gap: 7px; padding: 7px 11px; border-top: 1px solid var(--line-soft); color: var(--soft); font-size: 9px; }
+  .chip-file { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--muted); font-size: 9px; }
+  .chip-file i { width: 9px; height: 9px; border-radius: 2px; background: #dbeafe; }
+  .paper-foot .grow { flex: 1; }
+
+  /* state strip: conflict + cross-session read-only */
+  .state-strip { flex: none; display: flex; flex-direction: column; gap: 5px; padding: 6px 11px; border-top: 1px solid var(--line-soft); background: #fff; }
+  .banner { display: flex; align-items: center; gap: 7px; padding: 5px 9px; border-radius: 7px; font-size: 9px; line-height: 1.4; }
+  .banner.conflict { border: 1px solid #fecaca; background: #fef3f2; color: #b42318; }
+  .banner.readonly { border: 1px solid #d1e9ff; background: #eff8ff; color: #175cd3; }
+  .banner .grow { flex: 1; }
+  .banner b { font-weight: 700; }
+
+  /* thread rail */
+  .threads { width: 300px; flex: none; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+  .threads-head { flex: none; padding: 10px 11px 8px; border-bottom: 1px solid var(--line-soft); }
+  .th-title { display: flex; align-items: center; gap: 6px; color: #101828; font-size: 11.5px; font-weight: 700; }
+  .th-title .count { padding: 0 5px; border-radius: 999px; background: #f2f4f7; color: #667085; font-size: 9px; font-weight: 700; }
+  .th-tools { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+  .th-tools .select { display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 9.5px; }
+  .th-tools .switch { margin-left: auto; display: flex; align-items: center; gap: 4px; color: var(--soft); font-size: 9px; }
+  .switch i { width: 18px; height: 10px; border-radius: 999px; background: var(--blue); position: relative; }
+  .switch i::after { content: ""; position: absolute; top: 2px; left: 10px; width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+  .activity { flex: none; display: flex; align-items: center; gap: 7px; margin: 8px 10px 0; padding: 6px 8px; border: 1px solid #fedf89; border-radius: 7px; background: #fffdf5; color: #93370d; font-size: 9px; }
+  .activity .spinner { width: 9px; height: 9px; border: 1.5px solid rgba(181,71,8,.28); border-top-color: var(--amber); border-radius: 50%; animation: spin 1.1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .activity .grow { flex: 1; }
+  .activity .time { color: #b54708; opacity: .7; font-size: 8.5px; }
+  .thread-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 9px 10px 8px; }
+  .thread { margin-bottom: 7px; padding: 8px 9px 7px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+  .thread.selected { border-color: #b2ddff; box-shadow: 0 0 0 2px #eff8ff; }
+  .tmeta { display: flex; align-items: center; gap: 5px; color: var(--soft); font-size: 8.5px; }
+  .avatar { width: 17px; height: 17px; flex: none; display: grid; place-items: center; border-radius: 50%; background: #101828; color: #fff; font-size: 7.5px; font-weight: 800; }
+  .avatar.model { background: var(--violet-soft); color: var(--violet); }
+  .tmeta b { color: #344054; font-size: 9px; font-weight: 650; }
+  .tmeta .anchor { margin-left: auto; padding: 1px 5px; border-radius: 4px; background: #eff8ff; color: var(--blue); font-size: 8px; font-weight: 650; }
+  .quote { margin: 6px 0 0; padding: 5px 7px; border-left: 2px solid #d1e9ff; border-radius: 0 4px 4px 0; background: #f9fbfe; color: #667085; font-size: 9px; line-height: 1.45; }
+  .ttext { margin-top: 5px; color: #344054; font-size: 10px; line-height: 1.5; }
+  .reply { margin-top: 6px; padding: 6px 7px 5px; border: 1px solid #e9e4ff; border-radius: 7px; background: #fcfbff; }
+  .reply-head { display: flex; align-items: center; gap: 5px; }
+  .reply-head .who { color: #53389e; font-size: 9px; font-weight: 650; }
+  .reply-head .state { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; color: var(--green); font-size: 8px; font-weight: 650; }
+  .reply-body { margin-top: 4px; color: #475467; font-size: 9.5px; line-height: 1.5; }
+  .tstate { display: flex; align-items: center; gap: 5px; margin-top: 6px; color: var(--amber); font-size: 8.5px; font-weight: 600; }
+  .tstate .stale-chip { padding: 1px 5px; border-radius: 4px; background: var(--amber-soft); color: var(--amber); font-weight: 650; }
+  .vfoot { flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 20px; border-top: 1px solid var(--line-soft); background: #fff; color: var(--soft); font-size: 9px; }
+  .vfoot .grow { flex: 1; }
+  .vfoot b { color: var(--muted); font-weight: 650; }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="app">
+    <div class="badge">工作项 · WYSIWYG Markdown 编辑器</div>
+
+    <main class="viewer">
+      <header class="vhead">
+        <div class="crumbs">Cowork <span>/</span> 主题「工作项页设计」 <span>/</span> <b>工作项</b></div>
+        <div class="vtitle-row">
+          <h1 class="vtitle">PLAN：工作项交付物信息模型</h1>
+          <div class="vactions">
+            <span class="btn">在应用中打开</span>
+            <span class="btn">导出</span>
+            <span class="btn icon">⋯</span>
+          </div>
+        </div>
+        <div class="vsub">
+          <span>来自主题「工作项页设计」</span><span class="dot"></span>
+          <span>2 个文件</span><span class="dot"></span>
+          <span>更新 2 分钟前</span><span class="dot"></span>
+          <span>版本 3</span><span class="dot"></span>
+          <span>活动 <b style="color:#b54708">已送达 18 秒</b></span>
+        </div>
+      </header>
+
+      <div class="vtoolbar">
+        <nav class="tabs">
+          <span class="tab active">文档</span>
+          <span class="tab">版本 <span class="n">3</span></span>
+          <span class="tab">附件 <span class="n">2</span></span>
+        </nav>
+        <div class="tb-right">
+          <span class="seg"><span class="on">阅读</span><span>源码</span></span>
+          <span class="save" style="color:var(--red)"><span class="ok" style="background:var(--red-soft);color:var(--red)">!</span>冲突 · 未保存</span>
+          <span class="btn">批注</span>
+        </div>
+      </div>
+
+      <div class="vbody">
+        <section class="doc">
+          <div class="doc-head">
+            <span class="file-icon">MD</span>
+            <span class="file-name">plan.md</span>
+            <span class="rev">Markdown · r12</span>
+            <span class="grow"></span>
+            <span class="attach-mini"><i></i>layout-v3.png</span>
+            <span class="attach-mini"><i></i>schema.json</span>
+          </div>
+
+          <div class="paper">
+            <div class="dline h1"><span class="ln">1</span><span class="dt">工作项交付物信息模型</span></div>
+            <div class="dline quote"><span class="ln">2</span><span class="dt">状态：待确认 · r12 · 2 个文件 · 来自主题「工作项页设计」</span></div>
+            <div class="dline"><span class="ln">3</span><span class="dt">&nbsp;</span></div>
+            <div class="dline h2"><span class="ln">4</span><span class="dt">1. 工作项是什么</span></div>
+            <div class="dline"><span class="ln">5</span><span class="dt">工作项是用户需要查看、确认、反馈的交付物，指向项目里的已有文件。<span class="pin resolved">1</span></span></div>
+            <div class="dline"><span class="ln">6</span><span class="dt">查看器负责 <b class="strong">展示、批注和编辑</b>，参考 <a class="link" href="https://example.com/spec">规格说明</a>。<span class="pin">2</span></span></div>
+            <div class="dline"><span class="ln">7</span><span class="dt">&nbsp;</span></div>
+
+            <!-- current-block source state -->
+            <div class="dline src"><span class="ln">8</span><span class="dt">## 2. 记录结构<span class="src-tag">当前块源码态</span></span></div>
+
+            <div class="dline list"><span class="ln">9</span><span class="dt">交付物记录：标题、类型、状态、文件列表、主题归属。</span></div>
+            <div class="dline list"><span class="ln">10</span><span class="dt">协作记录：评论、批注、回复、附件和版本。</span></div>
+            <div class="dline"><span class="ln">11</span><span class="dt">&nbsp;</span></div>
+
+            <!-- table -->
+            <div class="table-wrap">
+              <table class="md-table">
+                <thead><tr><th>状态</th><th>含义</th><th>操作</th></tr></thead>
+                <tbody>
+                  <tr><td>待查看</td><td>新交付物</td><td>打开预览</td></tr>
+                  <tr><td>待确认</td><td>用户看过</td><td>确认 / 提意见</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="dline"><span class="ln">12</span><span class="dt">&nbsp;</span></div>
+
+            <!-- image -->
+            <div class="figure">
+              <div class="img">layout-v3.png · 220×74</div>
+              <div class="cap">布局示意（图片默认渲染）</div>
+            </div>
+            <div class="dline"><span class="ln">13</span><span class="dt">&nbsp;</span></div>
+
+            <!-- code block -->
+            <div class="dline code"><span class="ln">14</span><span class="dt">```ts</span></div>
+            <div class="dline code"><span class="ln">15</span><span class="dt">interface Artifact { path: string }</span></div>
+            <div class="dline code"><span class="ln">16</span><span class="dt">```</span></div>
+            <div class="dline"><span class="ln">17</span><span class="dt">&nbsp;</span></div>
+
+            <!-- task list -->
+            <div class="dline task"><span class="ln">18</span><span class="dt">对齐阅读态渲染（标题/列表/表格/图片/代码块）</span></div>
+            <div class="dline task unchecked"><span class="ln">19</span><span class="dt">属性面板编辑表格与图片</span></div>
+            <div class="dline"><span class="ln">20</span><span class="dt">&nbsp;</span></div>
+            <div class="dline stale" style="background:var(--amber-soft)"><span class="ln">21</span><span class="dt">- 不展示 branch、commit、merge、diff。<span class="pin stale">4</span></span></div>
+          </div>
+
+          <div class="paper-foot">
+            <span class="chip-file"><i></i>layout-v3.png · 1.2 MB</span>
+            <span class="chip-file"><i></i>schema.json · 18 KB</span>
+            <span class="grow"></span>
+            <span>选中行后可直接批注 · 模型回复会挂到批注上</span>
+          </div>
+
+          <!-- conflict + cross-session read-only strip -->
+          <div class="state-strip">
+            <div class="banner conflict"><b>冲突</b><span class="grow">最新内容与你编辑的第 9–10 行重叠</span><span>查看差异 · 加载最新 · 保留我的</span></div>
+          </div>
+        </section>
+
+        <aside class="threads">
+          <div class="threads-head">
+            <div class="th-title">评论 <span class="count">4</span><span style="margin-left:auto;color:#98a2b3;font-size:9px;font-weight:500">按位置排序</span></div>
+            <div class="th-tools">
+              <span class="select">全部评论 ⌄</span>
+              <span class="switch"><i></i>只看待处理</span>
+            </div>
+          </div>
+
+          <div class="activity"><i class="spinner"></i><span class="grow">模型正在处理 #3：已送达 18 秒</span><span class="time">后台</span></div>
+
+          <div class="thread-scroll">
+            <article class="thread selected">
+              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 9–10 行</span><span class="anchor">#2</span></div>
+              <div class="quote">交付物记录：标题、类型、状态、文件列表、主题归属。</div>
+              <div class="ttext">状态字段只应该留在交付物记录里，协作记录不要重复存一份。</div>
+              <div class="reply">
+                <div class="reply-head"><span class="avatar model">M</span><span class="who">Cowork</span><span class="state">✓ 已回复</span></div>
+                <div class="reply-body">已改：状态只留在交付物记录，协作记录只存评论和回复。</div>
+              </div>
+            </article>
+
+            <article class="thread">
+              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 21 行</span><span class="anchor" style="background:#fffaeb;color:#b54708">#4</span></div>
+              <div class="ttext">这一条应该写进验收。</div>
+              <div class="tstate"><span class="stale-chip">位置待确认</span><span style="color:#98a2b3">原文已移动</span></div>
+            </article>
+          </div>
+        </aside>
+      </div>
+
+      <div class="vfoot">
+        <span><b>模型已回复</b> #1、#2</span><span>·</span>
+        <span>#3 思考中</span><span>·</span>
+        <span>#4 位置待确认</span>
+        <span class="grow"></span>
+        <span>内容版本 r12 · 保存于 14:32</span>
+      </div>
+    </main>
+  </div>
+</div>
+
+</body>
+</html>
