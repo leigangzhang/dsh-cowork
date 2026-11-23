@@ -46,7 +46,7 @@ async function withSeededHarness(operation, options = {}) {
 test('the harness registers every panel and artifact route', async () => {
   const harness = await createHarness()
   try {
-    assert.equal(harness.routes.size, 25)
+    assert.equal(harness.routes.size, 26)
     assert.ok(harness.routes.has('/api/cowork.artifact.list'))
     assert.ok(harness.routes.has('/api/cowork.artifact.events'))
   } finally {

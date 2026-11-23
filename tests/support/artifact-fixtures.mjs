@@ -198,6 +198,21 @@ export function makeRecord(overrides = {}) {
   }
 }
 
+/** One published-attachment row, valid against the schema. */
+export function makeAttachmentPublish(overrides = {}) {
+  return {
+    version: 1,
+    attachmentId: 'attachment-11111111-1111-4111-8111-111111111111',
+    name: 'chart.png',
+    mediaType: 'image/png',
+    size: 12,
+    sha256: 'a'.repeat(64),
+    source: 'model',
+    publishedAt: '2026-02-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
 /** One comment event, valid against the schema. */
 export function makeComment(overrides = {}) {
   return {

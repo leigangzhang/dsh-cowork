@@ -3,8 +3,9 @@
  * project file as a work item so the user can open, read, and annotate it.
  *
  * The tool never copies or moves the file — the record is a pointer plus the
- * counters the rail shows. Stage 3 adds `cowork_artifact_comments` and
- * `cowork_artifact_reply` to this module.
+ * counters the rail shows. `cowork_artifact_comments` and
+ * `cowork_artifact_reply` read and answer annotations, and
+ * `cowork_artifact_attach` publishes a project file as an attachment.
  */
 import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -12,6 +13,8 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import {
   ARTIFACT_COMMENT_VERSION,
   ARTIFACT_RECORD_VERSION,
+  MAX_ARTIFACT_ATTACHMENTS,
+  MAX_ARTIFACT_ATTACHMENT_BYTES,
   MAX_ARTIFACT_COMMENT_CHARS,
   MAX_ARTIFACT_COMMENTS,
   MAX_ARTIFACT_PATH_CHARS,
@@ -24,8 +27,8 @@ import {
   type CommentEventV1,
 } from '../panel/artifact-contract.js'
 import { parseAttachmentRef } from '../store/artifact-schema.js'
-import { attachmentMediaType } from '../domains/artifact/attachments.js'
-import { sha256HexBytes } from '../platform/artifact-files.js'
+import { attachmentMediaType, sanitizeAttachmentName } from '../domains/artifact/attachments.js'
+import { readBytesInsideRepo, sha256HexBytes } from '../platform/artifact-files.js'
 import { createEventRow } from '../platform/artifact-events.js'
 import {
   inferArtifactType,
@@ -36,7 +39,11 @@ import {
 } from '../domains/artifact/paths.js'
 import { sha256Hex } from '../platform/artifact-files.js'
 import { ArtifactDomainError } from '../domains/artifact/errors.js'
-import type { ArtifactRuntime } from '../platform/artifact-runtime.js'
+import {
+  attachmentRefOf,
+  publishAttachmentUnlocked,
+  type ArtifactRuntime,
+} from '../platform/artifact-runtime.js'
 import type { CoworkToolDeps } from '../platform/tool-runtime.js'
 import { callerOf, isFailure, mapError, nowOf, openProject, renderJson, toJson } from '../platform/tool-runtime.js'
 import { checkRole, failure, success } from '../platform/tool-model.js'
@@ -363,13 +370,25 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
           if (current !== null && current.commentCount >= MAX_ARTIFACT_COMMENTS) {
             throw new ArtifactDomainError('artifact/comment-limit', `work item already holds ${String(MAX_ARTIFACT_COMMENTS)} comments`)
           }
+          // The reply's refs are published in the same transaction that writes
+          // the reply, so the thread and the attachment list never disagree.
+          const publishEvents = []
+          for (const attachment of attachments) {
+            const outcome = await publishAttachmentUnlocked(runtime, {
+              artifactId,
+              attachment,
+              source: 'user',
+              now,
+            })
+            if (outcome.event !== null) publishEvents.push(outcome.event)
+          }
           let saved = record
           for (const event of events) {
             await runtime.store.appendCommentUnlocked(event)
             saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) =>
               applyCommentEventForTool(current, now))
           }
-          const published = []
+          const published = [...publishEvents]
           for (const event of events) {
             published.push(await runtime.store.appendEventUnlocked(
               createEventRow(artifactId, 'reply.created', now, { commentId: event.commentId, threadId: event.threadId }),
@@ -387,6 +406,86 @@ export function registerArtifactTools(ctx: unknown, deps: CoworkToolDeps): Array
           if (dispatch !== null && (await runtime.dispatch.markReplied(dispatch.dispatchId))) dispatchId = dispatch.dispatchId
         }
         return toJson(success({ replied: events.length, dispatchId, artifact: artifactSummaryOf(committed.record) }))
+      } catch (error) {
+        return toJson(mapError(error))
+      }
+    },
+  })))
+
+  // 4) cowork_artifact_attach — publish a project file as an attachment.
+  disposers.push(host.tools.register(defineTool({
+    name: 'cowork_artifact_attach',
+    description:
+      'Publish a project file (for example a generated chart image) as an attachment of a work item, so it appears in the attachment list and can be referenced by cowork_artifact_reply. The file stays where it is; the work item is a pointer. Project-relative POSIX path, master or thread, and no in-flight annotation batch is required.',
+    parameters: {
+      artifactId: { type: 'string', required: true, description: 'Work-item id (from the delivery prompt).' },
+      sourcePath: {
+        type: 'string',
+        required: true,
+        description: `Project-relative POSIX path of the file to publish (at most ${MAX_ARTIFACT_PATH_CHARS} characters).`,
+      },
+      name: { type: 'string', description: 'Display name; defaults to the file base name.' },
+    },
+    output: { schema: { type: 'json' }, render: renderJson },
+    execute: async (args, exec) => {
+      const caller = callerOf(exec)
+      if (isFailure(caller)) return toJson(caller)
+      try {
+        const opened = await openProject(caller, deps)
+        if (isFailure(opened)) return toJson(opened)
+        const denied = checkRole('master-or-thread', caller, opened.index)
+        if (denied !== null) return toJson(denied)
+        const runtime = runtimeOf(deps, opened.repoPath)
+        if (runtime === null) {
+          return toJson(failure('artifact/fs-unavailable', 'work items are unavailable in this host'))
+        }
+        const artifactId = typeof args.artifactId === 'string' ? args.artifactId.trim() : ''
+        if (artifactId === '') return toJson(failure('artifact/not-found', 'artifactId is required'))
+        const record = await runtime.store.readRecord(artifactId)
+        if (record === null || record.projectId !== opened.index.projectId) {
+          return toJson(failure('artifact/not-found', `unknown work item: ${artifactId}`))
+        }
+        if (record.ownerSessionId !== caller.sessionId && caller.sessionId !== opened.index.masterSessionId) {
+          return toJson(failure('role/forbidden', 'only the owning topic session or the master may attach to this work item'))
+        }
+        const pathCheck = normalizeArtifactPath(args.sourcePath)
+        if (!pathCheck.ok) return toJson(failure('artifact/path-not-allowed', pathCheck.reason))
+        const sourcePath = pathCheck.path
+        if (record.attachmentCount >= MAX_ARTIFACT_ATTACHMENTS) {
+          return toJson(failure(
+            'artifact/limit-reached',
+            `work item already holds ${String(MAX_ARTIFACT_ATTACHMENTS)} attachments`,
+          ))
+        }
+        // The bytes are read only after the path is proven to resolve to a
+        // regular file inside the repository, and the size is checked before
+        // the read so an oversized file is never loaded.
+        const bytes = await readBytesInsideRepo(runtime.repoPath, sourcePath, MAX_ARTIFACT_ATTACHMENT_BYTES)
+        if (bytes.byteLength === 0) {
+          return toJson(failure('artifact/upload-invalid', 'attachment is empty', { path: sourcePath }))
+        }
+        // The type comes from the file the model generated, never from the
+        // display name it supplies; whitespace and control characters are
+        // stripped from that name.
+        const name = sanitizeAttachmentName(args.name, sourcePath.slice(sourcePath.lastIndexOf('/') + 1))
+        const attachment: AttachmentRefV1 = {
+          attachmentId: `attachment-${randomUUID()}`,
+          name,
+          mediaType: attachmentMediaType(sourcePath, bytes),
+          size: bytes.byteLength,
+          sha256: sha256HexBytes(bytes),
+        }
+        await runtime.store.saveUpload(artifactId, attachment.attachmentId, bytes)
+        const now = nowOf(deps)
+        const outcome = await runtime.store.withLock(() =>
+          publishAttachmentUnlocked(runtime, { artifactId, attachment, source: 'model', now }))
+        if (outcome.event !== null) runtime.events.publish(outcome.event)
+        return toJson(success({
+          attachment: attachmentRefOf(outcome.publish),
+          source: 'model',
+          published: outcome.published,
+          record: artifactSummaryOf(outcome.record),
+        }))
       } catch (error) {
         return toJson(mapError(error))
       }

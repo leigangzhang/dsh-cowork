@@ -1,7 +1,7 @@
 /**
  * The cowork tool assembly (M10.4b): registration orchestration only.
  *
- * The twenty-three tools live in their domain modules:
+ * The twenty-six tools live in their domain modules:
  *
  * - `project-tools.ts` — project_init, project_status
  * - `route-tools.ts` — route
@@ -12,6 +12,8 @@
  * - `request-tools.ts` — user_review_request, request_question, request_plan
  * - `review-tools.ts` — review_request, review_verdict
  * - `memory-tools.ts` — memory_write, memory_search
+ * - `artifact.ts` — artifact_create, artifact_comments, artifact_reply,
+ *   artifact_attach
  *
  * The registration order is part of the public surface (PLAN-V0.2 §5.7):
  * project_init, project_status, route, topic_create, thread_create,
@@ -53,7 +55,7 @@ interface ToolHost {
 }
 
 /**
- * Register the twenty-three cowork tools and return their disposers. The caller owns
+ * Register the twenty-six cowork tools and return their disposers. The caller owns
  * the effect scope; this function only composes the domain registrars, in the
  * documented order (the review tools before memory, merge last).
  */

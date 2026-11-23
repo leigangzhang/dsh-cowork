@@ -5,8 +5,10 @@
  * The stored bytes are the only trusted source: a comment or reply may name a
  * media type, but it never decides how the bytes are served. Images are
  * recognized by magic bytes (SVG is deliberately absent), text must be valid
- * UTF-8, and anything else is a generic download.
+ * UTF-8, and anything else is a generic download. The same rules decide what
+ * may be published, so a stored-but-unpublished upload is never shown.
  */
+import { MAX_ARTIFACT_ATTACHMENT_NAME_CHARS } from '../../panel/artifact-contract.js'
 import { ArtifactDomainError } from './errors.js'
 
 /** The image types the viewer may render inline. */
@@ -59,4 +61,38 @@ export function attachmentMediaType(name: string, bytes: Uint8Array): string {
     return lower.endsWith('.md') || lower.endsWith('.markdown') ? 'text/markdown' : 'text/plain'
   }
   throw new ArtifactDomainError('artifact/upload-invalid', 'only image and text attachments are accepted', name)
+}
+
+/**
+ * Normalize one attachment display name.
+ *
+ * The name is display and type-inference data, never a path: control characters
+ * are stripped, the result is trimmed and capped at
+ * {@link MAX_ARTIFACT_ATTACHMENT_NAME_CHARS}. An absent or blank name falls back
+ * to the caller's substitute (an upload id or a source basename).
+ */
+export function sanitizeAttachmentName(name: unknown, fallback: string): string {
+  if (typeof name !== 'string') return fallback
+  const cleaned = name.replace(/[\u0000-\u001f\u007f]/g, '').trim()
+  return cleaned === '' ? fallback : cleaned.slice(0, MAX_ARTIFACT_ATTACHMENT_NAME_CHARS)
+}
+
+/**
+ * The canonical media type of one browser-published attachment.
+ *
+ * The upload display name is optional, so a name without an extension lets the
+ * stored bytes decide: a sniffed image type, else UTF-8 text. When the name
+ * carries an extension, {@link attachmentMediaType} stays strict — an unknown
+ * extension (SVG, HTML, PDF, DOCX) or bytes that do not match it are still
+ * `artifact/upload-invalid`.
+ */
+export function publishedAttachmentMediaType(name: string, bytes: Uint8Array): string {
+  const base = name.slice(name.lastIndexOf('/') + 1)
+  if (base.lastIndexOf('.') <= 0) {
+    const imageType = sniffImageMediaType(bytes)
+    if (imageType !== null) return imageType
+    if (isUtf8(bytes)) return 'text/plain'
+    throw new ArtifactDomainError('artifact/upload-invalid', 'only image and text attachments are accepted', name)
+  }
+  return attachmentMediaType(name, bytes)
 }
