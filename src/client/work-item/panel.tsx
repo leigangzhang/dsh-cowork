@@ -1112,8 +1112,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
             editorStartLine={viewportLineRef.current}
             onChangeDraft={(content) => { setEditDraft(content); setBackArmed(false) }}
             onSaveDraft={() => { void saveDraft() }}
-            onAnnotate={reading.annotate}
-            onAnnotateLine={reading.annotateLine}
+            onAnnotateRange={reading.annotateLines}
             onClearSelection={() => { setSelection(null) }}
             onPickLine={pickLine}
             onPickPin={reading.focusPin}

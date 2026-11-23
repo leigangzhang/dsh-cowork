@@ -47,6 +47,7 @@ test('the sheet covers the list, viewer, rail, and the narrow layout', () => {
   for (const selector of [
     '.cwi-list', '.cwi-filter', '.cwi-card', '.cwi-viewer', '.cwi-cross',
     '.cwi-rail', '.cwi-rail-list', '.cwi-rail-session', '.cwi-rail-back',
+    '.cwi-rail-grip', '.cwi-annotate-pop', '.cwi-annotate-button', '.cwi-line-annotate',
     '.cwi-thread[data-summary="true"]', '.cwi-thread', '.cwi-composer',
   ]) {
     assert.ok(WORK_ITEM_CSS.includes(selector), selector)
