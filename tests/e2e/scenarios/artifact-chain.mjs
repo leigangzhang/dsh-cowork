@@ -2,11 +2,12 @@
  * E2E scenario `artifact-chain`: the keyless work-item chain on a real host.
  *
  * A master session registers README.md as a work item, then the panel routes
- * read it, annotate it, save an edit, report presence, upload an attachment,
- * serve the attachment bytes, and consume the project SSE stream. The annotation
- * is delivered to the owning session, whose scripted model must call
- * `cowork_artifact_reply` for the dispatch to become `replied`; the comments
- * tool is read first. Assertions use the routes and the files, never prompt
+ * read it, annotate it, save an edit, report presence, upload attachment bytes,
+ * publish them through `artifact.attach`, serve the attachment bytes, and
+ * consume the project SSE stream. The scripted model attaches a project PNG as
+ * a model-sourced attachment through `cowork_artifact_attach`, and must call
+ * `cowork_artifact_reply` for the dispatched annotation to become `replied`.
+ * Assertions use the routes, the tool payloads, and the files, never prompt
  * text except to route the scripted model.
  */
 
@@ -18,6 +19,7 @@ export const artifactChainId = 'artifact-chain'
 
 const SPEC_PATH = 'README.md'
 const REBOUND_PATH = 'README-rebound.md'
+const CHART_PATH = 'e2e-chart.png'
 const FIRST_COMMENT = 'E2E 第一段批注'
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -87,6 +89,10 @@ export async function runArtifactChain(ctx) {
     if (prompt.includes('cowork_project_init')) return tool('cowork_project_init', {})
     if (prompt.includes('cowork_artifact_create')) {
       return tool('cowork_artifact_create', { path: SPEC_PATH, title: 'E2E 工作项' })
+    }
+    if (prompt.includes('cowork_artifact_attach')) {
+      const artifactId = /artifact-[A-Za-z0-9-]+/.exec(prompt)?.[0] ?? ''
+      return tool('cowork_artifact_attach', { artifactId, sourcePath: CHART_PATH, name: 'e2e-chart.png' })
     }
     if (prompt.includes('cowork_artifact_comments')) {
       return tool('cowork_artifact_comments', { artifactId: /artifact-[A-Za-z0-9-]+/.exec(prompt)?.[0] ?? '' })
@@ -265,6 +271,30 @@ export async function runArtifactChain(ctx) {
   )
   const attachment = await upload.json()
   ctx.check('upload returns an attachment ref', upload.status === 200 && attachment.attachment?.mediaType === 'image/png', upload.status)
+  const uploadedDetail = await ctx.client.panelGet(`/api/cowork.artifact.detail?sessionId=${encodeURIComponent(masterId)}&artifactId=${encodeURIComponent(artifactId)}`)
+  ctx.check(
+    'storing bytes publishes nothing',
+    uploadedDetail.status === 200
+      && uploadedDetail.body?.record?.attachmentCount === 0
+      && (uploadedDetail.body?.publishedAttachments ?? []).length === 0,
+    `${uploadedDetail.status}:${uploadedDetail.body?.record?.attachmentCount}`,
+  )
+  const publishBody = { sessionId: masterId, artifactId, attachmentId: attachment.attachment.attachmentId, name: 'shot.png' }
+  const attachedRef = await ctx.client.panelPost('/api/cowork.artifact.attach', publishBody)
+  ctx.check(
+    'the browser attach route publishes the upload as a user attachment',
+    attachedRef.status === 200
+      && attachedRef.body?.source === 'user'
+      && attachedRef.body?.published === true
+      && attachedRef.body?.attachment?.mediaType === 'image/png',
+    `${attachedRef.status}:${attachedRef.body?.source}:${String(attachedRef.body?.published)}`,
+  )
+  const republished = await ctx.client.panelPost('/api/cowork.artifact.attach', publishBody)
+  ctx.check(
+    'publishing the same upload again is idempotent',
+    republished.status === 200 && republished.body?.published === false,
+    `${republished.status}:${String(republished.body?.published)}`,
+  )
   const attached = await ctx.client.panelPost('/api/cowork.artifact.comment', {
     sessionId: masterId,
     artifactId,
@@ -272,12 +302,47 @@ export async function runArtifactChain(ctx) {
     attachments: [attachment.attachment],
     dispatch: false,
   })
-  ctx.check('the attachment is referenced by a comment', attached.status === 200 && attached.body?.record?.attachmentCount >= 1, attached.status)
+  ctx.check(
+    'the attachment is referenced by a comment and still counted once',
+    attached.status === 200 && attached.body?.record?.attachmentCount === 1,
+    `${attached.status}:${attached.body?.record?.attachmentCount}`,
+  )
   const attachmentGet = await ctx.client.panelFetch(
     `/api/cowork.artifact.attachment?sessionId=${encodeURIComponent(masterId)}&artifactId=${encodeURIComponent(artifactId)}&attachmentId=${encodeURIComponent(attachment.attachment.attachmentId)}`,
   )
   const bytes = Buffer.from(await attachmentGet.arrayBuffer())
   ctx.check('the attachment route serves the bytes', attachmentGet.status === 200 && bytes.equals(PNG_BYTES), `${attachmentGet.status}:${bytes.length}`)
+
+  // The scripted model publishes a project file it "generated" as an attachment.
+  await writeFile(join(ctx.fixture.path, CHART_PATH), PNG_BYTES)
+  const modelAttach = await ctx.promptForTool(
+    masterId,
+    `Call cowork_artifact_attach exactly once with these arguments (JSON): ${JSON.stringify({
+      artifactId,
+      sourcePath: CHART_PATH,
+      name: 'e2e-chart.png',
+    })}`,
+    'cowork_artifact_attach',
+  )
+  const modelAttachment = modelAttach.payload?.attachment
+  ctx.check(
+    'cowork_artifact_attach publishes a model attachment',
+    modelAttach.payload?.source === 'model'
+      && modelAttach.payload?.published === true
+      && modelAttachment?.mediaType === 'image/png'
+      && modelAttach.payload?.record?.attachmentCount === 2,
+    `${modelAttach.payload?.source}:${String(modelAttach.payload?.published)}:${modelAttach.payload?.record?.attachmentCount}`,
+  )
+  const publishedDetail = await ctx.client.panelGet(`/api/cowork.artifact.detail?sessionId=${encodeURIComponent(masterId)}&artifactId=${encodeURIComponent(artifactId)}`)
+  const publishedRows = publishedDetail.body?.publishedAttachments ?? []
+  ctx.check(
+    'detail lists both published attachments with their source',
+    publishedRows.length === 2
+      && publishedRows.some((row) => row.source === 'user')
+      && publishedRows.some((row) => row.source === 'model')
+      && publishedDetail.body?.record?.attachmentCount === 2,
+    JSON.stringify(publishedRows.map((row) => row.source)),
+  )
 
   // An active editing range must deny a model edit that overlaps it.
   const guardPresence = await ctx.client.panelPost('/api/cowork.artifact.presence', {

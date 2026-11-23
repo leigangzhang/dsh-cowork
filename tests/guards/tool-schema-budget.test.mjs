@@ -7,19 +7,20 @@ import { BUSINESS_TOOL_ORDER } from '../support/public-surface.mjs'
  * Context-cost guard for the tool surface (audit item 10).
  *
  * The host sends every registered tool's definition to the model on every call.
- * This plugin registers all twenty-five business tools at the profile level —
+ * This plugin registers all twenty-six business tools at the profile level —
  * there is no per-session or per-agent trimming hook in the host — so the whole
  * serialized schema below is charged on each request, for every cowork session.
  * The budget is therefore a hard ceiling: changing a description, parameter, or
  * enum grows the payload and fails here until the budget is raised on purpose.
  *
  * Budget provenance: 16,523 B measured at base 14e8b0c, raised to 17,223 B when
- * `cowork_artifact_create` joined the surface and to 18,546 B when
- * `cowork_artifact_comments`/`cowork_artifact_reply` joined it (sum of
- * `JSON.stringify({ name, description, parameters })` over the 25 registered
+ * `cowork_artifact_create` joined the surface, to 18,546 B when
+ * `cowork_artifact_comments`/`cowork_artifact_reply` joined it, and to 19,308 B
+ * when `cowork_artifact_attach` joined it (sum of
+ * `JSON.stringify({ name, description, parameters })` over the 26 registered
  * tools). Trimming the schema passes; growth fails.
  */
-const TOOL_SCHEMA_BUDGET_BYTES = 18_546
+const TOOL_SCHEMA_BUDGET_BYTES = 19_308
 
 /** The fields the model receives for one tool; `execute`/`output` stay host-side. */
 const SERIALIZED_FIELDS = ['name', 'description', 'parameters']
@@ -78,12 +79,12 @@ function fakeHost() {
 
 const settle = () => new Promise((resolve) => setImmediate(resolve))
 
-test('the twenty-five business tools stay inside the measured schema budget', async () => {
+test('the twenty-six business tools stay inside the measured schema budget', async () => {
   const host = fakeHost()
   apply(host.ctx, { repoPath: '', promptTimeoutMs: 120_000, enableDevRoutes: false })
   await settle()
 
-  assert.equal(host.tools.length, 25, 'the budget assumes exactly the twenty-five business tools')
+  assert.equal(host.tools.length, 26, 'the budget assumes exactly the twenty-six business tools')
   assert.deepEqual(host.tools.map((tool) => tool.name), BUSINESS_TOOL_ORDER)
   for (const tool of host.tools) {
     assert.equal(typeof tool.description, 'string')
@@ -109,7 +110,7 @@ test('the budget rejects one more tool on this surface', async () => {
 
   const grown = schemaBytes([...host.tools, {
     name: 'cowork_extra',
-    description: 'A twenty-sixth tool that this plugin does not ship.',
+    description: 'A twenty-seventh tool that this plugin does not ship.',
     parameters: { type: 'object', properties: {} },
   }])
   assert.ok(grown > TOOL_SCHEMA_BUDGET_BYTES, `a grown surface must exceed the budget, got ${grown} B`)
