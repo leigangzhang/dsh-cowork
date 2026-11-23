@@ -59,9 +59,12 @@ src/client/work-item/
 ├─ viewer-side-tabs.tsx   版本与附件面板
 ├─ viewer-footer.tsx      投递摘要、内容版本与更新时间
 └─ viewers/
-   ├─ document.ts         类型判定、Markdown 行投影、画布场景校验
+   ├─ document.ts         类型判定、阅读面选择、画布场景校验
    ├─ viewer-document.tsx 按类型选择编辑器/只读渲染器
-   ├─ source-lines.tsx    编号行、选区、锚点 pin、键盘行操作
+   ├─ markdown.ts         Markdown 纯模型：frontmatter、块索引、选区行范围、URL 白名单、降级
+   ├─ markdown-view.tsx   阅读态 token→React 渲染、块级 pin、选区浮动入口
+   ├─ reading-styles.ts   阅读态排版与四档响应式样式
+   ├─ source-lines.tsx    编号行、选区、锚点 pin、键盘行操作（非文本源码面与降级面）
    ├─ diagram.tsx         Mermaid 预览与错误定位
    ├─ canvas.tsx          Excalidraw 懒加载与只读/编辑切换
    ├─ html.tsx            HTML 静态/交互沙箱预览
@@ -129,7 +132,7 @@ interface ArtifactRecord {
 
 | 类型 | 组件 | 依赖 | 说明 |
 |---|---|---|---|
-| Markdown/源码 | `TextEditor` | CodeMirror 6 | 行号、选区、批注装饰、脏行上报；520 KB min |
+| Markdown/源码 | `MarkdownReadView` + `TextEditor` | markdown-it + CodeMirror 6 | 阅读态流式排版与块级批注；源码态 CM6 行号、选区、批注装饰、脏行上报 |
 | 图表 | `DiagramSource` + Pele 预览 | Pele | 六类图 301 KB min；渲染失败显示行号，保留源码 |
 | 表格 | `TableEditor` | read/write-excel-file | 自建网格、筛选/排序视图；123 KB min；xlsx 只做交换 |
 | Doc | `RichDocEditor` | TipTap + starter-kit + 表格扩展 | 460 KB min；表格扩展单独安装，所有 @tiptap 锁同一版本 |

@@ -349,7 +349,7 @@ test('creating a comment derives a line anchor from the file', async () => {
         sessionId: SESSION,
         artifactId: ARTIFACT,
         body: 'tighten this',
-        anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 3, endLine: 4, quote: 'stale quote' },
+        anchor: { kind: 'line-range', path: 'docs/spec.md', startLine: 3, endLine: 4, quote: 'stale quote', selectedText: 'second paragraph' },
       },
     })
     assert.equal(response.status, 200)
@@ -358,6 +358,7 @@ test('creating a comment derives a line anchor from the file', async () => {
     assert.equal(body.comment.type, 'create')
     assert.equal(body.comment.threadId, body.comment.commentId)
     assert.equal(body.comment.anchor.quote, 'first paragraph\nsecond paragraph')
+    assert.equal(body.comment.anchor.selectedText, 'second paragraph')
     assert.equal(body.comment.anchor.contextBefore, '')
     assert.equal(body.comment.fileRevision, 1)
     assert.equal(body.record.status, 'needs-feedback')
@@ -369,35 +370,6 @@ test('creating a comment derives a line anchor from the file', async () => {
       query: { sessionId: SESSION, artifactId: ARTIFACT },
     }))
     assert.equal(comments.events.length, 1)
-  })
-})
-
-test('creating a comment keeps the sub-line selection beside the derived quote', async () => {
-  await withSeededHarness(async (harness) => {
-    const response = await harness.request('/api/cowork.artifact.comment', {
-      method: 'POST',
-      body: {
-        sessionId: SESSION,
-        artifactId: ARTIFACT,
-        body: 'this sentence',
-        anchor: {
-          kind: 'line-range',
-          path: 'docs/spec.md',
-          startLine: 3,
-          endLine: 4,
-          quote: 'stale quote',
-          selectedText: 'second paragraph',
-        },
-      },
-    })
-    assert.equal(response.status, 200)
-    const body = await jsonOf(response)
-    assert.equal(body.comment.anchor.quote, 'first paragraph\nsecond paragraph')
-    assert.equal(body.comment.anchor.selectedText, 'second paragraph')
-    const stored = await jsonOf(await harness.request('/api/cowork.artifact.comments', {
-      query: { sessionId: SESSION, artifactId: ARTIFACT },
-    }))
-    assert.equal(stored.events[0].anchor.selectedText, 'second paragraph')
   })
 })
 

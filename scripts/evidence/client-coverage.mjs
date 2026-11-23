@@ -44,6 +44,7 @@ export const CLIENT_BROWSER_TSX = Object.freeze([
   'src/client/work-item/viewers/canvas.tsx',
   'src/client/work-item/viewers/diagram.tsx',
   'src/client/work-item/viewers/html.tsx',
+  'src/client/work-item/viewers/markdown-view.tsx',
   'src/client/work-item/viewers/source-lines.tsx',
   'src/client/work-item/viewers/viewer-document.tsx',
 ])

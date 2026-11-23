@@ -84,6 +84,13 @@ export interface TextEditorProps {
    */
   readonly anchorsAuthoritative: boolean
   /**
+   * First 1-based line to reveal when the editor mounts. The reading surface
+   * passes its top block's line so a surface switch keeps the place.
+   */
+  readonly initialLine?: number | undefined
+  /** Reports the source line at the top of the editor viewport on scroll. */
+  readonly onViewportLine?: ((line: number) => void) | undefined
+  /**
    * Syntax mode for the file. `plain` is used by formats with no editor
    * language (Mermaid source); the line numbers and anchors still work.
    */
@@ -105,6 +112,8 @@ export function TextEditor({
   ariaLabel,
   anchoredLines,
   anchorsAuthoritative,
+  initialLine,
+  onViewportLine,
   language = 'markdown',
 }: TextEditorProps): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -114,6 +123,8 @@ export function TextEditor({
   const onBlurRef = useRef(onBlur)
   const anchoredLinesRef = useRef(anchoredLines)
   const anchorsAuthoritativeRef = useRef(anchorsAuthoritative)
+  const initialLineRef = useRef(initialLine)
+  const onViewportLineRef = useRef(onViewportLine)
   const [anchoredCompartment] = useState(() => new Compartment())
 
   valueRef.current = value
@@ -121,6 +132,8 @@ export function TextEditor({
   onBlurRef.current = onBlur
   anchoredLinesRef.current = anchoredLines
   anchorsAuthoritativeRef.current = anchorsAuthoritative
+  initialLineRef.current = initialLine
+  onViewportLineRef.current = onViewportLine
 
   // The view is created once; props flow through refs so a parent render never
   // destroys the editor state (history, selection) mid-edit.
@@ -154,10 +167,27 @@ export function TextEditor({
     })
     const view = new EditorView({ state, parent })
     viewRef.current = view
+    const startLine = initialLineRef.current
+    if (startLine !== undefined) {
+      const line = view.state.doc.line(Math.min(Math.max(startLine, 1), view.state.doc.lines))
+      view.dispatch({
+        selection: { anchor: line.from },
+        effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+      })
+      view.focus()
+    }
+    const report = (): void => {
+      if (disposed) return
+      const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 4)
+      onViewportLineRef.current?.(view.state.doc.lineAt(block.from).number)
+    }
+    view.scrollDOM.addEventListener('scroll', report, { passive: true })
+    report()
     return () => {
       // A blur while the host is being removed must not schedule a second save
       // next to the explicit "exit edit" flush.
       disposed = true
+      view.scrollDOM.removeEventListener('scroll', report)
       view.destroy()
       viewRef.current = null
     }

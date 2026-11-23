@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import '../support/ts-hook.mjs'
 const model = await import('../../src/client/work-item/model.ts')
+const artifactContract = await import('../../src/panel/artifact-contract.ts')
 
 /** One summary row with every field the rail reads. */
 function summary(overrides = {}) {
@@ -672,6 +673,16 @@ test('lineRangeAnnotation clamps the range and falls back to the primary path', 
     quote: 'a\nb',
   })
   assert.equal(model.lineRangeAnnotation(['a'], { path: 'docs/f.md' }, 'docs/p.md', 1, 1).path, 'docs/f.md')
+})
+
+test('lineRangeAnnotation carries a bounded sub-line selection', () => {
+  const withSelection = model.lineRangeAnnotation(['alpha beta'], null, 'docs/p.md', 1, 1, '  beta  ')
+  assert.equal(withSelection.selectedText, 'beta')
+  assert.equal(withSelection.quote, 'alpha beta')
+  const blank = model.lineRangeAnnotation(['alpha'], null, 'docs/p.md', 1, 1, '   ')
+  assert.equal('selectedText' in blank, false)
+  const long = model.lineRangeAnnotation(['x'], null, 'docs/p.md', 1, 1, 's'.repeat(5000))
+  assert.equal(Array.from(long.selectedText).length, artifactContract.MAX_ARTIFACT_QUOTE_CHARS)
 })
 
 test('olderEntryVisible and the Escape rules match the drawer state', () => {

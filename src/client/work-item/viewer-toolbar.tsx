@@ -12,6 +12,8 @@ interface ViewerToolbarProps {
   readonly attachments: number
   readonly editing: boolean
   readonly readMode: boolean
+  /** Whether the read/source switch applies to the current surface. */
+  readonly showMode: boolean
   readonly savePhase: SavePhase
   readonly revision: number
   readonly showRail: boolean
@@ -30,6 +32,7 @@ export function ViewerToolbar({
   attachments,
   editing,
   readMode,
+  showMode,
   savePhase,
   revision,
   showRail,
@@ -58,7 +61,7 @@ export function ViewerToolbar({
         ))}
       </div>
       <span className="cwi-spacer" />
-      {viewTab === 'document' && !editing ? (
+      {showMode ? (
         <button
           type="button"
           className="cwi-mode"

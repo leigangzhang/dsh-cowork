@@ -70,20 +70,8 @@
       "lane": "unit"
     },
     {
-      "path": "src/client/work-item/session-open.ts",
-      "lane": "unit"
-    },
-    {
-      "path": "src/client/work-item/session-preference.ts",
-      "lane": "unit"
-    },
-    {
-      "path": "src/client/work-item/view-registration.ts",
-      "lane": "unit"
-    },
-    {
-      "path": "src/client/work-item/view-tab.ts",
-      "lane": "unit"
+      "path": "src/client/work-item/comment-composer.tsx",
+      "lane": "browser"
     },
     {
       "path": "src/client/work-item/editor.tsx",
@@ -98,24 +86,24 @@
       "lane": "unit"
     },
     {
-      "path": "src/client/work-item/panel.tsx",
-      "lane": "browser"
-    },
-    {
       "path": "src/client/work-item/panel-frames.tsx",
       "lane": "browser"
     },
     {
-      "path": "src/client/work-item/comment-composer.tsx",
+      "path": "src/client/work-item/panel.tsx",
       "lane": "browser"
     },
     {
-      "path": "src/client/work-item/thread-list.tsx",
-      "lane": "browser"
+      "path": "src/client/work-item/reading-styles.ts",
+      "lane": "unit"
     },
     {
-      "path": "src/client/work-item/viewer-toolbar.tsx",
-      "lane": "browser"
+      "path": "src/client/work-item/session-open.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/session-preference.ts",
+      "lane": "unit"
     },
     {
       "path": "src/client/work-item/store.ts",
@@ -130,6 +118,18 @@
       "lane": "browser"
     },
     {
+      "path": "src/client/work-item/thread-list.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/view-registration.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/view-tab.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/client/work-item/viewer-footer.tsx",
       "lane": "browser"
     },
@@ -139,6 +139,10 @@
     },
     {
       "path": "src/client/work-item/viewer-side-tabs.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewer-toolbar.tsx",
       "lane": "browser"
     },
     {
@@ -158,16 +162,24 @@
       "lane": "browser"
     },
     {
+      "path": "src/client/work-item/viewers/markdown-view.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/viewers/markdown.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/viewers/source-lines.tsx",
+      "lane": "browser"
+    },
+    {
       "path": "src/client/work-item/viewers/viewer-document.tsx",
       "lane": "browser"
     },
     {
       "path": "src/client/work-item/viewers/viewer-refresh.ts",
       "lane": "unit"
-    },
-    {
-      "path": "src/client/work-item/viewers/source-lines.tsx",
-      "lane": "browser"
     },
     {
       "path": "src/dev/panel-probe.ts",
@@ -282,10 +294,6 @@
       "lane": "unit"
     },
     {
-      "path": "src/panel/artifact-edit.ts",
-      "lane": "unit"
-    },
-    {
       "path": "src/panel/artifact-api.ts",
       "lane": "unit"
     },
@@ -294,11 +302,15 @@
       "lane": "unit"
     },
     {
-      "path": "src/panel/artifact-records.ts",
+      "path": "src/panel/artifact-edit.ts",
       "lane": "unit"
     },
     {
       "path": "src/panel/artifact-rebind.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/panel/artifact-records.ts",
       "lane": "unit"
     },
     {
