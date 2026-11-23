@@ -34,6 +34,7 @@ import {
   type ArtifactOpenResponse,
   type ArtifactPresenceResponse,
   type ArtifactRecordV1,
+  type ArtifactStatus,
   type ArtifactStatusResponse,
   type ArtifactUploadResponse,
   type AttachmentRefV1,
@@ -148,9 +149,19 @@ export interface StatusInput {
   readonly action: 'view' | 'confirm'
 }
 
+/** Query and cancellation of one list read. */
+export interface ListOptions {
+  /** Trimmed search text; absent or empty means "no search". */
+  readonly q?: string
+  /** The merged rail status; `pending-confirm` also matches stored pending-view. */
+  readonly status?: ArtifactStatus
+  /** Aborts a superseded read; the caller keeps whatever rows it already has. */
+  readonly signal?: AbortSignal
+}
+
 /** The work-item client surface the components consume. */
 export interface WorkItemApi {
-  list(sessionId: string): Promise<ArtifactListResponse>
+  list(sessionId: string, options?: ListOptions): Promise<ArtifactListResponse>
   detail(sessionId: string, artifactId: string): Promise<ArtifactDetailResponse>
   file(sessionId: string, artifactId: string, path: string): Promise<ArtifactFileResponse>
   /** `after` reads the next newer page; `before` reads the next older one. */
@@ -216,8 +227,14 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
     return envelope<T>(response)
   }
   return {
-    async list(sessionId) {
-      const response = await fetchImpl(withQuery(ARTIFACT_LIST_PATH, { sessionId }))
+    async list(sessionId, options) {
+      const path = withQuery(ARTIFACT_LIST_PATH, {
+        sessionId,
+        q: options?.q,
+        status: options?.status,
+      })
+      const signal = options?.signal
+      const response = await fetchImpl(path, signal === undefined ? undefined : { signal })
       return envelope<ArtifactListResponse>(response)
     },
     async detail(sessionId, artifactId) {

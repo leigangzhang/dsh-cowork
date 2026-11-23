@@ -45,7 +45,9 @@ test('a host without a document is a no-op', () => {
 
 test('the sheet covers the list, viewer, rail, and the narrow layout', () => {
   for (const selector of [
-    '.cwi-list', '.cwi-filter', '.cwi-card', '.cwi-viewer', '.cwi-cross',
+    '.cwi-list', '.cwi-list-toolbar', '.cwi-filter', '.cwi-search-toggle',
+    '.cwi-search-input', '.cwi-search-clear', '.cwi-group-summary',
+    '.cwi-card', '.cwi-viewer', '.cwi-cross',
     '.cwi-rail', '.cwi-rail-list', '.cwi-rail-session', '.cwi-rail-back',
     '.cwi-rail-grip', '.cwi-annotate-pop', '.cwi-annotate-button', '.cwi-line-annotate',
     '.cwi-thread[data-summary="true"]', '.cwi-thread', '.cwi-composer',
@@ -55,6 +57,12 @@ test('the sheet covers the list, viewer, rail, and the narrow layout', () => {
   assert.match(WORK_ITEM_CSS, /@media \(max-width: 900px\)/)
   assert.match(WORK_ITEM_CSS, /prefers-reduced-motion/)
   assert.match(WORK_ITEM_CSS, /:focus-visible/)
+  // The card no longer shows the stored path; the viewer header still does.
+  assert.equal(WORK_ITEM_CSS.includes('.cwi-card .cwi-path'), false)
+  // 待查看 keeps its raw data-status but paints the merged 待确认 chip.
+  assert.ok(WORK_ITEM_CSS.includes(
+    '.cwi-card-status[data-status="pending-view"], .cwi-card-status[data-status="pending-confirm"]',
+  ))
 })
 
 test('the Cowork view hides the host composer only while it is mounted', () => {
