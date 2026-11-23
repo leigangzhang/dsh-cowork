@@ -70,6 +70,22 @@
       "lane": "unit"
     },
     {
+      "path": "src/client/work-item/session-open.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/session-preference.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/view-registration.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/view-tab.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/client/work-item/editor.tsx",
       "lane": "browser"
     },
@@ -83,6 +99,10 @@
     },
     {
       "path": "src/client/work-item/panel.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/panel-frames.tsx",
       "lane": "browser"
     },
     {

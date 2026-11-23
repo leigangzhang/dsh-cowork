@@ -35,12 +35,24 @@ export interface ThreadCardProps {
   readonly pending: boolean
   readonly dispatch: ArtifactDispatchSummary | null
   readonly retrying: boolean
+  /** Cross-session preview: reply and resolve stay visible but disabled. */
+  readonly readOnly: boolean
   readonly onSelect: (thread: WorkItemThread) => void
   readonly onToggle: (thread: WorkItemThread) => void
   readonly onReply: (thread: WorkItemThread) => void
   readonly onRetry: (dispatch: ArtifactDispatchSummary) => void
   readonly onFocus: (thread: WorkItemThread) => void
   readonly attachmentUrl: (attachmentId: string) => string
+}
+
+/** Whether the delivery retry action is unavailable while busy or read-only. */
+function dispatchRetryDisabled(retrying: boolean, readOnly: boolean): boolean {
+  return retrying || readOnly
+}
+
+/** Readable reason a read-only preview cannot retry a delivery. */
+function dispatchRetryTitle(readOnly: boolean): string | undefined {
+  return readOnly ? '跨会话只读：切到所属会话后才能重试投递' : undefined
 }
 
 /** A comment that carries an author and a body. */
@@ -136,6 +148,7 @@ export function ThreadCard({
   pending,
   dispatch,
   retrying,
+  readOnly,
   onSelect,
   onToggle,
   onReply,
@@ -231,7 +244,8 @@ export function ThreadCard({
                           type="button"
                           className="cwi-tstate-retry"
                           data-testid="cwi-dispatch-retry"
-                          disabled={retrying}
+                          disabled={dispatchRetryDisabled(retrying, readOnly)}
+                          title={dispatchRetryTitle(readOnly)}
                           onClick={(event) => { event.stopPropagation(); onRetry(dispatch) }}
                         >
                           {retrying ? '重试中…' : '重试'}
@@ -269,7 +283,8 @@ export function ThreadCard({
                 type="button"
                 className="cwi-thread-action"
                 data-testid="cwi-thread-reply"
-                disabled={pending}
+                disabled={pending || readOnly}
+                title={readOnly ? '跨会话只读：切到所属会话后才能回复' : undefined}
                 onClick={(event) => { event.stopPropagation(); onReply(thread) }}
               >
                 回复
@@ -289,7 +304,8 @@ export function ThreadCard({
           className="cwi-thread-action"
           data-testid="cwi-thread-toggle"
           data-resolved={thread.resolved ? 'true' : 'false'}
-          disabled={pending}
+          disabled={pending || readOnly}
+          title={readOnly ? '跨会话只读：切到所属会话后才能修改批注状态' : undefined}
           onClick={(event) => { event.stopPropagation(); onToggle(thread) }}
         >
           {thread.resolved ? '重新打开' : '标记已解决 ✓'}

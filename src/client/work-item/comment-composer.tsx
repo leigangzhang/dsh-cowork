@@ -19,6 +19,8 @@ interface CommentComposerProps {
   readonly uploading: boolean
   readonly submitting: boolean
   readonly receipt: string | null
+  /** Cross-session preview: keep the composer visible but disable every input. */
+  readonly readOnly: boolean
   readonly onDraft: (value: string) => void
   readonly onCancelReply: () => void
   readonly onCancelAnchor: () => void
@@ -38,6 +40,7 @@ export function CommentComposer({
   uploading,
   submitting,
   receipt,
+  readOnly,
   onDraft,
   onCancelReply,
   onCancelAnchor,
@@ -46,8 +49,12 @@ export function CommentComposer({
   onSubmit,
 }: CommentComposerProps): ReactElement {
   return (
-    <div className="cwi-composer">
-      <p className="cwi-composer-lead">在文档中选择行后批注；也可以直接评论整份文档。</p>
+    <div className="cwi-composer" data-testid="cwi-composer-shell" data-readonly={String(readOnly)}>
+      <p className="cwi-composer-lead">
+        {readOnly
+          ? '跨会话只读：可以阅读批注和附件，回复与提交不可用。'
+          : '在文档中选择行后批注；也可以直接评论整份文档。'}
+      </p>
       {replyTarget === null ? null : (
         <div className="cwi-thread-meta" data-testid="cwi-reply-target">
           <span>回复 {anchorLabel(replyTarget.anchor)} 的批注</span>
@@ -68,16 +75,24 @@ export function CommentComposer({
         ref={composerRef}
         data-testid="cwi-composer"
         value={draft}
-        placeholder={replyTarget !== null ? '回复这条批注…' : (pendingAnchor === null ? '写下整体批注…' : '写下对所选行的批注…')}
+        disabled={readOnly}
+        placeholder={readOnly
+          ? '切到所属会话后才能批注'
+          : (replyTarget !== null ? '回复这条批注…' : (pendingAnchor === null ? '写下整体批注…' : '写下对所选行的批注…'))}
         onChange={(event) => { onDraft(event.target.value) }}
       />
       <div className="cwi-composer-row">
-        <label className="cwi-secondary cwi-attach-label" data-testid="cwi-attach-label" title="添加附件">
+        <label
+          className="cwi-secondary cwi-attach-label"
+          data-testid="cwi-attach-label"
+          title={readOnly ? '跨会话只读：切到所属会话后才能添加附件' : '添加附件'}
+        >
           附件
           <input
             type="file"
             className="cwi-file-input"
             data-testid="cwi-file-input"
+            disabled={readOnly}
             multiple
             accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.tsv,.json"
             onChange={(event) => {
@@ -92,7 +107,7 @@ export function CommentComposer({
           type="button"
           className="cwi-primary"
           data-testid="cwi-submit"
-          disabled={draft.trim() === '' || submitting}
+          disabled={readOnly || draft.trim() === '' || submitting}
           onClick={onSubmit}
         >
           {submitting ? '提交中…' : (replyTarget === null ? '提交批注' : '提交回复')}

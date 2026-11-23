@@ -32,6 +32,8 @@ interface ThreadListProps {
   readonly loadingOlder: boolean
   /** Narrow layout: the rail is a drawer over the content. */
   readonly drawer: boolean
+  /** Cross-session preview: reply and resolve stay visible but disabled. */
+  readonly readOnly: boolean
   readonly children?: ReactNode
   readonly onFilter: (filter: ThreadFilter) => void
   readonly onToggleResolved: () => void
@@ -73,6 +75,7 @@ function card(thread: WorkItemThread, props: ThreadListProps, open: boolean): Re
       pending={props.pendingThread === thread.threadId}
       dispatch={dispatchForThread(thread, props.dispatches)}
       retrying={props.retrying}
+      readOnly={props.readOnly}
       expandedByGroup={open}
       onSelect={() => { props.onSelect(thread) }}
       onToggle={() => { props.onToggle(thread) }}

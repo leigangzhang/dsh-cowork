@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
-const IGNORED_DIRS = new Set(['.git', 'node_modules', 'lib', 'dist'])
+// `.dsh-cowork` holds gitignored runtime and discussion data (docs/AGENTS.md);
+// it is not part of the repository, so it is not classified for publication.
+const IGNORED_DIRS = new Set(['.git', 'node_modules', 'lib', 'dist', '.dsh-cowork'])
 
 function listMarkdownFiles(dir) {
   const out = []

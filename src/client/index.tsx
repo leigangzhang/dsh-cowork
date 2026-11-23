@@ -14,6 +14,7 @@
 import { ensurePanelStyles } from './styles.ts'
 import { ensureWorkItemStyles } from './work-item/styles.ts'
 import { WorkItemViewer } from './work-item/panel.tsx'
+import { bindWorkItemView } from './work-item/view-registration.ts'
 import { CoworkColorGlyph, CoworkFooterAction, CoworkPanel, CoworkPanelTitle } from './panel.tsx'
 import { registerNoticeRenderer } from './notice.tsx'
 import {
@@ -30,13 +31,11 @@ export function apply(ctx: ClientContext): void {
   ensurePanelStyles()
   ensureWorkItemStyles()
 
-  // The work-item viewer is a keyed root `main` panel: the right-rail list
-  // opens it through `layout.selectPanel('cowork-work-item')`. Registering the
-  // slot key does not require the layout service; only opening does.
-  ctx.slots.inject('main', () => ctx.slots.register({
-    name: 'main',
-    key: 'cowork-work-item',
-  }, WorkItemViewer))
+  // The work-item viewer is the session-scoped Cowork conversation view: one
+  // tab that exists only while a work item is open, so the right-rail list can
+  // open it beside Chat instead of replacing the conversation. The binding owns
+  // the registration lifetime; the plugin fiber owns the binding.
+  ctx.slots.inject('conversation.view', () => bindWorkItemView(ctx.slots, WorkItemViewer))
 
   ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab',
@@ -83,14 +82,9 @@ export function apply(ctx: ClientContext): void {
     return () => { setClientService('uiWorkspace', undefined) }
   })
 
-  // Work-item navigation dependencies. Both are optional: without `layout` the
-  // list explains it cannot open the main area, and without `sessions` the
-  // viewer simply does not auto-close on a session switch.
-  ctx.inject(['layout'], (scope) => {
-    setClientService('layout', scope.layout)
-    return () => { setClientService('layout', undefined) }
-  })
-
+  // Session catalog: the cross-session banner uses it to verify that
+  // "open in the owning session" really switched sessions. Optional, because a
+  // host without it still opens the session and reports it as unverifiable.
   ctx.inject(['sessions'], (scope) => {
     setClientService('sessions', scope.sessions)
     return () => { setClientService('sessions', undefined) }

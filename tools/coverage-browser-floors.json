@@ -80,6 +80,10 @@
     "src/client/work-item/viewer-toolbar.tsx": {
       "lineCoverage": 100.0,
       "functionCoverage": 100.0
+    },
+    "src/client/work-item/panel-frames.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
     }
   }
 }

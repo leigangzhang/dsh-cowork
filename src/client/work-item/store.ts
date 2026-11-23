@@ -1,15 +1,20 @@
 /**
  * Opening context of the work-item viewer.
  *
- * One browser tab can have at most one viewer open; the right-rail list writes
- * the context and asks the host layout to select the main panel. The store is a
- * tiny external store so the panel component re-renders when the context
- * changes (or closes), with no global state library.
+ * One browser tab can have at most one work item open. The right-rail list
+ * writes the context; the plugin's `conversation.view` binding registers the
+ * Cowork tab while a context exists and unregisters it on close. The store is a
+ * tiny external store so the viewer component and the tab binding re-render
+ * when the context changes, with no global state library.
  */
-/** The `{sessionId, artifactId}` pair the viewer was opened with. */
+/**
+ * The open work item. `ownerSessionId` is the topic session the work item
+ * belongs to and the scope every `artifact.*` call resolves its project with,
+ * so a viewer opened from another session still reads the same record.
+ */
 export interface WorkItemOpenContext {
-  readonly sessionId: string
   readonly artifactId: string
+  readonly ownerSessionId: string
 }
 
 /** One store snapshot; `context: null` means no viewer is open. */
@@ -22,11 +27,14 @@ export class WorkItemOpenStore {
   private snapshot: WorkItemStoreSnapshot = { context: null }
   private readonly listeners = new Set<() => void>()
 
-  /** Open one work item, or refresh the context when it is already open. */
+  /**
+   * Open one work item, or replace the context when another is open.
+   * Re-opening the same pair is a no-op and never emits.
+   */
   open(context: WorkItemOpenContext): void {
     if (
       this.snapshot.context !== null
-      && this.snapshot.context.sessionId === context.sessionId
+      && this.snapshot.context.ownerSessionId === context.ownerSessionId
       && this.snapshot.context.artifactId === context.artifactId
     ) {
       return

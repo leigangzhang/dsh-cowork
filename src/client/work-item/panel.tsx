@@ -1,11 +1,14 @@
 /**
- * Main-area work-item viewer (`cowork-work-item` keyed panel).
+ * Work-item viewer: the body of the Cowork conversation view.
  *
  * It reads the open context from the external store, loads the record, the
- * primary file, and the comment log, and renders the read-only chain: numbered
- * lines, a range selection that becomes an anchored comment, and the thread
- * rail. Saving and delivery are later stages; this component never pretends
- * they happened.
+ * primary file, and the comment log, and renders the numbered document, the
+ * range selection that becomes an anchored comment, and the thread rail.
+ *
+ * The seat injects the session currently displayed (`sessionId`); the open
+ * item's owner is `context.ownerSessionId`. Every `artifact.*` call uses the
+ * owner so a cross-session preview still resolves the right project, and the
+ * two differ exactly when the viewer is read-only.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { Dispatch, ReactElement, SetStateAction } from 'react'
@@ -39,9 +42,7 @@ import {
   detailMeta,
   contentLines,
   errorPresentation,
-  drawerClosesOnEscape,
   foldThreads,
-  isEscapeKey,
   lineRangeAnnotation,
   missingFileState,
   olderCall,
@@ -51,9 +52,6 @@ import {
   pinThread,
   readPersistedDraft,
   rebindFailure,
-  rebindOldPath,
-  rebindReceipt,
-  rebindTarget,
   removePersistedDraft,
   savePersistedDraft,
   selectLine,
@@ -61,7 +59,6 @@ import {
   staleLineNumbers,
   typeLabel,
   type LineSelection,
-  type MissingFileState,
   type OlderCall,
   type SavePhase,
   type WorkItemThread,
@@ -75,8 +72,20 @@ import {
   threadOrdinals,
   type ThreadFilter,
 } from './model.ts'
+import { openOwnerSession } from './session-open.ts'
 import { workItemOpenStore, type WorkItemOpenContext } from './store.ts'
 import { CommentComposer } from './comment-composer.tsx'
+import {
+  CollapsedRailReceipt,
+  ConflictCard,
+  CrossSessionBanner,
+  CrossSessionError,
+  railBackdrop,
+  RebindFileEntry,
+  RailEscape,
+  useNarrowLayout,
+  ViewerPlaceholder,
+} from './panel-frames.tsx'
 import { ThreadList } from './thread-list.tsx'
 import { ViewerFooter } from './viewer-footer.tsx'
 import { ViewerToolbar } from './viewer-toolbar.tsx'
@@ -97,9 +106,6 @@ interface ViewerData {
 
 const BYTE_ENCODER = new TextEncoder()
 
-/** The breakpoint below which the comment rail is a drawer over the content. */
-const NARROW_QUERY = '(max-width: 900px)'
-
 /** UTF-8 byte length, the unit the server's text cap uses. */
 function byteLength(text: string): number {
   return BYTE_ENCODER.encode(text).byteLength
@@ -108,6 +114,18 @@ function byteLength(text: string): number {
 /** A short message from any thrown value. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The owner context one delivery retry may use, or null when the action must
+ * not run: read-only preview, no open context, or a retry already in flight.
+ */
+function deliveryRetryTarget(
+  readOnly: boolean,
+  context: WorkItemOpenContext | null,
+  pending: string | null,
+): WorkItemOpenContext | null {
+  return readOnly || pending !== null ? null : context
 }
 
 /** Clear submitted UI state only when the user has not replaced it meanwhile. */
@@ -122,24 +140,6 @@ function useOpenContext() {
     () => workItemOpenStore.getSnapshot(),
     () => workItemOpenStore.getSnapshot(),
   ).context
-}
-
-/** Track the drawer breakpoint; a host without matchMedia stays wide. */
-function useNarrowLayout(): boolean {
-  const [narrow, setNarrow] = useState(
-    () => typeof window !== 'undefined'
-      && typeof window.matchMedia === 'function'
-      && window.matchMedia(NARROW_QUERY).matches,
-  )
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return
-    const query = window.matchMedia(NARROW_QUERY)
-    const update = (): void => { setNarrow(query.matches) }
-    update()
-    query.addEventListener('change', update)
-    return () => { query.removeEventListener('change', update) }
-  }, [])
-  return narrow
 }
 
 /** Read the initial file; a refusal becomes a notice instead of failing the view. */
@@ -182,84 +182,6 @@ async function openReceipt(sessionId: string, artifactId: string): Promise<strin
   }
 }
 
-/** Props of the missing-file rebind entry. */
-interface RebindFileProps {
-  readonly state: MissingFileState | null
-  readonly context: WorkItemOpenContext
-  readonly record: ArtifactRecordV1
-  readonly onRecord: (record: ArtifactRecordV1) => void
-  readonly reloadFile: (path: string) => Promise<void>
-  readonly onReceipt: (message: string) => void
-}
-
-/** The missing-file entry: one path input, local validation, and the request. */
-function RebindFileEntry({ state, context, record, onRecord, reloadFile, onReceipt }: RebindFileProps): ReactElement | null {
-  const [value, setValue] = useState('')
-  const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  if (state === null) return null
-
-  /** Send the validated path, apply the returned record, then re-read the file. */
-  const send = async (newPath: string): Promise<void> => {
-    setPending(true)
-    setError(null)
-    try {
-      const response = await workItemApi.rebind({
-        sessionId: context.sessionId,
-        artifactId: context.artifactId,
-        oldPath: rebindOldPath(record),
-        newPath,
-      })
-      setValue('')
-      onReceipt(rebindReceipt(response.changed, newPath))
-      onRecord(response.record)
-      await reloadFile(response.record.primaryPath)
-    } catch (reason) {
-      const failure = rebindFailure(reason as { code?: string; message?: string })
-      setError(`${failure.title}：${failure.detail}`)
-    } finally {
-      setPending(false)
-    }
-  }
-
-  /** Validate the typed path, then send it. */
-  const submit = async (): Promise<void> => {
-    const target = rebindTarget(value)
-    if (!target.ok) {
-      setError(target.error)
-      return
-    }
-    await send(target.path)
-  }
-
-  return (
-    <form
-      className="cwi-rebind"
-      data-testid="cwi-rebind"
-      onSubmit={(event) => { event.preventDefault(); void submit() }}
-    >
-      <div className="cwi-rebind-title">
-        文件缺失：<span className="cwi-mono">{state.path}</span>
-      </div>
-      <p className="cwi-rebind-hint">{state.hint}</p>
-      <div className="cwi-rebind-row">
-        <input
-          className="cwi-rebind-input"
-          data-testid="cwi-rebind-input"
-          value={value}
-          placeholder="项目内的新路径，如 docs/spec.md"
-          aria-label="文件在项目中的新路径"
-          onChange={(event) => { setValue(event.target.value) }}
-        />
-        <button type="submit" className="cwi-primary" data-testid="cwi-rebind-submit" disabled={pending}>
-          {pending ? '绑定中…' : '重新绑定文件'}
-        </button>
-      </div>
-      {error === null ? null : <div className="cwi-rebind-error" data-testid="cwi-rebind-error" role="alert">{error}</div>}
-    </form>
-  )
-}
-
 /** Paging state for the rail's "load older" entry. */
 function useOlderPages(
   context: WorkItemOpenContext | null,
@@ -274,7 +196,7 @@ function useOlderPages(
     setLoadingOlder(true)
     setReceipt(null)
     try {
-      const page = await workItemApi.comments(call.sessionId, call.artifactId, undefined, call.before)
+      const page = await workItemApi.comments(call.ownerSessionId, call.artifactId, undefined, call.before)
       setData(current => withOlderPage(current, page))
     } catch (reason) {
       setReceipt(`加载更早的批注失败：${messageOf(reason)}`)
@@ -296,80 +218,18 @@ function useOlderPages(
   return { loadingOlder, loadOlderPage }
 }
 
-/** The viewer's idle, loading, and error states. */
-function ViewerPlaceholder({ phase, error, onRetry, onBack }: {
-  readonly phase: 'idle' | 'loading' | 'error'
-  readonly error?: unknown
-  readonly onRetry?: () => void
-  readonly onBack?: () => void
-}): ReactElement {
-  if (phase === 'idle') {
-    return (
-      <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="idle">
-        <div className="cwi-viewer-empty">从右栏的「工作项」标签打开一份交付物。</div>
-      </div>
-    )
-  }
-  if (phase === 'loading') {
-    return (
-      <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="loading" aria-busy="true">
-        <div className="cwi-viewer-empty">正在加载工作项…</div>
-      </div>
-    )
-  }
-  const presentation = errorPresentation(error as { code?: string; message?: string } | null)
-  return (
-    <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="error">
-      <div className="cwi-viewer-empty">
-        <div data-testid="cwi-viewer-error">{presentation.title}</div>
-        <div>{presentation.detail}</div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 10 }}>
-          <button type="button" className="cwi-secondary" onClick={onRetry}>
-            重试
-          </button>
-          <button type="button" className="cwi-secondary" data-testid="cwi-back" onClick={onBack}>
-            返回会话
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/** Escape closes the narrow drawer first and never reaches a submit control. */
-function RailEscape({ narrow, showRail, onClose }: {
-  readonly narrow: boolean
-  readonly showRail: boolean
-  readonly onClose: (open: boolean) => void
-}): ReactElement | null {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (!isEscapeKey(event)) return
-      // The header's overflow menu owns Escape while it is open.
-      const menuOpen = document.querySelector('.cwi-menu') !== null
-      if (!drawerClosesOnEscape(narrow, showRail, menuOpen)) return
-      event.preventDefault()
-      onClose(false)
-      document.querySelector<HTMLButtonElement>('[data-testid="cwi-rail-toggle"]')?.focus()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => { document.removeEventListener('keydown', onKeyDown) }
-  }, [narrow, showRail, onClose])
-  return null
-}
-
-/** The narrow drawer's backdrop, or null when the rail is not over content. */
-function railBackdrop(narrow: boolean, showRail: boolean, onClose: () => void): ReactElement | null {
-  if (!narrow || !showRail) return null
-  return <div className="cwi-rail-backdrop" data-testid="cwi-rail-backdrop" aria-hidden="true" onClick={onClose} />
+/** Props the `conversation.view` seat injects into the viewer. */
+export interface WorkItemViewProps {
+  /** Session currently displayed; the open item's owner may be another one. */
+  readonly sessionId: string
 }
 
 /** The work-item viewer. */
-export function WorkItemViewer(): ReactElement {
+export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement | null {
   const services = useClientServices()
   const context = useOpenContext()
   const narrow = useNarrowLayout()
-  const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [data, setData] = useState<ViewerData | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [fileProblem, setFileProblem] = useState<{ notice: string | null; code: string | null }>({ notice: null, code: null })
@@ -383,7 +243,7 @@ export function WorkItemViewer(): ReactElement {
   const [confirming, setConfirming] = useState(false)
   const [viewTab, setViewTab] = useState<'document' | 'versions' | 'attachments'>('document')
   const [readMode, setReadMode] = useState(true)
-  const [showRail, setShowRail] = useState(true)
+  const [showRail, setShowRail] = useState(false)
   // Bumped when the editor must rebuild its scene from the stored file; a
   // save alone must not remount Excalidraw (that would drop undo history).
   const [canvasReset, setCanvasReset] = useState(0)
@@ -416,8 +276,12 @@ export function WorkItemViewer(): ReactElement {
   const persistDraftRef = useRef<() => void>(() => {})
   const contextKeyRef = useRef<string | null>(null)
   const dirty = editing && data !== null && data.file !== null && editDraft !== savedContent
-  const layout = services.layout
-  const canReturn = layout !== undefined && typeof layout.selectPanel === 'function'
+  const [ownerOpening, setOwnerOpening] = useState(false)
+  const [ownerError, setOwnerError] = useState<string | null>(null)
+  const crossSession = context !== null && context.ownerSessionId !== sessionId
+  // Cross-session viewers are read-only previews: editing, confirming, and
+  // commenting all belong to the owning session.
+  const readOnly = crossSession
 
   // Relative times and activity ages stay current without a data refresh.
   useEffect(() => {
@@ -428,8 +292,7 @@ export function WorkItemViewer(): ReactElement {
 
   const close = useCallback(() => {
     workItemOpenStore.close()
-    if (canReturn) layout.selectPanel(null)
-  }, [canReturn, layout])
+  }, [])
 
   /** Persist the user's only copy locally; reopening restores it. */
   const persistDraft = useCallback(() => {
@@ -449,15 +312,11 @@ export function WorkItemViewer(): ReactElement {
 
   // Load the work item whenever the context or an explicit retry changes.
   useEffect(() => {
-    if (context === null) {
-      contextKeyRef.current = null
-      setPhase('idle')
-      setData(null)
-      return
-    }
-    const contextKey = `${context.sessionId}\u0000${context.artifactId}`
+    if (context === null) return
+    const contextKey = `${context.ownerSessionId}\u0000${context.artifactId}`
     if (contextKeyRef.current !== contextKey) {
       contextKeyRef.current = contextKey
+      setOwnerError(null)
       setDraft('')
       setReplyTarget(null)
       setPendingAttachments([])
@@ -471,9 +330,9 @@ export function WorkItemViewer(): ReactElement {
     setSelection(null)
     setPendingAnchor(null)
     const load = async (): Promise<void> => {
-      const detail = await workItemApi.detail(context.sessionId, context.artifactId)
-      const { file, notice, code } = await readInitialFile(context.sessionId, context.artifactId, detail.record.primaryPath)
-      const comments = await workItemApi.comments(context.sessionId, context.artifactId)
+      const detail = await workItemApi.detail(context.ownerSessionId, context.artifactId)
+      const { file, notice, code } = await readInitialFile(context.ownerSessionId, context.artifactId, detail.record.primaryPath)
+      const comments = await workItemApi.comments(context.ownerSessionId, context.artifactId)
       if (!active) return
       setData({
         record: detail.record,
@@ -508,7 +367,7 @@ export function WorkItemViewer(): ReactElement {
       setPhase('ready')
       // Opening the viewer records first-view; the server is idempotent and the
       // failure must not block reading.
-      workItemApi.status({ sessionId: context.sessionId, artifactId: context.artifactId, action: 'view' })
+      workItemApi.status({ sessionId: context.ownerSessionId, artifactId: context.artifactId, action: 'view' })
         .then((response) => {
           if (!active) return
           setData(current => (current === null ? current : { ...current, record: response.record }))
@@ -534,30 +393,24 @@ export function WorkItemViewer(): ReactElement {
     setShowResolved(false)
   }, [context])
 
-  // The viewer closes itself when the host switches the main area away from the
-  // session it was opened for (`retainedBy.mainView` falls to zero).
-  useEffect(() => {
+  /**
+   * Switch to the owning session and make its Cowork tab active.
+   *
+   * A failure keeps this read-only viewer on screen and is rendered next to the
+   * retry; the viewer never pretends the session changed.
+   */
+  const openOwner = useCallback(async () => {
     if (context === null) return
-    const sessions = services.sessions
-    if (sessions === undefined || typeof sessions.retainInfo !== 'function') return
-    let info
-    try {
-      info = sessions.retainInfo(context.sessionId)
-    } catch {
-      return
-    }
-    let previous = info.getSnapshot().retainedBy.mainView ?? 0
-    return info.subscribe(() => {
-      const current = info.getSnapshot().retainedBy.mainView ?? 0
-      if (previous > 0 && current === 0) {
-        persistDraft()
-        // Returning to the conversation is part of closing the viewer; without
-        // this the root main slot would keep the now-idle work-item panel.
-        if (canReturn) layout.selectPanel(null)
-      }
-      previous = current
+    setOwnerOpening(true)
+    setOwnerError(null)
+    const result = await openOwnerSession({
+      ownerSessionId: context.ownerSessionId,
+      uiWorkspace: services.uiWorkspace,
+      sessions: services.sessions,
     })
-  }, [canReturn, context, layout, persistDraft, services.sessions])
+    setOwnerOpening(false)
+    if (!result.ok) setOwnerError(result.message)
+  }, [context, services.sessions, services.uiWorkspace])
 
   /** Save the draft through the optimistic-concurrency route. */
   const saveDraft = useCallback(async (options?: {
@@ -572,7 +425,7 @@ export function WorkItemViewer(): ReactElement {
     setBackArmed(false)
     try {
       const response = await workItemApi.edit({
-        sessionId: context.sessionId,
+        sessionId: context.ownerSessionId,
         artifactId: context.artifactId,
         path: file.path,
         baseRevision: options?.baseRevision ?? draftBase?.revision ?? file.revision,
@@ -611,7 +464,7 @@ export function WorkItemViewer(): ReactElement {
         setSavePhase('conflict')
         if (info !== null) {
           try {
-            const latest = await workItemApi.file(context.sessionId, context.artifactId, file.path)
+            const latest = await workItemApi.file(context.ownerSessionId, context.artifactId, file.path)
             setConflictLatest(latest.content)
           } catch {
             setConflictLatest('')
@@ -658,7 +511,7 @@ export function WorkItemViewer(): ReactElement {
     if (ranges.length === 0) return
     const report = (): void => {
       void workItemApi.presence({
-        sessionId: context.sessionId,
+        sessionId: context.ownerSessionId,
         artifactId: context.artifactId,
         path: data.file!.path,
         ranges,
@@ -703,8 +556,8 @@ export function WorkItemViewer(): ReactElement {
   const loadLatest = useCallback(async () => {
     if (context === null || data?.file == null) return
     try {
-      const latest = await workItemApi.file(context.sessionId, context.artifactId, data.file.path)
-      const detail = await workItemApi.detail(context.sessionId, context.artifactId)
+      const latest = await workItemApi.file(context.ownerSessionId, context.artifactId, data.file.path)
+      const detail = await workItemApi.detail(context.ownerSessionId, context.artifactId)
       setData(reloadedView(data, detail, latest))
       setEditDraft(latest.content)
       setSavedContent(latest.content)
@@ -747,12 +600,12 @@ export function WorkItemViewer(): ReactElement {
   const refreshFromServer = useCallback(async (withFile = false, fileChanged = false) => {
     if (context === null) return
     try {
-      const detail = await workItemApi.detail(context.sessionId, context.artifactId)
-      const comments = await workItemApi.comments(context.sessionId, context.artifactId)
+      const detail = await workItemApi.detail(context.ownerSessionId, context.artifactId)
+      const comments = await workItemApi.comments(context.ownerSessionId, context.artifactId)
       let file: ArtifactFileResponse | null = null
       if (withFile) {
         try {
-          file = await workItemApi.file(context.sessionId, context.artifactId, detail.record.primaryPath)
+          file = await workItemApi.file(context.ownerSessionId, context.artifactId, detail.record.primaryPath)
         } catch {
           // A missing file keeps the last content; the next event retries.
         }
@@ -789,7 +642,7 @@ export function WorkItemViewer(): ReactElement {
     let failures = 0
     let source: EventSource | null = null
     const connect = (): void => {
-      const url = `${ARTIFACT_EVENTS_PATH}?sessionId=${encodeURIComponent(context.sessionId)}&artifactId=${encodeURIComponent(context.artifactId)}`
+      const url = `${ARTIFACT_EVENTS_PATH}?sessionId=${encodeURIComponent(context.ownerSessionId)}&artifactId=${encodeURIComponent(context.artifactId)}`
       source = new EventSource(url)
       source.onopen = () => {
         if (closed) return
@@ -846,7 +699,7 @@ export function WorkItemViewer(): ReactElement {
       const added: AttachmentRefV1[] = []
       for (const file of Array.from(files).slice(0, 5)) {
         const uploaded = await workItemApi.upload({
-          sessionId: context.sessionId,
+          sessionId: context.ownerSessionId,
           artifactId: context.artifactId,
           name: file.name,
           bytes: file,
@@ -865,7 +718,7 @@ export function WorkItemViewer(): ReactElement {
   const reloadFile = async (path: string): Promise<void> => {
     if (context === null) return
     try {
-      const file = await workItemApi.file(context.sessionId, context.artifactId, path)
+      const file = await workItemApi.file(context.ownerSessionId, context.artifactId, path)
       setData(current => (current === null ? current : { ...current, file }))
       setFileProblem({ notice: null, code: null })
       setEditDraft(file.content)
@@ -928,7 +781,7 @@ export function WorkItemViewer(): ReactElement {
 
   /** Open the comment entry for one line range and focus its composer. */
   const annotateRange = (startLine: number, endLine: number): void => {
-    if (data === null) return
+    if (readOnly || data === null) return
     const range = lineRangeAnnotation(lines, data.file, data.record.primaryPath, startLine, endLine)
     if (range === null) return
     setReplyTarget(null)
@@ -960,7 +813,7 @@ export function WorkItemViewer(): ReactElement {
     setReceipt(null)
     try {
       const response = await workItemApi.comment({
-        sessionId: context.sessionId,
+        sessionId: context.ownerSessionId,
         artifactId: context.artifactId,
         body: submitted.draft.trim(),
         ...(submitted.reply === null
@@ -988,19 +841,20 @@ export function WorkItemViewer(): ReactElement {
   }, [context, data, draft, pendingAnchor, pendingAttachments, replyTarget, selection, submitting])
 
   const startReply = useCallback((thread: WorkItemThread) => {
+    if (readOnly) return
     setSelectedThreadId(thread.threadId)
     setReplyTarget(thread)
     setPendingAnchor(null)
     setSelection(null)
     composerRef.current?.focus()
-  }, [])
+  }, [readOnly])
 
   const confirmWork = useCallback(async () => {
     if (context === null || confirming) return
     setConfirming(true)
     setReceipt(null)
     try {
-      await workItemApi.status({ sessionId: context.sessionId, artifactId: context.artifactId, action: 'confirm' })
+      await workItemApi.status({ sessionId: context.ownerSessionId, artifactId: context.artifactId, action: 'confirm' })
       await refreshFromServer()
       setReceipt('已确认完成')
     } catch (reason) {
@@ -1011,13 +865,14 @@ export function WorkItemViewer(): ReactElement {
   }, [confirming, context, refreshFromServer])
 
   const retryDispatch = useCallback(async (dispatch: ArtifactDispatchSummary) => {
-    if (context === null || pendingDispatch !== null) return
+    const target = deliveryRetryTarget(readOnly, context, pendingDispatch)
+    if (target === null) return
     setPendingDispatch(dispatch.dispatchId)
     setReceipt(null)
     try {
       await workItemApi.retryDispatch({
-        sessionId: context.sessionId,
-        artifactId: context.artifactId,
+        sessionId: target.ownerSessionId,
+        artifactId: target.artifactId,
         dispatchId: dispatch.dispatchId,
       })
       await refreshFromServer()
@@ -1027,7 +882,7 @@ export function WorkItemViewer(): ReactElement {
     } finally {
       setPendingDispatch(null)
     }
-  }, [context, pendingDispatch, refreshFromServer])
+  }, [context, pendingDispatch, readOnly, refreshFromServer])
 
   const toggleThread = useCallback(async (thread: WorkItemThread) => {
     if (context === null || data === null || pendingThread !== null) return
@@ -1035,7 +890,7 @@ export function WorkItemViewer(): ReactElement {
     setReceipt(null)
     try {
       const response = await workItemApi.resolveComment({
-        sessionId: context.sessionId,
+        sessionId: context.ownerSessionId,
         artifactId: context.artifactId,
         commentId: thread.threadId,
         resolved: !thread.resolved,
@@ -1058,7 +913,7 @@ export function WorkItemViewer(): ReactElement {
     if (context === null || data?.file == null) return
     setOpening(true)
     setReceipt(null)
-    setReceipt(await openReceipt(context.sessionId, context.artifactId))
+    setReceipt(await openReceipt(context.ownerSessionId, context.artifactId))
     setOpening(false)
   }, [context, data?.file])
 
@@ -1093,7 +948,9 @@ export function WorkItemViewer(): ReactElement {
     }
   }, [data?.record.primaryPath])
 
-  if (context === null) return <ViewerPlaceholder phase="idle" />
+  // The view is registered only while an item is open; a null context here is
+  // the closing frame before the registration is disposed.
+  if (context === null) return null
   if (phase === 'loading') return <ViewerPlaceholder phase="loading" />
   if (phase === 'error' || data === null) {
     const onRetry = (): void => { setRefreshToken(token => token + 1) }
@@ -1108,17 +965,33 @@ export function WorkItemViewer(): ReactElement {
   const missingFile = missingFileState(record, fileProblem.code)
   const olderBefore = olderCursor(data.events)
   return (
-    <div className="cwi-viewer" data-testid="cwi-viewer" data-phase="ready" data-artifact-id={record.artifactId}>
+    <div
+      className="cwi-viewer"
+      data-testid="cwi-viewer"
+      data-phase="ready"
+      data-artifact-id={record.artifactId}
+      data-conversation-composer-overlay=""
+    >
+      <CrossSessionBanner
+        readOnly={readOnly}
+        sessionTitle={data.sessionTitle}
+        opening={ownerOpening}
+        onOpen={() => { void openOwner() }}
+      />
+      <CrossSessionError
+        error={ownerError}
+        opening={ownerOpening}
+        onRetry={() => { void openOwner() }}
+      />
       <ViewerHeader
         record={record}
         file={data.file}
-        sessionTitle={data.sessionTitle}
         activity={activity}
         now={now}
         editing={editing}
         confirming={confirming}
         opening={opening}
-        canReturn={canReturn}
+        readOnly={readOnly}
         onReturn={requestClose}
         onConfirm={() => { void confirmWork() }}
         onToggleEditing={toggleEditing}
@@ -1131,6 +1004,7 @@ export function WorkItemViewer(): ReactElement {
         state={missingFile}
         context={context}
         record={record}
+        readOnly={readOnly}
         onRecord={applyRecord}
         reloadFile={reloadFile}
         onReceipt={setReceipt}
@@ -1152,6 +1026,7 @@ export function WorkItemViewer(): ReactElement {
       {fileProblem.notice === null ? null : (
         <div className="cwi-receipt" data-testid="cwi-file-notice">{fileProblem.notice}</div>
       )}
+      <CollapsedRailReceipt hidden={!showRail} text={receipt} />
       {backArmed
         ? <div className="cwi-receipt" data-testid="cwi-unsaved-notice">还有未保存内容：再点一次返回会关闭查看器</div>
         : null}
@@ -1165,34 +1040,14 @@ export function WorkItemViewer(): ReactElement {
               </button>
             </div>
           )}
-          {conflict === null ? null : (
-            <div className="cwi-conflict" data-testid="cwi-conflict" role="alert">
-              <div>
-                保存冲突：最新内容与你编辑的行重叠（
-                {conflict.conflictRanges.map((range) => (range.startLine === range.endLine
-                  ? `第 ${range.startLine} 行`
-                  : `第 ${range.startLine}–${range.endLine} 行`)).join('、')}
-                ）。
-              </div>
-              <div className="cwi-composer-row">
-                <button type="button" className="cwi-secondary" data-testid="cwi-conflict-diff" onClick={() => { setShowConflictDiff(value => !value) }}>
-                  查看差异
-                </button>
-                <button type="button" className="cwi-secondary" data-testid="cwi-conflict-load" onClick={() => { void loadLatest() }}>
-                  加载最新
-                </button>
-                <button type="button" className="cwi-primary" data-testid="cwi-conflict-keep" onClick={keepMine}>
-                  保留我的
-                </button>
-              </div>
-              {showConflictDiff ? (
-                <div className="cwi-conflict-diff">
-                  <div className="cwi-thread-meta">最新内容</div>
-                  <pre className="cwi-conflict-latest" data-testid="cwi-conflict-latest">{conflictLatest}</pre>
-                </div>
-              ) : null}
-            </div>
-          )}
+          <ConflictCard
+            conflict={conflict}
+            latest={conflictLatest}
+            showDiff={showConflictDiff}
+            onToggleDiff={() => { setShowConflictDiff(value => !value) }}
+            onLoadLatest={() => { void loadLatest() }}
+            onKeepMine={keepMine}
+          />
           <DocumentSurface
             kind={kind}
             file={data.file}
@@ -1203,6 +1058,7 @@ export function WorkItemViewer(): ReactElement {
             readMode={readMode}
             canvasBroken={canvasBroken}
             canvasReset={canvasReset}
+            readOnly={readOnly}
             artifactId={record.artifactId}
             anchoredLineList={anchoredLineList}
             dirty={dirty}
@@ -1228,7 +1084,7 @@ export function WorkItemViewer(): ReactElement {
             <AttachmentsPanel
               attachments={attachmentRows}
               urlFor={(attachmentId) => workItemApi.attachmentUrl({
-                sessionId: context.sessionId,
+                sessionId: context.ownerSessionId,
                 artifactId: context.artifactId,
                 attachmentId,
               })}
@@ -1251,6 +1107,7 @@ export function WorkItemViewer(): ReactElement {
             hasOlder={olderEntryVisible(data.hasOlder, olderBefore)}
             loadingOlder={loadingOlder}
             drawer={narrow}
+            readOnly={readOnly}
             onFilter={setThreadFilter}
             onToggleResolved={() => { setShowResolved(value => !value) }}
             onSelect={(thread) => { setSelectedThreadId(thread.threadId) }}
@@ -1261,7 +1118,7 @@ export function WorkItemViewer(): ReactElement {
             onLoadOlder={loadOlderPage}
             onCloseDrawer={closeRail}
             attachmentUrl={(attachmentId) => workItemApi.attachmentUrl({
-              sessionId: context.sessionId,
+              sessionId: context.ownerSessionId,
               artifactId: context.artifactId,
               attachmentId,
             })}
@@ -1284,7 +1141,8 @@ export function WorkItemViewer(): ReactElement {
             pendingAttachments={pendingAttachments}
             uploading={uploading}
             submitting={submitting}
-            receipt={receipt}
+            receipt={showRail ? receipt : null}
+            readOnly={readOnly}
             onDraft={setDraft}
             onCancelReply={() => { setReplyTarget(null) }}
             onCancelAnchor={() => { setPendingAnchor(null) }}

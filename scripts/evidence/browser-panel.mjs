@@ -29,7 +29,8 @@ import { gateArtifactFromEnv } from './test-coverage.mjs'
 import { sanitizeEvidenceText } from './evidence-sanitize.mjs'
 import { failurePayload, redactUrl } from './browser-evidence.mjs'
 import { seedBrowserProject, seedSecondaryProject } from '../../tests/browser/fixtures.mjs'
-import { runBrowserScenarios, runReloadScenarios } from '../../tests/browser/scenarios.mjs'
+import { engageSession, runBrowserScenarios, runReloadScenarios } from '../../tests/browser/scenarios.mjs'
+import { startScriptedModel, text } from '../../tests/e2e/support/scripted-model.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
@@ -120,6 +121,17 @@ async function openPanel(page) {
   }
   await panel.waitFor({ timeout: 15_000 })
 }
+
+/** The scripted provider model ids the host patch exposes. */
+const SCRIPTED_MODELS = Object.freeze([
+  '    models:',
+  '      - id: deepseek-flash',
+  '        name: scripted-browser-flash',
+  '        contextWindow: 200000',
+  '      - id: deepseek-pro',
+  '        name: scripted-browser-pro',
+  '        contextWindow: 200000',
+])
 
 /** Save the bounded evidence a failed browser run needs for diagnosis. */
 async function writeFailureArtifacts({ page, error, pageErrors, consoleMessages, network, coverage, hostLogs }) {
@@ -375,20 +387,37 @@ async function runBrowserLane({ chromium, probe }) {
   mkdirSync(secondaryRepo, { recursive: true })
   mkdirSync(emptyRepo, { recursive: true })
   const state = { pageErrors: [], consoleMessages: [], network: [] }
+  let model
   let host
   let browser
   let page
   let coverageEntries = []
   try {
+    model = await startScriptedModel()
+    model.setHandler(({ prompt }) => text(`收到：${prompt}`))
     host = await startDshHost({
       patchRepoPath: primaryRepo,
       cwd: primaryRepo,
       profileName: 'cowork-browser',
       prefix: 'cowork-browser-host-',
+      env: { DEEPSEEK_API_KEY: 'browser-scripted-key' },
+      patchOptions: {
+        extraEntries: [
+          '- id: llm-deepseek',
+          '  config:',
+          `    baseURL: ${model.origin}`,
+          ...SCRIPTED_MODELS,
+          '- id: session-title-llm',
+          '  disabled: true',
+        ],
+      },
     })
     const fixtures = await prepareFixtures(host, primaryRepo, secondaryRepo, emptyRepo)
     browser = await chromium.launch({ headless: !HEADFUL })
     page = await openBrowserPage(browser, host, state)
+    // A blank Session renders no conversation views (and no view tabs); the
+    // lane starts the primary Session once so the work-item tab has a home.
+    await engageSession(page, '浏览器 lane 开始会话')
     const guard = coverageNavigationGuard(page)
     await runBrowserScenarios(page, fixtures)
     coverageEntries = await page.coverage.stopJSCoverage()
@@ -404,6 +433,7 @@ async function runBrowserLane({ chromium, probe }) {
     await reportLaneFailure({ page, error, ...state, coverage: coverageEntries, host })
   } finally {
     await closeLane({ browser, host })
+    await model?.close()
     rmSync(laneRoot, { recursive: true, force: true })
   }
 }
