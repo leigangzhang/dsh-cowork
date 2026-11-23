@@ -883,6 +883,18 @@ async function scenarioWorkItemOwnerFailure(page, fixtures) {
     // the catalog this scenario intends to see.
     await route.fulfill({ response, json: body }).catch(() => {})
   })
+  /**
+   * Continue a request that is not for the ghost artifact.
+   *
+   * @returns true when the route was continued by this helper.
+   */
+  const continueUnlessGhost = async (route) => {
+    if (new URL(route.request().url()).searchParams.get('artifactId') !== ghost) {
+      await route.continue().catch(() => {})
+      return true
+    }
+    return false
+  }
   /** Re-label a proxied fixture response as the ghost work item. */
   const ghostBody = (body) => {
     if (body === null) return null
@@ -890,13 +902,24 @@ async function scenarioWorkItemOwnerFailure(page, fixtures) {
     if (body.artifactId !== undefined) body.artifactId = ghost
     return body
   }
+  /** Mark the ghost item's primary file missing and attach one failed delivery. */
+  const patchGhostDetail = (body) => {
+    body.record = {
+      ...body.record,
+      files: body.record.files.map(file => ({ ...file, missing: true })),
+    }
+    body.dispatches = [{
+      dispatchId: 'dispatch-browser-readonly',
+      state: 'failed',
+      commentIds: ['comment-browser-1'],
+      errorCode: 'artifact/dispatch-unavailable',
+      updatedAt: '2099-01-01T00:00:00.000Z',
+    }]
+  }
   /** Proxy one owner-scoped read onto the real fixture Session/artifact. */
   const proxy = async (route) => {
+    if (await continueUnlessGhost(route)) return
     const url = new URL(route.request().url())
-    if (url.searchParams.get('artifactId') !== ghost) {
-      await route.continue().catch(() => {})
-      return
-    }
     url.searchParams.set('sessionId', fixtures.primarySessionId)
     url.searchParams.set('artifactId', BROWSER_ARTIFACT)
     const response = await route.fetch({ url: url.toString() })
@@ -905,10 +928,20 @@ async function scenarioWorkItemOwnerFailure(page, fixtures) {
       await route.fulfill({ response }).catch(() => {})
       return
     }
+    if (url.pathname.endsWith('.detail')) patchGhostDetail(body)
     await route.fulfill({ response, json: body }).catch(() => {})
   }
+  /** The ghost item's primary file is gone; the rebind entry must stay read-only. */
+  const missingFile = async (route) => {
+    if (await continueUnlessGhost(route)) return
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: { code: 'artifact/file-missing', message: '文件已移动' } }),
+    }).catch(() => {})
+  }
   await page.route('**/api/cowork.artifact.detail*', proxy)
-  await page.route('**/api/cowork.artifact.file*', proxy)
+  await page.route('**/api/cowork.artifact.file*', missingFile)
   await page.route('**/api/cowork.artifact.comments*', proxy)
   try {
     // Re-enter the tab so the list reads the patched catalog.
@@ -920,7 +953,15 @@ async function scenarioWorkItemOwnerFailure(page, fixtures) {
     await ghostCard.click()
     await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
     await page.getByTestId('cwi-cross-banner').waitFor({ timeout: 10_000 })
-    assert.equal(await page.getByTestId('cwi-edit').isDisabled(), true)
+    // A missing primary file renders the rebind entry instead of an edit button.
+    assert.equal(await page.getByTestId('cwi-edit').count(), 0)
+    assert.equal(await page.getByTestId('cwi-confirm').isDisabled(), true)
+    await openRail(page)
+    // Every write path stays disabled: rebinding the file and retrying a
+    // delivery both mutate the owning session's work item.
+    assert.equal(await page.getByTestId('cwi-rebind-input').isDisabled(), true)
+    assert.equal(await page.getByTestId('cwi-rebind-submit').isDisabled(), true)
+    assert.equal(await page.getByTestId('cwi-dispatch-retry').first().isDisabled(), true)
 
     // The host refuses the unknown session; the failure is visible and the
     // viewer stays a read-only preview.
@@ -930,7 +971,7 @@ async function scenarioWorkItemOwnerFailure(page, fixtures) {
     assert.match(await failure.innerText(), /切换会话失败|切换后没有进入所属会话/)
     await page.getByTestId('cwi-cross-retry').click()
     await failure.waitFor({ timeout: 10_000 })
-    assert.equal(await page.getByTestId('cwi-edit').isDisabled(), true)
+    assert.equal(await page.getByTestId('cwi-rebind-submit').isDisabled(), true)
     assert.equal(await page.getByTestId('cwi-cross-banner').count(), 1)
 
     await page.getByTestId('cwi-back').click()

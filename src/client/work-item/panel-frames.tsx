@@ -49,13 +49,25 @@ interface RebindFileProps {
   readonly state: MissingFileState | null
   readonly context: WorkItemOpenContext
   readonly record: ArtifactRecordV1
+  /** Cross-session preview: the rebind request is a write and stays disabled. */
+  readonly readOnly: boolean
   readonly onRecord: (record: ArtifactRecordV1) => void
   readonly reloadFile: (path: string) => Promise<void>
   readonly onReceipt: (message: string) => void
 }
 
+/** Whether the rebind submit is unavailable while busy or read-only. */
+function rebindSubmitDisabled(pending: boolean, readOnly: boolean): boolean {
+  return pending || readOnly
+}
+
+/** Readable reason a read-only preview cannot rebind the primary file. */
+function rebindReadOnlyTitle(readOnly: boolean): string | undefined {
+  return readOnly ? '跨会话只读：切到所属会话后才能重新绑定文件。' : undefined
+}
+
 /** The missing-file entry: one path input, local validation, and the request. */
-export function RebindFileEntry({ state, context, record, onRecord, reloadFile, onReceipt }: RebindFileProps): ReactElement | null {
+export function RebindFileEntry({ state, context, record, readOnly, onRecord, reloadFile, onReceipt }: RebindFileProps): ReactElement | null {
   const [value, setValue] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -86,6 +98,7 @@ export function RebindFileEntry({ state, context, record, onRecord, reloadFile, 
 
   /** Validate the typed path, then send it. */
   const submit = async (): Promise<void> => {
+    if (readOnly) return
     const target = rebindTarget(value)
     if (!target.ok) {
       setError(target.error)
@@ -98,6 +111,7 @@ export function RebindFileEntry({ state, context, record, onRecord, reloadFile, 
     <form
       className="cwi-rebind"
       data-testid="cwi-rebind"
+      title={rebindReadOnlyTitle(readOnly)}
       onSubmit={(event) => { event.preventDefault(); void submit() }}
     >
       <div className="cwi-rebind-title">
@@ -109,11 +123,17 @@ export function RebindFileEntry({ state, context, record, onRecord, reloadFile, 
           className="cwi-rebind-input"
           data-testid="cwi-rebind-input"
           value={value}
+          disabled={readOnly}
           placeholder="项目内的新路径，如 docs/spec.md"
           aria-label="文件在项目中的新路径"
           onChange={(event) => { setValue(event.target.value) }}
         />
-        <button type="submit" className="cwi-primary" data-testid="cwi-rebind-submit" disabled={pending}>
+        <button
+          type="submit"
+          className="cwi-primary"
+          data-testid="cwi-rebind-submit"
+          disabled={rebindSubmitDisabled(pending, readOnly)}
+        >
           {pending ? '绑定中…' : '重新绑定文件'}
         </button>
       </div>

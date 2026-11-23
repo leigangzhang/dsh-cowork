@@ -116,6 +116,18 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * The owner context one delivery retry may use, or null when the action must
+ * not run: read-only preview, no open context, or a retry already in flight.
+ */
+function deliveryRetryTarget(
+  readOnly: boolean,
+  context: WorkItemOpenContext | null,
+  pending: string | null,
+): WorkItemOpenContext | null {
+  return readOnly || pending !== null ? null : context
+}
+
 /** Clear submitted UI state only when the user has not replaced it meanwhile. */
 function clearIfUnchanged<T>(current: T, submitted: T, cleared: T): T {
   return current === submitted ? cleared : current
@@ -853,13 +865,14 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   }, [confirming, context, refreshFromServer])
 
   const retryDispatch = useCallback(async (dispatch: ArtifactDispatchSummary) => {
-    if (context === null || pendingDispatch !== null) return
+    const target = deliveryRetryTarget(readOnly, context, pendingDispatch)
+    if (target === null) return
     setPendingDispatch(dispatch.dispatchId)
     setReceipt(null)
     try {
       await workItemApi.retryDispatch({
-        sessionId: context.ownerSessionId,
-        artifactId: context.artifactId,
+        sessionId: target.ownerSessionId,
+        artifactId: target.artifactId,
         dispatchId: dispatch.dispatchId,
       })
       await refreshFromServer()
@@ -869,7 +882,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     } finally {
       setPendingDispatch(null)
     }
-  }, [context, pendingDispatch, refreshFromServer])
+  }, [context, pendingDispatch, readOnly, refreshFromServer])
 
   const toggleThread = useCallback(async (thread: WorkItemThread) => {
     if (context === null || data === null || pendingThread !== null) return
@@ -991,6 +1004,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
         state={missingFile}
         context={context}
         record={record}
+        readOnly={readOnly}
         onRecord={applyRecord}
         reloadFile={reloadFile}
         onReceipt={setReceipt}

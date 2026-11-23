@@ -45,6 +45,16 @@ export interface ThreadCardProps {
   readonly attachmentUrl: (attachmentId: string) => string
 }
 
+/** Whether the delivery retry action is unavailable while busy or read-only. */
+function dispatchRetryDisabled(retrying: boolean, readOnly: boolean): boolean {
+  return retrying || readOnly
+}
+
+/** Readable reason a read-only preview cannot retry a delivery. */
+function dispatchRetryTitle(readOnly: boolean): string | undefined {
+  return readOnly ? '跨会话只读：切到所属会话后才能重试投递' : undefined
+}
+
 /** A comment that carries an author and a body. */
 type ThreadComment = Extract<CommentEventV1, { type: 'create' | 'reply' }>
 
@@ -234,7 +244,8 @@ export function ThreadCard({
                           type="button"
                           className="cwi-tstate-retry"
                           data-testid="cwi-dispatch-retry"
-                          disabled={retrying}
+                          disabled={dispatchRetryDisabled(retrying, readOnly)}
+                          title={dispatchRetryTitle(readOnly)}
                           onClick={(event) => { event.stopPropagation(); onRetry(dispatch) }}
                         >
                           {retrying ? '重试中…' : '重试'}
