@@ -83,8 +83,8 @@ Status: design baseline（2026-11-23）
 | 阅读/源码 segmented | 总高 24px；内边距 2px；选项 padding 1px 8px；圆角 7/5px |
 | 保存状态 | 11.5px；圆点 7px；gap 5px |
 | 批注开关 | 高 26px；padding 3px 10px；圆角 7px |
-| 正文行高 | 阅读态 1.65；源码态 20px |
-| 正文左右 padding | 纸面内 24px；行号 gutter 60px；pin 右留 40px |
+| 正文行高 | 阅读态 15px / 26.25px（1.75）；源码态 20px |
+| 正文左右 padding | 阅读态纸面内 24px / 40px（右留 pin）；源码态 24px + 行号 gutter 60px |
 
 ## 5. 必须逐项固定的细节
 
@@ -92,9 +92,9 @@ Status: design baseline（2026-11-23）
 
 - 容器：`min-width:17px; height:17px; padding:0 4px`；圆角 999px；2px 纸面底色描边。
 - 字号 8px / 800；白字；accent 底；`box-shadow: 0 1px 3px #1018282e`。
-- 位置：行内右侧，距纸面右内边 6px；top 2px；不得覆盖正文最后 24px。
+- 位置：阅读态为块级 pin，落在块首行右侧、距纸面右内边 6px、top 2px；源码态为行内右侧，规则相同；不得覆盖正文最后 24px。
 - 状态：open=accent；resolved=success；stale=warn。
-- 同线多线程：只显示最早线程的序号；其余线程通过批注栏/悬浮摘要访问；pin 的 `aria-label` 为“第 N 条批注”。
+- 同块/同行多线程：只显示最早线程的序号；其余线程通过批注栏访问；阅读态 pin 的 `aria-label` 为“第 N 条批注，共 M 条，第 S–E 行”，源码态为“第 N 条批注”。
 - hover：亮度不变，cursor pointer；focus-visible：2px `ink` outline，offset 1px。
 - 点击 pin：打开对应批注会话详情，文档滚动到 anchor 行，线程选中环出现。
 
@@ -166,7 +166,7 @@ Status: design baseline（2026-11-23）
 
 - 全局焦点环：2px accent outline，offset 2px；暗色用 brand token。
 - Tab 顺序：会话 header tabs → 工作项 header 操作 → 工具栏 → 文档内容 → pin/批注栏 → composer → footer。
-- 文档内容：Enter 批注当前行；Shift+Enter 扩展；方向键移动活动行；Esc 关闭浮动层并把焦点还给触发元素。
+- 文档内容：阅读态选中文字后出现浮动「批注」入口；源码态 Enter 批注当前行、Shift+Enter 扩展、方向键移动活动行；Esc 关闭浮动层/取消线程选中并把焦点还给触发元素。
 - 批注栏：列表卡可 Enter 打开详情；详情返回按钮 Esc 返回列表；宽度手柄用 ←/→ 调整 8px。
 - `prefers-reduced-motion: reduce`：关闭脉冲、旋转和高度过渡；状态仍有文字。
 - 颜色不是唯一状态提示；所有 pin/状态 chip 有文字或 `aria-label`。
@@ -188,8 +188,8 @@ Status: design baseline（2026-11-23）
 
 1. 主区“会话 / 工作项”标签 + composer 覆盖；active 下划线和 `aria-selected` 一致。
 2. 右栏列表：搜索入口、待确认合并、已完成折叠卡、来源会话名、无路径/无会话 ID。
-3. 文档阅读态：标题、列表、表格、图片、链接、代码块、任务列表、引用。
-4. 当前块源码态：源码边框/背景、行号、pin、右键批注按钮。
+3. 文档阅读态：标题、列表、表格、图片、链接、代码块、任务列表、引用；块级 pin、选区浮动入口。
+4. 源码态：CM6 行号、anchor 行标记、保存/冲突；阅读态块级 pin 与选区浮动入口。
 5. 批注栏列表态：只读摘要，无回复输入框；选中环和 `#N` chip。
 6. 批注会话态：消息、附件缩略图、预览弹层、投递状态、返回列表。
 7. 跨会话只读：提示条、禁用 composer、所属会话入口。

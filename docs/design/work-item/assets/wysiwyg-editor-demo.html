@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>Cowork 工作项 · WYSIWYG Markdown 编辑器设计</title>
+<title>Cowork 工作项 · Markdown 阅读与批注设计</title>
 <style>
   :root {
     --ink: #101828;
@@ -23,6 +23,8 @@
     --violet: #6941c6;
     --violet-soft: #f4f3ff;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --md-size: 15px;
+    --md-line: 26.25px;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
@@ -63,65 +65,133 @@
 
   .vbody { flex: 1; min-height: 0; display: flex; padding: 12px 14px 10px 16px; gap: 12px; }
   .doc { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
-  .doc-head { flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 11px; border-bottom: 1px solid var(--line-soft); background: #fcfcfd; }
-  .file-icon { width: 19px; height: 19px; display: grid; place-items: center; border: 1px solid #d1e9ff; border-radius: 5px; background: var(--blue-soft); color: var(--blue); font-size: 9px; font-weight: 800; }
-  .file-name { color: #344054; font: 10.5px/1.3 var(--mono); }
-  .doc-head .rev { color: var(--soft); font-size: 9.5px; }
+  .doc-head { flex: none; height: 42px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid var(--line-soft); background: #fcfcfd; }
+  .file-icon { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid #d1e9ff; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 9px; font-weight: 800; }
+  .file-name { color: #344054; font: 12px/1.3 var(--mono); }
+  .doc-head .rev { color: var(--soft); font-size: 10px; }
   .doc-head .grow { flex: 1; }
   .attach-mini { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 9.5px; }
   .attach-mini i { width: 16px; height: 13px; border: 1px solid var(--line); border-radius: 3px; background: linear-gradient(135deg, #fff 45%, #dbeafe 45%, #dbeafe 70%, #fff 70%); }
 
-  /* paper: the hybrid editor surface */
-  .paper { flex: 1; min-height: 0; overflow: auto; padding: 14px 12px 10px 4px; background: linear-gradient(90deg, #fbfcfd 0 33px, #f1f3f6 33px, #f1f3f6 34px, #fff 34px); }
-  .dline { position: relative; display: flex; align-items: flex-start; min-height: 20px; }
-  .ln { flex: none; width: 26px; padding-right: 8px; color: #b4bbc7; font: 9px/20px var(--mono); text-align: right; user-select: none; }
-  .dt { position: relative; flex: 1; padding: 0 26px 0 4px; color: #344054; font-size: 10.5px; line-height: 20px; }
-  .dline.h1 .dt { color: #101828; font-size: 15px; font-weight: 720; line-height: 26px; }
-  .dline.h2 .dt { color: #101828; font-size: 12px; font-weight: 700; line-height: 24px; }
-  .dline.quote .dt { color: #667085; font-size: 10px; border-left: 2px solid var(--line); padding-left: 8px; }
-  .dline.list .dt { padding-left: 16px; }
-  .dline.list .dt::before { content: "•"; position: absolute; left: 6px; color: var(--soft); }
-  .dline.task .dt { padding-left: 20px; }
-  .dline.task .dt::before { content: "✓"; position: absolute; left: 3px; top: 2px; width: 13px; height: 13px; display: grid; place-items: center; border: 1px solid #b7ddb0; border-radius: 3px; background: #ecfdf3; color: var(--green); font-size: 8px; }
-  .dline.task.unchecked .dt::before { content: ""; border-color: var(--line); background: #fff; }
-  .dline.code .dt { color: #475467; font: 9.5px/18px var(--mono); background: #f9fafb; border-radius: 4px; padding: 2px 6px; }
-  a.link { color: var(--blue); text-decoration: none; }
-  b.strong { font-weight: 650; }
-  code.ic { font-family: var(--mono); font-size: .9em; background: #f2f4f7; border-radius: 3px; padding: 0 3px; }
-
-  /* current-block source state */
-  .dline.src .dt { color: #101828; font: 11px/22px var(--mono); background: var(--blue-soft); border: 1px solid #b2ddff; border-radius: 5px; padding: 2px 6px 2px 8px; box-shadow: inset 2px 0 0 var(--blue); }
-  .src-tag { position: absolute; right: 30px; top: -9px; padding: 1px 6px; border-radius: 4px; background: var(--blue); color: #fff; font-size: 7.5px; font-weight: 700; }
-
-  /* table */
-  .table-wrap { margin: 2px 0 2px 30px; padding: 0 26px 0 4px; }
-  table.md-table { border-collapse: collapse; font-size: 9.5px; color: #344054; }
-  table.md-table th, table.md-table td { border: 1px solid var(--line-soft); padding: 3px 8px; text-align: left; }
-  table.md-table th { background: #f9fafb; font-weight: 700; }
-
-  /* image */
-  .figure { margin: 3px 0 3px 30px; display: inline-block; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
-  .figure .img { width: 220px; height: 74px; display: grid; place-items: center; background: linear-gradient(135deg,#eff8ff,#dbeafe); color: #175cd3; font-size: 9px; font-weight: 700; }
-  .figure .cap { padding: 3px 8px; color: var(--soft); font-size: 8.5px; }
-
-  .pin { position: absolute; right: 5px; top: 2px; min-width: 17px; height: 17px; padding: 0 4px; display: inline-grid; place-items: center; border: 2px solid #fff; border-radius: 999px; background: var(--blue); color: #fff; font-size: 8px; font-weight: 800; box-shadow: 0 1px 3px rgba(16,24,40,.18); }
-  .pin.resolved { background: var(--green); }
-  .pin.stale { background: var(--amber); }
-  .paper-foot { flex: none; display: flex; align-items: center; gap: 7px; padding: 7px 11px; border-top: 1px solid var(--line-soft); color: var(--soft); font-size: 9px; }
+  .paper { flex: 1; min-height: 0; overflow: hidden; background: #fff; }
+  .paper-foot { flex: none; height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-top: 1px solid var(--line-soft); color: var(--soft); font-size: 9px; }
   .chip-file { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--muted); font-size: 9px; }
   .chip-file i { width: 9px; height: 9px; border-radius: 2px; background: #dbeafe; }
   .paper-foot .grow { flex: 1; }
 
-  /* state strip: conflict + cross-session read-only */
-  .state-strip { flex: none; display: flex; flex-direction: column; gap: 5px; padding: 6px 11px; border-top: 1px solid var(--line-soft); background: #fff; }
-  .banner { display: flex; align-items: center; gap: 7px; padding: 5px 9px; border-radius: 7px; font-size: 9px; line-height: 1.4; }
-  .banner.conflict { border: 1px solid #fecaca; background: #fef3f2; color: #b42318; }
-  .banner.readonly { border: 1px solid #d1e9ff; background: #eff8ff; color: #175cd3; }
-  .banner .grow { flex: 1; }
-  .banner b { font-weight: 700; }
+  /* ---------- reading surface ---------- */
+  .md-read {
+    height: 100%;
+    padding: 28px 40px 40px 24px;
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: var(--md-size);
+    line-height: var(--md-line);
+  }
+  .md-read > * { position: relative; }
+  .md-read h1 { margin: 0 0 21px; color: var(--ink); font-size: 30px; line-height: 39px; font-weight: 700; letter-spacing: 0; }
+  .md-read h2 { margin: 1.6em 0 .6em; color: var(--ink); font-size: 21px; line-height: 1.35; font-weight: 600; }
+  .md-read h3 { margin: 1.4em 0 .5em; color: var(--ink); font-size: 17.25px; line-height: 1.4; font-weight: 600; }
+  .md-read h4, .md-read h5, .md-read h6 { margin: 21px 0 9px; color: var(--ink); font-size: 15px; line-height: 24px; font-weight: 600; }
+  .md-read p { margin: 0 0 .9em; }
+  .md-read strong { font-weight: 650; }
+  .md-read em { font-style: italic; }
+  .md-read del { color: var(--muted); text-decoration: line-through; }
+  .md-read a { color: var(--blue); text-decoration: none; }
+  .md-read a:hover { text-decoration: underline; }
+  .md-read code {
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #f2f4f7;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 12.9px;
+    line-height: inherit;
+  }
+  .md-read pre {
+    margin: 0 0 15px;
+    padding: 14px 16px;
+    overflow: auto;
+    border-radius: 6px;
+    background: #f2f4f7;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 12.75px;
+    line-height: 24px;
+    white-space: pre;
+  }
+  .md-read pre code { padding: 0; border-radius: 0; background: none; font-size: inherit; line-height: inherit; }
+  .md-read ul, .md-read ol { margin: 0 0 .9em 1.6em; padding: 0; }
+  .md-read li { margin: 4px 0; }
+  .md-read li > ul, .md-read li > ol { margin-bottom: 0; }
+  .md-read blockquote { margin: 0 0 1em; padding: .1em 0 .1em 1em; border-left: 3px solid var(--line); color: var(--muted); }
+  .md-read blockquote p { margin: 0; }
+  .md-read hr { margin: 1.8em 0; border: 0; border-top: 1px solid var(--line-soft); }
 
-  /* thread rail */
-  .threads { width: 300px; flex: none; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+  .md-table-wrap { margin: 0 0 1em; overflow-x: auto; border-radius: 6px; }
+  .md-read table { width: 100%; border-collapse: collapse; font-size: 15px; line-height: 26.25px; }
+  .md-read th, .md-read td { padding: 6px 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .md-read th { background: #f2f4f7; font-weight: 600; }
+
+  .md-figure { margin: 0 0 15px; }
+  .md-figure .img { width: 220px; height: 74px; display: grid; place-items: center; border: 1px solid var(--line-soft); border-radius: 8px; background: linear-gradient(135deg,#eff8ff,#dbeafe); color: #175cd3; font-size: 9px; font-weight: 700; }
+  .md-figure figcaption { margin-top: 6px; color: var(--soft); font-size: 11px; line-height: 18px; }
+
+  .task-list { list-style: none; margin: 0 0 .9em; padding: 0; }
+  .task-list li { position: relative; margin: 4px 0; padding-left: 22px; }
+  .task-box { position: absolute; left: 0; top: 5px; width: 14px; height: 14px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 3px; background: #fff; color: #fff; font-size: 9px; line-height: 1; }
+  .task-box.checked { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+
+  details.frontmatter { margin: 0 0 20px; border: 1px solid var(--line); border-radius: 6px; background: #fafbfc; }
+  details.frontmatter summary { padding: 6px 12px; color: var(--muted); font-size: 12px; line-height: 21px; cursor: pointer; user-select: none; }
+  details.frontmatter pre { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); border-radius: 0 0 6px 6px; background: #fff; color: var(--muted); font-size: 12px; line-height: 19.2px; white-space: pre-wrap; }
+
+  /* ---------- pins / selection ---------- */
+  .pin {
+    position: absolute;
+    right: -33px;
+    top: 2px;
+    z-index: 2;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    display: inline-grid;
+    place-items: center;
+    border: 2px solid var(--card);
+    border-radius: 999px;
+    background: var(--blue);
+    color: #fff;
+    font-family: inherit;
+    font-size: 8px;
+    font-weight: 800;
+    line-height: 1;
+    box-shadow: 0 1px 3px rgba(16,24,40,.18);
+  }
+  .pin[data-tone="resolved"] { background: var(--green); }
+  .pin[data-tone="stale"] { background: var(--amber); }
+  .sel-text { background: #b2ddff; color: inherit; border-radius: 2px; }
+  .thread-target { background: var(--blue-soft); box-shadow: inset 2px 0 0 var(--blue); }
+  .annotate-pop {
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 8px);
+    transform: translateX(-50%);
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(16,24,40,.16);
+  }
+  .annotate-pop .range { padding: 0 3px; color: var(--soft); font-size: 9px; font-weight: 600; white-space: nowrap; }
+  .annotate-pop .ann-btn { height: 26px; padding: 0 12px; border: 1px solid var(--blue); border-radius: 7px; background: var(--blue); color: #fff; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+
+  /* ---------- thread rail ---------- */
+  .threads { width: 336px; flex: none; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
   .threads-head { flex: none; padding: 10px 11px 8px; border-bottom: 1px solid var(--line-soft); }
   .th-title { display: flex; align-items: center; gap: 6px; color: #101828; font-size: 11.5px; font-weight: 700; }
   .th-title .count { padding: 0 5px; border-radius: 999px; background: #f2f4f7; color: #667085; font-size: 9px; font-weight: 700; }
@@ -135,7 +205,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .activity .grow { flex: 1; }
   .activity .time { color: #b54708; opacity: .7; font-size: 8.5px; }
-  .thread-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 9px 10px 8px; }
+  .thread-scroll { flex: 1; min-height: 0; overflow: hidden; padding: 9px 10px 8px; }
   .thread { margin-bottom: 7px; padding: 8px 9px 7px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
   .thread.selected { border-color: #b2ddff; box-shadow: 0 0 0 2px #eff8ff; }
   .tmeta { display: flex; align-items: center; gap: 5px; color: var(--soft); font-size: 8.5px; }
@@ -159,9 +229,10 @@
 </head>
 <body>
 
+<!-- Board A: reading first screen -->
 <div class="stage">
   <div class="app">
-    <div class="badge">工作项 · WYSIWYG Markdown 编辑器</div>
+    <div class="badge">阅读态 · 首屏</div>
 
     <main class="viewer">
       <header class="vhead">
@@ -191,8 +262,8 @@
         </nav>
         <div class="tb-right">
           <span class="seg"><span class="on">阅读</span><span>源码</span></span>
-          <span class="save" style="color:var(--red)"><span class="ok" style="background:var(--red-soft);color:var(--red)">!</span>冲突 · 未保存</span>
-          <span class="btn">批注</span>
+          <span class="save"><span class="ok">✓</span>已保存 · r12</span>
+          <span class="btn">批注 3</span>
         </div>
       </div>
 
@@ -208,69 +279,56 @@
           </div>
 
           <div class="paper">
-            <div class="dline h1"><span class="ln">1</span><span class="dt">工作项交付物信息模型</span></div>
-            <div class="dline quote"><span class="ln">2</span><span class="dt">状态：待确认 · r12 · 2 个文件 · 来自主题「工作项页设计」</span></div>
-            <div class="dline"><span class="ln">3</span><span class="dt">&nbsp;</span></div>
-            <div class="dline h2"><span class="ln">4</span><span class="dt">1. 工作项是什么</span></div>
-            <div class="dline"><span class="ln">5</span><span class="dt">工作项是用户需要查看、确认、反馈的交付物，指向项目里的已有文件。<span class="pin resolved">1</span></span></div>
-            <div class="dline"><span class="ln">6</span><span class="dt">查看器负责 <b class="strong">展示、批注和编辑</b>，参考 <a class="link" href="https://example.com/spec">规格说明</a>。<span class="pin">2</span></span></div>
-            <div class="dline"><span class="ln">7</span><span class="dt">&nbsp;</span></div>
+            <div class="md-read">
+              <details class="frontmatter">
+                <summary>文档元数据（frontmatter，只读保护）</summary>
+                <pre>status: proposed
+owner: 工作项页设计
+updated: 2026-11-23</pre>
+              </details>
 
-            <!-- current-block source state -->
-            <div class="dline src"><span class="ln">8</span><span class="dt">## 2. 记录结构<span class="src-tag">当前块源码态</span></span></div>
+              <h1>工作项交付物信息模型</h1>
 
-            <div class="dline list"><span class="ln">9</span><span class="dt">交付物记录：标题、类型、状态、文件列表、主题归属。</span></div>
-            <div class="dline list"><span class="ln">10</span><span class="dt">协作记录：评论、批注、回复、附件和版本。</span></div>
-            <div class="dline"><span class="ln">11</span><span class="dt">&nbsp;</span></div>
+              <p>工作项是用户需要查看、确认、反馈的交付物，指向项目里的已有文件。查看器负责 <strong>展示、批注和编辑</strong>，参考 <a href="https://example.com/spec" target="_blank" rel="noopener noreferrer">规格说明</a> 与 <code>ArtifactAnchor</code>。
+                <button class="pin" data-tone="open" aria-label="第 1 条批注，第 5–6 行">1</button>
+              </p>
 
-            <!-- table -->
-            <div class="table-wrap">
-              <table class="md-table">
-                <thead><tr><th>状态</th><th>含义</th><th>操作</th></tr></thead>
-                <tbody>
-                  <tr><td>待查看</td><td>新交付物</td><td>打开预览</td></tr>
-                  <tr><td>待确认</td><td>用户看过</td><td>确认 / 提意见</td></tr>
-                </tbody>
-              </table>
+              <h2>1. 记录结构</h2>
+
+              <ul>
+                <li>交付物记录：标题、类型、状态、文件列表、主题归属。</li>
+                <li>协作记录：评论、批注、回复、附件和版本。</li>
+              </ul>
+
+              <div class="md-table-wrap">
+                <table>
+                  <thead><tr><th>状态</th><th>含义</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr><td>待查看</td><td>新交付物</td><td>打开预览</td></tr>
+                    <tr><td>待确认</td><td>用户看过</td><td>确认 / 提意见</td></tr>
+                  </tbody>
+                </table>
+                <button class="pin" data-tone="stale" aria-label="第 3 条批注，第 11–13 行">3</button>
+              </div>
+
+              <p class="thread-target">状态字段只应该留在交付物记录里，<span class="sel-text">协作记录不要重复存一份</span>。行级 anchor 仍绑定源码行。
+                <button class="pin" data-tone="open" aria-label="第 2 条批注，第 9–10 行">2</button>
+                <span class="annotate-pop"><span class="range">第 9–10 行</span><span class="ann-btn">批注</span></span>
+              </p>
             </div>
-            <div class="dline"><span class="ln">12</span><span class="dt">&nbsp;</span></div>
-
-            <!-- image -->
-            <div class="figure">
-              <div class="img">layout-v3.png · 220×74</div>
-              <div class="cap">布局示意（图片默认渲染）</div>
-            </div>
-            <div class="dline"><span class="ln">13</span><span class="dt">&nbsp;</span></div>
-
-            <!-- code block -->
-            <div class="dline code"><span class="ln">14</span><span class="dt">```ts</span></div>
-            <div class="dline code"><span class="ln">15</span><span class="dt">interface Artifact { path: string }</span></div>
-            <div class="dline code"><span class="ln">16</span><span class="dt">```</span></div>
-            <div class="dline"><span class="ln">17</span><span class="dt">&nbsp;</span></div>
-
-            <!-- task list -->
-            <div class="dline task"><span class="ln">18</span><span class="dt">对齐阅读态渲染（标题/列表/表格/图片/代码块）</span></div>
-            <div class="dline task unchecked"><span class="ln">19</span><span class="dt">属性面板编辑表格与图片</span></div>
-            <div class="dline"><span class="ln">20</span><span class="dt">&nbsp;</span></div>
-            <div class="dline stale" style="background:var(--amber-soft)"><span class="ln">21</span><span class="dt">- 不展示 branch、commit、merge、diff。<span class="pin stale">4</span></span></div>
           </div>
 
           <div class="paper-foot">
             <span class="chip-file"><i></i>layout-v3.png · 1.2 MB</span>
             <span class="chip-file"><i></i>schema.json · 18 KB</span>
             <span class="grow"></span>
-            <span>选中行后可直接批注 · 模型回复会挂到批注上</span>
-          </div>
-
-          <!-- conflict + cross-session read-only strip -->
-          <div class="state-strip">
-            <div class="banner conflict"><b>冲突</b><span class="grow">最新内容与你编辑的第 9–10 行重叠</span><span>查看差异 · 加载最新 · 保留我的</span></div>
+            <span>选中文字后点「批注」</span>
           </div>
         </section>
 
         <aside class="threads">
           <div class="threads-head">
-            <div class="th-title">评论 <span class="count">4</span><span style="margin-left:auto;color:#98a2b3;font-size:9px;font-weight:500">按位置排序</span></div>
+            <div class="th-title">评论 <span class="count">3</span><span style="margin-left:auto;color:#98a2b3;font-size:9px;font-weight:500">按位置排序</span></div>
             <div class="th-tools">
               <span class="select">全部评论 ⌄</span>
               <span class="switch"><i></i>只看待处理</span>
@@ -280,19 +338,25 @@
           <div class="activity"><i class="spinner"></i><span class="grow">模型正在处理 #3：已送达 18 秒</span><span class="time">后台</span></div>
 
           <div class="thread-scroll">
-            <article class="thread selected">
-              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 9–10 行</span><span class="anchor">#2</span></div>
-              <div class="quote">交付物记录：标题、类型、状态、文件列表、主题归属。</div>
-              <div class="ttext">状态字段只应该留在交付物记录里，协作记录不要重复存一份。</div>
+            <article class="thread">
+              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 5–6 行</span><span class="anchor">#1</span></div>
+              <div class="quote">工作项是用户需要查看、确认、反馈的交付物，指向项目里的已有文件。</div>
+              <div class="ttext">这里的「编辑」是否包含表格单元格？</div>
               <div class="reply">
                 <div class="reply-head"><span class="avatar model">M</span><span class="who">Cowork</span><span class="state">✓ 已回复</span></div>
-                <div class="reply-body">已改：状态只留在交付物记录，协作记录只存评论和回复。</div>
+                <div class="reply-body">不包含。表格编辑 = 切源码或后续属性面板。</div>
               </div>
             </article>
 
+            <article class="thread selected">
+              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 9–10 行</span><span class="anchor">#2</span></div>
+              <div class="quote">状态字段只应该留在交付物记录里，协作记录不要重复存一份。</div>
+              <div class="ttext">这条按选区创建，selectedText 已记录。</div>
+            </article>
+
             <article class="thread">
-              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 21 行</span><span class="anchor" style="background:#fffaeb;color:#b54708">#4</span></div>
-              <div class="ttext">这一条应该写进验收。</div>
+              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 11–13 行</span><span class="anchor" style="background:#fffaeb;color:#b54708">#3</span></div>
+              <div class="ttext">表格状态字段是否要和记录状态同步？</div>
               <div class="tstate"><span class="stale-chip">位置待确认</span><span style="color:#98a2b3">原文已移动</span></div>
             </article>
           </div>
@@ -300,7 +364,137 @@
       </div>
 
       <div class="vfoot">
-        <span><b>模型已回复</b> #1、#2</span><span>·</span>
+        <span><b>模型已回复</b> #1</span><span>·</span>
+        <span>#3 位置待确认</span>
+        <span class="grow"></span>
+        <span>内容版本 r12 · 保存于 14:32</span>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Board B: reading continuation -->
+<div class="stage">
+  <div class="app">
+    <div class="badge">阅读态 · 续页</div>
+
+    <main class="viewer">
+      <header class="vhead">
+        <div class="crumbs">Cowork <span>/</span> 主题「工作项页设计」 <span>/</span> <b>工作项</b></div>
+        <div class="vtitle-row">
+          <h1 class="vtitle">PLAN：工作项交付物信息模型</h1>
+          <div class="vactions">
+            <span class="btn">在应用中打开</span>
+            <span class="btn">导出</span>
+            <span class="btn icon">⋯</span>
+          </div>
+        </div>
+        <div class="vsub">
+          <span>来自主题「工作项页设计」</span><span class="dot"></span>
+          <span>2 个文件</span><span class="dot"></span>
+          <span>更新 2 分钟前</span><span class="dot"></span>
+          <span>版本 3</span><span class="dot"></span>
+          <span>活动 <b style="color:#b54708">已送达 18 秒</b></span>
+        </div>
+      </header>
+
+      <div class="vtoolbar">
+        <nav class="tabs">
+          <span class="tab active">文档</span>
+          <span class="tab">版本 <span class="n">3</span></span>
+          <span class="tab">附件 <span class="n">2</span></span>
+        </nav>
+        <div class="tb-right">
+          <span class="seg"><span class="on">阅读</span><span>源码</span></span>
+          <span class="save"><span class="ok">✓</span>已保存 · r12</span>
+          <span class="btn">批注 3</span>
+        </div>
+      </div>
+
+      <div class="vbody">
+        <section class="doc">
+          <div class="doc-head">
+            <span class="file-icon">MD</span>
+            <span class="file-name">plan.md</span>
+            <span class="rev">Markdown · r12</span>
+            <span class="grow"></span>
+            <span class="attach-mini"><i></i>layout-v3.png</span>
+            <span class="attach-mini"><i></i>schema.json</span>
+          </div>
+
+          <div class="paper">
+            <div class="md-read">
+              <h2>2. 阅读与源码</h2>
+
+              <blockquote>阅读态只读；精确到源码行的操作在源码态完成。</blockquote>
+
+              <pre><code class="language-ts">interface Artifact {
+  path: string
+  revision: number
+}</code></pre>
+
+              <ul class="task-list">
+                <li><span class="task-box checked">✓</span>对齐阅读态渲染（标题/列表/表格/图片/代码块）</li>
+                <li><span class="task-box"></span>属性面板编辑表格与图片</li>
+              </ul>
+
+              <figure class="md-figure">
+                <div class="img">layout-v3.png · 220×74</div>
+                <figcaption>布局示意（图片默认渲染）</figcaption>
+              </figure>
+
+              <p class="thread-target">所有链接新窗口打开，图片走白名单；表格与代码块在窄屏内部滚动。参考 <a href="https://example.com/spec" target="_blank" rel="noopener noreferrer">渲染契约</a>，行内代码 <code>line-range</code> 不变。
+                <button class="pin" data-tone="stale" aria-label="第 4 条批注，第 17–18 行">4</button>
+              </p>
+            </div>
+          </div>
+
+          <div class="paper-foot">
+            <span class="chip-file"><i></i>layout-v3.png · 1.2 MB</span>
+            <span class="chip-file"><i></i>schema.json · 18 KB</span>
+            <span class="grow"></span>
+            <span>源码态编辑 · 阅读态批注</span>
+          </div>
+        </section>
+
+        <aside class="threads">
+          <div class="threads-head">
+            <div class="th-title">评论 <span class="count">3</span><span style="margin-left:auto;color:#98a2b3;font-size:9px;font-weight:500">按位置排序</span></div>
+            <div class="th-tools">
+              <span class="select">全部评论 ⌄</span>
+              <span class="switch"><i></i>只看待处理</span>
+            </div>
+          </div>
+
+          <div class="activity"><i class="spinner"></i><span class="grow">模型正在处理 #3：已送达 18 秒</span><span class="time">后台</span></div>
+
+          <div class="thread-scroll">
+            <article class="thread">
+              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 5–6 行</span><span class="anchor">#1</span></div>
+              <div class="quote">工作项是用户需要查看、确认、反馈的交付物，指向项目里的已有文件。</div>
+              <div class="reply">
+                <div class="reply-head"><span class="avatar model">M</span><span class="who">Cowork</span><span class="state">✓ 已回复</span></div>
+                <div class="reply-body">不包含。表格编辑 = 切源码或后续属性面板。</div>
+              </div>
+            </article>
+
+            <article class="thread">
+              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 11–13 行</span><span class="anchor" style="background:#fffaeb;color:#b54708">#3</span></div>
+              <div class="ttext">表格状态字段是否要和记录状态同步？</div>
+              <div class="tstate"><span class="stale-chip">位置待确认</span><span style="color:#98a2b3">原文已移动</span></div>
+            </article>
+
+            <article class="thread selected">
+              <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 17–18 行</span><span class="anchor" style="background:#fffaeb;color:#b54708">#4</span></div>
+              <div class="ttext">这一段在原文里已经被移动，位置待确认。</div>
+              <div class="tstate"><span class="stale-chip">位置待确认</span><span style="color:#98a2b3">原文已移动</span></div>
+            </article>
+          </div>
+        </aside>
+      </div>
+
+      <div class="vfoot">
+        <span><b>模型已回复</b> #1</span><span>·</span>
         <span>#3 思考中</span><span>·</span>
         <span>#4 位置待确认</span>
         <span class="grow"></span>

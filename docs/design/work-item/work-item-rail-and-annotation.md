@@ -108,7 +108,7 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 | 列表态 | `railView='list'`；只读摘要卡，无 composer |
 | 会话态 | `railView='session'`，`activeThreadId` 非空；消息 + composer |
 | 加载（详情） | 会话态头部骨架 |
-| 空（无批注） | 「还没有批注。选中行后点「批注」，或直接写整体批注。」 |
+| 空（无批注） | 「还没有批注。选中文字后点「批注」，或直接写整体批注。」 |
 | 投递状态 | `queued → sent → thinking → working → replied` 与 failed/blocked/stale；失败/阻塞给原因+重试 |
 | 跨会话只读 | 顶部 36px 提示条；批注 composer 禁用；只读 |
 | 窄屏（<900px） | 批注栏为底部抽屉；遮罩点击/Esc 收起 |
@@ -137,7 +137,7 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 
 **会话态操作。** composer 输入文字，Enter 换行，点「提交批注/提交回复」发送；可粘贴图片、上传附件（沿用白名单）；发送后消息立即入列显示 `queued`，SSE 推进状态，失败可重试；「← 返回批注列表」回到列表态（草稿保留在会话态，不丢失）。
 
-**选区浮动入口。** 选中一行或行内部分文字 → 计算选区 top-right，在选区右上角约 `top:-34px`（或选区上方 8px，clamp 到内容盒内）渲染 `.cwi-annotate-pop`「批注」按钮；不遮挡文字。点击 → 以选区构造 `line-range` anchor（整行 quote + 可选 `selectedText` 保存部分文字原文），打开新会话。右键（contextmenu）在选中文字/行上 → 同样的浮动入口。菜单键 / Shift+F10 → 焦点落到浮动入口（等价）。`selectedText` 只用于展示与投递 prompt，不参与 `relocateLineAnchor` 重定位。
+**选区浮动入口。** 阅读态选中文字，或源码态选中行/行内部分文字 → 计算选区 bottom-center，在选区下方 8px（空间不足翻到上方 8px，clamp 到视口/内容盒内）渲染 `.cwi-annotate-pop`：左侧可带 9px 的「第 S–E 行」只读 chip，右侧是「批注」按钮；不遮挡文字。点击 → 以选区构造 `line-range` anchor（整行 quote + 可选 `selectedText` 保存部分文字原文），打开新会话。右键（contextmenu）在选中文字/行上 → 同样的浮动入口。菜单键 / Shift+F10 → 焦点落到浮动入口（等价）。`selectedText` 只用于展示与投递 prompt，不参与 `relocateLineAnchor` 重定位。
 
 **已有入口替换。** 现行 `.cwi-selection-bar`（顶部 sticky 选中条）被浮动入口替代并移除；若某渲染器（画布/HTML）无法可靠取选区 DOM 矩形，回退到「行右侧内联批注按钮」（pin 同侧右移），不保留旧 sticky 条。
 

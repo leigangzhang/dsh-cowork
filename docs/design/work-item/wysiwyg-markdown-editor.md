@@ -1,226 +1,349 @@
-# Cowork 工作项：WYSIWYG Markdown 编辑器设计
+# Cowork 工作项：Markdown 阅读与批注设计
 
-Status: proposed（2026-11-23）
+Status: proposed（2026-11-23，参考实现核实后修订）
 
-本文把[工作项多模态交付物查看器设计](work-item-artifact-viewer.md)中「Markdown / PLAN 的阅读与编辑」落成 Typora 式混合单态编辑器设计。页面外壳、保存冲突、批注投递、附件契约沿用[前端方案](work-item-frontend.md)与[后端方案](work-item-backend.md)；本文只拥有**渲染层与当前块源码态**这一件事。决策与取舍见[决策记录](../../../.agents/notes/proposed/feature/2026-11-23-wysiwyg-markdown-editor.md)。
+本文拥有 Markdown / PLAN 的**阅读面**：markdown-it 渲染的流式排版、块级 pin、选区批注入口、frontmatter 展示和阅读/源码切换的阅读侧。源码态沿用 [`editor.tsx`](../../../src/client/work-item/editor.tsx) 的 CodeMirror 6 编辑器与既有保存/冲突路径；页面外壳、批注栏、附件和共享视觉基线见[查看器设计](work-item-artifact-viewer.md)、[批注栏设计](work-item-rail-and-annotation.md)与[视觉验收基线](visual-acceptance.md)，保存/冲突见[前端方案](work-item-frontend.md)与[后端方案](work-item-backend.md)。方向与取舍见[决策记录](../../../.agents/notes/proposed/feature/2026-11-23-wysiwyg-markdown-editor.md)。
 
-## 背景
+## 背景与调研
 
-当前 `text` 类型有两套互相独立的表面：阅读态是 `source-lines.tsx` + `model.ts` 的逐行「Markdown-ish」渲染（只有标题/列表/引用/行内粗斜体/行内代码，无 GFM 表格/图片/链接/任务列表），源码态是 `editor.tsx` 的 CodeMirror 6 编辑器。用户要的是 Typora 式**单一表面**：块级渲染 + 当前块显示 Markdown 源码，就地编辑，而非「阅读/源码」两态切换。
+当前 `text` 类型的阅读态是 [`source-lines.tsx`](../../../src/client/work-item/viewers/source-lines.tsx) + [`model.ts`](../../../src/client/work-item/model.ts) 的逐行「Markdown-ish」渲染：只有标题、列表、引用和行内粗斜体/代码，没有 GFM 表格、图片、链接、任务列表和完整代码块。源码态是 CM6 编辑器。用户要求阅读态达到 Typora 级别的排版，同时保留行号 anchor、批注和源码编辑。
 
-已确认方向（共同简报决策 1）：表格/图片默认渲染，表格/图片的编辑通过源码或属性面板，不做 Notion 式块级可视化编辑；底层始终是完整 Markdown 源文本，保留 `line-range` anchor 与 quote 重定位。
+本机已有一个可运行的参考实现，用于核实「markdown-it 渲染 + CM6 源码编辑」的实际观感与边界：
+
+- 文件：`~/Obsidian/DwKnowledge/DwKnowledge/Kanban/note.html`
+- Web：`http://127.0.0.1:8765/note.html?path=…`
+- 栈：markdown-it（`html:false`、`linkify:true`、`breaks:false`）+ CodeMirror 6 + 自定义 Obsidian 行内规则；阅读态是 `md.render` 后写入 `innerHTML`。
+
+### 参考实现实测
+
+2026-11-23 用 Chromium（DPR 2）在 1610px 宽视口测量 `note.html`（内容视口 1610×665）；该实例保存过衬线字体和 1000px 宽度，下表是 CSS 实测值：
+
+| 项 | 实测 | 说明 |
+|---|---|---|
+| 阅读列宽 | 1000px | 视口 1610，左目录 240px，阅读区 padding 44/40/96 |
+| 正文 | 15px / 26.25px（1.75），系统字体或用户选择的衬线 | 颜色 `#24292e` |
+| h1 | 30px / 39px，700，下边距 21px | 2em，1.3 |
+| h2 | 21px / 28.35px，600，上/下边距 33.6/12.6px | 1.4em，1.35，em 按自身字号 |
+| h3 | 17.25px / 30.19px，600，上/下边距 24.15/8.625px | 1.15em，line-height 继承 1.75 |
+| 段落 | 15px / 26.25px，下边距 13.5px | 0.9em |
+| 列表 | 左缩进 24px；项间距 3.75px | 原生 marker |
+| 引用 | 左边框 3px，左 padding 15px，muted | 无背景 |
+| 行内代码 | 12.9px，padding 2.4/6px，圆角 4px | 0.86em |
+| 代码块 | padding 14/16px，圆角 6px，背景 `#f6f8fa`；文字 12.75px/24px | 无语法高亮，无 `<span>` |
+| 表格 | 单元格 padding 6/12px，边框 1px `#d0d7de`，表头底 `#f6f8fa`；表头默认居中 | 表格宽度随内容 |
+| 图片 | 最大宽 100%，圆角 6px | 无边框 |
+| 分割线 | 上边框 1px，上下边距 27px | 1.8em |
+| frontmatter | 折叠 `<details>`：summary 12px/21px、padding 6/12px；内容 12px/19.2px、padding 10/12px | YAML 不解析，只展示原文 |
+| 选区浮动入口 | 232×40.5px，4 个按钮，距选区下方 8px，120ms debounce | `selectionchange` 触发 |
+| 源码态 | CM6 14px/23.8px mono，行号 gutter 44.7px，无自动换行 | 默认浅色主题 |
+
+### 核实结论
+
+- **阅读体验成立**：markdown-it 的块级 DOM + CSS 已能做出流式段落、标题层级、表格、代码块、引用和 frontmatter，视觉上接近 Typora；不需要逐行布局或块级 widget。
+- **代码块没有高亮**：参考实现只有 `<pre><code class="language-*">` 纯文本；本文 v1 保持纯文本，高亮留到后续，不把阅读体验验收绑定在未引入的高亮依赖上。
+- **任务列表不是 GFM 默认行为**：markdown-it 默认把 `- [ ]` 渲染成字面 `[ ]`；需要自定义 list item 规则。
+- **行级位置只到块**：实测 token map 覆盖 `heading_open`、`paragraph_open`、`list_item_open`、`blockquote_open`、`fence`、`table_open`、`tr_open`；`th`/`td` 和 inline 子 token 没有 map。块级 pin 可靠，块内行级位置不可直接得到。
+- **参考实现的批注不可照搬**：它把选中的文字用 `==[标签] 文本==` 写回源文件，靠 `indexOf` 定位；文字重复或含 Markdown 标记时会拒绝或定位失败。Cowork 的批注是独立评论线程，必须走 `line-range` anchor + `selectedText`，不能写源文件。
+- **安全不能照搬**：参考实现用 `md.render` + `innerHTML`；`html:false` 能转义原始 HTML，`validateLink` 能拒绝 `javascript:`，但 `data:image` 仍会放行。Cowork 用 token → DOM/React 渲染，不引入 `innerHTML`。
+- **参考实现是桌面单栏**：目录 240px、padding 40px 固定，没有移动端策略；Cowork 的 390/768 档必须自己定义响应式，不复制它的固定尺寸。
+
+### 采用与不采用
+
+| 采用 | 不采用 / 调整为 |
+|---|---|
+| 15px / 1.75 的正文比例、标题层级、列表/引用/代码/表格的间距比例 | 1000px 阅读列：Cowork 纸面最大 920px；44/40/96 padding：改为纸面内 28/40/24/40 |
+| 流式段落、GFM 表格、图片、frontmatter 折叠 | `md.render` + `innerHTML`、`data:image`、Obsidian `==`/`[[ ]]`/`![[ ]]` 语法 |
+| 选区浮动「批注」入口和 120ms debounce | 参考实现的 `indexOf` 写回标记；Cowork 用 block range + `selectedText` |
+| CM6 源码编辑与行号（沿用现有 `editor.tsx`） | 参考实现的 14px CM 和默认浅色主题；Cowork 沿用现有源码态样式 |
+| 阅读态无行号 gutter | 参考实现的目录/字体/主题设置面板；Cowork v1 不提供阅读设置 |
 
 ## 目标
 
-- 一个 CodeMirror 6 `EditorView` 承载整个文档：非活动块渲染，活动块显示原始 Markdown 源码并接受输入。
-- 底层文档永远是完整 Markdown 源文本；撤销/重做、自动保存、版本冲突、anchor 重定位都在源文本上发生。
-- 标题、列表、任务列表、引用、链接、粗体/斜体/行内代码、围栏代码块、表格、图片全部渲染；原始 HTML 在渲染态按字面显示（转义），不解析。
-- 行号 gutter 与源码行一一对应；pin/选中环/anchor 序号/行级 diff 底色继续绑定源码行。
-- 不引入未净化 `innerHTML`、不引入 `marked`/`mermaid`/`katex`/`DOMPurify`。
+- 一个**阅读面**：markdown-it 将完整源文本渲染为流式 HTML；标题、段落、列表、任务列表、引用、链接、粗体/斜体/删除线、行内代码、围栏代码块、表格、图片、分割线、frontmatter 全部呈现。
+- 一个**源码面**：保留现有 CM6 编辑器；文档、撤销/重做、自动保存、版本冲突、`line-range` anchor 和 quote 重定位都以完整 Markdown 源文本为真相。
+- 阅读面可批注：块级 pin 定位现有线程；选中文字后出现浮动「批注」入口，创建 `line-range` anchor（整行 quote + 可选 `selectedText`），不写源文件。
+- 阅读面不伪造逐行行号：块级 pin 和行范围提示；精确到源码行的操作在源码态完成。
+- 渲染只建 DOM/React 节点，原始 HTML 按字面显示，不引入未净化 `innerHTML`。
+- 阅读态和源码态共享同一份 draft、同一套保存/冲突状态；切换不丢内容。
 
 ## 非目标
 
-- 不做 Notion 式结构化块数据模型；不把 AST/JSON 作为唯一真相。
-- 不做 Doc 富文本（TipTap）；Doc/表格/PDF/图片类型已永久移出目标（KI-57），本设计只改 `text` 类型的 Markdown 渲染。
-- 不做表格单元格级网格编辑；表格编辑 = 整块切源码或属性面板。
-- 不直接采用 `codemirror-markdown-hybrid@1.2.2`（安全与依赖原因，见决策记录 Alternatives）。
-- 不改容器外壳（`conversation.view` 标签）、跨会话只读判定、附件 `cowork_artifact_attach`、prompt 折叠；这些是兄弟子任务，本文只引用。
+- 不做单表面就地编辑：阅读态只读，不出现「当前块显示源码」的状态机。
+- 不做 Notion 式结构化块模型；不把 AST/JSON 作为唯一真相。
+- 不做表格单元格网格编辑、表格属性面板；表格编辑 = 切源码。
+- 不做 Doc 富文本（TipTap）；Doc/表格/PDF/图片类型按 KI-57 已移出目标。
+- 不解析原始 HTML、Obsidian `==`/`[[ ]]`/`![[ ]]`、Mermaid、KaTeX；这些按字面文本显示。
+- 不做阅读态 TOC、字体/主题设置、打印/导出改造。
+- v1 不做行级 diff 底色：没有可靠 diff 数据时不伪造，落到源码态看版本/冲突区。
+- 不新增 wire 路由；不引入 `marked`、`mermaid`、`katex`、`DOMPurify`。
 
-## 渲染层选型
+## 渲染层与数据流
 
-复用 `package.json` 已有的 `@codemirror/state` `6.7.6`、`@codemirror/view` `6.43.15`、`@codemirror/lang-markdown` `6.5.2`、`@codemirror/language` `6.13.1`、`@codemirror/commands` `6.11.1`。**不新增依赖**：GFM 语法（表格/任务列表/删除线/自动链接）由 `@lezer/markdown` 的 `GFM` 扩展提供（当前 `1.8.1`，`@codemirror/lang-markdown` 已 re-export），用于推导块范围与内联范围。**不引入** `marked`、`mermaid`、`katex`、`DOMPurify`、`codemirror-markdown-hybrid`。
+```text
+ArtifactFileResponse.content（完整源文本）
+        │
+        ├─ splitFrontmatter ──▶ frontmatter 文本 + body + bodyStartLine
+        │
+        ├─ markdown-it.parse(body, { html:false, linkify:true, breaks:false })
+        │       └─ token[] ──▶ React 元素/DOM（textContent、createElement，绝不 innerHTML）
+        │              ├─ 块元素带 data-src-start / data-src-end / data-src-kind
+        │              ├─ frontmatter <details>
+        │              └─ 图片/链接/任务列表/表格按白名单渲染
+        │
+        └─ CM6 源码态（editor.tsx，完整 content，含 frontmatter）
+```
 
-渲染只产出 DOM 节点（`document.createElement` / `textContent` / `className`），任何源码片段都不经 `innerHTML` 注入。语法树（`@lezer`）只作为**呈现提示**，不是持久化真相；文件字节始终是真相。
+- **依赖**：新增 `markdown-it`（MIT）。GFM 表格、删除线、自动链接由内核提供；任务列表由一个小型 custom list-item 规则实现，不引入插件。代码高亮 v1 不做，不引入 highlighter。
+- **不做 HTML 字符串**：`md.render` 只用于参考实现对比；Cowork 用 `md.parse` 的 token 树渲染 React 元素，所有文本由 React 转义，图片/链接在创建节点前过 URL 白名单。
+- **token 渲染覆盖**：heading、paragraph、bullet/ordered list、list item、blockquote、fence、code、table/thead/tbody/tr/th/td、inline（text/strong/em/del/code/link/image/softbreak/hardbreak/html_inline）、hr、html_block（按字面）。
+- **块属性**：`data-src-start`、`data-src-end` 来自 token.map；`data-src-kind` 取 `heading`/`paragraph`/`list`/`item`/`quote`/`fence`/`table`/`hr`/`frontmatter`。容器和叶子都带属性，pin 取包含 anchor 行的**最深叶子块**。图片是段落内的 inline token，不单独成块，pin 落到所在段落。
+- **frontmatter**：仅当 body 以 `---` 开头并存在闭合 `---` 时拆分；不解析 YAML；`bodyStartLine = 闭合行号 + 1`，body 的 token map 加上该偏移。frontmatter 行仍属于源码，但不可批注。
+- **任务列表**：list item 的首个 inline token 以 `[ ] ` 或 `[x] `/`[X] ` 开头时，去掉前缀并渲染 disabled checkbox；勾选不写回，源码态修改。
+- **表格**：按 token 的 `text-align` 属性应用 left/center/right；只接受这三个值，不接受任意 style 字符串。
 
-### 两类装饰，都不改变行号地址空间
+## 块索引与行号映射
 
-1. **行级装饰**（`Decoration.line` + 内联 `Decoration.replace`）——标题、列表、任务列表、引用、段落内联。保持「一行源码 = 一行视觉」，行号 1:1。
-   - 隐藏块标记：`# `、`## `、`- `/`* `/`1. `、`> `、`- [ ] ` 用零宽替换或 `::before` 圆点/序号呈现。
-   - 内联：`**b**`→strong、`*e*`→em、`` `c` ``→code、`[t](https://example.com)`→`<a>`（DOM 节点，`target="_blank" rel="noopener noreferrer"`）。
-2. **块级 widget**（`Decoration.replace({ block: true })`）——仅围栏代码块、表格、图片这三种多行原子块。
-   - 围栏代码块 → `<pre><code>`（用 `@codemirror/language` 高亮，文本安全）。
-   - 表格 → `<table>`（从语法树行重建，不信任源码拼 HTML）。
-   - 图片 → `<figure><img>`，`src` 经图片 URL 白名单过滤。
-   - Mermaid/其它语言围栏：v1 不渲染成图，作为普通围栏代码块显示源码（可编辑）。
-
-块级 widget 会折叠多条源码行为一条视觉行。因此：
-
-### 块索引与行号映射（anchor 兼容核心）
-
-编辑器维护一个由语法树派生的**块索引**：
+### 数据结构
 
 ```ts
 interface MarkdownBlock {
-  readonly startLine: number   // 1-based 源码行
-  readonly endLine: number
-  readonly kind: 'heading' | 'list' | 'task' | 'quote' | 'fence' | 'table' | 'image' | 'paragraph'
-  readonly renderedAs: 'line' | 'block'
+  readonly startLine: number   // 1-based 源码行，含 frontmatter 偏移
+  readonly endLine: number     // 1-based，含
+  readonly kind: 'heading' | 'paragraph' | 'list' | 'item' | 'quote' | 'fence' | 'table' | 'hr' | 'frontmatter'
+  readonly renderedAs: 'flow'  // 阅读态全部是流式块
 }
 ```
 
-- anchor 与 pin 永远存**源码行号**，沿用 `ArtifactAnchor` 的 `line-range` 与服务端 `deriveLineAnchor` / `relocateLineAnchor`（[anchor.ts](../../../src/domains/artifact/anchor.ts)），服务端零改动。
-- 文档定位 `scrollIntoView` 与 pin 放置按「源码行 → 块索引 → 视觉位置」换算：落在 `renderedAs:'line'` 块内直接定位行；落在 `renderedAs:'block'` 块内时，不显示行内 pin，改为在该块首行显示 pin 并把该块切到源码态，使 pin 落到真实源码行。
-- 每次编辑后 debounce 重算块索引（或按需在保存/锚点重定位时重算）；插入/删除行后，行级 pin 沿用 `editor.tsx` 现有 `anchoredLineMarkers` 的 map-through-changes 机制跟随，最终以服务端 `relocateLineAnchor` 为准。
-- **源码行号是 anchor 的唯一地址空间；渲染投影（含块折叠）只是呈现，绝不成为 anchor 的真相。**
-- 块级 widget 折叠源码行后，CodeMirror gutter 可能只显示块首行号。这是 PoC 必须验证的显示项：若无法保留块内逐行号，块头显示 `Lx–Ly` 行范围，块内行号灰显或折叠；任何情况下点击 pin 都必须把该块切到源码态，pin 才能落到真实源码行。不得用视觉行号冒充源码行号。
+`parseMarkdownBlocks(content)` 由 markdown-it token 树推导块列表；`blockAtLine(blocks, line)` 返回包含该行的**最深**块。块索引只服务呈现与 pin 定位，不持久化。
+
+### token map 实测
+
+| token | `map` | 用途 |
+|---|---|---|
+| `heading_open`（ATX / setext） | 有；setext 含下划线行 | 标题块与 pin |
+| `paragraph_open` | 有 | 段落块与 pin |
+| `list_item_open` | 有；嵌套项各自有 | 列表项 pin |
+| `blockquote_open` | 有 | 引用块与 pin |
+| `fence` | 有 | 代码块与 pin |
+| `table_open` / `thead_open` / `tbody_open` / `tr_open` | 有 | 表格块/表头/行 |
+| `hr` | 有 | 分割线块 |
+| `th_open` / `td_open` | 无 | 单元格不设源码行地址 |
+| `inline` 的子 token | 无 | 块内行级位置不可由 token 得到 |
+
+### anchor 与 pin 规则
+
+- `ArtifactAnchor` 始终存源码行号；沿用 [`deriveLineAnchor`](../../../src/domains/artifact/anchor.ts) / `relocateLineAnchor`，服务端零改动。
+- 线程 anchor 的 `startLine` → `blockAtLine` → 块；pin 落在该块首行右侧。跨块的 anchor 取起始块，rail 卡显示完整行范围。
+- 一个块有多条线程时，pin 显示最早线程序号；其余线程通过批注栏访问；`aria-label` 写「第 N 条批注，共 M 条，第 S–E 行」。
+- anchor 落在 frontmatter、空行或没有渲染块的区域时不显示 pin；rail 卡仍保留，点击「在源码中查看」定位。
+- 源码行号是 anchor 的唯一地址空间；阅读态的块、pin、行范围提示都是呈现，不是新的地址空间。
+- 阅读态**没有**行号 gutter；块首 pin 的 hover/focus 显示 `第 S–E 行` 范围提示，不冒充逐行行号。
+
+### 选区 → 行范围
+
+1. 选区起止节点落在阅读面内；取起点所在块和终点所在块。
+2. 单块：把块内源码行去掉行内标记后拼成纯文本（粗体/斜体/行内代码标记去掉，链接只保留显示文本，列表/引用前缀去掉），在纯文本中查找规范化后的 `selectedText`；唯一命中时把字符区间换算成起止行，得到精确行范围。
+3. 未命中/重复/跨块：回退到块范围（跨块取首块起、末块止）。
+4. 生成 `lineRangeAnnotation(lines, file, primaryPath, start, end)`（[model.ts](../../../src/client/work-item/model.ts)），由服务端 `deriveLineAnchor` 从文件重新取 quote/context；`selectedText` 截断到 `MAX_ARTIFACT_QUOTE_CHARS`，只用于展示与投递 prompt，不参与重定位。
 
 ## 页面结构
 
 ```text
-EditorView（单一 CodeMirror 表面，替换 editor.tsx 的 TextEditor 与 source-lines.tsx 的读态渲染）
-├─ 行号 gutter（源码行号 1:1，不变）
-├─ 文档内容 = 完整 Markdown 源文本
-│  ├─ 非活动块：行级装饰 / 块级 widget 渲染
-│  └─ 活动块：原始 Markdown 源码 + @codemirror/lang-markdown 高亮
-├─ 行级 pin（.cwi-line-pin，右侧，源码行定位）
-├─ 选中环 / 选中行底（.cwi-line[data-selected]）
-├─ 行级 diff 底色（.cwi-line[data-diff]，仅在有 diff 数据时）
-└─ 当前块源码态：边框 + 背景（.cwi-md-source-block）
+工作项查看器
+├─ 工具条：文档 / 版本 / 附件；阅读/源码 segmented；保存状态；批注 N
+├─ 纸面（max-width 920px）
+│  ├─ 纸面头 42px：MD 图标、plan.md、Markdown · rN、附件 chip
+│  ├─ 阅读态 .cwi-md-read
+│  │  ├─ frontmatter <details>（可折叠，只读）
+│  │  ├─ 流式正文（标题/段落/列表/引用/代码/表格/图片/任务/链接/hr）
+│  │  ├─ 块级 pin（absolute，右侧 6px，随块滚动）
+│  │  ├─ 选中线程块底（accent-soft + inset 2px accent）
+│  │  └─ 选区浮动「批注」入口（fixed，选区下方 8px）
+│  ├─ 源码态 .cwi-editor-host（CM6，现有）
+│  └─ 纸面脚 36px：附件 chip、保存/版本信息
+└─ 右侧批注栏（336px，沿用 rail 设计）
 ```
 
-关键尺寸沿用 `styles.ts`：纸面最大 920px、正文行高阅读态 1.65、gutter 60px、pin 右留 40px；当前块源码态在 `.cwi-md-source-block` 上叠 `1px accent` 边框 + `accent-soft` 底，内缩 2px，不改变行高。
+阅读态不渲染行号 gutter；`.cwi-md-read` 的左右 padding 为 24px / 40px，右侧 40px 同时给 pin 留位。源码态沿用现有 editor 区域、行号 gutter 和 anchor 行标记。
 
 ## 状态模型
 
 | 状态 | 触发 | 表现 |
 |---|---|---|
-| 阅读态 | 打开文档、无活动块 | 全部块渲染，无源码块；单击/方向键移入块 → 当前块源码态 |
-| 当前块源码态 | 光标落入某块 | 该块显示 Markdown 源码；其余块保持渲染；`Esc`/点击其它块/`Mod+Enter` 退出 |
-| 编辑态（隐性） | 当前块内输入 | 与源码态同体；无独立「编辑」开关，输入即编辑 |
-| 只读态 | 跨会话预览 / `editable=false` / 二进制 | 块不进入源码态；点击只选中用于批注；composer 禁用（跨会话见共同简报决策 3） |
-| 保存中 | 800ms 防抖后请求中 | 蓝点脉冲，文案「保存中」；源码块可继续输入 |
-| 冲突 | `artifact/version-conflict` | 冲突条 + 查看差异/加载最新/保留我的；源码块暂停进入，输入保留在内存草稿 |
-| 跨会话只读 | `sessionId !== ownerSessionId` | 顶部 36px 提示条 +「在所属会话打开」；禁用编辑与批注 |
-| 错误/缺失文件 | detail/file 失败或 `missing` | 沿用 `panel.tsx` 的 `ViewerPlaceholder` / `RebindFileEntry`；不渲染编辑器 |
-| 窄屏 | < 900px | 批注栏改底部抽屉（见 `styles.ts` media）；编辑器正文不被永久压缩 |
-
-活动块是**单一**的：同时最多一个块显示源码；选区跨块时按光标所在块为准。
+| 阅读态 | `readMode=true`，无未保存草稿 | 流式渲染；块级 pin；选区批注；只读 |
+| 源码态 | `readMode=false` | CM6 编辑器；行号、anchor 行标记、保存/冲突；可编辑 |
+| 未保存草稿 | 源码态输入后切回阅读 | 阅读态渲染 draft；块级 pin 暂时隐藏，批注入口禁用，提示「保存后可批注」；保存成功后恢复 |
+| 保存中 | 800ms 防抖请求中 | 保存点脉冲，文案「保存中」；阅读态仍渲染 draft；源码态可继续输入 |
+| 冲突 | `artifact/version-conflict` | 冲突条 + 查看差异/加载最新/保留我的；阅读态显示冲突条并禁用批注；源码态保留草稿 |
+| 跨会话只读 | `sessionId !== ownerSessionId` | 顶部 36px 提示条 +「在所属会话打开」；阅读态只读；编辑与批注 composer 禁用 |
+| 错误/缺失文件 | detail/file 失败或 `missing` | 沿用 `ViewerPlaceholder` / `RebindFileEntry`；不渲染阅读面 |
+| 窄屏 < 900px | 视口 | 批注栏改底部抽屉；纸面满宽；阅读 padding 按响应式表 |
+| 大文件 | 超过 2 MB 或 20k 行，或渲染超时 | 阅读态降级为源码态 + 提示；不阻塞编辑，不伪造渲染 |
 
 ## 交互流程
 
-### 进入/退出源码块
+### 阅读 / 源码切换
 
-1. 单击块内渲染区，或方向键移入块 → 该块切源码（光标落在块内对应字符位置）。
-2. `Mod+Enter` 显式进入/退出当前块。
-3. `Esc`（无选区）退出源码块，焦点回到块首渲染态。
-4. 失焦到块外、点击另一块 → 原块重渲染，新块进入源码。
-5. 块源码在退出时校验：表格/围栏语法损坏则降级为普通文本行渲染，不阻塞编辑、不丢内容。
+1. 工具条 segmented 切换 `readMode`；`aria-pressed` 与文案保持。
+2. 阅读 → 源码：取阅读面当前顶部可见块的 `startLine`，切到源码态后把 CM6 滚到该行，聚焦编辑器。
+3. 源码 → 阅读：取 CM6 当前顶部可见行，切到阅读态后把包含该行的块滚到视口顶部；无匹配块时滚到文首。
+4. 只切换表面，不重载文件、不重置 draft、不触发保存。
 
-### 选中与批注
+### 选区批注
 
-1. 阅读态下单击选中一行，Shift 点击扩展行范围；右键选中的行/文字弹出「批注」入口（右上角，尽量不遮文字）。
-2. 「批注」→ 沿用 `panel.tsx` 的 `annotateRange`：`lineRangeAnnotation` 从源码行取 quote，`deriveLineAnchor` 在服务端补齐 context。
-3. 行内 pin 点击 → 打开对应批注会话详情，文档滚动到 anchor 源码行，线程选中环出现（`focusThread`）。
-4. 选中文字（字符级选区，非整行）右键批注 → 仍映射到所在行范围；选区原文存入该 `line-range` anchor 的可选 `selectedText`，用于会话/批注详情展示与投递 prompt，不参与 `relocateLineAnchor` 的重定位。无选区时省略该字段。
+1. 在阅读面选中文字；120ms debounce 后在选区下方 8px 出现浮动入口：左侧 9px「第 S–E 行」只读 chip，右侧「批注」按钮；选区跨行/跨块同样显示。
+2. 点击「批注」→ 按上节「选区 → 行范围」生成 anchor；打开批注栏会话 composer，显示 `第 S–E 行` 和 `selectedText` 单行摘要。
+3. 提交走现有 `artifact.comment`；失败保留草稿并给可读错误；成功后线程出现在 rail，阅读面出现/更新 pin。
+4. 点击 pin → 打开对应线程会话，滚动到 anchor 块，块底高亮；Esc/点击其它块取消。
+5. 选区工具栏在滚动、缩放、选区收起、Esc、点击外部时关闭；不改变焦点顺序。
 
-### 表格 / 图片 / 任务列表 / 代码块 / 链接
+### 链接、图片、表格、任务列表、代码块
 
-- 表格：默认渲染 `<table>`；单击表格块 → 整块切源码（显示 `|…|` 行）；属性面板（v1.1）显示行/列与单元格编辑，编辑结果写回源码。
-- 图片：默认渲染 `<figure>`；单击 → 切源码显示 `![alt](https://example.com/a.png)`；alt 缺失时图片块显示占位标题（不伪造 alt 文字）。
-- 任务列表：渲染 `[x]/[ ]`；**不可点击勾选**（点击进入源码块改 `[ ]`↔`[x]`）。
-- 代码块：渲染 `<pre><code>`；单击 → 切源码编辑代码；v1 不内嵌运行。
-- 链接：渲染 `<a target=_blank rel=noopener noreferrer>`；单击不跳转（进入源码态）；`Mod+Click` 打开链接（经外链白名单）。
+- 链接：`http(s)` 外链渲染 `<a target="_blank" rel="noopener noreferrer">`，点击直接打开；相对路径/锚点/其它 scheme 渲染为普通文字（v1 不支持站内跳转）。
+- 图片：`http(s)`、`cowork-attachment://<id>`、项目内相对路径按[附件管线](attachment-pipeline.md)解析；失败显示虚线占位块，不显示破图；alt 缺失时不伪造 alt，figure 下显示 11px「未提供图片说明」。
+- 表格：渲染完整表格；点击单元格不进入编辑；窄屏横向滚动在表格容器内，不撑破纸面；编辑切源码。
+- 任务列表：checkbox 14×14、disabled、不可点击；`[x]` 有勾，`[ ]` 为空；修改切源码。
+- 代码块：`<pre><code class="language-*">`，无高亮；横向滚动在块内；点击不进入编辑。
+- frontmatter：默认折叠；summary「文档元数据（frontmatter，只读保护）」；展开只读原文；不可批注。
 
-### 复制粘贴图片/文件
+### 键盘、IME、滚动
 
-- 在源码块内粘贴剪贴板图片 → 拦截 `paste`，先走 `artifact.upload` 落盘、再走浏览器 `artifact.attach` 发布（source=user），最后插入 `![name](cowork-attachment://<attachmentId>)` 到光标；任一步失败给出可读错误并保留光标，不写入假 URL。
-- 拖拽图片/文件到块 → 同上传路径；超出类型/大小/数量上限按 `artifact/upload-invalid` 提示，不静默丢弃。
-- 粘贴纯文本 → CodeMirror 默认行为（插入 Markdown 源码）。
+- 阅读态是只读 DOM：方向键/PageUp/PageDown 走浏览器滚动；Tab 按焦点顺序经过 pin、批注入口、rail；`Esc` 关闭选区工具栏/线程选中。
+- 选区批注入口可点击；键盘选中文字同样触发 `selectionchange`；右键/菜单键不新增一套入口（沿用 rail 设计的右键等价要求，由 rail 负责）。
+- 源码态：CM6 原生 IME composition、撤销/重做、`Mod-s`；阅读态不接收输入，不做 decoration 重算。
+- 图片加载/字体加载/窗口缩放后，pin 位置随块重新布局，不需要手工重算坐标（pin 在块内，absolute 相对块）。
 
-### 中文 IME
+### 保存、冲突、跨会话
 
-- 组合输入只发生在源码块内，CodeMirror 6 原生处理 composition；渲染层不在 `compositionstart`→`compositionend` 之间重算块装饰，避免组合中 widget 撕裂。用 `EditorView.inputState.composing` 门控重算。
+- 保存/冲突沿用现有 `panel.tsx` 路径；阅读态只读，不触发保存。
+- 未保存草稿切到阅读态：渲染 draft；pin 隐藏、批注禁用；保存成功后重新映射 anchor。
+- 冲突时阅读态显示冲突条并禁用批注；用户切源码处理三选。
+- 跨会话只读：阅读态可看，pin 可打开已有线程，composer 禁用；源码态禁用编辑。
 
-### 撤销/重做
+## 数据 / 接口 / 契约变化
 
-- `history()` 作用于源码文档；装饰是派生状态（独立 StateField/ViewPlugin），撤销/重做只改变源文本，不把块重渲染写入撤销历史。
-
-### 保存
-
-- 输入 → `onChange`（doc → `editDraft`）→ 800ms 防抖 `saveDraft`（沿用 `panel.tsx`）。
-- 手动保存：头部按钮 + `Mod-s`（CM keymap 绑定 `onSaveDraft` + `preventDefault`）。
-- 冲突：`artifact/version-conflict` → `setConflict` 停自动保存，冲突条提供三选（沿用 `panel.tsx`）；源码块输入保留在 `PersistedDraft`。
-
-## 数据/接口/契约变化
-
-本编辑器不新增 wire 路由；图片粘贴/发布复用附件设计新增的浏览器 `POST /api/cowork.artifact.attach`（owner: [attachment-pipeline.md](attachment-pipeline.md)），图片读取复用 `artifact.attachment` 与宿主 `/api/file`。渲染层是纯前端；沿用：
-
-- `ArtifactFileResponse.content`（完整源文本）——渲染层唯一输入。
-- `ArtifactAnchor` / `CommentEventV1`（[artifact-contract.ts](../../../src/panel/artifact-contract.ts)）——anchor 存源码行；`line-range` 增加可选 `selectedText`（部分文字选区原文，不参与重定位）。
-- `artifact.edit` / `artifact.upload` / `artifact.attach` / `artifact.presence`——保存、图片上传/发布、编辑范围上报；`artifact.upload` 仍只落字节，发布走 `artifact.attach`。
-- 图片资源解析器：`conversation.view` 槽的 `useSessions` 按 `ownerSessionId` 取 cwd，传给查看器构造项目内绝对路径；取不到 cwd 或不在项目内时显示 alt 占位，不请求宿主文件路由。
-- `parseMarkdownBlocks`/`sanitizeImageSrc`/`blockAtLine` 等纯函数仍为客户端新增。
-
-新增仅客户端纯函数（拟，实现在 `src/client/work-item/` 下，React-free 走 `node --test`）：
-
-- `parseMarkdownBlocks(content): MarkdownBlock[]`——从 `@lezer/markdown` 的 `GFM` 扩展语法树推导块索引。
-- `blockAtLine(blocks, line): MarkdownBlock | null`——行号 → 块。
-- `sanitizeImageSrc(url, allow): string | null`——图片 URL 白名单，失败返回 null。
-- `renderedWidgetFor(block, content): Decoration`——块 → 安全 DOM widget。
-
-权限边界不变：编辑写权限沿用 `artifact/edit` 的 `editable` + owner 校验；跨会话只读由 `ownerSessionId` 判定（兄弟子任务）。
+- 不新增 wire 路由；渲染只消费 `ArtifactFileResponse.content`，保存/冲突/批注复用 `artifact.edit` / `artifact.comment` / `artifact.version-conflict`。
+- `line-range` anchor 增加可选 `selectedText?: string`（由[批注栏设计](work-item-rail-and-annotation.md)拥有）；`deriveLineAnchor` 仍从文件全文推导 quote/context，`relocateLineAnchor` 不使用 `selectedText`。
+- 客户端新增纯函数（`src/client/work-item/`，React-free，`node --test` 覆盖）：
+  - `parseMarkdownBlocks(content, bodyStartLine): MarkdownBlock[]`
+  - `blockAtLine(blocks, line): MarkdownBlock | null`
+  - `splitFrontmatter(content): { frontmatter: string; body: string; bodyStartLine: number }`
+  - `lineRangeForSelection(blocks, lines, startBlock, endBlock, selectedText): { startLine; endLine }`
+  - `sanitizeLinkHref(href): string | null`
+  - `sanitizeImageSrc(src, allow): string | null`
+  - `renderTaskMarker(text): { checked: boolean; text: string } | null`
+- 图片 URL 解析复用[附件管线](attachment-pipeline.md)与宿主 `/api/file`；无新路由。
+- 版本/冲突/附件 chip/活动时长沿用现有契约；不添加 diff 字段（v1 无行级 diff）。
+- 权限边界不变：编辑写权限沿用 `artifact/edit` 的 `editable` + owner 校验；跨会话只读由 `ownerSessionId` 判定。
 
 ## 安全
 
-- **默认转义原始 HTML**：渲染只建 DOM 节点、绝不 `innerHTML`；源码里的 `<script>`/`<img onerror>` 在渲染态按字面字符显示，不解析。
-- **外链 `target`/`rel`**：所有 `[text](https://example.com)` 渲染为 `target="_blank" rel="noopener noreferrer"`；`Mod+Click` 打开前过外链白名单（`http`/`https`）。
-- **图片 URL 白名单**：只接受三类来源：`http(s)://` 远程图片；`cowork-attachment://<attachmentId>` 已发布附件（解析为 `artifact.attachment` 路由）；项目相对路径（相对 owner session 的 cwd 解析，规范化后必须仍在项目内，再经宿主 `/api/file?path=` 读取，禁止绝对路径、`..` 逃逸、反斜杠和控制字符）。拒绝 `javascript:` / `data:` / `blob:` / `file:` / `vbscript:`。项目相对图片在 v1 只读渲染，不写入 anchor；用户粘贴图片先走 `artifact.upload` + 浏览器 `artifact.attach` 发布，再写入 `cowork-attachment://<attachmentId>`。`data:` 在 Markdown 图片中禁用（与 HTML 预览 CSP 允许 `data:` 不同，本文范围更严）。
-- **禁止未净化 innerHTML**：渲染路径、表格重建、代码高亮全部走 `createElement`/`textContent`。
-- **Mermaid 不支持**：v1 不把 Mermaid 围栏渲染成图，按代码块显示；若后续引入，必须 `securityLevel:'strict'` 并说明 CSP（`script-src`/`worker-src` 收窄、禁止 `unsafe-eval`），且只接受 `@lezer` 解析出的围栏内容，不接受任意源码。
+- **原始 HTML 按字面**：markdown-it `html:false`；token 渲染只写 `textContent`/React children；源码里的 `<script>`、`<img onerror>` 显示为文本。
+- **无 innerHTML**：渲染路径不出现 `dangerouslySetInnerHTML`/`innerHTML`；表格、代码、链接、图片全部建节点。
+- **链接**：只接受 `http`/`https`；带 `target="_blank"` + `rel="noopener noreferrer"`；`javascript:`/`vbscript:`/`file:`/`data:` 一律不渲染为链接。
+- **图片**：白名单 `http(s)://`、`cowork-attachment://<id>`、项目内相对路径；拒绝 `javascript:`/`data:`/`blob:`/`file:`/`vbscript:`/绝对路径/`..` 逃逸/反斜杠/控制字符。markdown-it 默认放行 `data:image`，实现必须在建 `<img>` 前覆盖该判断。
+- **表格对齐**：只接受 `left|center|right` 三个 token 属性值，不拼接原始 style。
+- **frontmatter**：只展示原文，不解析 YAML，不执行/求值。
+- **任务列表**：只读 checkbox；点击不修改源文本。
+- **资源上限**：沿用 `MAX_ARTIFACT_TEXT_BYTES` / `MAX_ARTIFACT_TEXT_LINES`；超限降级源码态，不做无界 DOM。
+- **测试**：原始 HTML 字面、`javascript:` 链接、`data:` 图片、外链 `rel`、表格对齐注入、超长 quote/selectedText。
 
 ## 可访问性
 
-- 焦点顺序沿用 `visual-acceptance.md` §7：header tabs → header 操作 → 工具栏 → 文档 → pin/批注栏 → composer → footer。
-- 键盘：方向键在块间/行间移动；`Enter` 进入行尾块源码或批注当前行；`Esc` 退出源码块并还焦；`Mod+Enter` 切换块；`Tab` 不劫持（交给宿主焦点环）。
-- 当前块源码态设 `role="textbox"` + `aria-multiline="true"` + `aria-label`；活动块用 `aria-current="true"` 或 focus 指示，不依赖颜色表达。
-- 屏幕阅读器：渲染态块有隐含文本（textContent），图片 `alt` 缺失时读占位文本，不读 URL。
-- `prefers-reduced-motion: reduce`：关闭保存点脉冲/活动脉冲（沿用 `styles.ts` media）。
-- 对比度：源码块边框/背景与文字对比达 WCAG AA；pin/选中环状态另有文字或 `aria-label`，颜色不是唯一状态。
+- 语义 HTML：`article`、`h1–h6`、`ul/ol/li`、`blockquote`、`table/th/td`、`pre/code`；表格 `th` 带 `scope="col"`；图片使用作者 alt，缺失时 figure 下有可见说明。
+- pin 是 `<button>`，`aria-label` 含线程序号、总数、行范围；`focus-visible` 2px ink outline，offset 1px。
+- 选区「批注」入口是可聚焦按钮；打开 composer 后焦点进入输入框；Esc 关闭并把焦点还给触发位置。
+- 焦点顺序沿用[视觉基线](visual-acceptance.md) §7：header tabs → header 操作 → 工具栏 → 阅读正文 → pin/选区入口 → 批注栏 → composer → footer。
+- 颜色不是唯一状态：pin 的 resolved/stale 有 `aria-label` 文字；diff 色（后续）有文字说明。
+- `prefers-reduced-motion: reduce` 关闭脉冲/过渡；正文对比度达 WCAG AA；暗色用宿主 alias token。
+- 源码态继续使用现有 CM6 的 `aria-label` 和键盘行为。
 
 ## 视觉保真与像素验收
 
-共享基线见[visual-acceptance.md](visual-acceptance.md)（pin、选中环、anchor 序号、附件 chip、评论筛选、活动时长、行级 diff、版本计数、1280/1024/768/390 四档、±2px 关键盒容差）。本文增量项：
+### 口径
+
+- 参考画板 1280×900，App 内容盒 1208×828；纸面最大 920px，左右居中；右栏 336px（窄屏 280/抽屉）。1280 视口 + 336px 批注栏时纸面约 825px、正文列约 761px；920px 只在更宽视口或批注栏收起时出现。
+- 截图为 Chromium headless、DPR 2；关键布局盒容差 ±2px，文字基线/边框 ±1px。
+- 下表的 px 是 15px 基准下的计算值；CSS 用 em 表达 Markdown 节奏，UI chrome 用整数 px。
+- 颜色来自 `--cwi-*` / 暗色 `--dsw-alias-*`；不新增硬编码亮色值，pin tone 沿用基线。
+
+### 桌面规格（≥1024px，纸面 920px）
 
 | 元素 | 规格 |
 |---|---|
-| 阅读态正文行宽 | 纸面内左右 padding 24px；等宽字号下约 50–52 字/行（对齐 `visual-acceptance.md` 密度） |
-| 标题 h1/h2/h3 | 沿用 `--dsw-font-markdown-h*-*` 宿主 token；h1 块首 padding-top 12px |
-| 列表/任务列表 | 圆点/序号 8px 占位；任务 checkbox 14×14 圆角 3px、1px border、只读 |
-| 引用 | 左 2px border、padding-left 10px、muted 文字 |
-| 表格 | 边框 1px `border-soft`；表头 `surface-muted` 底；单元格 padding 4px 8px；整块圆角 6px |
-| 图片 | 最大宽 100%、圆角 8px、1px border；加载失败显示占位块，不显示破图 |
-| 代码块 | mono 12px/20px、`surface-muted` 底、圆角 6px、横向可滚动 |
-| 当前块源码态 | 1px accent 边框 + accent-soft 底，内缩 2px；`.cm-content` 字号 13px/22px mono |
-| 行号 gutter | 60px；源码行号 10.5px mono；折叠块首行号高亮，其余折叠行号灰显 |
-| 行级 diff 底色 | 数据依赖 `changedLineRanges`/版本快照；无 diff 数据不伪造（沿用 `visual-acceptance.md` §5.7） |
-| 保存状态 | 已保存绿点 `已保存 · rN` / 保存中蓝点脉冲 / 冲突红点（沿用 `styles.ts` `.cwi-save`） |
-| 附件 chip / 版本计数 / 活动时长 | 沿用 `visual-acceptance.md` §5.4/5.8/5.6 |
+| 纸面 | max-width 920px；border 1px `--cwi-border`；圆角 12px；纸面头 42px；纸面脚 36px |
+| 阅读区 | padding 28px 40px 40px 24px（上/右/下/左）；正文列宽 856px；无行号 gutter |
+| 正文 | 15px / 26.25px（1.75）；系统字体栈；`--cwi-ink`；字距 0 |
+| 段落 | 下边距 13.5px（0.9em）；无首行缩进 |
+| h1 | 30px / 39px，700，下边距 21px（0.7em）；首个元素上边距 0 |
+| h2 | 21px / 28.35px（1.35），600，上/下边距 33.6/12.6px（1.6em/0.6em，em 按 h2 字号） |
+| h3 | 17.25px / 24.15px（1.4），600，上/下边距 24.15/8.625px（1.4em/0.5em） |
+| h4–h6 | 15px / 24px，600，上/下边距 21/9px；不缩字号 |
+| 粗体 / 斜体 / 删除线 | 650 / italic / line-through；删除线颜色 muted |
+| 链接 | `--cwi-accent`，无默认下划线，hover 下划线；外链新窗口 |
+| 行内代码 | 12.9px mono，padding 2px 6px，圆角 4px，背景 `--cwi-surface-muted`，颜色 ink |
+| 列表 | `ul/ol` 下边距 13.5px、左缩进 24px（1.6em）；`li` 上下 4px；嵌套列表下边距 0 |
+| 任务列表 | `list-style:none`；左 padding 22px；checkbox 14×14、圆角 3px、1px `--cwi-border`、右间距 8px；选中底 `--cwi-success-soft`、边框 `--cwi-success`、勾 8px；disabled |
+| 引用 | 左边框 3px `--cwi-border`，左 padding 15px，上下 2px，颜色 `--cwi-muted`，下边距 15px；无背景 |
+| 代码块 | 背景 `--cwi-surface-muted`；padding 14px 16px；圆角 6px；下边距 15px；`code` 12.75px / 24px mono；块内横向滚动；无高亮 |
+| 表格 | 容器下边距 15px、圆角 6px、横向滚动；表格宽 100%、列宽随内容；单元格 padding 6px 12px、1px `--cwi-border`、左对齐、顶部对齐、15px/26.25px；表头底 `--cwi-surface-muted`、600 |
+| 图片 | `img` max-width 100%、height auto、圆角 8px、1px `--cwi-border-soft`；figure 下边距 15px；caption 11px/18px、`--cwi-soft`、上边距 6px；失败占位虚线 1px、圆角 8px、最小高度 96px、11px 说明 |
+| 分割线 | 1px `--cwi-border-soft`；上下边距 27px |
+| frontmatter | 下边距 20px；border 1px；圆角 6px；summary 12px/21px、padding 6px 12px、`--cwi-muted`；展开内容 12px/19.2px mono、padding 10px 12px、上边框 1px、最大高 240px、纵向滚动 |
+| 块级 pin | 17×17px、padding 0 4px、2px 纸面底色描边、圆角 999px、8px/800、白字、accent 底、shadow `0 1px 3px #1018282e`；块内 `right:-33px`、`top:2px`；hover/focus 用 tooltip 显示 `第 S–E 行`（9px/700、padding 1px 5px、圆角 4px、accent-soft/accent），不参与常驻布局 |
+| 选中线程块 | `background:--cwi-accent-soft` + `box-shadow: inset 2px 0 0 var(--cwi-accent)`；不改变块尺寸 |
+| 选区 | `::selection` 背景 `#b2ddff`（暗色品牌 24%），文字 inherit |
+| 选区工具栏 | 高 36px、padding 4px 8px、圆角 10px、border 1px、背景 surface、shadow `0 8px 24px rgba(16,24,40,.16)`；左侧 9px/600「第 S–E 行」只读 chip、颜色 `--cwi-soft`、padding 0 3px；按钮高 26px、padding 0 12px、圆角 7px、11.5px/600、accent 底白字；距选区下方 8px，空间不足翻到上方 8px，左右/上下 clamp 8px |
 
-四档验收（1280/1024/768/390）：阅读态块渲染完整、当前块源码态边框/背景可见、行号不漂移、无横向滚动、窄屏批注栏抽屉不遮 composer。
+### 响应式差异
+
+| 宽度 | 阅读区 padding | 纸面/正文 | 标题 | pin / 其他 |
+|---|---|---|---|---|
+| 900–1023 | 24px 32px 40px 20px | 纸面 max 920；正文列宽 = 纸面 − 52px | h1 30 / h2 21 / h3 17.25 | pin `right:-25px`；rail 280px |
+| 640–899 | 24px 28px 40px 20px | 纸面满宽；正文列宽 = 纸面 − 48px | h1 28/36、h2 20/27、h3 16/22 | pin `right:-21px`；rail 底部抽屉；表格/代码容器内滚动 |
+| < 640 | 20px 24px 32px 16px | 纸面满宽；正文列宽 = 纸面 − 40px | h1 26/34、h2 19/26、h3 16/22；正文 15/25 | pin `right:-17px`；`<390` 无页面横向滚动；toolbar 可换行 |
+
+### 暗色
+
+- 正文/标题/边框/纸面用宿主 alias：`--dsw-alias-label-primary`、`label-secondary`、`border-l2`、`bg-layer-1`；代码底优先 `--dsw-alias-markdown-code-block`，回退 `--cwi-surface-muted`。
+- pin 颜色沿用基线（accent/success/warn）在暗色的 host 版本；选区背景用品牌 24% 混色；表格 `th` 底用 `bg-layer-2`。
+- 亮/暗对比度均需 WCAG AA；暗色下不出现白底代码块或亮色 gutter。
+
+### 容差
+
+- 纸面宽度/阅读区 padding/块首 pin 位置/表格列宽：±2px。
+- 正文基线、标题基线、边框宽度、pin 圆心：±1px。
+- 同一 15px 字号在不同字体栈下的行高不视为偏差；以 computed line-height 26.25px 为准。
+- 没有真实截图证据的「看起来差不多」不作为验收。
 
 ## Demo
 
-- [交互稿](assets/wysiwyg-editor-demo.html)（单板：阅读态 + 当前块源码 + 表格 + 图片 + 代码块 + 任务列表 + 引用 + 链接 + pin/选中环 + 保存状态 + 附件 chip + 版本计数 + 冲突条；跨会话只读态由主区 View demo 覆盖）
-- 截图：[wysiwyg-editor-demo.png](assets/wysiwyg-editor-demo.png)（headless Chrome 实际生成，2560×1800；已用 Playwright 核对 16 个必需状态渲染、尺寸与非空白；队长已用 read_image 目检缩略图并通过，像素级 ±2px 需实现期截图比对）
+- [交互稿](assets/wysiwyg-editor-demo.html)（双板：阅读态首屏 + 续页；首屏含 frontmatter、标题、段落/链接/行内代码、列表、表格、选区浮动批注、块级 pin；续页含引用、代码块、任务列表、图片、链接和 stale pin；批注栏、保存状态、附件 chip、版本计数沿用共享外壳。源码态沿用现有 `editor.tsx`，不在本 demo 重画）
+- 截图：[wysiwyg-editor-demo.png](assets/wysiwyg-editor-demo.png)（Chromium headless 实际生成，2560×3600；两块各 1280×900 逻辑尺寸，DPR 2；实现期按上表 ±2px 核对）
 
 ## 测试与验收
 
 | 层 | 检查 | 哪个会红 |
 |---|---|---|
-| 单测（`node --test`） | `parseMarkdownBlocks` 块范围、`sanitizeImageSrc` 白名单、`blockAtLine`、`renderedWidgetFor` 不产 innerHTML | 安全转义/白名单/块索引错误 → `tests/domains/artifact/*` 或新增 `tests/client/*` 红 |
-| 单测 | anchor 重定位、插入/删除行后行号映射、无法定位 stale | 复用/扩展 `tests/domains/artifact/anchor.test.mjs` 红 |
-| 浏览器（`npm run test:browser`） | 点击块进源码、IME 组合不撕裂、撤销重做、`Mod-s` 保存、键盘进出块、Esc | 交互回归 → 浏览器 lane 红 |
-| 浏览器 | 自动保存/冲突三选、跨会话只读禁用 | `tests/client/work-item/*` + `test:browser` 红 |
-| 真实宿主 | 图片粘贴上传 → 附件引用 → 渲染；保存 → anchor 重定位 | `test:host-smoke` / 真机 E2E |
-| 截图 | 四档宽度 + 亮暗各一，`±2px` 关键盒 | 交付闸门 `delivery_check` page-verify + `dev_visual_check` |
+| 单测（`node --test`） | `splitFrontmatter` 偏移、`parseMarkdownBlocks` 的 token map（标题/段落/列表项/引用/围栏/表格行）、`blockAtLine`、`lineRangeForSelection` 唯一命中/重复/跨块回退、`sanitizeLinkHref`、`sanitizeImageSrc`、任务标记 | `tests/client/work-item-*` 红 |
+| 单测 | 渲染路径无 `innerHTML`/`dangerouslySetInnerHTML`；原始 HTML 字面；`javascript:`/`data:` 拒绝；表格对齐只接受三值 | 安全单测/静态检查红 |
+| 浏览器（`npm run test:browser`） | 阅读态构造渲染、选区浮动入口、120ms debounce、pin 点击/线程高亮、阅读↔源码滚动映射、dirty 时 pin/批注禁用、Esc、四档宽度、暗色 | `tests/client/work-item/*` + `test:browser` 红 |
+| 浏览器 | 保存/冲突三选、跨会话只读、图片失败占位、任务列表不可勾选 | 浏览器 lane 红 |
+| 真实宿主 | 图片粘贴上传 → 附件引用 → 阅读态渲染；保存 → anchor 重定位 | `test:host-smoke` / 真机 E2E |
+| 截图 | 1280/1024/768/390 亮暗各一；关键盒 ±2px；双板 demo 实际生成 | 交付闸门 `page-verify` + `dev_visual_check` |
 
-明确会红的安全项：原始 HTML 注入（`<img onerror>` 在渲染态只显示字面文本）、`javascript:` 图片被拒、未净化 `innerHTML` 在渲染路径不存在（静态 + 单测双保险）。
+明确会红的安全项：`<img onerror>` 在阅读态只显示字面文本；`javascript:` 链接不生成 `<a>`；`data:` 图片被拒；外链带 `rel`；任务列表 checkbox 不可触发源文本修改。
 
 ## 风险、未核实、降级/回滚
 
-- **GFM 块范围解析精度**：`@lezer/markdown` 的 `GFM` 扩展已在本仓库 `node_modules`（`1.8.1`）确认存在，但表格/任务列表的块范围能否稳定落到源码行、嵌套列表边界是否正确，需实现期用真实文档逐档核对；退化方案是沿用现有 `model.ts` 的手写 GFM 探测，不降低安全要求。
-- **块折叠与行号对齐**：块级 widget 折叠源码行是最大实现风险；已用「源码行 = anchor 地址空间 + 块索引换算」缓解，但视觉行高与源码行不一致需在浏览器 lane 逐档核对。
-- **IME 与装饰重算**：组合中重算导致输入点跳动是已知 CM6 混合编辑器风险；用 `composing` 门控，需真实宿主验证中文长句。
-- **性能**：大文件（>2 MB）不整篇进 DOM；块索引按需/防抖重算；超阈值降级为只读逐行（沿用 `MAX_ARTIFACT_TEXT_BYTES`）。
-- **回滚**：渲染层是 `editor.tsx`/`source-lines.tsx` 的替换实现，不删旧路径前保持可切回；旧「阅读/源码」两态可降级保留为逃生门。
-- **未核实**：`conversation.view` 标签容器（兄弟子任务）与编辑器的焦点/滚动交互；跨会话只读判定字段的最终形态；`artifact.upload` 粘贴图片的真实宿主行为。
+- **token map 覆盖**：实测 `th/td` 无 map；表格单元格不设行级地址。若后续要单元格批注，走 `table-cell` anchor（契约已有 kind，但当前无创建/重定位路径），不在本次实现。
+- **选区行范围启发式**：去标记纯文本匹配在复杂行内格式/重复文本上会回退整块；`selectedText` 仍准确，行范围可能比选区宽。实现期用 fixture 语料核对准确率，必要时在 composer 显示「整块范围」提示。
+- **frontmatter 边界**：YAML 内出现 `---` 行、文件不以 `---` 开头等场景需 fixture；v1 只按首尾 `---` 拆分，不解析 YAML。
+- **阅读 DOM 性能**：大文件/长表格的节点数；按 2 MB / 20k 行阈值降级源码态，不做无界渲染。
+- **新增依赖**：`markdown-it` 的版本、打包体积、许可证在实现期核对；不安装未锁定版本。
+- **代码高亮缺失**：v1 代码块纯文本，视觉上弱于 Typora；高亮作为后续独立变更，不阻塞阅读/批注验收。
+- **dirty 时禁批注**：用户可能期望边改边批注；这是 anchor 与已保存版本一致性的取舍，提示文案必须清楚。
+- **源码态暗色**：现有 CM6 主题若未完全跟随宿主暗色，需在实现期核对；不在本文重写编辑器。
+- **大文件/超长行**：无自动换行的源码态是既有行为；阅读态流式换行不受影响。
+- **回滚**：阅读态是新增渲染路径，旧 `source-lines.tsx` 的逐行阅读可保留为逃生门；出问题切回旧路径，不改 anchor/保存/批注契约。删除旧路径前必须完成浏览器 lane 与四档截图验收。
+- **未核实**：宿主 `/api/file` 对项目相对图片的真实边界；跨会话只读下已有 pin 的可点击性；390 档表格/长链接的截断；CM6 源码态滚动定位 API 的最终调用面。
