@@ -18,12 +18,6 @@ import { workItemOpenStore } from './store.ts'
 /** Tab order after the host Chat (0) and trajectory (10) views. */
 const COWORK_VIEW_ORDER = 20
 
-/** Props the `conversation.view` seat injects into the viewer. */
-export interface WorkItemViewProps {
-  /** Session the view is rendered for; the open item's owner may differ. */
-  readonly sessionId: string
-}
-
 /**
  * Bind the conversation view to the open-work-item store.
  *

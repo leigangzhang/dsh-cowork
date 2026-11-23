@@ -79,6 +79,46 @@ function defaultWait(ms: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, ms) })
 }
 
+/** Wait for the tab to render; throws `tab-missing` when the budget expires. */
+async function waitForTab(doc: Document, label: string, wait: (ms: number) => Promise<void>): Promise<HTMLElement> {
+  let waited = 0
+  let tab = findTab(doc, label)
+  while (tab === null && waited < TAB_RENDER_BUDGET_MS) {
+    await wait(POLL_MS)
+    waited += POLL_MS
+    tab = findTab(doc, label)
+  }
+  if (tab === null) {
+    throw new ViewTabError('tab-missing', `没有找到「${label}」会话标签：当前宿主可能不支持工作项标签。`)
+  }
+  return tab
+}
+
+/**
+ * Click the tab and poll `aria-selected` after each click.
+ *
+ * @returns whether the host marked the tab active within the click budget.
+ */
+async function clickUntilSelected(
+  doc: Document,
+  label: string,
+  initial: HTMLElement,
+  wait: (ms: number) => Promise<void>,
+  maxClicks: number,
+): Promise<boolean> {
+  let tab = initial
+  for (let click = 0; click < maxClicks; click += 1) {
+    tab.click()
+    for (let poll = 0; poll < POLLS_PER_CLICK; poll += 1) {
+      await wait(POLL_MS)
+      const current = findTab(doc, label)
+      if (current !== null && isSelected(current)) return true
+    }
+    tab = findTab(doc, label) ?? tab
+  }
+  return false
+}
+
 /**
  * Click the registered conversation view tab and verify it became active.
  *
@@ -94,30 +134,11 @@ export async function activateViewTab(options: ViewTabOptions = {}): Promise<'al
   }
   const label = options.label ?? COWORK_VIEW_LABEL
   const wait = options.wait ?? defaultWait
-  const maxClicks = options.maxClicks ?? MAX_CLICKS
-
-  // Registration is synchronous, but the host paints the tab on the next
-  // render; wait for it before deciding it does not exist.
-  let waited = 0
-  let tab = findTab(doc, label)
-  while (tab === null && waited < TAB_RENDER_BUDGET_MS) {
-    await wait(POLL_MS)
-    waited += POLL_MS
-    tab = findTab(doc, label)
-  }
-  if (tab === null) {
-    throw new ViewTabError('tab-missing', `没有找到「${label}」会话标签：当前宿主可能不支持工作项标签。`)
-  }
+  const tab = await waitForTab(doc, label, wait)
   if (isSelected(tab)) return 'already'
-
-  for (let click = 0; click < maxClicks; click += 1) {
-    tab.click()
-    for (let poll = 0; poll < POLLS_PER_CLICK; poll += 1) {
-      await wait(POLL_MS)
-      const current = findTab(doc, label)
-      if (current !== null && isSelected(current)) return 'activated'
-    }
-    tab = findTab(doc, label) ?? tab
+  const selected = await clickUntilSelected(doc, label, tab, wait, options.maxClicks ?? MAX_CLICKS)
+  if (!selected) {
+    throw new ViewTabError('tab-not-selected', `点击「${label}」标签后没有切换到工作项视图。`)
   }
-  throw new ViewTabError('tab-not-selected', `点击「${label}」标签后没有切换到工作项视图。`)
+  return 'activated'
 }

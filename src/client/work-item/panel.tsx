@@ -75,7 +75,17 @@ import {
 import { openOwnerSession } from './session-open.ts'
 import { workItemOpenStore, type WorkItemOpenContext } from './store.ts'
 import { CommentComposer } from './comment-composer.tsx'
-import { railBackdrop, RebindFileEntry, RailEscape, useNarrowLayout, ViewerPlaceholder } from './panel-frames.tsx'
+import {
+  CollapsedRailReceipt,
+  ConflictCard,
+  CrossSessionBanner,
+  CrossSessionError,
+  railBackdrop,
+  RebindFileEntry,
+  RailEscape,
+  useNarrowLayout,
+  ViewerPlaceholder,
+} from './panel-frames.tsx'
 import { ThreadList } from './thread-list.tsx'
 import { ViewerFooter } from './viewer-footer.tsx'
 import { ViewerToolbar } from './viewer-toolbar.tsx'
@@ -207,7 +217,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   const services = useClientServices()
   const context = useOpenContext()
   const narrow = useNarrowLayout()
-  const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [data, setData] = useState<ViewerData | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [fileProblem, setFileProblem] = useState<{ notice: string | null; code: string | null }>({ notice: null, code: null })
@@ -290,12 +300,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
 
   // Load the work item whenever the context or an explicit retry changes.
   useEffect(() => {
-    if (context === null) {
-      contextKeyRef.current = null
-      setPhase('idle')
-      setData(null)
-      return
-    }
+    if (context === null) return
     const contextKey = `${context.ownerSessionId}\u0000${context.artifactId}`
     if (contextKeyRef.current !== contextKey) {
       contextKeyRef.current = contextKey
@@ -401,7 +406,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     readonly baseRevision?: number
     readonly content?: string
   }) => {
-    if (readOnly || context === null || data === null || data.file === null) return
+    if (context === null || data === null || data.file === null) return
     const file = data.file
     const content = options?.content ?? editDraft
     setSavePhase('saving')
@@ -458,7 +463,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
       setSavePhase('failed')
       setReceipt(`保存失败：${messageOf(error)}`)
     }
-  }, [clearPersistedDraft, context, data, draftBase, editDraft, readOnly])
+  }, [clearPersistedDraft, context, data, draftBase, editDraft])
 
   // Debounced autosave: every edit restarts the 800 ms window; a conflict
   // pauses saving until the user picks a resolution.
@@ -507,7 +512,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
 
   /** Leave editing: flush a dirty draft first. */
   const toggleEditing = useCallback(() => {
-    if (readOnly || data?.file == null) return
+    if (data?.file == null) return
     if (!editing) {
       // A draft that differs from the last save must not be replaced by the
       // server content (a failed save is the common case): it is the user's
@@ -524,7 +529,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     }
     if (dirty) void saveDraft()
     setEditing(false)
-  }, [data?.file, dirty, editDraft, editing, readOnly, saveDraft, savedContent])
+  }, [data?.file, dirty, editDraft, editing, saveDraft, savedContent])
 
   /** Back: a dirty draft needs a second click so it is never lost silently. */
   const requestClose = useCallback(() => {
@@ -675,7 +680,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
 
   /** Upload one picked file and keep the returned refs for the next comment. */
   const attachFiles = useCallback(async (files: FileList | null) => {
-    if (readOnly || context === null || data === null || files === null || files.length === 0) return
+    if (context === null || data === null || files === null || files.length === 0) return
     setUploading(true)
     setReceipt(null)
     try {
@@ -695,7 +700,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     } finally {
       setUploading(false)
     }
-  }, [context, data, readOnly])
+  }, [context, data])
 
   /** Re-read one file after a rebind and adopt its content. */
   const reloadFile = async (path: string): Promise<void> => {
@@ -788,7 +793,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   }
 
   const submit = useCallback(async () => {
-    if (readOnly || context === null || data === null || draft.trim() === '' || submitting) return
+    if (context === null || data === null || draft.trim() === '' || submitting) return
     const submitted = {
       draft, anchor: pendingAnchor, reply: replyTarget, selection, attachments: pendingAttachments,
     }
@@ -821,7 +826,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     } finally {
       setSubmitting(false)
     }
-  }, [context, data, draft, pendingAnchor, pendingAttachments, readOnly, replyTarget, selection, submitting])
+  }, [context, data, draft, pendingAnchor, pendingAttachments, replyTarget, selection, submitting])
 
   const startReply = useCallback((thread: WorkItemThread) => {
     if (readOnly) return
@@ -833,7 +838,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   }, [readOnly])
 
   const confirmWork = useCallback(async () => {
-    if (readOnly || context === null || confirming) return
+    if (context === null || confirming) return
     setConfirming(true)
     setReceipt(null)
     try {
@@ -845,10 +850,10 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     } finally {
       setConfirming(false)
     }
-  }, [confirming, context, readOnly, refreshFromServer])
+  }, [confirming, context, refreshFromServer])
 
   const retryDispatch = useCallback(async (dispatch: ArtifactDispatchSummary) => {
-    if (readOnly || context === null || pendingDispatch !== null) return
+    if (context === null || pendingDispatch !== null) return
     setPendingDispatch(dispatch.dispatchId)
     setReceipt(null)
     try {
@@ -864,10 +869,10 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     } finally {
       setPendingDispatch(null)
     }
-  }, [context, pendingDispatch, readOnly, refreshFromServer])
+  }, [context, pendingDispatch, refreshFromServer])
 
   const toggleThread = useCallback(async (thread: WorkItemThread) => {
-    if (readOnly || context === null || data === null || pendingThread !== null) return
+    if (context === null || data === null || pendingThread !== null) return
     setPendingThread(thread.threadId)
     setReceipt(null)
     try {
@@ -889,7 +894,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     } finally {
       setPendingThread(null)
     }
-  }, [context, data, pendingThread, readOnly])
+  }, [context, data, pendingThread])
 
   const openInApp = useCallback(async () => {
     if (context === null || data?.file == null) return
@@ -933,7 +938,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   // The view is registered only while an item is open; a null context here is
   // the closing frame before the registration is disposed.
   if (context === null) return null
-  if (phase === 'loading' || phase === 'idle') return <ViewerPlaceholder phase="loading" />
+  if (phase === 'loading') return <ViewerPlaceholder phase="loading" />
   if (phase === 'error' || data === null) {
     const onRetry = (): void => { setRefreshToken(token => token + 1) }
     return <ViewerPlaceholder phase="error" error={error} onRetry={onRetry} onBack={close} />
@@ -954,37 +959,17 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
       data-artifact-id={record.artifactId}
       data-conversation-composer-overlay=""
     >
-      {readOnly ? (
-        <div className="cwi-cross" data-testid="cwi-cross-banner" role="status">
-          <span className="cwi-cross-text">
-            当前会话不是该工作项所属会话
-            {data.sessionTitle === null ? '' : ` · 所属：主题「${data.sessionTitle}」`}
-          </span>
-          <button
-            type="button"
-            className="cwi-secondary"
-            data-testid="cwi-cross-open"
-            disabled={ownerOpening}
-            onClick={() => { void openOwner() }}
-          >
-            {ownerOpening ? '切换中…' : '在所属会话打开'}
-          </button>
-        </div>
-      ) : null}
-      {ownerError === null ? null : (
-        <div className="cwi-cross-error" data-testid="cwi-cross-error" role="alert">
-          <span>{ownerError}</span>
-          <button
-            type="button"
-            className="cwi-secondary"
-            data-testid="cwi-cross-retry"
-            disabled={ownerOpening}
-            onClick={() => { void openOwner() }}
-          >
-            重试
-          </button>
-        </div>
-      )}
+      <CrossSessionBanner
+        readOnly={readOnly}
+        sessionTitle={data.sessionTitle}
+        opening={ownerOpening}
+        onOpen={() => { void openOwner() }}
+      />
+      <CrossSessionError
+        error={ownerError}
+        opening={ownerOpening}
+        onRetry={() => { void openOwner() }}
+      />
       <ViewerHeader
         record={record}
         file={data.file}
@@ -1027,13 +1012,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
       {fileProblem.notice === null ? null : (
         <div className="cwi-receipt" data-testid="cwi-file-notice">{fileProblem.notice}</div>
       )}
-      {/* The composer carries the receipt while the rail is on screen. With the
-          rail collapsed the header and menu actions still need visible feedback,
-          so the same message moves to this strip instead of being duplicated in
-          the hidden composer. */}
-      {receipt === null || showRail ? null : (
-        <div className="cwi-receipt" data-testid="cwi-viewer-receipt" role="status">{receipt}</div>
-      )}
+      <CollapsedRailReceipt hidden={!showRail} text={receipt} />
       {backArmed
         ? <div className="cwi-receipt" data-testid="cwi-unsaved-notice">还有未保存内容：再点一次返回会关闭查看器</div>
         : null}
@@ -1047,34 +1026,14 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
               </button>
             </div>
           )}
-          {conflict === null ? null : (
-            <div className="cwi-conflict" data-testid="cwi-conflict" role="alert">
-              <div>
-                保存冲突：最新内容与你编辑的行重叠（
-                {conflict.conflictRanges.map((range) => (range.startLine === range.endLine
-                  ? `第 ${range.startLine} 行`
-                  : `第 ${range.startLine}–${range.endLine} 行`)).join('、')}
-                ）。
-              </div>
-              <div className="cwi-composer-row">
-                <button type="button" className="cwi-secondary" data-testid="cwi-conflict-diff" onClick={() => { setShowConflictDiff(value => !value) }}>
-                  查看差异
-                </button>
-                <button type="button" className="cwi-secondary" data-testid="cwi-conflict-load" onClick={() => { void loadLatest() }}>
-                  加载最新
-                </button>
-                <button type="button" className="cwi-primary" data-testid="cwi-conflict-keep" onClick={keepMine}>
-                  保留我的
-                </button>
-              </div>
-              {showConflictDiff ? (
-                <div className="cwi-conflict-diff">
-                  <div className="cwi-thread-meta">最新内容</div>
-                  <pre className="cwi-conflict-latest" data-testid="cwi-conflict-latest">{conflictLatest}</pre>
-                </div>
-              ) : null}
-            </div>
-          )}
+          <ConflictCard
+            conflict={conflict}
+            latest={conflictLatest}
+            showDiff={showConflictDiff}
+            onToggleDiff={() => { setShowConflictDiff(value => !value) }}
+            onLoadLatest={() => { void loadLatest() }}
+            onKeepMine={keepMine}
+          />
           <DocumentSurface
             kind={kind}
             file={data.file}

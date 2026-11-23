@@ -12,7 +12,7 @@
  * the user on Chat with no work item to see.
  */
 import { useCallback, useEffect, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import {
   ARTIFACT_EVENTS_PATH,
   ARTIFACT_EVENT_TYPES,
@@ -122,6 +122,126 @@ function WorkItemGroupSection({
       {expanded ? group.items.map(item => (
         <WorkItemCard key={item.artifactId} item={item} now={now} onOpen={onOpen} />
       )) : null}
+    </div>
+  )
+}
+
+/** The list frame every phase shares: test id, phase, and the SSE notice. */
+function ListSurface({ phase, liveNotice, children }: {
+  readonly phase: string
+  readonly liveNotice: ReactNode
+  readonly children: ReactNode
+}): ReactElement {
+  return (
+    <div
+      className="cwi-list"
+      data-testid="cwi-list"
+      data-phase={phase}
+      aria-busy={phase === 'loading' ? 'true' : undefined}
+    >
+      {liveNotice}
+      {children}
+    </div>
+  )
+}
+
+/** Three placeholder cards while the first list read is in flight. */
+function ListSkeleton(): ReactElement {
+  return (
+    <>
+      {[0, 1, 2].map((index) => (
+        <div key={index} className="cwi-skeleton-card" data-testid="cwi-skeleton">
+          <div className="cwi-skeleton cwi-skeleton-title" />
+          <div className="cwi-skeleton cwi-skeleton-line" />
+        </div>
+      ))}
+    </>
+  )
+}
+
+/** The first-read failure surface with its retry. */
+function ListLoadError({ error, onRetry }: {
+  readonly error: unknown
+  readonly onRetry: () => void
+}): ReactElement {
+  return (
+    <div className="cwi-error" data-testid="cwi-list-error">
+      无法加载工作项：{messageOf(error)}
+      <div><button type="button" className="cwi-secondary" onClick={onRetry}>重试</button></div>
+    </div>
+  )
+}
+
+/** The empty project surface; the retry re-reads the list. */
+function ListEmpty({ onRetry }: { readonly onRetry: () => void }): ReactElement {
+  return (
+    <div className="cwi-empty" data-testid="cwi-list-empty">
+      还没有工作项。让主题会话用 cowork_artifact_create 登记项目里的交付物后，
+      它们会出现在这里。
+      <div><button type="button" className="cwi-secondary" onClick={onRetry}>刷新</button></div>
+    </div>
+  )
+}
+
+/** The filter row: one chip per status projection. */
+function FilterRow({ filter, counts, onFilter }: {
+  readonly filter: WorkItemFilter
+  readonly counts: ArtifactListResponse['counts']
+  readonly onFilter: (filter: WorkItemFilter) => void
+}): ReactElement {
+  return (
+    <div className="cwi-filter-row" role="group" aria-label="按状态筛选工作项">
+      {WORK_ITEM_FILTERS.map(option => (
+        <button
+          key={option}
+          type="button"
+          className="cwi-filter"
+          data-testid="cwi-filter"
+          data-filter={option}
+          data-active={filter === option ? 'true' : 'false'}
+          onClick={() => { onFilter(option) }}
+        >
+          {filterLabel(option)} {filterCount(counts, option)}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** A failed conversation-tab activation, with the retry that re-attempts it. */
+function SwitchErrorNotice({ error, switching, onRetry }: {
+  readonly error: string | null
+  readonly switching: boolean
+  readonly onRetry: () => void
+}): ReactElement | null {
+  if (error === null) return null
+  return (
+    <div className="cwi-error" role="alert" data-testid="cwi-list-switch-error">
+      {error}{' '}
+      <button
+        type="button"
+        className="cwi-secondary"
+        data-testid="cwi-list-switch-retry"
+        disabled={switching}
+        onClick={onRetry}
+      >
+        重试切换
+      </button>
+    </div>
+  )
+}
+
+/** A refresh that failed after rows were already loaded. */
+function ListRefreshError({ phase, error, onRetry }: {
+  readonly phase: 'loading' | 'ready' | 'error'
+  readonly error: unknown
+  readonly onRetry: () => void
+}): ReactElement | null {
+  if (phase !== 'error') return null
+  return (
+    <div className="cwi-error" role="alert" data-testid="cwi-list-error">
+      刷新失败：{messageOf(error)}
+      <div><button type="button" className="cwi-secondary" onClick={onRetry}>重试</button></div>
     </div>
   )
 }
@@ -250,87 +370,27 @@ export function WorkItemList({ sessionId }: WorkItemListProps): ReactElement {
   )
 
   if (phase === 'loading') {
-    return (
-      <div className="cwi-list" data-testid="cwi-list" data-phase="loading" aria-busy="true">
-        {liveNotice}
-        {[0, 1, 2].map((index) => (
-          <div key={index} className="cwi-skeleton-card" data-testid="cwi-skeleton">
-            <div className="cwi-skeleton cwi-skeleton-title" />
-            <div className="cwi-skeleton cwi-skeleton-line" />
-          </div>
-        ))}
-      </div>
-    )
+    return <ListSurface phase="loading" liveNotice={liveNotice}><ListSkeleton /></ListSurface>
   }
   if (data === null) {
-    return (
-      <div className="cwi-list" data-testid="cwi-list" data-phase="error">
-        {liveNotice}
-        <div className="cwi-error" data-testid="cwi-list-error">
-          无法加载工作项：{messageOf(error)}
-          <div><button type="button" className="cwi-secondary" onClick={retry}>重试</button></div>
-        </div>
-      </div>
-    )
+    return <ListSurface phase="error" liveNotice={liveNotice}><ListLoadError error={error} onRetry={retry} /></ListSurface>
   }
   if (data.items.length === 0) {
-    return (
-      <div className="cwi-list" data-testid="cwi-list" data-phase="empty">
-        {liveNotice}
-        <div className="cwi-empty" data-testid="cwi-list-empty">
-          还没有工作项。让主题会话用 cowork_artifact_create 登记项目里的交付物后，
-          它们会出现在这里。
-          <div><button type="button" className="cwi-secondary" onClick={retry}>刷新</button></div>
-        </div>
-      </div>
-    )
+    return <ListSurface phase="empty" liveNotice={liveNotice}><ListEmpty onRetry={retry} /></ListSurface>
   }
   const visible = filterArtifacts(data.items, filter)
   const groups = groupArtifacts(visible)
   return (
-    <div className="cwi-list" data-testid="cwi-list" data-phase="ready">
-      <div className="cwi-filter-row" role="group" aria-label="按状态筛选工作项">
-        {WORK_ITEM_FILTERS.map(option => (
-          <button
-            key={option}
-            type="button"
-            className="cwi-filter"
-            data-testid="cwi-filter"
-            data-filter={option}
-            data-active={filter === option ? 'true' : 'false'}
-            onClick={() => { setFilter(option) }}
-          >
-            {filterLabel(option)} {filterCount(data.counts, option)}
-          </button>
-        ))}
-      </div>
-      {switchError === null ? null : (
-        <div className="cwi-error" role="alert" data-testid="cwi-list-switch-error">
-          {switchError}{' '}
-          <button
-            type="button"
-            className="cwi-secondary"
-            data-testid="cwi-list-switch-retry"
-            disabled={switching}
-            onClick={() => { void switchToView() }}
-          >
-            重试切换
-          </button>
-        </div>
-      )}
-      {liveNotice}
-      {phase === 'error' ? (
-        <div className="cwi-error" role="alert" data-testid="cwi-list-error">
-          刷新失败：{messageOf(error)}
-          <div><button type="button" className="cwi-secondary" onClick={retry}>重试</button></div>
-        </div>
-      ) : null}
+    <ListSurface phase="ready" liveNotice={liveNotice}>
+      <FilterRow filter={filter} counts={data.counts} onFilter={setFilter} />
+      <SwitchErrorNotice error={switchError} switching={switching} onRetry={() => { void switchToView() }} />
+      <ListRefreshError phase={phase} error={error} onRetry={retry} />
       {groups.length === 0 ? (
         <div className="cwi-empty">这个筛选下没有工作项。</div>
       ) : groups.map((group) => (
         <WorkItemGroupSection key={group.status} group={group} now={now} onOpen={open} />
       ))}
       {data.truncated ? <div className="cwi-empty">仅显示最近 200 个工作项。</div> : null}
-    </div>
+    </ListSurface>
   )
 }

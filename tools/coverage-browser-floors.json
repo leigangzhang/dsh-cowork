@@ -82,7 +82,7 @@
       "functionCoverage": 100.0
     },
     "src/client/work-item/panel-frames.tsx": {
-      "lineCoverage": 96.85,
+      "lineCoverage": 100,
       "functionCoverage": 100
     }
   }

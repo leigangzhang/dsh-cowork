@@ -450,20 +450,7 @@ async function scenarioSessionSwitch(page, fixtures) {
   await workCard.click()
   await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
 
-  await page.locator(`[data-row-key="workspace:${fixtures.secondaryWorkspaceId}"]`).hover()
-  const createButton = page.locator('button[aria-label*="secondary-repo"][aria-label*="新建会话"]')
-  await createButton.waitFor({ state: 'visible', timeout: 10_000 })
-  const [created] = await Promise.all([
-    page.waitForResponse((response) => {
-      try {
-        return new URL(response.url()).pathname === '/api/session/create'
-      } catch {
-        return false
-      }
-    }),
-    createButton.click(),
-  ])
-  const selectedSessionId = (await created.json()).result.value.sessionId
+  const selectedSessionId = await createSessionIn(page, fixtures.secondaryWorkspaceId, 'secondary-repo')
   const secondary = await fixtures.prepareSecondarySession(selectedSessionId)
 
   // The new Session is blank, so the host renders no conversation view at all:
@@ -643,6 +630,44 @@ export async function engageSession(page, message) {
   await page.getByText(`收到：${message}`, { exact: false }).first().waitFor({ timeout: 60_000 })
 }
 
+/** Wait for a Session creation triggered by `button` and return its host id. */
+async function createSessionVia(page, button) {
+  const [created] = await Promise.all([
+    page.waitForResponse((response) => {
+      try {
+        return new URL(response.url()).pathname === '/api/session/create'
+      } catch {
+        return false
+      }
+    }),
+    button.click(),
+  ])
+  return (await created.json()).result.value.sessionId
+}
+
+/** Create a Session in one workspace through the real sidebar action. */
+async function createSessionIn(page, workspaceId, repoLabel) {
+  await page.locator(`[data-row-key="workspace:${workspaceId}"]`).hover()
+  const create = page.locator(`button[aria-label*="${repoLabel}"][aria-label*="新建会话"]`)
+  await create.waitFor({ state: 'visible', timeout: 10_000 })
+  return createSessionVia(page, create)
+}
+
+/** The seeded artifact card in the work-item rail. */
+async function artifactCard(page) {
+  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
+  await card.waitFor({ timeout: 15_000 })
+  return card
+}
+
+/** Open the seeded artifact and wait for the viewer title. */
+async function openArtifactViewer(page) {
+  const card = await artifactCard(page)
+  await card.click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  return card
+}
+
 /** Open the collapsed comment rail through its toolbar toggle. */
 async function openRail(page) {
   const rail = page.getByTestId('cwi-rail')
@@ -682,8 +707,7 @@ function chatTab(page) {
  */
 async function scenarioWorkItemViewTab(page) {
   const list = await openWorkItemTab(page)
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
+  const card = await artifactCard(page)
 
   // The rail starts with the document-only layout; the tab appears only now.
   assert.equal(await page.getByTestId('cwi-rail').isHidden(), true, 'the rail starts collapsed')
@@ -755,29 +779,13 @@ async function scenarioWorkItemViewTab(page) {
  * work item while its owner is the first Session.
  */
 async function scenarioWorkItemCrossSession(page, fixtures) {
-  await page.locator(`[data-row-key="workspace:${fixtures.primaryWorkspaceId}"]`).hover()
-  const create = page.locator('button[aria-label*="primary-repo"][aria-label*="新建会话"]')
-  await create.waitFor({ state: 'visible', timeout: 10_000 })
-  const [created] = await Promise.all([
-    page.waitForResponse((response) => {
-      try {
-        return new URL(response.url()).pathname === '/api/session/create'
-      } catch {
-        return false
-      }
-    }),
-    create.click(),
-  ])
-  const otherSessionId = (await created.json()).result.value.sessionId
+  const otherSessionId = await createSessionIn(page, fixtures.primaryWorkspaceId, 'primary-repo')
   assert.notEqual(otherSessionId, fixtures.primarySessionId)
   await engageSession(page, '跨会话第二会话')
 
   await ensurePanel(page)
   await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
-  await card.click()
-  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await openArtifactViewer(page)
 
   // T5: no editor, confirm, reply, resolve, or comment submission is offered.
   const banner = page.getByTestId('cwi-cross-banner')
@@ -817,26 +825,12 @@ async function scenarioWorkItemCrossSession(page, fixtures) {
  * appears as soon as a started Session is selected.
  */
 async function scenarioWorkItemTabFailure(page, fixtures) {
-  await page.locator(`[data-row-key="workspace:${fixtures.primaryWorkspaceId}"]`).hover()
-  const create = page.locator('button[aria-label*="primary-repo"][aria-label*="新建会话"]')
-  await create.waitFor({ state: 'visible', timeout: 10_000 })
-  const [created] = await Promise.all([
-    page.waitForResponse((response) => {
-      try {
-        return new URL(response.url()).pathname === '/api/session/create'
-      } catch {
-        return false
-      }
-    }),
-    create.click(),
-  ])
-  const blankSessionId = (await created.json()).result.value.sessionId
+  const blankSessionId = await createSessionIn(page, fixtures.primaryWorkspaceId, 'primary-repo')
   assert.notEqual(blankSessionId, fixtures.primarySessionId)
 
   await ensurePanel(page)
   await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
+  const card = await artifactCard(page)
   await card.click()
   const failure = page.getByTestId('cwi-list-switch-error')
   await failure.waitFor({ timeout: 20_000 })
@@ -889,6 +883,14 @@ async function scenarioWorkItemOwnerFailure(page, fixtures) {
     // the catalog this scenario intends to see.
     await route.fulfill({ response, json: body }).catch(() => {})
   })
+  /** Re-label a proxied fixture response as the ghost work item. */
+  const ghostBody = (body) => {
+    if (body === null) return null
+    if (body.record !== undefined) body.record = { ...body.record, artifactId: ghost, title: '所属会话已不可用' }
+    if (body.artifactId !== undefined) body.artifactId = ghost
+    return body
+  }
+  /** Proxy one owner-scoped read onto the real fixture Session/artifact. */
   const proxy = async (route) => {
     const url = new URL(route.request().url())
     if (url.searchParams.get('artifactId') !== ghost) {
@@ -898,13 +900,11 @@ async function scenarioWorkItemOwnerFailure(page, fixtures) {
     url.searchParams.set('sessionId', fixtures.primarySessionId)
     url.searchParams.set('artifactId', BROWSER_ARTIFACT)
     const response = await route.fetch({ url: url.toString() })
-    const body = await response.json().catch(() => null)
+    const body = ghostBody(await response.json().catch(() => null))
     if (body === null) {
       await route.fulfill({ response }).catch(() => {})
       return
     }
-    if (body.record !== undefined) body.record = { ...body.record, artifactId: ghost, title: '所属会话已不可用' }
-    if (body.artifactId !== undefined) body.artifactId = ghost
     await route.fulfill({ response, json: body }).catch(() => {})
   }
   await page.route('**/api/cowork.artifact.detail*', proxy)
@@ -984,8 +984,7 @@ async function scenarioWorkItemChain(page) {
   const loading = page.getByTestId('cwi-list')
   await loading.waitFor({ timeout: 10_000 })
   assert.equal(await loading.getAttribute('data-phase'), 'loading')
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
+  const card = await artifactCard(page)
   await page.unroute('**/api/cowork.artifact.list*')
 
   // Filters keep the one seeded item visible and count it.
@@ -1096,8 +1095,7 @@ async function scenarioWorkItemTypes(page) {
   await ensurePanel(page)
   await ensureTopicList(page)
   await openWorkItemTab(page)
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
+  const card = await artifactCard(page)
 
   const diagramSource = 'flowchart LR\n  A[开始] --> B[结束]\n'
   const htmlSource = '<!doctype html><html><body><h1 id="title">静态标题</h1><script>document.getElementById("title").textContent = "脚本已运行"</script></body></html>'
@@ -1321,8 +1319,7 @@ async function scenarioWorkItemTypes(page) {
 async function scenarioWorkItemListLive(page, fixtures) {
   await page.route('**/api/cowork.artifact.events*', route => route.abort())
   await openWorkItemTab(page)
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
+  const card = await artifactCard(page)
   // EventSource retries on its own; three failures stop the rail and leave the
   // last list on screen.
   await page.getByTestId('cwi-list-sse').waitFor({ timeout: 30_000 })
@@ -1353,10 +1350,7 @@ async function scenarioWorkItemListLive(page, fixtures) {
  */
 async function scenarioWorkItemEdit(page, fixtures) {
   await openWorkItemTab(page)
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
-  await card.click()
-  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await openArtifactViewer(page)
   await page.getByTestId('cwi-viewer-footer').waitFor({ timeout: 10_000 })
   // Overflow menu: copy path and refresh are the two local actions.
   await page.getByTestId('cwi-more').click()
@@ -1521,8 +1515,7 @@ async function scenarioWorkItemEdit(page, fixtures) {
  */
 async function scenarioWorkItemDraft(page) {
   await openWorkItemTab(page)
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
+  const card = await artifactCard(page)
   let injectFailedDispatch = true
   await page.route('**/api/cowork.artifact.detail*', async (route) => {
     const response = await route.fetch()
@@ -1665,10 +1658,7 @@ async function scenarioWorkItemDraft(page) {
 /** The attachment tab lists uploaded image/text metadata and download links. */
 async function scenarioWorkItemAttachments(page) {
   await openWorkItemTab(page)
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
-  await card.click()
-  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await openArtifactViewer(page)
   await page.getByTestId('cwi-view-tab').filter({ hasText: '附件' }).click()
   await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
   const rows = page.getByTestId('cwi-attachment-row')
@@ -1685,8 +1675,7 @@ async function scenarioWorkItemAttachments(page) {
  */
 async function scenarioWorkItemEdges(page, fixtures) {
   await openWorkItemTab(page)
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
+  const card = await artifactCard(page)
 
   // Three consecutive stream failures stop the viewer and offer a retry; the
   // retry reconnects once the route no longer refuses the stream.
@@ -1800,10 +1789,7 @@ async function scenarioWorkItemEdges(page, fixtures) {
  */
 async function scenarioWorkItemLive(page, fixtures) {
   await openWorkItemTab(page)
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
-  await card.click()
-  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await openArtifactViewer(page)
   await openRail(page)
 
   // A model edit arrives through the file.changed SSE event; the read-only
@@ -1922,8 +1908,7 @@ async function scenarioWorkItemRestore(page) {
   // T7: the open state is in memory only; after the reload no view is registered.
   assert.equal(await coworkTab(page).count(), 0, 'a reload leaves no open work item')
   const list = await openWorkItemTab(page)
-  const card = page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`)
-  await card.waitFor({ timeout: 15_000 })
+  const card = await artifactCard(page)
   // Read the rail before opening the viewer: selecting the main panel may
   // unmount the session-scoped tab body.
   assert.match(await list.innerText(), /浏览器交付物/)
@@ -1940,20 +1925,7 @@ async function scenarioWorkItemRestore(page) {
 
 /** A session with no Cowork project renders the empty surface, not an error. */
 async function scenarioEmptyProject(page, fixtures) {
-  const row = page.locator(`[data-row-key="workspace:${fixtures.emptyWorkspaceId}"]`)
-  await row.hover()
-  const create = page.locator('button[aria-label*="empty-repo"][aria-label*="新建会话"]')
-  await create.waitFor({ state: 'visible', timeout: 10_000 })
-  await Promise.all([
-    page.waitForResponse((response) => {
-      try {
-        return new URL(response.url()).pathname === '/api/session/create'
-      } catch {
-        return false
-      }
-    }),
-    create.click(),
-  ])
+  await createSessionIn(page, fixtures.emptyWorkspaceId, 'empty-repo')
   await ensurePanel(page)
   await refreshCowork(page)
   const notice = page.locator('.cw-notice[data-notice]').filter({ hasText: /这个仓库还没有 Cowork 项目|这个项目还没有主题/ })

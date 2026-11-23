@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { ArtifactRecordV1 } from '../../panel/artifact-contract.js'
-import { workItemApi } from './api.ts'
+import { workItemApi, type SaveConflict } from './api.ts'
 import {
   drawerClosesOnEscape,
   errorPresentation,
@@ -181,4 +181,109 @@ export function RailEscape({ narrow, showRail, onClose }: {
 export function railBackdrop(narrow: boolean, showRail: boolean, onClose: () => void): ReactElement | null {
   if (!narrow || !showRail) return null
   return <div className="cwi-rail-backdrop" data-testid="cwi-rail-backdrop" aria-hidden="true" onClick={onClose} />
+}
+
+/** The read-only owner banner for a cross-session preview. */
+export function CrossSessionBanner({ readOnly, sessionTitle, opening, onOpen }: {
+  readonly readOnly: boolean
+  readonly sessionTitle: string | null
+  readonly opening: boolean
+  readonly onOpen: () => void
+}): ReactElement | null {
+  if (!readOnly) return null
+  return (
+    <div className="cwi-cross" data-testid="cwi-cross-banner" role="status">
+      <span className="cwi-cross-text">
+        当前会话不是该工作项所属会话
+        {sessionTitle === null ? '' : ` · 所属：主题「${sessionTitle}」`}
+      </span>
+      <button
+        type="button"
+        className="cwi-secondary"
+        data-testid="cwi-cross-open"
+        disabled={opening}
+        onClick={onOpen}
+      >
+        {opening ? '切换中…' : '在所属会话打开'}
+      </button>
+    </div>
+  )
+}
+
+/** The failed "open in owning session" attempt, with its retry. */
+export function CrossSessionError({ error, opening, onRetry }: {
+  readonly error: string | null
+  readonly opening: boolean
+  readonly onRetry: () => void
+}): ReactElement | null {
+  if (error === null) return null
+  return (
+    <div className="cwi-cross-error" data-testid="cwi-cross-error" role="alert">
+      <span>{error}</span>
+      <button
+        type="button"
+        className="cwi-secondary"
+        data-testid="cwi-cross-retry"
+        disabled={opening}
+        onClick={onRetry}
+      >
+        重试
+      </button>
+    </div>
+  )
+}
+
+/**
+ * A viewer-level receipt for the collapsed rail.
+ *
+ * The composer inside the rail owns the receipt while the rail is open; when it
+ * is collapsed this strip keeps header and menu feedback visible without
+ * duplicating the message inside the hidden composer.
+ */
+export function CollapsedRailReceipt({ hidden, text }: {
+  readonly hidden: boolean
+  readonly text: string | null
+}): ReactElement | null {
+  if (!hidden || text === null) return null
+  return <div className="cwi-receipt" data-testid="cwi-viewer-receipt" role="status">{text}</div>
+}
+
+/** The save-conflict card: the overlapping ranges and its three resolutions. */
+export function ConflictCard({ conflict, latest, showDiff, onToggleDiff, onLoadLatest, onKeepMine }: {
+  readonly conflict: SaveConflict | null
+  readonly latest: string
+  readonly showDiff: boolean
+  readonly onToggleDiff: () => void
+  readonly onLoadLatest: () => void
+  readonly onKeepMine: () => void
+}): ReactElement | null {
+  if (conflict === null) return null
+  return (
+    <div className="cwi-conflict" data-testid="cwi-conflict" role="alert">
+      <div>
+        保存冲突：最新内容与你编辑的行重叠（
+        {conflict.conflictRanges.map((range) => (range.startLine === range.endLine
+          ? `第 ${range.startLine} 行`
+          : `第 ${range.startLine}–${range.endLine} 行`)).join('、')}
+        ）。
+      </div>
+      <div className="cwi-composer-row">
+        <button type="button" className="cwi-secondary" data-testid="cwi-conflict-diff" onClick={onToggleDiff}>
+          查看差异
+        </button>
+        <button type="button" className="cwi-secondary" data-testid="cwi-conflict-load" onClick={onLoadLatest}>
+          加载最新
+        </button>
+        <button type="button" className="cwi-primary" data-testid="cwi-conflict-keep" onClick={onKeepMine}>
+          保留我的
+        </button>
+      </div>
+      {showDiff ? (
+        <div className="cwi-conflict-diff">
+          <div className="cwi-thread-meta">最新内容</div>
+          <pre className="cwi-conflict-latest" data-testid="cwi-conflict-latest">{latest}</pre>
+        </div>
+      ) : null}
+    </div>
+  )
 }
