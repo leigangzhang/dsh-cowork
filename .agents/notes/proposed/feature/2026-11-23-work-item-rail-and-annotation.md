@@ -14,7 +14,7 @@ Class: feature
 
 - **列表投影**：卡片删除 `primaryPath` 与 `ownerSessionId` 的展示，来源行改为 `来源：{sessionTitle ?? '未命名会话'}`；移除 `title={primaryPath}`。`ArtifactSummaryV1` 增加 `sessionTitle?: string | null`，列表路由按 `ownerSessionId` 批量解析会话标题。`ARTIFACT_STATUS_LABELS.confirmed` 改 `'已完成'`。
 - **状态合并**：`model.ts` 新增 `railStatusOf`/`railStatusLabel`，`pending-view` 在筛选/分组/计数/卡片标签全部投影为 `pending-confirm`（「待确认」）；底层 `data-status` 保留原始值。`WORK_ITEM_FILTERS`/`GROUP_ORDER` 移除独立 `pending-view`。
-- **搜索**：右上搜索按钮展开内联输入，150ms 防抖本地过滤 `title`/`type`/`sessionTitle`（不含 path），客户端投影，不新增路由；截断时提示「搜索只在已加载范围内生效」。
+- **搜索**：右上搜索按钮展开内联输入，150ms 防抖调用现有 `GET artifact.list?sessionId&q=&status=`；服务端扫描项目全部工作项（≤500）并匹配 `title`/`type` 中文标签/`sessionTitle`（不含 path），返回最多 200 条匹配；截断时提示「匹配结果超过 200 条」。不新增路由。
 - **已完成折叠**：`confirmed` 组折叠态渲染整行卡「已完成 N 个工作项」，展开为组标题 + 正常卡片。
 - **批注栏两级**：`railView='list' | 'session'`。列表态只读摘要卡（#N chip、选中环、筛选、定位、投递状态），无回复输入；会话态消息记录 + 回复 composer（文字/粘贴图片/上传附件/换行）。工具条「批注 N」打开列表态；默认 `showRail=false`。
 - **浮动批注入口**：选中行/文字（含右键、菜单键/Shift+F10）在选区右上角出现 `.cwi-annotate-pop`「批注」按钮，替代旧 `.cwi-selection-bar`；取不到选区矩形的渲染器回退行右侧内联入口。部分文字选区原文写入 `line-range` anchor 的可选 `selectedText`（不参与重定位）。
@@ -32,7 +32,7 @@ Class: feature
 
 **保留路径/会话 ID 展示。** 卡片继续显示文件路径和来源会话 ID。否决：路径对“看哪个交付物”无信息量且泄露项目结构；会话 ID 是机器标识，用户要的是会话名。改为显示会话名并保留 `sessionTitle` 字段做向前兼容，既不丢信息也不泄露 ID。
 
-**服务端全文搜索。** 为列表加 `?q=` 搜索参数与服务端过滤。否决：列表已全量 ≤200 条，客户端投影足够且零延迟；服务端搜索要新路由、分页、索引，收益不匹配成本。截断语义用文案说清即可。
+**仅客户端搜索（已加载 ≤200 条）。** 否决：用户要求搜索全部工作项；项目上限 500，只搜已加载 200 条会漏掉第 201 条以后的匹配。改为现有 list 路由增加 `q`/`status` 查询参数，服务端扫描项目全部工作项后再截断，不新增路由。
 
 ## Acceptance criteria
 
@@ -40,7 +40,7 @@ Class: feature
 - [A2] `filterArtifacts(items,'pending-confirm')` 同时保留 `pending-view` 与 `pending-confirm`；`filterCount` 的 pendingConfirm 等于两者之和 — `tests`
 - [A3] 卡片不渲染 path 与 ownerSessionId，来源行显示会话名（回退「未命名会话」），标题属性不含 path — `tests`
 - [A4] `ARTIFACT_STATUS_LABELS.confirmed === '已完成'`；`ArtifactSummaryV1` 含 `sessionTitle?` — `source`
-- [A5] `searchArtifacts` 命中 title/type/sessionTitle、不命中 path — `tests`
+- [A5] 服务端 `q` 搜索命中 title/type/sessionTitle、不命中 path；q+status 同时生效，项目第 201 条可被搜到，超过 200 条时 `truncated=true` — `tests`
 - [A6] `confirmed` 组折叠态渲染「已完成 N 个工作项」整行卡 — `tests`
 - [A7] 批注栏默认收起；列表态无 composer；点卡进会话态；返回列表 — `tests`
 - [A8] 宽度拖拽/键盘钳制 [280,560] 并持久化，窄屏为抽屉 — `browser`
@@ -50,14 +50,14 @@ Class: feature
 
 ## Risks
 
-- 列表批量解析会话标题存在 N+1 风险，宿主批量接口未核实（见设计文档 §10）；退化为逐条读取或缓存。
+- 列表批量解析会话标题通过 `sessionTitles` 端口复用 `listSessionsBounded(ports)` 一次读取，避免 N+1；宿主列表截断时缺失标题回退 null。
 - 浮动入口在滚动容器里定位易失效，画布/HTML 取不到行矩形 → 回退行右侧内联入口。
 - `panel.tsx` 已是大函数（KI-61），新增 `railView`/`activeThreadId`/`railWidth` 会继续增肥，实现时按 KI-61 拆分。
-- 本地搜索在截断时只覆盖已加载 200 条，可能漏匹配；文案需说清，避免误解为服务端全文检索。
-- 重估条件：用户要求可搜 path、或列表量级突破 200 需要服务端检索时，重开本决策。
+- 服务端搜索扫描项目全部工作项（≤500）后仍只返回 200 条匹配；截断文案必须说清，避免把截断当成全量结果。搜索只做子串匹配，不是全文检索。
+- 重估条件：用户要求搜索 path、全文检索或模糊匹配时，重开本决策。
 
 ## Delivery stages
 
-1. **列表投影 + 状态合并 + 搜索 + 已完成折叠** — 卡片去路径/去 ID、显会话名、`railStatusOf` 投影、本地搜索、折叠卡；`ArtifactSummaryV1.sessionTitle` 契约。
+1. **列表投影 + 状态合并 + 服务端搜索 + 已完成折叠** — 卡片去路径/去 ID、显会话名、`railStatusOf` 投影、list `q`/`status` 搜索、折叠卡；`ArtifactSummaryV1.sessionTitle` 契约。
 2. **批注栏两级 + 浮动入口 + 宽度拖拽** — `railView` 两级、只读列表卡、会话 composer、浮动「批注」入口替代 sticky 条、grip 拖拽与持久化。
 3. **附件预览弹层 + 收口** — 图片/文本/未知类型预览弹层、焦点锁定/下载、窄屏抽屉回归、四档截图与暗色核对。

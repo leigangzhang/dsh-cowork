@@ -16,6 +16,7 @@ Class: feature
 - 用户消息（投递 prompt）只保留「一行摘要 + 结构化批注上下文」，并在首行加一个版本化 sentinel：`ANNOTATION_MARKER = '\uE000cowork-annotation/v1\uE001'`（PUA 包裹 + 版本号）。结构化上下文字段固定：work item、file、revision、commentId、line range、quote、selectedText、user body、attachment refs；`selectedText` 是可选字段，保存在 line-range anchor 上，同时进入 prompt，不参与锚点重定位。
 - 自定义 `conversation.chat.node` key=`user` renderer（插件注册替换宿主 `UserMessageNodeView`）：文本以 marker 开头 → 渲染成 `DisclosureRow` 折叠行（默认折叠，摘要一行，展开显示滚动区内的结构化上下文，marker 首行剥离不显示）；无 marker → 走宿主等价普通气泡（见 Alternatives 与零回归）。
 - 普通用户消息零回归：插件 renderer 把气泡内容全量委托给宿主公共工厂 `conversation.chat.user.content`（→ 宿主 `UserContent`），只自实现薄壳（右侧对齐容器 + `conversation.chat.user.before` chain + 一个最小时间/复制操作行）。`MessageIconActions` 在 ui-chat 内部未下沉到 primitives，是已确认的残余缺口。
+- 编辑后验证不新增工具/固定命令：system prompt 软约束 + 同行锁/路径/版本写护栏；不把“未验证”硬判为 dispatch 失败。
 - 文件改动面（未来时）：新增 `src/platform/annotation-prompt.ts`（marker 常量、`parseAnnotationText`、`buildDispatchPrompt` 改造）、新增 `src/client/annotation-node.tsx`（renderer 与注册）、改 `src/app/apply.ts`（section 接线）、改 `src/client/index.tsx`（注册 renderer）；纯函数进 `tools/coverage-map.json` 与 node:test，浏览器 lane 补普通消息等价 diff 测试。完整设计见 [annotation-prompt-ux.md](../../../../docs/design/work-item/annotation-prompt-ux.md)。
 
 ## Alternatives considered

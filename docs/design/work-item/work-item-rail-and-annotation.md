@@ -28,7 +28,7 @@ Status: proposed（2026-11-23；本文与 [2026-11-23-work-item-rail-and-annotat
 ### 非目标
 
 - 不实现文档类型扩展（Doc/表格/PDF/图片仍永久移出目标，KI-57）。
-- 不做服务端全文搜索、不做 `pending-view` 的存储迁移（只做 UI 投影）。
+- 不做全文检索/模糊搜索，只做服务端 `q` 子串匹配；不做 `pending-view` 的存储迁移（只做 UI 投影）。
 - 不新增“置顶（pin）工作项”语义；本文 A 段逐项视觉里的“pin”指卡片上的类型/状态药丸 chip，与文档行内“编号 pin”无关。
 - 不做批注会话的多人实时协作；不做附件在会话里的二次编辑。
 - 不改主区承载面与打开/返回机制；工作项如何挂进 `conversation.view` 由 [work-item-main-view-tab.md](work-item-main-view-tab.md) 拥有，本文只消费它的查看器内容。
@@ -46,13 +46,13 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 └─ .cwi-list
    ├─ 顶栏 .cwi-list-toolbar（sticky）
    │  ├─ 筛选行 .cwi-filter-row：全部 / 待确认 / 需反馈 / 进行中 / 已完成
-   │  └─ 搜索 .cwi-search（右侧）：「搜索」按钮 ⇄ 内联输入框
+   │  └─ 搜索 .cwi-search（右侧）：「搜索」按钮 ⇄ 内联输入框（服务端全项目搜索）
    ├─ SSE 断线提示 / 打开失败提示（role=alert，按需）
    ├─ 分组 .cwi-group（组顺序：待确认 → 需反馈 → 进行中 → 已完成）
    │  ├─ 待确认/需反馈/进行中：组标题 + 卡片
    │  └─ 已完成：折叠时整行卡「已完成 N 个工作项」；展开后组标题 + 卡片
-   ├─ 空态 / 无结果态 / 错误态（互斥）
-   └─ 截断提示「仅显示最近 200 个工作项；搜索只在已加载范围内生效」
+   ├─ 空态 / 无结果态 / 搜索中 / 错误态（互斥）
+   └─ 截断提示「匹配结果超过 200 条，仅显示前 200 条」
 ```
 
 关键尺寸：列表自身 `padding 8px 10px 18px`，`gap 6px`；顶栏 sticky 在 `top:0`；卡片高约 92–108px（随 meta 换行）。
@@ -95,10 +95,12 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 | 无结果（筛选/搜索后为空） | 「这个筛选下没有工作项」/「没有匹配「q」的工作项」+ 清除搜索 |
 | 错误 | 错误码/可读消息 + 重试，保留上次列表 |
 | SSE 断线 | 「实时更新中断，点击重试」+ 重试，不清空列表 |
-| 截断 | `truncated=true` 时显示 200 条限制提示；搜索仅覆盖已加载窗口 |
+| 搜索中 | 搜索请求进行中，列表保留上次结果并显示轻量 loading；不闪空态 |
+| 截断 | `truncated=true` 时显示「匹配结果超过 200 条，仅显示前 200 条」；搜索覆盖整个项目 |
+| 无结果 | 有 q 时显示「没有匹配「q」的工作项」+ 清除搜索 |
 | 跨会话/只读 | 列表不感知（打开动作由查看器判断） |
 
-搜索与筛选是 **AND** 叠加：搜索在「当前状态筛选」的结果内做子串匹配；分组标题随匹配结果隐去空组。
+搜索与筛选是 **AND** 叠加：两者都作为 `GET artifact.list` 的查询参数交给服务端，分组标题随返回结果隐去空组。
 
 ### 3.2 批注栏（B）
 
@@ -119,7 +121,7 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 
 ### 4.1 右栏列表（A）
 
-**搜索。** 点右上「搜索」按钮 → 内联输入框展开并聚焦（`aria-label=搜索工作项`）；输入触发 150ms 防抖后本地过滤；匹配范围 `title`、`type` 中文标签、`sessionTitle`（大小写不敏感的拉丁子串 + 中文子串），**不匹配 `path`**；清空输入或点「×」恢复全量并收起。Esc 收起输入并清空。无结果给空态与「清除搜索」。
+**搜索。** 点右上「搜索」按钮 → 内联输入框展开并聚焦（`aria-label=搜索工作项`）；输入触发 150ms 防抖后请求服务端 `GET artifact.list?sessionId&q=&status=`，取消前一个请求；匹配范围 `title`、`type` 中文标签、`sessionTitle`（大小写不敏感的拉丁子串 + 中文子串），**不匹配 `path`**。服务端扫描项目内全部工作项（上限 500），返回最多 200 条匹配；搜索覆盖全部工作项，不是只搜已加载卡片。清空输入或点「×」恢复全量并收起。Esc 收起输入并清空。无结果给空态与「清除搜索」；请求失败保留上次结果并显示可重试错误。搜索激活时筛选 chip 的计数仍是项目全量，不随 q 改变；结果数量以返回 items 和 truncated 为准。
 
 **待查看并入待确认。** `model.ts` 提供 `railStatusOf(status)`（`pending-view → pending-confirm`，其余原样）与 `railStatusLabel(status)`（两者都返回「待确认」）。筛选、分组、计数、卡片标签全部走合并语义；底层 `data-status` 属性保留原始值（`pending-view` 或 `pending-confirm`）供测试与兼容，展示标签用合并文案。
 
@@ -150,12 +152,13 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 以下三条落 `src/panel/artifact-contract.ts`（客户端与宿主共享的唯一词表），其余为客户端纯投影：
 
 1. `ARTIFACT_STATUS_LABELS.confirmed`：`'已确认'` → `'已完成'`。影响 `filterLabel`、组标题、卡片状态 chip；宿主不依赖该展示文案。
-2. `ArtifactSummaryV1` 增加 `sessionTitle?: string | null`（与 `ArtifactDetailResponse.sessionTitle` 同义）。`GET /api/cowork.artifact.list` 对每条的 `ownerSessionId` 批量解析会话标题，解析不到给 `null`；客户端回退「未命名会话」。**未核实**：列表路由是否有批量会话标题查询能力（详情路由已有单会话解析，列表需按 distinct ownerSessionId 批量解析，或退化为逐条 `ctx.sessions` 读取），实现期需在 [work-item-backend.md](work-item-backend.md) 定确切的宿主调用面。
+2. `ArtifactSummaryV1` 增加 `sessionTitle?: string | null`（与 `ArtifactDetailResponse.sessionTitle` 同义）。`ArtifactApiPorts` 增加 `sessionTitles?(): Promise<ReadonlyMap<string,string>>`，由 `api.ts` 复用现有 `listSessionsBounded(ports)` 一次性建立 ownerSessionId → title 映射；列表路由只调用一次，不做逐条 N+1。宿主没有该端口时搜索只匹配 title/type，卡片回退「未命名会话」。
 3. `line-range` anchor 增加可选 `selectedText?: string`（与 `quote` 同受 `MAX_ARTIFACT_QUOTE_CHARS` 限制）：保存用户实际选中的部分文字，供会话详情与投递 prompt 展示；`deriveLineAnchor` 仍从文件全文推导 `quote/context`，`relocateLineAnchor` 不使用 `selectedText`。无部分选区时省略，旧 anchor 不变。
 
-**不新增路由**：搜索是客户端对已加载 ≤200 条的投影；两级批注栏是客户端视图状态；宽度持久化走 `localStorage`（键 `cowork.work-item.railWidth`）；新建会话复用现有 `POST /api/cowork.artifact.comment`；附件预览复用 `GET /api/cowork.artifact.attachment`。
+**不新增路由**：搜索通过现有 `GET /api/cowork.artifact.list` 增加可选 `q`/`status` 查询参数实现，服务端扫描项目内全部工作项（≤500）后返回最多 200 条匹配；两级批注栏是客户端视图状态；宽度持久化走 `localStorage`（键 `cowork.work-item.railWidth`）；新建会话复用现有 `POST /api/cowork.artifact.comment`；附件预览复用 `GET /api/cowork.artifact.attachment`。
 
-**model.ts 纯函数新增**：`railStatusOf`、`railStatusLabel`、`WORK_ITEM_RAIL_STATUSES`/`WORK_ITEM_RAIL_ORDER`、合并后的 `filterArtifacts`/`filterCount`/`groupArtifacts`，以及搜索投影 `searchArtifacts(items, query)`（title/type/sessionTitle 匹配，不含 path）。这些函数 React-free，`node --test` 直接覆盖。
+**服务端搜索契约**：`handleList` 读取 `q`（trim、≤100 字符、空串忽略）和 `status`；用 `runtime.store.listRecords(MAX_ARTIFACTS_PER_PROJECT)` 扫描项目内全部工作项；调用一次 `ports.sessionTitles?.()` 建立 ownerSessionId → title 映射；匹配 `title`、`ARTIFACT_TYPE_LABELS[type]`、`sessionTitle`，不匹配 `path`；先按 status/q 过滤，再按更新时间取前 200 条，`truncated` 表示匹配数超过 200。`counts` 仍是项目全量计数。
+**model.ts 纯函数新增**：`railStatusOf`、`railStatusLabel`、`WORK_ITEM_RAIL_STATUSES`/`WORK_ITEM_RAIL_ORDER`、合并后的 `filterCount`/`groupArtifacts`；搜索不再由客户端 `searchArtifacts` 做全量过滤，客户端只负责 debounce、取消请求和渲染返回结果。
 
 **权限边界不变**：列表只读；批注写入沿用既有 session/artifact 权限与 `artifact/session-mismatch`；附件路径守卫与白名单沿用既有上传路由。
 
@@ -232,7 +235,8 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 
 ## 9. 测试与验收标准
 
-- 纯函数（`node --test`）：`railStatusOf`/`railStatusLabel` 合并映射；`filterArtifacts` 在 `pending-confirm` 下同时保留 `pending-view` 与 `pending-confirm`；`filterCount` 的 `pendingConfirm = pendingConfirm + pendingView`；`groupArtifacts` 无独立 `pending-view` 组且顺序正确；`searchArtifacts` 命中 title/type/sessionTitle、不命中 path、大小写与空串语义。— `source`
+- 纯函数（`node --test`）：`railStatusOf`/`railStatusLabel` 合并映射；`filterArtifacts` 在 `pending-confirm` 下同时保留 `pending-view` 与 `pending-confirm`；`filterCount` 的 `pendingConfirm = pendingConfirm + pendingView`；`groupArtifacts` 无独立 `pending-view` 组且顺序正确。— `source`
+- 服务端搜索：`q` 命中 title/type/sessionTitle、不命中 path；大小写与空串语义；项目 500 条时能搜到第 201 条；匹配超过 200 条时 `truncated=true`；q+status 同时生效 — `tests`
 - 卡片投影：卡片渲染来源会话名（`sessionTitle ?? '未命名会话'`），不渲染 path 与 ownerSessionId，标题属性不含 path。— `tests`
 - 已完成：`confirmed` 文案「已完成」；折叠态渲染「已完成 N 个工作项」整行卡，展开为正常卡片。— `tests`
 - 批注栏两级：默认 `showRail=false`；工具条「批注 N」打开列表态；列表态无 composer/回复；点卡进会话态；返回列表。— `tests`
@@ -249,11 +253,11 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 
 **风险**
 
-- **列表批量会话标题解析**：列表最多 200 条，逐条解析 ownerSessionId 标题有 N+1 风险；需批量/缓存，未核实宿主是否有批量会话列表接口。
+- **列表批量会话标题解析**：已设计 `sessionTitles` 端口复用 `listSessionsBounded(ports)` 一次读取；若宿主列表本身截断，缺失标题回退 `null`，搜索只按 title/type 命中该条。
 - **浮动入口定位**：正文是滚动容器，选区矩形随滚动失效；需在每次滚动/选择时重算并 clamp，画布/HTML 渲染器可能取不到行矩形 → 回退行右侧内联入口。
 - **两级视图与现有状态耦合**：`panel.tsx` 已是大函数（KI-61），新增 `railView`/`activeThreadId`/`railWidth` 状态会继续增肥，实现时按 KI-61 拆分。
 - **宽度拖拽与正文可读**：拉到 560px 时窄正文可能换行过多，需 `min(560, container − 360)` 兜底并保底正文最小宽。
-- **本地搜索与截断**：搜索只在已加载 ≤200 条内生效，截断时可能漏掉未加载的匹配项；提示文案必须说清，避免误解为服务端全文检索。
+- **服务端搜索与截断**：扫描项目全部工作项（≤500）后仍只返回 200 条匹配；截断时提示「匹配结果超过 200 条」，不把截断误说成全量结果。搜索只做子串匹配，不是全文检索/模糊搜索。
 
 **未核实**
 

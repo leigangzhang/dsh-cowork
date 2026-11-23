@@ -23,6 +23,7 @@ Class: feature
 - **幂等**：浏览器 attach 的 `attachmentId` 重入返回已有 ref 且不重复计数；`sourcePath` 每次 mint 新 id，不做 content-addressed 去重（同路径内容可变，按 sha 去重会静默返回旧附件）。
 - **模型生成不可伪造**：`source:'model'` 只由工具路径写入；浏览器 attach、评论/回复引用都写 `source:'user'`。评论 `author` 与附件 `source` 都经 schema 校验。
 - **展示**：附件页数据源从「评论引用」扩展为 `detail.publishedAttachments`；thread 内缩略图继续从评论 `attachments` 取；「模型生成」badge 由来源推导。`handleAttachment` 的查找从评论引用改为发布清单优先、旧记录回退评论引用。
+- **端到端写文档**：模型生成图表/图片 → `cowork_artifact_attach(sourcePath)` → 在 Markdown 中写 `cowork-attachment://<attachmentId>` → 核对改动块 → `cowork_artifact_reply` 带同一 AttachmentRef。文档内不写绝对本地路径/`data:`/`blob:`；attach 失败不写坏链接，reply 失败不留假回复。完整时序见 [设计文档](../../../../docs/design/work-item/attachment-pipeline.md) §9.1。
 
 ## Alternatives considered
 
@@ -42,6 +43,7 @@ Class: feature
 - [A6] 附件读取复用现有 attachment route，`nosniff` + `sandbox` + 从字节推导类型 — `tests`
 - [A7] 附件页/thread 展示「模型生成」badge，预览弹层可打开/缩放/Esc 关闭/焦点返回；1280/1024/768/390 无横向滚动 — `browser`
 - [A8] 设计文档与决策记录互相链接，demo HTML + 实际截图存在且可解码 — `plan-docs`
+- [A9] 模型生成 PNG → attach → 文档插入 `cowork-attachment://` → WYSIWYG 渲染 → reply 缩略图 → 刷新保持；失败注入不产生坏链接或假回复 — `browser` + `tests`
 
 ## Risks
 
@@ -52,6 +54,6 @@ Class: feature
 
 ## Delivery stages
 
-1. **工具 + 存储** — `cowork_artifact_attach`、`attachments.jsonl`、发布即计数；单元与路由测试。
-2. **前端展示** — 附件页 `publishedAttachments`、模型生成 badge、预览弹层；浏览器 lane。
+1. **工具 + 存储** — `cowork_artifact_attach`、`attachments.jsonl`、发布即计数；单元与路由测试；模型生成图片→attach→Markdown URI 的最小时序。
+2. **前端展示** — 附件页 `publishedAttachments`、模型生成 badge、文档内联图片、预览弹层；浏览器 lane。
 3. **收口** — 真实模型 E2E 验证 attach 采用率、预览弹层层级、四档响应式；文档与截图同步。

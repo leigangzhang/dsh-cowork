@@ -239,7 +239,7 @@ interface ArtifactEventV1 {
 
 | 路由 | 方法 | 输入 | 输出 / 规则 |
 |---|---|---|---|
-| `/api/cowork.artifact.list` | GET | `sessionId?status?topicId?` | `{items,counts}`；项目范围；最多 200；按 updatedAt 降序 |
+| `/api/cowork.artifact.list` | GET | `sessionId?status?topicId?q?` | `{items,counts,truncated}`；项目范围；扫描最多 500 条，`q` 对 title/type/sessionTitle 做子串匹配后返回最多 200 条；按 updatedAt 降序。搜索细节由[右栏与批注栏设计](work-item-rail-and-annotation.md)拥有 |
 | `/api/cowork.artifact.detail` | GET | `sessionId,artifactId` | 记录、文件、评论摘要、修订元数据、activeDispatch |
 | `/api/cowork.artifact.file` | GET | `sessionId,artifactId,path,version?` | 文本/二进制；支持 `Range`、`ETag`；`download=1` 时带 Content-Disposition |
 | `/api/cowork.artifact.comments` | GET | `sessionId,artifactId,after?,limit?` | 线程分页；默认 50，最多 200 |

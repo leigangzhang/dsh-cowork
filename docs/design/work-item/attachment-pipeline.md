@@ -171,6 +171,39 @@ interface AttachmentPublishV1 {
   - 附件字节缺失：行显示「附件已缺失」，下载返回 `artifact/not-found`。
 - **用户上传与模型生成视觉区分**：模型生成行/缩略图带「模型生成」badge（`--cwi-model` 色），用户上传无 badge；badge 是唯一来源标识，颜色不是唯一手段（有文字）。
 
+### 9.1 模型生成图表/图片并写入文档（端到端）
+
+这条流程把「附件工具」「文档编辑器」「批注回复」「视觉预览」串成一条可验收链路。模型不是把图片贴进批注正文，而是登记为附件、在 Markdown 源码中引用附件 URI，再由批注会话展示同一附件。
+
+```text
+模型生成文件（write/bash/媒体工具）
+  └─ docs/refs/chart-<slug>.png（项目内）
+       └─ cowork_artifact_attach({ artifactId, sourcePath })
+            ├─ 路径/类型/大小/数量校验
+            ├─ saveUpload + attachments.jsonl(source:'model') + attachmentCount+1
+            └─ 返回 AttachmentRefV1（attachmentId）
+                 ├─ 编辑主文档：在目标段落插入 ![说明](cowork-attachment://<attachmentId>)
+                 ├─ 重新读取/核对改动块（prompt 软约束 + 写护栏）
+                 └─ cowork_artifact_reply({ body, attachments:[ref] })
+                      ├─ p1：主题会话只回一句摘要（软约束）
+                      ├─ p2：批注会话显示详细回复 + 同一缩略图（硬 reply 工具）
+                      └─ p3：文档内联图片由 WYSIWYG renderer 解析 cowork-attachment URI
+```
+
+强制/软约束边界：
+
+- `attach` 成功前不得把 `cowork-attachment://` 写进文档；工具失败时回复必须说明失败，不插入假 URI。
+- 文档内只允许 `cowork-attachment://<attachmentId>`（以及 WYSIWYG 设计允许的 http(s)/项目相对图片）；禁止绝对本地路径、`data:`、`blob:`、`file:`。
+- `cowork_artifact_reply` 必须带同一个 `AttachmentRefV1`，否则 p2 没有缩略图；p2 的详细正文与 p1 摘要分离由 system prompt 约束，p2 的提交由状态机硬约束。
+- `attach` 成功但文档编辑失败：附件仍出现在附件页（已发布），文档不出现坏链接；回复要明确说明未写入，不能假装已改。
+- `attach` 成功但 reply 失败：附件仍归档，thread 不出现假回复；dispatch 状态机可重试。
+
+验收（实现期）：
+
+- 生成一张项目内 PNG → attach 返回 `source:'model'` → 主文档出现 `cowork-attachment://<id>` → WYSIWYG 渲染图片 → thread 回复出现缩略图与模型生成 badge → 刷新后仍可读。
+- 附件页出现同一附件且 badge 正确；预览弹层可打开/缩放/Esc 关闭/焦点返回。
+- 失败注入：sourcePath 越界、类型不允许、attach 失败、文档编辑失败、reply 失败各一条，均不产生坏链接或假回复。
+
 ## 10. 可访问性
 
 - 图片缩略图 `alt=附件名`；预览弹层 `role=dialog` + `aria-modal=true`，打开后焦点入弹层，Esc 关闭并把焦点还给触发 chip；背景交互锁定。
@@ -191,8 +224,9 @@ interface AttachmentPublishV1 {
 
 ## 12. Demo
 
-- 交互稿：[attachment-pipeline-demo.html](assets/attachment-pipeline-demo.html)（`?view=main|empty`）
+- 交互稿：[attachment-pipeline-demo.html](assets/attachment-pipeline-demo.html)（`?view=main|flow|empty`）
 - 截图：[attachment-pipeline-demo.png](assets/attachment-pipeline-demo.png)（1280×900 亮色，headless Chrome `deviceScaleFactor=2`；队长已用 read_image 目检缩略图并通过）
+- 端到端流程：[attachment-flow-demo.png](assets/attachment-flow-demo.png)（生成文件 → attach → 写入 `cowork-attachment://` → reply + 缩略图；队长已用 read_image 目检）
 
 主视图覆盖：用户上传 PNG（附件页 + thread）、模型生成 PNG（badge + thread 缩略图 + 预览弹层）、文本附件、附件页行、预览弹层、上传失败态——7 个元素，超过「至少 4 个」要求；`?view=empty` 单独覆盖空态。
 
@@ -225,6 +259,7 @@ interface AttachmentPublishV1 {
 **浏览器（`npm run test:browser` / layered）**
 
 - 附件页展示用户/模型两类行与 badge；预览弹层打开/缩放/Esc 关闭/焦点返回；失败/空态文案不被截断 — `npm run test:browser` 红。
+- 端到端：生成 PNG → `cowork_artifact_attach` → 主文档出现 `cowork-attachment://` 并渲染图片 → reply 出现同一缩略图 → 刷新后仍在；attach/编辑/reply 任一失败不产生坏链接或假回复 — `npm run test:browser` 红。
 - 1280/1024/768/390 无横向滚动 — 浏览器 lane 红。
 
 **文档（docs-only）**
