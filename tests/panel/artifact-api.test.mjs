@@ -372,6 +372,35 @@ test('creating a comment derives a line anchor from the file', async () => {
   })
 })
 
+test('creating a comment keeps the sub-line selection beside the derived quote', async () => {
+  await withSeededHarness(async (harness) => {
+    const response = await harness.request('/api/cowork.artifact.comment', {
+      method: 'POST',
+      body: {
+        sessionId: SESSION,
+        artifactId: ARTIFACT,
+        body: 'this sentence',
+        anchor: {
+          kind: 'line-range',
+          path: 'docs/spec.md',
+          startLine: 3,
+          endLine: 4,
+          quote: 'stale quote',
+          selectedText: 'second paragraph',
+        },
+      },
+    })
+    assert.equal(response.status, 200)
+    const body = await jsonOf(response)
+    assert.equal(body.comment.anchor.quote, 'first paragraph\nsecond paragraph')
+    assert.equal(body.comment.anchor.selectedText, 'second paragraph')
+    const stored = await jsonOf(await harness.request('/api/cowork.artifact.comments', {
+      query: { sessionId: SESSION, artifactId: ARTIFACT },
+    }))
+    assert.equal(stored.events[0].anchor.selectedText, 'second paragraph')
+  })
+})
+
 test('a comment without an anchor is a whole-thread comment', async () => {
   await withSeededHarness(async (harness) => {
     const body = await jsonOf(await harness.request('/api/cowork.artifact.comment', {

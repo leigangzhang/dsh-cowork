@@ -81,6 +81,11 @@ export function parseArtifactAnchor(value: unknown): AnchorCheck {
       }
       if (endLine < startLine) return { ok: false, reason: 'line-range anchor endLine is before startLine' }
       const quote = typeof value.quote === 'string' ? boundQuote(value.quote) : ''
+      // The sub-line selection is display data. An empty or non-string value
+      // degrades to "no selection" instead of rejecting the whole anchor.
+      const selectedText = typeof value.selectedText === 'string' && value.selectedText.trim() !== ''
+        ? boundQuote(value.selectedText)
+        : null
       const anchor: Extract<ArtifactAnchor, { kind: 'line-range' }> = {
         kind,
         path,
@@ -89,6 +94,7 @@ export function parseArtifactAnchor(value: unknown): AnchorCheck {
         quote,
         ...(typeof value.contextBefore === 'string' ? { contextBefore: boundQuote(value.contextBefore) } : {}),
         ...(typeof value.contextAfter === 'string' ? { contextAfter: boundQuote(value.contextAfter) } : {}),
+        ...(selectedText === null ? {} : { selectedText }),
       }
       return { ok: true, anchor }
     }
@@ -276,5 +282,10 @@ export function relocateLineAnchor(content: string, anchor: ArtifactAnchor): Anc
     && derived.anchor.quote === anchor.quote
     && sameContext(anchor.contextBefore, derived.anchor.contextBefore)
     && sameContext(anchor.contextAfter, derived.anchor.contextAfter)
-  return { status: unchanged ? 'unchanged' : 'moved', anchor: derived.anchor }
+  // The derived anchor addresses the new lines; the stored sub-line selection
+  // is display data about the same quote, so a move keeps it.
+  const relocated: ArtifactAnchor = anchor.selectedText === undefined
+    ? derived.anchor
+    : { ...derived.anchor, selectedText: anchor.selectedText }
+  return { status: unchanged ? 'unchanged' : 'moved', anchor: relocated }
 }

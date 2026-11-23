@@ -112,6 +112,9 @@ function annotateBlock(comment: CommentEventV1, threadAnchor?: ArtifactAnchor): 
     const found = source
     anchor = `lines ${String(found.startLine)}-${String(found.endLine)}`
     const parts = [`Quote: ${found.quote.slice(0, 400)}`]
+    // The sub-line selection narrows the quote to what the user actually
+    // marked; it is prompt context only, never a relocation key.
+    if (found.selectedText !== undefined) parts.push(`Selected: ${found.selectedText.slice(0, 400)}`)
     const before = found.contextBefore ?? ''
     const after = found.contextAfter ?? ''
     if (before.length > 0) parts.push(`Before: ${before.slice(0, 400)}`)

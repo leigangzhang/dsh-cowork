@@ -376,7 +376,12 @@ async function commentAnchor(
   const read = await runtime.files.readText(file.path)
   const derived = deriveLineAnchor(read.content, file.path, parsed.anchor.startLine, parsed.anchor.endLine)
   if (!derived.ok) throw new ArtifactDomainError('artifact/anchor-invalid', derived.reason, file.path)
-  return { anchor: derived.anchor, fileRevision: file.revision }
+  // `deriveLineAnchor` owns quote/context; the browser's sub-line selection is
+  // display data that the file cannot reproduce, so it survives as sent.
+  const anchor = parsed.anchor.selectedText === undefined
+    ? derived.anchor
+    : { ...derived.anchor, selectedText: parsed.anchor.selectedText }
+  return { anchor, fileRevision: file.revision }
 }
 
 /** `POST /api/cowork.artifact.comment` — append one comment (or reply). */

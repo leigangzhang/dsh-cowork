@@ -11,7 +11,7 @@ const REGION = { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }
 
 test('every anchor kind accepts a valid shape', () => {
   const cases = [
-    [{ kind: 'line-range', path: 'a.md', startLine: 2, endLine: 4, quote: 'b\nc' }, 'line-range'],
+    [{ kind: 'line-range', path: 'a.md', startLine: 2, endLine: 4, quote: 'b\nc', selectedText: 'c' }, 'line-range'],
     [{ kind: 'line-range', path: 'a.md', startLine: 1, endLine: 1 }, 'line-range'],
     [{ kind: 'block', path: 'a.doc', quote: 'a block' }, 'block'],
     [{ kind: 'block', path: 'a.doc', quote: 'a block', blockId: 'p-1' }, 'block'],
@@ -68,16 +68,25 @@ test('quotes and context are bounded and optional', () => {
     quote: long,
     contextBefore: long,
     contextAfter: long,
+    selectedText: long,
   })
   assert.equal(parsed.ok, true)
   assert.equal(parsed.anchor.quote.length, artifactContract.MAX_ARTIFACT_QUOTE_CHARS)
   assert.equal(parsed.anchor.contextBefore.length, artifactContract.MAX_ARTIFACT_QUOTE_CHARS)
   assert.equal(parsed.anchor.contextAfter.length, artifactContract.MAX_ARTIFACT_QUOTE_CHARS)
+  assert.equal(parsed.anchor.selectedText.length, artifactContract.MAX_ARTIFACT_QUOTE_CHARS)
   const bare = artifactAnchor.parseArtifactAnchor({ kind: 'line-range', path: 'a.md', startLine: 1, endLine: 1 })
   assert.equal(bare.ok, true)
   assert.equal(bare.anchor.quote, '')
   assert.equal('contextBefore' in bare.anchor, false)
   assert.equal('contextAfter' in bare.anchor, false)
+  assert.equal('selectedText' in bare.anchor, false)
+  // An unusable selection degrades to "no selection" instead of failing.
+  const blank = artifactAnchor.parseArtifactAnchor({
+    kind: 'line-range', path: 'a.md', startLine: 1, endLine: 1, selectedText: '   ',
+  })
+  assert.equal(blank.ok, true)
+  assert.equal('selectedText' in blank.anchor, false)
 })
 
 test('contentLines drops the trailing empty line only', () => {
@@ -137,6 +146,18 @@ test('relocateLineAnchor keeps, moves, or marks a line thread stale', () => {
   assert.equal(moved.status, 'moved')
   assert.equal(moved.anchor.startLine, 3)
   assert.equal(moved.anchor.contextBefore, 'before')
+
+  // The sub-line selection is display data: a move keeps it, relocation never
+  // uses it to find the new position.
+  const selected = { ...anchor, selectedText: 'arg' }
+  const selectedUnchanged = artifactAnchor.relocateLineAnchor('before\ntarget\nafter\n', selected)
+  assert.equal(selectedUnchanged.anchor.selectedText, 'arg')
+  const selectedMoved = artifactAnchor.relocateLineAnchor('inserted\nbefore\ntarget\nafter\n', selected)
+  assert.equal(selectedMoved.status, 'moved')
+  assert.equal(selectedMoved.anchor.selectedText, 'arg')
+  const selectedStale = artifactAnchor.relocateLineAnchor('before\nafter\n', selected)
+  assert.equal(selectedStale.status, 'stale')
+  assert.equal(selectedStale.anchor.selectedText, 'arg')
 
   const deleted = artifactAnchor.relocateLineAnchor('before\nafter\n', anchor)
   assert.equal(deleted.status, 'stale')
