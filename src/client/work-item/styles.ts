@@ -218,7 +218,6 @@ body[data-ds-dark-theme] .cwi-list {
 .cwi-doc-view[hidden] { display: none; }
 .cwi-content[data-kind="html"][data-editing="false"] .cwi-doc-view,
 .cwi-content[data-kind="canvas"] .cwi-doc-view { flex: 1; min-height: 0; }
-.cwi-selection-bar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; margin: 0 12px 8px; padding: 6px 10px; border: 1px solid var(--cwi-border); border-radius: var(--cwi-radius-sm); background: var(--cwi-surface); box-shadow: var(--cwi-shadow); font-size: 12px; color: var(--cwi-muted); }
 .cwi-primary, .cwi-secondary { font: inherit; font-size: 11.5px; font-weight: 600; border-radius: 7px; padding: 3px 10px; cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease, opacity 120ms ease; }
 .cwi-primary { border: 1px solid transparent; background: var(--dsw-alias-button-primary-fill, var(--cwi-ink)); color: var(--dsw-alias-label-primary-inverted, #fff); }
 .cwi-primary:hover { opacity: .9; }
@@ -332,7 +331,10 @@ ${MARKDOWN_READ_CSS}
 .cwi-conflict-latest { margin: 0; max-height: 180px; overflow: auto; font-family: var(--cwi-mono); font-size: 11px; white-space: pre-wrap; border-left: 2px solid var(--cwi-border); padding-left: 8px; }
 
 /* ---------- comment rail ---------- */
-.cwi-rail { flex: none; width: 336px; min-height: 0; display: flex; flex-direction: column; background: var(--cwi-surface); border: 1px solid var(--cwi-border); border-radius: var(--cwi-radius); box-shadow: var(--cwi-shadow); overflow: hidden; }
+.cwi-rail { position: relative; flex: none; min-height: 0; display: flex; flex-direction: column; background: var(--cwi-surface); border: 1px solid var(--cwi-border); border-radius: var(--cwi-radius); box-shadow: var(--cwi-shadow); overflow: hidden; }
+.cwi-rail-grip { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 6px; border-radius: var(--cwi-radius) 0 0 var(--cwi-radius); cursor: col-resize; touch-action: none; background: transparent; transition: background-color 120ms ease; }
+.cwi-rail-grip:hover, .cwi-rail-grip:focus-visible, .cwi-rail-grip[data-dragging="true"] { background: var(--cwi-accent-soft); }
+.cwi-rail-grip:focus-visible { outline: 2px solid var(--cwi-accent); outline-offset: -2px; }
 .cwi-rail[hidden] { display: none; }
 .cwi-rail-header { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 8px; border-bottom: 1px solid var(--cwi-border-soft); }
 .cwi-rail-head-row { display: flex; align-items: center; gap: 6px; }
@@ -423,6 +425,14 @@ ${MARKDOWN_READ_CSS}
 .cwi-composer-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 .cwi-composer-hint { font-size: 9.5px; color: var(--cwi-soft); }
 .cwi-composer .cwi-receipt { margin: 0; padding: 2px 0; border: 0; background: transparent; box-shadow: none; font-size: 9.5px; color: var(--cwi-muted); }
+.cwi-annotate-pop { position: fixed; z-index: 10; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 5px 0 2px; border: 1px solid var(--cwi-border); border-radius: 7px; background: var(--cwi-surface); box-shadow: 0 2px 8px #10182829; }
+.cwi-annotate-range { padding: 0 3px; color: var(--cwi-soft); font-size: 10px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.cwi-annotate-button { height: 22px; padding: 0 10px; border-radius: 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.cwi-annotate-button:focus-visible { outline: 2px solid var(--cwi-accent); outline-offset: 1px; }
+.cwi-line-annotate { position: absolute; right: 28px; top: 1px; z-index: 1; padding: 1px 7px; border: 1px solid var(--cwi-accent); border-radius: 6px; background: var(--cwi-surface); color: var(--cwi-accent); font: inherit; font-size: 10px; font-weight: 600; line-height: 14px; cursor: pointer; }
+.cwi-line-annotate:hover { background: var(--cwi-accent-soft); }
+.cwi-line-annotate:focus-visible { outline: 2px solid var(--cwi-accent); outline-offset: 1px; }
+.cwi-line-annotate:disabled { opacity: .55; cursor: default; }
 .cwi-attach-label { display: inline-flex; align-items: center; }
 .cwi-attach-label:focus-within { outline: 2px solid var(--cwi-accent); outline-offset: 1px; }
 .cwi-file-input { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

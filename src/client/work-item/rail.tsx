@@ -8,8 +8,17 @@
  * navigation (`useRailNavigation`); the viewer keeps the loaded data and the
  * composer's draft so returning to the list never loses it.
  */
-import { useCallback, useState } from 'react'
-import type { Dispatch, ReactElement, Ref, SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type {
+  CSSProperties,
+  Dispatch,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactElement,
+  Ref,
+  RefObject,
+  SetStateAction,
+} from 'react'
 import type {
   ActiveDispatchV1,
   ArtifactAnchor,
@@ -26,6 +35,15 @@ import {
   type ThreadFilter,
   type WorkItemThread,
 } from './model.ts'
+import {
+  RAIL_WIDTH_MAX,
+  RAIL_WIDTH_MIN,
+  browserRailStorage,
+  railWidthAfterKey,
+  railWidthClamp,
+  readRailWidth,
+  saveRailWidth,
+} from './rail-geometry.ts'
 import {
   RAIL_LIST_STATE,
   railAfterContextChange,
@@ -180,6 +198,117 @@ export function useRailNavigation(sinks: RailNavigationSinks): RailNavigation {
   return {
     showRail, state, setShowRail, toggleRail, openSession, openThread,
     focusAnchor, backToList, closeRail, reset,
+  }
+}
+
+/** Track one element's client width; returns the observer teardown, if any. */
+function observeWidth(
+  node: HTMLElement | null,
+  report: (width: number) => void,
+): (() => void) | undefined {
+  if (node === null) return undefined
+  report(node.clientWidth)
+  if (typeof ResizeObserver === 'undefined') return undefined
+  const observer = new ResizeObserver(() => { report(node.clientWidth) })
+  observer.observe(node)
+  return () => { observer.disconnect() }
+}
+
+/** The rail width, its inline size, and the grip that changes it. */
+interface RailWidthControls {
+  readonly railRef: RefObject<HTMLElement>
+  /** Inline width while the rail is a column; the drawer keeps its own width. */
+  readonly style: CSSProperties | undefined
+  /** The left-edge resize grip, absent while the rail is a drawer. */
+  readonly grip: ReactElement | null
+}
+
+/**
+ * Own the rail width and its resize grip.
+ *
+ * The width starts from localStorage, clamps against the viewer body on every
+ * render, follows pointer drags live, and writes the final value on release or
+ * arrow-key adjustment. A drawer (narrow layout) never resizes: it keeps the
+ * sheet's own width and shows no grip.
+ * @param drawer - whether the rail is the narrow-layout drawer.
+ * @returns the aside ref/size and the grip element to render inside it.
+ */
+function useRailWidth(drawer: boolean): RailWidthControls {
+  const railRef = useRef<HTMLElement>(null)
+  const [containerWidth, setContainerWidth] = useState(0)
+  const [width, setWidth] = useState(() => readRailWidth(browserRailStorage()))
+  const [dragging, setDragging] = useState(false)
+  const dragRef = useRef<{ readonly x: number; readonly width: number } | null>(null)
+
+  useEffect(() => observeWidth(railRef.current?.parentElement ?? null, setContainerWidth), [])
+
+  const effective = containerWidth > 0 ? railWidthClamp(width, containerWidth) : width
+  const persist = useCallback((next: number): void => {
+    const value = railWidthClamp(next, containerWidth)
+    setWidth(value)
+    saveRailWidth(browserRailStorage(), value)
+  }, [containerWidth])
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return
+    // The grip must not start a text selection or scroll the document.
+    event.preventDefault()
+    dragRef.current = { x: event.clientX, width: effective }
+    setDragging(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current
+    if (drag === null) return
+    setWidth(railWidthClamp(drag.width - (event.clientX - drag.x), containerWidth))
+  }
+
+  const finishDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current
+    if (drag === null) return
+    dragRef.current = null
+    setDragging(false)
+    persist(drag.width - (event.clientX - drag.x))
+  }
+
+  /** A cancelled pointer keeps the previewed width but stores nothing. */
+  const cancelDrag = (): void => {
+    if (dragRef.current === null) return
+    dragRef.current = null
+    setDragging(false)
+  }
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    persist(railWidthAfterKey(effective, event.key, containerWidth))
+  }
+
+  const grip = drawer ? null : (
+    <div
+      className="cwi-rail-grip"
+      data-testid="cwi-rail-grip"
+      data-dragging={String(dragging)}
+      role="separator"
+      aria-orientation="vertical"
+      aria-valuemin={RAIL_WIDTH_MIN}
+      aria-valuemax={RAIL_WIDTH_MAX}
+      aria-valuenow={effective}
+      aria-label="调整批注栏宽度；左右方向键调整"
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={finishDrag}
+      onPointerCancel={cancelDrag}
+      onKeyDown={onKeyDown}
+    />
+  )
+
+  return {
+    railRef,
+    style: drawer ? undefined : { width: `${String(effective)}px` },
+    grip,
   }
 }
 
@@ -406,14 +535,18 @@ function RailList(props: CommentRailProps): ReactElement {
  * @returns the rail aside; hidden while the toolbar keeps it collapsed.
  */
 export function CommentRail(props: CommentRailProps): ReactElement {
+  const { railRef, style, grip } = useRailWidth(props.drawer)
   return (
     <aside
+      ref={railRef}
       className="cwi-rail"
       data-testid="cwi-rail"
       data-drawer={String(props.drawer)}
       data-view={props.state.view}
+      style={style}
       hidden={!props.visible}
     >
+      {grip}
       {props.state.view === 'session' ? <RailSession {...props} /> : <RailList {...props} />}
     </aside>
   )

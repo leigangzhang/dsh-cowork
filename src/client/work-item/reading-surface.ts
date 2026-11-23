@@ -113,6 +113,8 @@ export interface ReadingSurface {
   readonly toggleReadMode: () => void
   /** Annotate the current line selection, if any. */
   readonly annotate: () => void
+  /** Annotate one mapped range; `selectedText` is the browser's sub-selection. */
+  readonly annotateLines: (startLine: number, endLine: number, selectedText?: string) => void
   /** Keyboard annotation from the numbered line list. */
   readonly annotateLine: (line: number) => void
   /** A numbered line's pin opens the thread it numbers. */
@@ -284,6 +286,7 @@ export function createReadingSurface(
     toggleEditing,
     toggleReadMode,
     annotate,
+    annotateLines: (startLine, endLine, selectedText) => { annotateRange(startLine, endLine, selectedText) },
     annotateLine: line => { annotateRange(line, line) },
     focusPin,
     showMode: input.viewTab === 'document' && input.file !== null

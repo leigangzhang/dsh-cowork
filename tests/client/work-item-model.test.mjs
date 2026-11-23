@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import '../support/ts-hook.mjs'
 const model = await import('../../src/client/work-item/model.ts')
 const artifactContract = await import('../../src/panel/artifact-contract.ts')
+const anchorModule = await import('../../src/domains/artifact/anchor.ts')
 
 /** One summary row with every field the rail reads. */
 function summary(overrides = {}) {
@@ -683,6 +684,24 @@ test('lineRangeAnnotation carries a bounded sub-line selection', () => {
   assert.equal('selectedText' in blank, false)
   const long = model.lineRangeAnnotation(['x'], null, 'docs/p.md', 1, 1, 's'.repeat(5000))
   assert.equal(Array.from(long.selectedText).length, artifactContract.MAX_ARTIFACT_QUOTE_CHARS)
+})
+
+test('a sub-line selection is display data and never drives relocation', () => {
+  const lines = ['alpha beta', 'gamma delta']
+  const withSelection = model.lineRangeAnnotation(lines, null, 'docs/p.md', 2, 2, '  delta  ')
+  const without = model.lineRangeAnnotation(lines, null, 'docs/p.md', 2, 2)
+  const content = 'a new opening line\n' + lines.join('\n')
+  const moved = anchorModule.relocateLineAnchor(content, withSelection)
+  const plain = anchorModule.relocateLineAnchor(content, without)
+  assert.equal(withSelection.selectedText, 'delta')
+  assert.equal(withSelection.quote, 'gamma delta')
+  // The quote decides the new position; the selection only rides along.
+  assert.equal(moved.status, plain.status)
+  assert.equal(moved.anchor.startLine, plain.anchor.startLine)
+  assert.equal(moved.anchor.endLine, plain.anchor.endLine)
+  assert.equal(moved.anchor.quote, plain.anchor.quote)
+  assert.equal(moved.anchor.selectedText, 'delta')
+  assert.equal('selectedText' in plain.anchor, false)
 })
 
 test('olderEntryVisible and the Escape rules match the drawer state', () => {

@@ -7,7 +7,7 @@
  * number always addresses the stored bytes.
  */
 import { useMemo, useState } from 'react'
-import type { KeyboardEvent, ReactElement } from 'react'
+import type { KeyboardEvent, ReactElement, Ref } from 'react'
 import {
   inlineMarkdown,
   isSelected,
@@ -20,8 +20,21 @@ import {
   type ThreadPin,
 } from '../model.ts'
 
+/** The inline fallback annotate entry shown when no floating rect is usable. */
+export interface InlineAnnotate {
+  readonly startLine: number
+  readonly endLine: number
+  readonly disabled: boolean
+  readonly disabledTitle: string | undefined
+  readonly onAnnotate: () => void
+}
+
 /** Props of the numbered source view. */
 export interface SourceLinesProps {
+  /** Scroll-container ref; the surface places its floating entry from it. */
+  readonly rootRef?: Ref<HTMLDivElement>
+  /** Last-resort annotate button on the range's last line. */
+  readonly inlineAnnotate?: InlineAnnotate | null
   /** Lines of the stored file, without the trailing newline entry. */
   readonly lines: readonly string[]
   /** Current line selection, if any. */
@@ -107,6 +120,8 @@ interface SourceLineProps {
   readonly pin: ThreadPin | undefined
   readonly markdown: boolean
   readonly active: boolean
+  /** The inline fallback entry, on the range's last line. */
+  readonly inline: InlineAnnotate | null
   readonly onPick: (line: number, extend: boolean) => void
   readonly onPickPin: (line: number) => void
 }
@@ -123,10 +138,11 @@ function SourceLine({
   pin,
   markdown,
   active,
+  inline,
   onPick,
   onPickPin,
 }: SourceLineProps): ReactElement {
-  const inline = markdown && view.kind !== 'code' && view.kind !== 'fence'
+  const inlineMarkdown = markdown && view.kind !== 'code' && view.kind !== 'fence'
   return (
     <div
       className="cwi-line"
@@ -142,8 +158,23 @@ function SourceLine({
       <span className="cwi-line-number">{line}</span>
       <LinePin pin={pin} line={line} onPickPin={onPickPin} />
       <span className={view.className}>
-        {inline ? <InlineText text={view.text === '' ? ' ' : view.text} /> : (view.text === '' ? ' ' : view.text)}
+        {inlineMarkdown
+          ? <InlineText text={view.text === '' ? ' ' : view.text} />
+          : (view.text === '' ? ' ' : view.text)}
       </span>
+      {inline === null ? null : (
+        <button
+          type="button"
+          className="cwi-line-annotate"
+          data-testid="cwi-line-annotate"
+          aria-label="批注所选内容"
+          disabled={inline.disabled}
+          title={inline.disabledTitle ?? '对所选行创建批注'}
+          onClick={(event) => { event.stopPropagation(); inline.onAnnotate() }}
+        >
+          批注
+        </button>
+      )}
     </div>
   )
 }
@@ -154,6 +185,8 @@ function SourceLine({
  * @returns the scrollable line list.
  */
 export function SourceLines({
+  rootRef,
+  inlineAnnotate = null,
   lines,
   selection,
   anchoredLines,
@@ -191,6 +224,7 @@ export function SourceLines({
   }
   return (
     <div
+      ref={rootRef}
       className="cwi-lines"
       data-testid="cwi-lines"
       role="group"
@@ -209,6 +243,7 @@ export function SourceLines({
           pin={pins.get(index + 1)}
           markdown={markdown}
           active={index + 1 === activeLine}
+          inline={inlineAnnotate !== null && inlineAnnotate.endLine === index + 1 ? inlineAnnotate : null}
           onPick={pick}
           onPickPin={onPickPin}
         />
