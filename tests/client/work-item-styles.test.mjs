@@ -46,7 +46,8 @@ test('a host without a document is a no-op', () => {
 test('the sheet covers the list, viewer, rail, and the narrow layout', () => {
   for (const selector of [
     '.cwi-list', '.cwi-filter', '.cwi-card', '.cwi-viewer', '.cwi-cross',
-    '.cwi-rail', '.cwi-thread', '.cwi-composer',
+    '.cwi-rail', '.cwi-rail-list', '.cwi-rail-session', '.cwi-rail-back',
+    '.cwi-thread[data-summary="true"]', '.cwi-thread', '.cwi-composer',
   ]) {
     assert.ok(WORK_ITEM_CSS.includes(selector), selector)
   }

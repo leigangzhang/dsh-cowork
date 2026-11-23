@@ -1,19 +1,20 @@
 /**
- * The comment rail's filter header and thread list.
+ * The comment rail's list level: filter header and read-only thread summaries.
  *
- * The container keeps the draft, reply target, and request context; this file
- * owns only the visible thread projection (open cards, resolved summary, and
- * the three-state filter).
+ * The container keeps the draft, the session target, and the request context;
+ * this file owns only the visible thread projection (open cards, resolved
+ * summary, and the three-state filter). Its summary cards hold no reply
+ * control and no composer: a card click enters the session level.
  */
 import type { ReactElement, ReactNode } from 'react'
 import type { ArtifactDispatchSummary } from '../../panel/artifact-contract.js'
 import {
   commentBody,
   dispatchForThread,
-  threadRailView,
   type ThreadFilter,
   type WorkItemThread,
 } from './model.ts'
+import type { RailListProjection, RailListRow } from './rail-state.ts'
 import { ThreadCard } from './thread-card.tsx'
 
 /** Props of the comment rail list. */
@@ -27,6 +28,8 @@ interface ThreadListProps {
   readonly retrying: boolean
   readonly filter: ThreadFilter
   readonly showResolved: boolean
+  /** Rows for the active filter and resolved state. */
+  readonly projection: RailListProjection
   /** The comments route holds a page older than the loaded one. */
   readonly hasOlder: boolean
   readonly loadingOlder: boolean
@@ -39,7 +42,6 @@ interface ThreadListProps {
   readonly onToggleResolved: () => void
   readonly onSelect: (thread: WorkItemThread) => void
   readonly onToggle: (thread: WorkItemThread) => void
-  readonly onReply: (thread: WorkItemThread) => void
   readonly onRetry: (dispatch: ArtifactDispatchSummary) => void
   readonly onFocus: (thread: WorkItemThread) => void
   readonly onLoadOlder: () => void
@@ -54,34 +56,37 @@ function rootText(thread: WorkItemThread): string {
 }
 
 /** The resolved-summary label: count, first ordinal, and a short excerpt. */
-function resolvedSummary(threads: readonly WorkItemThread[], ordinals: ReadonlyMap<string, number>): string {
-  const first = threads[0]
-  if (first === undefined) return ''
-  const text = rootText(first)
+function resolvedSummary(
+  first: RailListRow | null,
+  count: number,
+  ordinals: ReadonlyMap<string, number>,
+): string {
+  if (first === null) return ''
+  const text = rootText(first.thread)
   const hint = text.length > 28 ? `${text.slice(0, 28)}…` : text
-  const ordinal = ordinals.get(first.threadId)
-  return `已解决 ${String(threads.length)} 条：${ordinal === undefined ? '' : `#${String(ordinal)} `}${hint}`
+  const ordinal = ordinals.get(first.thread.threadId)
+  return `已解决 ${String(count)} 条：${ordinal === undefined ? '' : `#${String(ordinal)} `}${hint}`
 }
 
-/** One rail card; resolved cards render open when their group is expanded. */
-function card(thread: WorkItemThread, props: ThreadListProps, open: boolean): ReactElement {
+/** One rail summary card; the list level never expands a thread inline. */
+function card(row: RailListRow, props: ThreadListProps): ReactElement {
   return (
     <ThreadCard
-      key={thread.threadId}
-      thread={thread}
-      ordinal={props.ordinals.get(thread.threadId) ?? 1}
-      selected={props.selectedThreadId === thread.threadId}
+      key={row.thread.threadId}
+      thread={row.thread}
+      ordinal={row.ordinal}
+      selected={row.selected}
+      summaryOnly
       now={props.now}
-      pending={props.pendingThread === thread.threadId}
-      dispatch={dispatchForThread(thread, props.dispatches)}
+      pending={props.pendingThread === row.thread.threadId}
+      dispatch={dispatchForThread(row.thread, props.dispatches)}
       retrying={props.retrying}
       readOnly={props.readOnly}
-      expandedByGroup={open}
-      onSelect={() => { props.onSelect(thread) }}
-      onToggle={() => { props.onToggle(thread) }}
-      onReply={() => { props.onReply(thread) }}
+      onSelect={() => { props.onSelect(row.thread) }}
+      onToggle={() => { props.onToggle(row.thread) }}
+      onReply={() => { /* list level has no reply control */ }}
       onRetry={props.onRetry}
-      onFocus={() => { props.onFocus(thread) }}
+      onFocus={() => { props.onFocus(row.thread) }}
       attachmentUrl={props.attachmentUrl}
     />
   )
@@ -92,10 +97,10 @@ function card(thread: WorkItemThread, props: ThreadListProps, open: boolean): Re
  * @param props - threads, filter state, and callbacks owned by the container.
  * @returns the rail header, optional activity slot, and thread cards.
  */
-// Projection lives in `threadRailView` (unit-tested); this is display branches.
+// Header/filter/summary/card display matrix; the row projection is unit-tested
+// in rail-state.ts and the browser lane owns the rendered states.
 // fallow-ignore-next-line complexity
 export function ThreadList(props: ThreadListProps): ReactElement {
-  const view = threadRailView(props.threads, props.filter, props.showResolved)
   return (
     <>
       <div className="cwi-rail-header" data-testid="cwi-thread-count">
@@ -153,9 +158,11 @@ export function ThreadList(props: ThreadListProps): ReactElement {
             {props.loadingOlder ? '加载中…' : '加载更早的批注'}
           </button>
         ) : null}
-        {view.emptyMessage === null ? null : <p className="cwi-rail-empty">{view.emptyMessage}</p>}
-        {view.visible.map((thread) => card(thread, props, false))}
-        {view.showSummary ? (
+        {props.projection.emptyMessage === null
+          ? null
+          : <p className="cwi-rail-empty">{props.projection.emptyMessage}</p>}
+        {props.projection.open.map((row) => card(row, props))}
+        {props.projection.showSummary ? (
           <button
             type="button"
             className="cwi-resolved-line"
@@ -165,12 +172,14 @@ export function ThreadList(props: ThreadListProps): ReactElement {
           >
             <span className="cwi-resolved-dot" aria-hidden="true">✓</span>
             <span className="cwi-resolved-text">
-              {props.showResolved ? `收起已解决 ${String(view.resolved.length)} 条` : resolvedSummary(view.resolved, props.ordinals)}
+              {props.showResolved
+                ? `收起已解决 ${String(props.projection.resolvedCount)} 条`
+                : resolvedSummary(props.projection.resolvedFirst, props.projection.resolvedCount, props.ordinals)}
             </span>
             <span className="cwi-resolved-arrow" aria-hidden="true">{props.showResolved ? '⌃' : '›'}</span>
           </button>
         ) : null}
-        {view.showResolvedCards ? view.resolved.map((thread) => card(thread, props, true)) : null}
+        {props.projection.resolved.map((row) => card(row, props))}
       </div>
     </>
   )
