@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Cowork 工作项主区 View 标签集成</title>
+<style>
+  :root {
+    --ink: #101828; --muted: #475467; --soft: #98a2b3;
+    --line: #e4e7ec; --line-soft: #eef0f3; --canvas: #eef1f5;
+    --surface: #ffffff; --surface-muted: #f2f4f7; --surface-2: #f9fafb;
+    --blue: #175cd3; --blue-soft: #eff8ff;
+    --green: #067647; --green-soft: #ecfdf3;
+    --amber: #b54708; --amber-soft: #fffaeb;
+    --red: #b42318; --red-soft: #fef3f2;
+    --violet: #6941c6; --violet-soft: #f4f3ff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #dfe3e8; color: var(--ink);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .stage {
+    position: relative; width: min(760px, 100vw); height: min(560px, 100vh);
+    display: flex; flex-direction: column; background: var(--canvas);
+    box-shadow: 0 0 0 1px #00000010; overflow: hidden;
+  }
+  .stage[data-state="narrow"] { width: min(560px, 100vw); }
+
+  /* state toggling */
+  .state-cross-banner, .state-loading, .state-error { display: none; }
+  .stage[data-state="cross"] .state-cross-banner { display: flex; }
+  .stage[data-state="loading"] .viewer-full { display: none; }
+  .stage[data-state="loading"] .state-loading { display: flex; }
+  .stage[data-state="error"] .viewer-full { display: none; }
+  .stage[data-state="error"] .state-error { display: flex; }
+
+  /* host session header: session ancestry (one crumb), then the view tabs */
+  .session-header {
+    flex: none; min-height: 76px; padding: 10px 20px 0;
+    background: var(--surface); border-bottom: .5px solid var(--line);
+  }
+  .session-title-row { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+  .session-name { color: var(--ink); font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+  .session-preset { color: var(--soft); font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+  .session-name-cross { display: none; }
+  .stage[data-state="cross"] .session-name-same { display: none; }
+  .stage[data-state="cross"] .session-name-cross { display: inline; }
+
+  .tabs { display: flex; gap: 20px; margin-top: 6px; padding-left: 8px; min-height: 25px; align-items: flex-start; }
+  .tabs [role="tab"] {
+    position: relative; border: 0; background: transparent; cursor: pointer;
+    font: 500 13px/16px inherit; color: var(--soft); padding: 10px 10px 9px; margin: -10px -10px 0;
+  }
+  .tabs [role="tab"]::after {
+    content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
+    border-radius: 2px; background: transparent;
+  }
+  .tabs [role="tab"][aria-selected="true"] { color: var(--blue); font-weight: 600; }
+  .tabs [role="tab"][aria-selected="true"]::after { background: var(--blue); }
+
+  .scroll-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ---- work item viewer (conversation.view occupant) ---- */
+  .viewer {
+    isolation: isolate; display: flex; flex-direction: column;
+    width: 100%; height: 100%; overflow: hidden; background: var(--canvas);
+  }
+  .viewer-banner {
+    flex: none; min-height: 36px; padding: 7px 16px; align-items: center; gap: 10px;
+    background: var(--red-soft); color: var(--red); font-size: 12px; border-bottom: 1px solid #f3d1ce;
+  }
+  .viewer-banner .owner { font-weight: 650; }
+  .viewer-banner .btn {
+    margin-left: auto; border: 1px solid var(--red); color: var(--red); background: #fff;
+    border-radius: 7px; padding: 3px 10px; font: 600 12px inherit;
+  }
+  .viewer-header { flex: none; padding: 10px 16px 9px; background: var(--surface); border-bottom: 1px solid var(--line-soft); }
+  .viewer-title-row { display: flex; align-items: center; gap: 8px; }
+  .viewer-title { font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+  .chip { padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+  .chip.pending { background: var(--blue-soft); color: var(--blue); }
+
+  .viewer-toolbar { flex: none; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 14px; background: var(--surface); border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+  .toolbar-tab { font-weight: 600; color: var(--soft); }
+  .toolbar-tab.active { color: var(--blue); border-bottom: 2px solid var(--blue); padding-bottom: 2px; }
+  .toolbar-spacer { flex: 1; }
+  .save-state { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; }
+  .save-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .toggle { padding: 3px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--muted); font: 600 11.5px inherit; cursor: pointer; }
+  .toggle[aria-expanded="true"] { border-color: transparent; background: var(--blue-soft); color: var(--blue); }
+
+  .viewer-body { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 10px 12px; }
+  .paper {
+    flex: 1; min-width: 0; overflow: hidden; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column;
+  }
+  .paper-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--surface-muted); border-bottom: 1px solid var(--line-soft); font-size: 11px; }
+  .file-ico { width: 20px; height: 20px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); display: grid; place-items: center; font-size: 9px; font-weight: 800; }
+  .file-name { font-family: var(--mono); font-size: 12px; }
+  .paper-spacer { flex: 1; }
+  .paper-body { flex: 1; overflow: auto; padding: 8px 0 14px; font-size: 13px; line-height: 1.65; }
+  .line { position: relative; padding: 0 40px 0 52px; white-space: nowrap; }
+  .line-num { position: absolute; left: 12px; color: var(--soft); font-family: var(--mono); font-size: 11px; }
+  .pin {
+    position: absolute; right: 10px; top: 4px; min-width: 17px; height: 17px; padding: 0 4px;
+    border-radius: 999px; background: var(--blue); color: #fff; font-size: 9px; font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .pin.resolved { background: var(--green); }
+  .line.hl { background: var(--blue-soft); border-left: 2px solid var(--blue); }
+
+  .rail {
+    flex: none; width: 210px; display: flex; flex-direction: column;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  }
+  .rail[hidden] { display: none; }
+  .rail-head { flex: none; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); font-size: 12px; font-weight: 700; }
+  .rail-head small { display: block; color: var(--soft); font-weight: 400; font-size: 9.5px; }
+  .rail-list { flex: 1; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 7px; }
+  .thread { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--surface-2); display: flex; flex-direction: column; gap: 4px; }
+  .thread.sel { border-color: #b2ddff; box-shadow: 0 0 0 2px var(--blue-soft); }
+  .thread-head { display: flex; align-items: center; gap: 6px; }
+  .anchor { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: var(--blue-soft); color: var(--blue); }
+  .thread-owner { font-size: 11px; font-weight: 650; }
+  .thread-body { font-size: 11.5px; color: var(--muted); }
+  .thread-model { font-size: 11.5px; color: var(--violet); background: var(--violet-soft); border-radius: 6px; padding: 4px 7px; }
+  .thread-meta { font-size: 9.5px; color: var(--soft); }
+
+  .viewer-footer { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 14px; background: var(--surface); border-top: 1px solid var(--line-soft); font-size: 11px; color: var(--muted); }
+
+  /* loading / error fill the view area; no composer space is reserved */
+  .state-loading, .state-error {
+    flex: 1; min-height: 0; width: 100%; height: 100%; overflow: hidden;
+    background: var(--canvas);
+    align-items: center; justify-content: center; flex-direction: column;
+  }
+  .skeleton { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 10px; padding: 20px; }
+  .sk { background: var(--surface-muted); border-radius: 8px; }
+  .sk.title { height: 18px; width: 55%; }
+  .sk.line { height: 12px; }
+  .sk.line.short { width: 70%; }
+  .errbox { max-width: 460px; background: var(--red-soft); border: 1px solid #f3d1ce; border-radius: 10px; padding: 14px 16px; color: var(--red); }
+  .errbox .code { font-family: var(--mono); font-size: 11px; }
+  .errbox button { margin-top: 10px; border: 1px solid var(--red); background: #fff; color: var(--red); border-radius: 7px; padding: 4px 12px; font: 600 12px inherit; cursor: pointer; }
+
+  /* narrow: rail becomes a bottom drawer; the footer stays visible */
+  .stage[data-state="narrow"] .viewer-body { flex-direction: column; }
+  .stage[data-state="narrow"] .rail { width: auto; height: 150px; flex: none; }
+  .stage[data-state="narrow"] .paper { flex: 1; }
+
+  .state-note { position: absolute; top: 6px; right: 8px; font-size: 10px; color: var(--soft); background: #ffffffcc; padding: 1px 7px; border-radius: 999px; z-index: 20; }
+
+  @media (max-width: 640px) {
+    .stage, .stage[data-state="narrow"] { width: 100vw; height: 100vh; }
+    .session-header { padding: 8px 14px 0; }
+    .session-name { font-size: 13px; }
+    .viewer-header { padding: 8px 12px; }
+    .viewer-toolbar { flex-wrap: wrap; row-gap: 2px; padding: 4px 12px; }
+    .viewer-body { padding: 8px; }
+    .viewer-footer { padding: 6px 12px; }
+    .state-note { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage" id="stage" data-state="same" data-rail="closed">
+    <div class="state-note" id="note">同会话 · 批注栏收起</div>
+
+    <div class="session-header">
+      <div class="session-title-row">
+        <span class="session-name session-name-same" title="文档所属会话">主题「需求评审」</span>
+        <span class="session-name session-name-cross" title="当前会话">主题「上线复盘」</span>
+        <span class="session-preset">cowork-topic</span>
+      </div>
+      <div class="tabs" role="tablist" data-conversation-tabs="">
+        <button type="button" role="tab" aria-selected="false">Chat</button>
+        <button type="button" role="tab" aria-selected="true" id="cowork-tab">Cowork</button>
+      </div>
+    </div>
+
+    <div class="scroll-body">
+      <!-- full viewer (same / cross / narrow); the host composer seat is hidden by the plugin rule -->
+      <div class="viewer viewer-full" data-conversation-composer-overlay="">
+        <div class="viewer-banner state-cross-banner" role="status">
+          <span>当前会话不是该工作项所属会话 · 所属：<span class="owner">主题「需求评审」</span></span>
+          <span class="btn">在所属会话打开</span>
+        </div>
+
+        <div class="viewer-header">
+          <div class="viewer-title-row">
+            <span class="viewer-title">产品发布流程说明</span>
+            <span class="chip pending">待确认</span>
+          </div>
+        </div>
+        <div class="viewer-toolbar">
+          <span class="toolbar-tab active">文档</span>
+          <span class="toolbar-tab">版本 2</span>
+          <span class="toolbar-tab">附件 3</span>
+          <span class="toolbar-spacer"></span>
+          <span class="save-state"><span class="save-dot"></span>已保存 · r12</span>
+          <button type="button" class="toggle" id="railToggle" aria-expanded="false" aria-controls="rail">批注 2</button>
+        </div>
+        <div class="viewer-body">
+          <div class="paper">
+            <div class="paper-head">
+              <span class="file-ico">MD</span>
+              <span class="file-name">docs/release-process.md</span>
+              <span class="paper-spacer"></span>
+              <span class="toolbar-tab" style="color:var(--soft)">阅读</span>
+            </div>
+            <div class="paper-body">
+              <div class="line"><span class="line-num">1</span># 发布流程</div>
+              <div class="line"><span class="line-num">2</span></div>
+              <div class="line"><span class="line-num">3</span>1. 代码合入主分支后进入预发布。</div>
+              <div class="line hl"><span class="line-num">4</span>2. 打 tag 并跑回归。<span class="pin">1</span></div>
+              <div class="line"><span class="line-num">5</span>3. 部署到灰度环境。</div>
+              <div class="line"><span class="line-num">6</span>4. 全量发布并归档。<span class="pin resolved">2</span></div>
+              <div class="line"><span class="line-num">7</span>5. 回滚预案：保留上一个版本。</div>
+            </div>
+          </div>
+          <aside class="rail" id="rail" hidden>
+            <div class="rail-head">批注 <small>按位置排序 · 只看待处理</small></div>
+            <div class="rail-list">
+              <div class="thread sel">
+                <div class="thread-head"><span class="anchor">#1</span><span class="thread-owner">你</span></div>
+                <div class="thread-body">第 4 行「打 tag」应说明用语义化版本。</div>
+                <div class="thread-model">已补充语义化版本规则。</div>
+                <div class="thread-meta">已回复 · 2 分钟</div>
+              </div>
+              <div class="thread">
+                <div class="thread-head"><span class="anchor" style="background:var(--green-soft);color:var(--green)">#2</span><span class="thread-owner">你</span></div>
+                <div class="thread-body">回滚预案需补充数据恢复步骤。</div>
+                <div class="thread-meta">已解决</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <div class="viewer-footer">模型已回复 #1 · 待处理 1 · 版本 r12 · 更新于 14:32</div>
+      </div>
+
+      <!-- loading -->
+      <div class="state-loading" data-conversation-composer-overlay="" aria-busy="true">
+        <div class="skeleton">
+          <div class="sk title"></div>
+          <div class="sk line"></div>
+          <div class="sk line short"></div>
+          <div class="sk line"></div>
+        </div>
+      </div>
+
+      <!-- error -->
+      <div class="state-error" data-conversation-composer-overlay="">
+        <div class="errbox" role="alert">
+          <div>无法加载工作项</div>
+          <div class="code">artifact/not-found · 目标项目无法解析</div>
+          <button>重试</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var q = new URLSearchParams(location.search)
+    var state = q.get('state') || 'same'
+    var rail = q.get('rail') === 'open'
+    var labels = {
+      same: '同会话 · 无会话 composer',
+      cross: '跨会话 · 只读 · 无会话 composer',
+      loading: '加载中 · 骨架',
+      error: '加载失败 · 可重试',
+      narrow: '窄屏 · 无会话 composer'
+    }
+    var stage = document.getElementById('stage')
+    stage.setAttribute('data-state', state)
+    var note = labels[state] || labels.same
+    if (state !== 'loading' && state !== 'error') note += rail ? ' · 批注栏展开' : ' · 批注栏收起'
+    document.getElementById('note').textContent = note
+
+    var railEl = document.getElementById('rail')
+    var toggle = document.getElementById('railToggle')
+
+    function setRail(open) {
+      railEl.hidden = !open
+      toggle.setAttribute('aria-expanded', String(open))
+      stage.setAttribute('data-rail', open ? 'open' : 'closed')
+    }
+
+    setRail(rail)
+    toggle.addEventListener('click', function () { setRail(railEl.hidden) })
+  </script>
+</body>
+</html>

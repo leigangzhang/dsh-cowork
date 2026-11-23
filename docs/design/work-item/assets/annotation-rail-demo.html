@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Cowork 工作项：右栏列表与批注栏/批注会话</title>
+<style>
+  :root {
+    --ink:#101828; --muted:#475467; --soft:#98a2b3; --line:#e4e7ec; --line-soft:#eef0f3;
+    --canvas:#eef1f5; --card:#fff; --surface-muted:#f2f4f7; --gutter:#fbfcfd; --gutter-line:#f1f3f6;
+    --blue:#175cd3; --blue-soft:#eff8ff; --blue-ring:#b2ddff;
+    --violet:#6941c6; --violet-soft:#f4f3ff; --violet-border:#e9e4ff;
+    --green:#067647; --green-soft:#ecfdf3;
+    --amber:#b54708; --amber-soft:#fffaeb;
+    --red:#b42318; --red-soft:#fef3f2;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background:#dfe3e8; color:var(--ink);
+    font:13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { width:1280px; padding:28px 32px 44px; display:flex; flex-direction:column; align-items:center; gap:40px; background:
+      radial-gradient(900px 520px at 18% 6%, #fff 0%, rgba(255,255,255,0) 68%),
+      radial-gradient(720px 520px at 92% 96%, #e7ebf2 0%, rgba(231,235,242,0) 70%), var(--canvas); }
+  .board { display:flex; flex-direction:column; gap:10px; }
+  .board-label { width:1208px; color:#667085; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  .board-label span { color:#98a2b3; font-weight:500; letter-spacing:0; text-transform:none; }
+  .app { position:relative; width:1208px; height:760px; display:flex; overflow:hidden; border:1px solid #dfe3e8; border-radius:16px; background:#fff; box-shadow:0 18px 48px rgba(16,24,40,.10), 0 2px 8px rgba(16,24,40,.06); }
+  .badge { position:absolute; top:12px; right:12px; z-index:20; padding:3px 9px; border:1px solid #d1e9ff; border-radius:999px; background:rgba(239,248,255,.94); color:var(--blue); font-size:10.5px; font-weight:650; }
+
+  /* ===== board 1: right-rail list ===== */
+  .rail-panel { width:384px; min-height:560px; padding:12px 12px 20px; background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 18px 48px rgba(16,24,40,.10); display:flex; flex-direction:column; gap:6px; }
+  .rail-toolbar { display:flex; align-items:center; gap:6px; }
+  .search-wrap { margin-left:auto; display:flex; align-items:center; gap:4px; }
+  .search-input { width:168px; height:26px; padding:2px 8px; border:1px solid var(--line); border-radius:7px; font:inherit; font-size:11.5px; color:var(--ink); background:var(--card); }
+  .search-input:focus { outline:2px solid var(--blue); outline-offset:1px; border-color:var(--blue); }
+  .search-clear { width:22px; height:22px; border:0; background:transparent; color:var(--soft); font-size:14px; cursor:pointer; }
+  .filter-row { display:flex; flex-wrap:wrap; gap:6px; padding:2px 0 6px; }
+  .filter { border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:999px; padding:2px 10px; font:inherit; font-size:11.5px; cursor:pointer; }
+  .filter[data-active="true"] { border-color:transparent; background:var(--blue-soft); color:var(--blue); font-weight:600; }
+  .group-title { display:flex; align-items:center; justify-content:space-between; gap:6px; margin:10px 0 4px; padding:0 2px; color:var(--soft); font-size:11px; font-weight:650; letter-spacing:.03em; }
+  .group-title .count { min-width:20px; padding:0 6px; border-radius:999px; background:var(--surface-muted); color:var(--muted); font-size:10px; font-weight:600; line-height:18px; text-align:center; }
+  .done-fold { display:flex; align-items:center; gap:8px; margin:10px 0 4px; padding:8px 12px; border:1px dashed var(--line); border-radius:10px; background:var(--card); color:var(--muted); font-size:11px; font-weight:600; cursor:pointer; }
+  .done-fold:hover { background:var(--surface-muted); }
+  .done-dot { width:15px; height:15px; display:grid; place-items:center; border-radius:50%; background:var(--green-soft); color:var(--green); font-size:8px; font-weight:800; }
+  .done-arrow { margin-left:auto; color:var(--soft); }
+  .card { display:flex; flex-direction:column; gap:5px; width:100%; text-align:left; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink); padding:9px 12px; cursor:pointer; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+  .card-top { display:flex; align-items:center; gap:6px; }
+  .kind { display:inline-flex; align-items:center; padding:1px 6px; border-radius:4px; background:var(--blue-soft); color:var(--blue); font-size:10px; font-weight:750; letter-spacing:.03em; }
+  .kind.k-diagram { background:var(--green-soft); color:var(--green); }
+  .kind.k-html { background:var(--surface-muted); color:var(--muted); }
+  .status { margin-left:auto; padding:1px 7px; border-radius:999px; background:var(--blue-soft); color:var(--blue); font-size:10px; font-weight:650; }
+  .status.s-done { background:var(--green-soft); color:var(--green); }
+  .status.s-feedback { background:var(--red-soft); color:var(--red); }
+  .card-title { font-size:13px; font-weight:650; line-height:1.4; }
+  .card-meta { display:flex; flex-wrap:wrap; gap:5px; align-items:center; font-size:11px; color:var(--muted); }
+  .chip { padding:0 6px; line-height:17px; font-size:10.5px; font-weight:500; background:var(--surface-muted); border-radius:999px; color:var(--muted); }
+  .chip.dispatch { background:var(--amber-soft); color:var(--amber); }
+  .card-time { margin-left:auto; color:var(--soft); font-size:10.5px; white-space:nowrap; }
+  .card-source { display:flex; align-items:center; gap:4px; color:var(--soft); font-size:10px; }
+  .src-dot { width:8px; height:8px; border-radius:2px; background:var(--blue-soft); border:1px solid #d1e9ff; }
+  .no-result { padding:18px 12px; text-align:center; font-size:12px; color:var(--soft); }
+
+  /* ===== viewer + annotation rail (boards 2/3) ===== */
+  .viewer { flex:1; min-width:0; display:flex; flex-direction:column; background:#fcfcfd; }
+  .vhead { flex:none; display:flex; flex-direction:column; gap:5px; padding:12px 20px 10px; border-bottom:1px solid var(--line-soft); background:#fff; }
+  .crumbs { display:flex; align-items:center; gap:6px; color:var(--soft); font-size:10.5px; }
+  .crumbs b { color:var(--muted); font-weight:600; }
+  .vtitle { margin:0; font-size:16px; font-weight:720; letter-spacing:-.015em; }
+  .toolbar { flex:none; display:flex; align-items:center; gap:10px; min-height:40px; padding:0 16px; background:#fff; border-bottom:1px solid var(--line-soft); }
+  .view-tab { position:relative; padding:0; border:0; background:transparent; color:var(--muted); font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .view-tab[data-active="true"] { color:var(--blue); }
+  .view-tab[data-active="true"]::after { content:""; position:absolute; left:0; right:0; bottom:-11px; height:2px; border-radius:2px 2px 0 0; background:var(--blue); }
+  .spacer { flex:1; }
+  .mode { display:inline-flex; gap:2px; padding:2px; border:1px solid var(--line); border-radius:7px; background:var(--surface-muted); }
+  .mode-option { padding:1px 8px; border-radius:5px; font-size:11px; font-weight:600; color:var(--muted); }
+  .mode-option[data-active="true"] { background:#fff; color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .save { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--muted); white-space:nowrap; }
+  .save-dot { width:7px; height:7px; border-radius:50%; background:var(--green); }
+  .rail-toggle { padding:3px 10px; border:1px solid transparent; border-radius:7px; background:var(--blue-soft); color:var(--blue); font:inherit; font-size:11.5px; font-weight:600; cursor:pointer; }
+
+  .body { flex:1; min-height:0; display:flex; gap:12px; padding:12px 14px 14px; }
+  .content { flex:1; min-width:0; overflow:auto; display:flex; flex-direction:column; }
+  .paper { flex:1 0 auto; width:100%; max-width:920px; margin:0 auto; background:#fff; border:1px solid var(--line); border-radius:12px; box-shadow:0 1px 2px rgba(16,24,40,.05); overflow:hidden; }
+  .paper-head { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid var(--line-soft); background:var(--surface-muted); }
+  .file-icon { width:22px; height:22px; display:grid; place-items:center; border-radius:6px; background:var(--blue-soft); color:var(--blue); font-size:9px; font-weight:800; }
+  .file-name { font-family:var(--mono); font-size:12px; }
+  .file-meta { margin-left:auto; font-size:11px; color:var(--soft); }
+  .lines { position:relative; font-size:15px; line-height:26.25px; color:var(--ink); background:linear-gradient(90deg, var(--gutter) 0 48px, var(--gutter-line) 48px 49px, transparent 49px); padding:6px 0 14px; }
+  .line { position:relative; display:flex; align-items:flex-start; gap:8px; padding:1px 40px 1px 60px; white-space:pre-wrap; border-left:2px solid transparent; }
+  .line:hover { background:var(--surface-muted); }
+  .line.selected { background:var(--blue-soft); border-left-color:var(--blue); }
+  .line-num { position:absolute; left:12px; top:0; width:36px; text-align:right; color:var(--soft); font-family:var(--mono); font-size:11px; line-height:26.25px; }
+  .pin { position:absolute; right:6px; top:2px; min-width:17px; height:17px; padding:0 4px; display:inline-grid; place-items:center; border:2px solid #fff; border-radius:999px; background:var(--blue); color:#fff; font-size:8px; font-weight:800; line-height:1; box-shadow:0 1px 3px rgba(16,24,40,.18); }
+  .pin.p-resolved { background:var(--green); }
+  .md-h1 { font-size:30px; line-height:39px; font-weight:700; }
+  .md-h2 { font-size:21px; line-height:28.35px; font-weight:600; }
+  .md-h3 { font-size:17.25px; line-height:24.15px; font-weight:600; }
+  .line[data-kind="h1"] { padding-top:12px; }
+  .line[data-kind="h2"] { padding-top:10px; }
+  .inline-code { font-family:var(--mono); font-size:.88em; padding:1px 4px; border-radius:4px; background:var(--surface-muted); }
+
+  /* floating annotate entry */
+  .sel-phrase { position:relative; display:inline-block; background:var(--blue-soft); border-radius:3px; }
+  .annotate-pop { position:absolute; left:calc(100% + 6px); top:-34px; z-index:10; display:inline-flex; align-items:center; gap:4px; height:26px; padding:3px 10px; border:1px solid var(--blue); border-radius:7px; background:var(--blue); color:#fff; font-size:11.5px; font-weight:600; white-space:nowrap; cursor:pointer; box-shadow:0 2px 8px rgba(16,24,40,.22); }
+  .annotate-pop:hover { background:#0f4bb0; }
+
+  /* annotation rail */
+  .rail { flex:none; width:336px; min-height:0; display:flex; flex-direction:column; background:#fff; border:1px solid var(--line); border-radius:12px; box-shadow:0 1px 2px rgba(16,24,40,.05); overflow:hidden; }
+  .rail-grip { position:absolute; left:-3px; top:0; bottom:0; width:6px; cursor:col-resize; background:transparent; }
+  .rail-grip:hover, .rail-grip:focus { background:var(--blue-soft); }
+  .rail-head { flex:none; display:flex; flex-direction:column; gap:6px; padding:11px 12px 9px; border-bottom:1px solid var(--line-soft); }
+  .rail-head-row { display:flex; align-items:center; gap:6px; }
+  .rail-title { font-size:14px; line-height:20px; font-weight:650; }
+  .count-pill { min-width:20px; padding:0 6px; border-radius:999px; background:var(--surface-muted); color:var(--muted); font-size:10.5px; font-weight:700; line-height:16px; text-align:center; }
+  .rail-sort { margin-left:auto; color:var(--soft); font-size:10.5px; line-height:16px; font-weight:500; }
+  .rail-tools { display:flex; align-items:center; gap:8px; }
+  .select { height:22px; max-width:112px; padding:0 6px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--muted); font:inherit; font-size:11.5px; }
+  .switch { display:inline-flex; align-items:center; gap:5px; color:var(--soft); font-size:11px; line-height:16px; cursor:pointer; user-select:none; }
+  .switch input { position:absolute; width:1px; height:1px; opacity:0; }
+  .switch-track { position:relative; width:20px; height:11px; border-radius:999px; background:var(--line); }
+  .switch-thumb { position:absolute; top:2px; left:2px; width:7px; height:7px; border-radius:50%; background:#fff; }
+  .switch input:checked + .switch-track { background:var(--blue); }
+  .switch input:checked + .switch-track .switch-thumb { transform:translateX(9px); }
+  .threads { flex:1; min-height:0; overflow:auto; padding:10px 10px 9px; display:flex; flex-direction:column; gap:8px; }
+  .thread { display:flex; flex-direction:column; gap:6px; border:1px solid var(--line); border-radius:9px; background:#fff; padding:9px 10px 8px; cursor:pointer; }
+  .thread:hover { border-color:var(--blue-ring); }
+  .thread[data-selected="true"] { border-color:var(--blue-ring); box-shadow:0 0 0 2px var(--blue-soft); }
+  .thread-head { display:flex; align-items:center; gap:6px; min-width:0; }
+  .avatar { width:18px; height:18px; display:grid; place-items:center; border-radius:50%; background:var(--ink); color:#fff; font-size:9px; font-weight:800; }
+  .avatar[data-author="model"] { background:var(--violet-soft); color:var(--violet); }
+  .thread-author { color:var(--ink); font-size:11.5px; line-height:16px; font-weight:650; }
+  .thread-anchor { color:var(--soft); font-size:11px; line-height:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .anchor-chip { flex:none; margin-left:auto; padding:1px 5px; border-radius:4px; background:var(--blue-soft); color:var(--blue); font-size:10px; line-height:14px; font-weight:650; }
+  .anchor-chip[data-tone="done"] { background:var(--green-soft); color:var(--green); }
+  .quote { display:-webkit-box; width:100%; text-align:left; padding:5px 8px; overflow:hidden; border:0; border-left:2px solid #d1e9ff; border-radius:0 4px 4px 0; background:#f9fbfe; color:var(--muted); font:inherit; font-size:12px; line-height:18px; white-space:pre-wrap; cursor:pointer; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .thread-body { font-size:13px; line-height:20px; white-space:pre-wrap; word-break:break-word; }
+  .thread-meta { display:flex; flex-wrap:wrap; gap:5px; align-items:center; font-size:11px; line-height:16px; color:var(--soft); }
+  .tstate { display:flex; align-items:center; gap:6px; padding:5px 7px; border:1px solid var(--amber-soft); border-radius:7px; background:var(--amber-soft); color:var(--amber); font-size:11px; line-height:16px; font-weight:600; }
+  .tstate[data-tone="error"] { border-color:var(--red-soft); background:var(--red-soft); color:var(--red); }
+  .tstate[data-tone="done"] { border-color:var(--green-soft); background:var(--green-soft); color:var(--green); }
+  .tstate-retry { margin-left:2px; padding:0; border:0; background:transparent; color:inherit; font:inherit; font-size:11px; font-weight:650; text-decoration:underline; cursor:pointer; }
+  .tstate-age { margin-left:auto; opacity:.7; white-space:nowrap; }
+  .thread-actions { display:flex; align-items:center; gap:8px; margin-top:2px; }
+  .thread-actions .spacer { flex:1; }
+  .thread-action { padding:1px 0; border:0; background:transparent; color:var(--soft); font:inherit; font-size:11px; line-height:16px; font-weight:600; cursor:pointer; }
+  .thread-action:hover { color:var(--ink); }
+  .resolved-line { display:flex; align-items:center; gap:6px; width:100%; padding:8px 10px; border:1px dashed var(--line); border-radius:9px; background:#fff; color:var(--muted); font-size:11.5px; line-height:16px; text-align:left; cursor:pointer; }
+  .resolved-text { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* session state */
+  .session { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .rail.session { flex:none; width:336px; }
+  .session-head { flex:none; display:flex; align-items:center; gap:6px; padding:11px 12px 9px; border-bottom:1px solid var(--line-soft); }
+  .back { padding:1px 8px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); font:inherit; font-size:11.5px; line-height:16px; font-weight:600; cursor:pointer; }
+  .session-title { font-size:13px; line-height:18px; font-weight:650; }
+  .session-anchor { color:var(--soft); font-size:11px; line-height:16px; }
+  .msgs { flex:1; min-height:0; overflow:auto; padding:10px; display:flex; flex-direction:column; gap:8px; }
+  .msg { display:flex; flex-direction:column; gap:4px; }
+  .msg-head { display:flex; align-items:center; gap:5px; }
+  .msg-author { font-size:11.5px; line-height:16px; font-weight:650; }
+  .msg-time { color:var(--soft); font-size:10.5px; line-height:16px; }
+  .reply-mark { color:var(--green); font-size:10.5px; line-height:16px; font-weight:650; }
+  .msg-body { font-size:13px; line-height:20px; white-space:pre-wrap; }
+  .msg-user { padding:9px 10px; border:1px solid var(--line); border-radius:9px; background:#fff; }
+  .msg-model { padding:9px 10px; border:1px solid var(--violet-border); border-radius:9px; background:var(--violet-soft); }
+  .attachments { display:flex; flex-direction:column; gap:4px; align-items:flex-start; }
+  .thumb { max-width:220px; max-height:140px; border-radius:8px; border:1px solid var(--line-soft); display:block; cursor:zoom-in; }
+  .att-meta { font-size:11px; line-height:16px; color:var(--soft); }
+  .composer { flex:none; margin:0 10px 10px; padding:9px 10px; border:1px solid var(--line); border-radius:9px; background:#fff; display:flex; flex-direction:column; gap:7px; box-shadow:0 3px 10px rgba(16,24,40,.04); }
+  .composer textarea { width:100%; min-height:58px; max-height:160px; resize:vertical; border:1px solid var(--line-soft); border-radius:8px; background:#fff; color:inherit; padding:7px 9px; font:inherit; font-size:13px; line-height:20px; }
+  .composer-row { display:flex; gap:8px; align-items:center; justify-content:space-between; }
+  .composer-hint { font-size:11px; line-height:16px; color:var(--soft); }
+  .btn-primary { border:1px solid transparent; background:var(--ink); color:#fff; font:inherit; font-size:11.5px; line-height:16px; font-weight:600; border-radius:7px; padding:4px 10px; cursor:pointer; }
+  .btn-secondary { border:1px solid var(--line); background:#fff; color:var(--ink); font:inherit; font-size:11.5px; line-height:16px; font-weight:600; border-radius:7px; padding:4px 10px; cursor:pointer; }
+
+  /* narrow drawer board 5 */
+  .narrow-app { position:relative; width:768px; height:640px; display:flex; overflow:hidden; border:1px solid #dfe3e8; border-radius:16px; background:#fff; box-shadow:0 18px 48px rgba(16,24,40,.10); }
+  .narrow-body { flex:1; min-width:0; padding:12px 14px 200px; }
+  .drawer { position:absolute; left:0; right:0; bottom:0; height:min(72%, 460px); z-index:31; background:#fff; border:1px solid var(--line); border-radius:14px 14px 0 0; box-shadow:0 -12px 32px rgba(16,24,40,.18); display:flex; flex-direction:column; overflow:hidden; }
+  .backdrop { position:absolute; inset:0 0 0 0; bottom:0; background:rgba(16,24,40,.4); z-index:30; }
+  .drawer .rail-head { border-top:1px solid var(--line-soft); }
+  .drawer .rail-close { margin-left:4px; padding:1px 8px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); font:inherit; font-size:11.5px; line-height:16px; font-weight:600; cursor:pointer; }
+
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- ============ 1. 右栏工作项列表 ============ -->
+  <div class="board" style="align-items:flex-start">
+    <div class="board-label">1 · 右栏工作项列表 <span>搜索全部工作项 · 待查看并入待确认 · 已完成折叠 · 来源会话名</span></div>
+    <div class="rail-panel" id="listPanel">
+      <div class="rail-toolbar">
+        <span style="font-weight:700;font-size:13px">工作项</span>
+        <div class="search-wrap">
+          <input class="search-input" id="search" type="search" placeholder="搜索全部工作项" aria-label="搜索全部工作项" value="">
+          <button class="search-clear" id="searchClear" aria-label="清空搜索" title="清空">×</button>
+        </div>
+      </div>
+      <div class="filter-row" role="group" aria-label="按状态筛选工作项">
+        <button class="filter" data-active="true">全部 6</button>
+        <button class="filter">待确认 2</button>
+        <button class="filter">需反馈 1</button>
+        <button class="filter">进行中 1</button>
+        <button class="filter">已完成 2</button>
+      </div>
+
+      <div class="group-title"><span>▾ 待确认</span><span class="count">2</span></div>
+      <button class="card" data-search="产品首页改版方案 Markdown 首页改版">
+        <span class="card-top"><span class="kind">Markdown</span><span class="status">待确认</span></span>
+        <span class="card-title">产品首页改版方案</span>
+        <span class="card-meta">
+          <span class="chip">4 条评论</span><span class="chip">2 个附件</span>
+          <span class="card-time">2 小时前</span>
+        </span>
+        <span class="card-source"><span class="src-dot"></span>来源：首页改版讨论</span>
+      </button>
+      <button class="card" data-search="个人网站风格参考库 HTML 待确认">
+        <span class="card-top"><span class="kind k-html">HTML</span><span class="status">待确认</span></span>
+        <span class="card-title">个人网站风格参考库</span>
+        <span class="card-meta"><span class="chip">3 条评论</span><span class="card-time">昨天</span></span>
+        <span class="card-source"><span class="src-dot"></span>来源：未命名会话</span>
+      </button>
+
+      <div class="group-title"><span>▾ 需反馈</span><span class="count">1</span></div>
+      <button class="card" data-search="接口时序图 图表">
+        <span class="card-top"><span class="kind k-diagram">图表</span><span class="status s-feedback">需反馈</span></span>
+        <span class="card-title">支付接口时序图</span>
+        <span class="card-meta"><span class="chip">2 条评论</span><span class="card-time">3 天前</span></span>
+        <span class="card-source"><span class="src-dot"></span>来源：支付接入</span>
+      </button>
+
+      <div class="group-title"><span>▾ 进行中</span><span class="count">1</span></div>
+      <button class="card" data-search="架构图 图表">
+        <span class="card-top"><span class="kind k-diagram">图表</span><span class="status">进行中</span></span>
+        <span class="card-title">系统架构总览图</span>
+        <span class="card-meta"><span class="chip">1 条评论</span><span class="chip dispatch">改文件中</span><span class="card-time">5 分钟前</span></span>
+        <span class="card-source"><span class="src-dot"></span>来源：架构评审</span>
+      </button>
+
+      <button class="done-fold" id="doneFold" aria-expanded="false">
+        <span class="done-dot">✓</span><span>已完成 2 个工作项</span><span class="done-arrow">›</span>
+      </button>
+      <div id="doneCards" style="display:none">
+        <div class="group-title"><span>▾ 已完成</span><span class="count">2</span></div>
+        <button class="card" data-search="迁移说明 文档">
+          <span class="card-top"><span class="kind">Markdown</span><span class="status s-done">已完成</span></span>
+          <span class="card-title">数据库迁移说明</span>
+          <span class="card-meta"><span class="chip">1 条评论</span><span class="card-time">1 周前</span></span>
+          <span class="card-source"><span class="src-dot"></span>来源：数据迁移</span>
+        </button>
+        <button class="card" data-search="发布检查清单 文档">
+          <span class="card-top"><span class="kind">Markdown</span><span class="status s-done">已完成</span></span>
+          <span class="card-title">发布检查清单</span>
+          <span class="card-meta"><span class="chip">0 条评论</span><span class="card-time">2 周前</span></span>
+          <span class="card-source"><span class="src-dot"></span>来源：发布流程</span>
+        </button>
+      </div>
+      <div class="no-result" id="noResult" style="display:none">没有匹配「<b id="qText"></b>」的工作项</div>
+    </div>
+  </div>
+
+  <!-- ============ 2. 批注历史列表 ============ -->
+  <div class="board">
+    <div class="board-label">2 · 批注历史列表 <span>只读摘要 · #N chip · 选中环 · 无回复输入</span></div>
+    <div class="app">
+      <div class="viewer">
+        <div class="vhead">
+          <div class="crumbs">Cowork <span>/</span> 主题「首页改版讨论」<span>/</span> <b>产品首页改版方案</b></div>
+          <h1 class="vtitle">产品首页改版方案</h1>
+        </div>
+        <div class="toolbar">
+          <span class="view-tab" data-active="true">文档</span>
+          <span class="view-tab">版本 3</span>
+          <span class="view-tab">附件 2</span>
+          <span class="spacer"></span>
+          <span class="mode"><span class="mode-option" data-active="true">阅读</span><span class="mode-option">源码</span></span>
+          <span class="save"><span class="save-dot"></span>只读</span>
+          <button class="rail-toggle" aria-pressed="true">批注 3</button>
+        </div>
+        <div class="body">
+          <div class="content">
+            <div class="paper">
+              <div class="paper-head"><span class="file-icon">MD</span><span class="file-name">docs/home-redesign.md</span><span class="file-meta">r3 · 3 条评论</span></div>
+              <div class="lines" style="position:relative">
+                <div class="line" data-kind="h1"><span class="line-num">1</span><span class="line-text md-h1">产品首页改版方案</span></div>
+                <div class="line"><span class="line-num">2</span><span class="line-text"></span></div>
+                <div class="line" data-kind="h2"><span class="line-num">3</span><span class="line-text md-h2">目标</span></div>
+                <div class="line selected" style="position:relative"><span class="line-num">4</span><span class="line-text">把首页从「功能列表」改成「价值引导」，突出核心卖点。</span><span class="pin">1</span></div>
+                <div class="line"><span class="line-num">5</span><span class="line-text">保留现有导航，不破坏已上线链路。</span><span class="pin">2</span></div>
+                <div class="line" data-kind="h2"><span class="line-num">6</span><span class="line-text md-h2">布局</span></div>
+                <div class="line" style="position:relative"><span class="line-num">7</span><span class="line-text">首屏一个主标题 + 一个主行动按钮 <span class="inline-code">CTA</span>。</span><span class="pin">3</span></div>
+                <div class="line"><span class="line-num">8</span><span class="line-text">第二屏三列卖点卡，用真实截图替代占位图。</span></div>
+                <div class="line"><span class="line-num">9</span><span class="line-text">第三屏放客户案例与数据指标。</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="rail" style="position:relative">
+            <div class="rail-grip" role="separator" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="560" aria-valuenow="336" title="拖拽调整宽度"></div>
+            <div class="rail-head">
+              <div class="rail-head-row"><span class="rail-title">批注</span><span class="count-pill">3</span><span class="rail-sort">按位置排序</span></div>
+              <div class="rail-tools">
+                <select class="select" aria-label="评论筛选"><option>全部评论</option><option>待处理</option><option>已解决</option></select>
+                <label class="switch"><input type="checkbox"><span class="switch-track"><span class="switch-thumb"></span></span>只看待处理</label>
+              </div>
+            </div>
+            <div class="threads">
+              <article class="thread" data-selected="true" tabindex="0">
+                <div class="thread-head"><span class="avatar">Y</span><span class="thread-author">你</span><span class="thread-anchor">第 4 行</span><span class="anchor-chip">#1</span></div>
+                <button class="quote">把首页从「功能列表」改成「价值引导」，突出核心卖点。</button>
+                <div class="thread-body">这句「价值引导」有点空，能落到具体动作吗？</div>
+                <div class="tstate" data-tone="done"><span>已回复</span><span class="tstate-age">2 分钟前</span></div>
+                <div class="thread-actions"><button class="thread-action">定位</button><span class="spacer"></span><button class="thread-action">标记已解决 ✓</button></div>
+              </article>
+              <article class="thread" tabindex="0">
+                <div class="thread-head"><span class="avatar">Y</span><span class="thread-author">你</span><span class="thread-anchor">第 5 行</span><span class="anchor-chip">#2</span></div>
+                <button class="quote">保留现有导航，不破坏已上线链路。</button>
+                <div class="thread-body">导航结构要不要同时简化？</div>
+                <div class="tstate" data-tone="error"><span>失败</span><button class="tstate-retry">重试</button><span class="tstate-age">5 分钟前</span></div>
+                <div class="thread-actions"><button class="thread-action">定位</button><span class="spacer"></span><button class="thread-action">标记已解决 ✓</button></div>
+              </article>
+              <article class="thread" tabindex="0">
+                <div class="thread-head"><span class="avatar">Y</span><span class="thread-author">你</span><span class="thread-anchor">第 7 行</span><span class="anchor-chip">#3</span></div>
+                <button class="quote">首屏一个主标题 + 一个主行动按钮 CTA。</button>
+                <div class="thread-body">CTA 文案建议用「免费试用」。</div>
+                <div class="thread-actions"><button class="thread-action">定位</button><span class="spacer"></span><button class="thread-action">标记已解决 ✓</button></div>
+              </article>
+              <button class="resolved-line"><span class="done-dot">✓</span><span class="resolved-text">已解决 1 条：#4 底部链接颜色</span><span class="done-arrow">›</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="badge">批注历史列表态（无回复框）</span>
+    </div>
+  </div>
+
+  <!-- ============ 3. 批注会话详情 ============ -->
+  <div class="board">
+    <div class="board-label">3 · 批注会话详情 <span>消息记录 · 模型回复 · 附件缩略图 · 回复 composer · 投递状态</span></div>
+    <div class="app">
+      <div class="viewer">
+        <div class="vhead">
+          <div class="crumbs">Cowork <span>/</span> 主题「首页改版讨论」<span>/</span> <b>产品首页改版方案</b></div>
+          <h1 class="vtitle">产品首页改版方案</h1>
+        </div>
+        <div class="toolbar">
+          <span class="view-tab" data-active="true">文档</span>
+          <span class="view-tab">版本 3</span>
+          <span class="view-tab">附件 2</span>
+          <span class="spacer"></span>
+          <span class="mode"><span class="mode-option" data-active="true">阅读</span><span class="mode-option">源码</span></span>
+          <span class="save"><span class="save-dot"></span>只读</span>
+          <button class="rail-toggle" aria-pressed="true">批注 3</button>
+        </div>
+        <div class="body">
+          <div class="content">
+            <div class="paper">
+              <div class="paper-head"><span class="file-icon">MD</span><span class="file-name">docs/home-redesign.md</span><span class="file-meta">r3 · 3 条评论</span></div>
+              <div class="lines">
+                <div class="line" data-kind="h1"><span class="line-num">1</span><span class="line-text md-h1">产品首页改版方案</span></div>
+                <div class="line"><span class="line-num">2</span><span class="line-text"></span></div>
+                <div class="line" data-kind="h2"><span class="line-num">3</span><span class="line-text md-h2">目标</span></div>
+                <div class="line selected"><span class="line-num">4</span><span class="line-text">把首页从「功能列表」改成「价值引导」，突出核心卖点。</span><span class="pin">1</span></div>
+                <div class="line"><span class="line-num">5</span><span class="line-text">保留现有导航，不破坏已上线链路。</span></div>
+                <div class="line" data-kind="h2"><span class="line-num">6</span><span class="line-text md-h2">布局</span></div>
+                <div class="line"><span class="line-num">7</span><span class="line-text">首屏一个主标题 + 一个主行动按钮 <span class="inline-code">CTA</span>。</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="rail session" style="position:relative">
+            <div class="rail-grip" role="separator" aria-orientation="vertical" aria-valuenow="336"></div>
+            <div class="session-head">
+              <button class="back">← 返回列表</button>
+              <span class="session-title">#1</span>
+              <span class="session-anchor">第 4 行</span>
+            </div>
+            <div class="msgs">
+              <div class="msg msg-user">
+                <div class="msg-head"><span class="avatar">Y</span><span class="msg-author">你</span><span class="msg-time">2 分钟前</span></div>
+                <div class="msg-body">这句「价值引导」有点空，能落到具体动作吗？</div>
+              </div>
+              <div class="msg msg-model">
+                <div class="msg-head"><span class="avatar" data-author="model">M</span><span class="msg-author">模型</span><span class="reply-mark">已回复</span><span class="msg-time">1 分钟前</span></div>
+                <div class="msg-body">可以。已把第 4 行改为「用 3 条可量化卖点引导，首屏 CTA 换成『免费试用』」，并附一张建议首页线框。</div>
+                <div class="attachments">
+                  <img class="thumb" alt="首页线框建议" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='120'><rect width='220' height='120' fill='%23eef1f5'/><rect x='16' y='16' width='88' height='14' rx='3' fill='%23175cd3'/><rect x='16' y='40' width='130' height='8' rx='2' fill='%2398a2b3'/><rect x='16' y='54' width='100' height='8' rx='2' fill='%23c6cbd4'/><rect x='16' y='78' width='54' height='22' rx='5' fill='%23175cd3'/><text x='26' y='93' font-size='11' fill='white'>免费试用</text></svg>">
+                  <span class="att-meta">home-sketch.png · image/png · 12 KB</span>
+                </div>
+              </div>
+              <div class="tstate" data-tone="done"><span>已回复</span><span class="tstate-age">1 分钟前</span></div>
+            </div>
+            <div class="composer">
+              <textarea aria-label="回复批注" placeholder="回复这条批注…"></textarea>
+              <div class="composer-row">
+                <button class="btn-secondary">附件</button>
+                <span class="composer-hint">Enter 换行 · 支持粘贴图片</span>
+                <span class="spacer"></span>
+                <button class="btn-primary">提交回复</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="badge">批注会话详情态（回复 composer）</span>
+    </div>
+  </div>
+
+  <!-- ============ 4. 右键浮动批注入口 ============ -->
+  <div class="board">
+    <div class="board-label">4 · 右键浮动「批注」入口 <span>靠近选区右上角 · 不遮文字</span></div>
+    <div class="app">
+      <div class="viewer">
+        <div class="vhead"><div class="crumbs">Cowork <span>/</span> 主题「首页改版讨论」<span>/</span> <b>产品首页改版方案</b></div></div>
+        <div class="body">
+          <div class="content">
+            <div class="paper">
+              <div class="paper-head"><span class="file-icon">MD</span><span class="file-name">docs/home-redesign.md</span></div>
+              <div class="lines" style="padding-top:52px;position:relative">
+                <div class="line" data-kind="h1"><span class="line-num">1</span><span class="line-text md-h1">产品首页改版方案</span></div>
+                <div class="line selected" style="position:relative">
+                  <span class="line-num">4</span>
+                  <span class="line-text">把首页从「功能列表」改成「<span class="sel-phrase"><b style="color:var(--blue)">价值引导</b><span class="annotate-pop" role="button" aria-label="批注所选内容">✏ 批注</span></span>」，突出核心卖点。</span>
+                </div>
+                <div class="line"><span class="line-num">5</span><span class="line-text">保留现有导航，不破坏已上线链路。</span></div>
+                <div class="line" data-kind="h2"><span class="line-num">6</span><span class="line-text md-h2">布局</span></div>
+              </div>
+            </div>
+            <div style="margin:16px auto 0;width:920px;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--muted);font-size:11.5px">
+              右键 / 菜单键 / Shift+F10 于选中文字或行 → 在选区右上角出现「批注」入口；替代旧的顶部 sticky 选中条。
+            </div>
+          </div>
+        </div>
+      </div>
+      <span class="badge">浮动批注入口</span>
+    </div>
+  </div>
+
+  <!-- ============ 5. 窄屏抽屉 ============ -->
+  <div class="board" style="align-items:flex-start">
+    <div class="board-label">5 · 窄屏抽屉 <span>批注栏为底部抽屉 · 遮罩 + 收起</span></div>
+    <div class="narrow-app">
+      <div class="backdrop"></div>
+      <div class="narrow-body">
+        <div class="paper" style="max-width:none">
+          <div class="paper-head"><span class="file-icon">MD</span><span class="file-name">docs/home-redesign.md</span></div>
+          <div class="lines">
+            <div class="line" data-kind="h1"><span class="line-num">1</span><span class="line-text md-h1">产品首页改版方案</span></div>
+            <div class="line"><span class="line-num">2</span><span class="line-text"></span></div>
+            <div class="line selected"><span class="line-num">4</span><span class="line-text">把首页从「功能列表」改成「价值引导」，突出核心卖点。</span><span class="pin">1</span></div>
+            <div class="line"><span class="line-num">5</span><span class="line-text">保留现有导航，不破坏已上线链路。</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="rail-head">
+          <div class="rail-head-row"><span class="rail-title">批注</span><span class="count-pill">3</span><span class="rail-sort">按位置排序</span><button class="rail-close">收起</button></div>
+          <div class="rail-tools"><select class="select"><option>全部评论</option></select><label class="switch"><input type="checkbox"><span class="switch-track"><span class="switch-thumb"></span></span>只看待处理</label></div>
+        </div>
+        <div class="threads">
+          <article class="thread" data-selected="true"><div class="thread-head"><span class="avatar">Y</span><span class="thread-author">你</span><span class="thread-anchor">第 4 行</span><span class="anchor-chip">#1</span></div><button class="quote">把首页从「功能列表」改成「价值引导」…</button><div class="thread-body">这句有点空。</div></article>
+          <article class="thread"><div class="thread-head"><span class="avatar">Y</span><span class="thread-author">你</span><span class="thread-anchor">第 5 行</span><span class="anchor-chip">#2</span></div><div class="thread-body">导航要不要简化？</div></article>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Light interactivity for the search + completed-fold demo.
+  (function () {
+    var input = document.getElementById('search');
+    var clear = document.getElementById('searchClear');
+    var cards = Array.prototype.slice.call(document.querySelectorAll('#listPanel .card'));
+    var groups = Array.prototype.slice.call(document.querySelectorAll('#listPanel .group-title'));
+    var doneFold = document.getElementById('doneFold');
+    var doneCards = document.getElementById('doneCards');
+    var noResult = document.getElementById('noResult');
+    var qText = document.getElementById('qText');
+
+    function applySearch() {
+      var q = input.value.trim().toLowerCase();
+      var any = false;
+      cards.forEach(function (c) {
+        var hay = (c.getAttribute('data-search') || '').toLowerCase();
+        var hit = q === '' || hay.indexOf(q) !== -1;
+        c.style.display = hit ? '' : 'none';
+        if (hit) any = true;
+      });
+      var matching = q !== '' && !any;
+      noResult.style.display = matching ? '' : 'none';
+      if (matching) qText.textContent = input.value.trim();
+      groups.forEach(function (g) { g.style.display = matching ? 'none' : ''; });
+      if (q !== '') doneFold.style.display = 'none';
+      else doneFold.style.display = (doneCards.style.display === 'none') ? '' : 'none';
+    }
+    input.addEventListener('input', applySearch);
+    clear.addEventListener('click', function () { input.value = ''; applySearch(); input.focus(); });
+
+    doneFold.addEventListener('click', function () {
+      var open = doneCards.style.display !== 'none';
+      doneCards.style.display = open ? 'none' : '';
+      doneFold.style.display = 'none';
+      doneFold.setAttribute('aria-expanded', String(open));
+    });
+  })();
+</script>
+</body>
+</html>

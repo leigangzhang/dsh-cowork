@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Cowork 工作项附件双向管线设计</title>
+<style>
+  :root {
+    --ink: #101828;
+    --muted: #475467;
+    --soft: #98a2b3;
+    --line: #e4e7ec;
+    --line-soft: #eef0f3;
+    --canvas: #eef1f5;
+    --card: #fff;
+    --blue: #175cd3;
+    --blue-soft: #eff8ff;
+    --violet: #6941c6;
+    --violet-soft: #f4f3ff;
+    --green: #067647;
+    --green-soft: #ecfdf3;
+    --amber: #b54708;
+    --amber-soft: #fffaeb;
+    --red: #b42318;
+    --red-soft: #fef3f2;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: #dfe3e8;
+    color: var(--ink);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .board { display: none; }
+  body:not([data-view]) .board-main,
+  body[data-view="main"] .board-main,
+  body[data-view="empty"] .board-empty { display: block; }
+  body[data-view="flow"] .board-flow { display: block; }
+  .stage {
+    width: 1280px; height: 900px; padding: 32px;
+    display: flex; align-items: flex-start; justify-content: center;
+    background:
+      radial-gradient(900px 520px at 18% 10%, #ffffff 0%, rgba(255,255,255,0) 68%),
+      radial-gradient(720px 520px at 92% 92%, #e7ebf2 0%, rgba(231,235,242,0) 70%),
+      var(--canvas);
+  }
+  .board { margin: 0; }
+  .app {
+    position: relative; width: 1208px; height: 828px;
+    display: flex; overflow: hidden;
+    border: 1px solid #dfe3e8; border-radius: 18px; background: #fff;
+    box-shadow: 0 22px 60px rgba(16,24,40,.12), 0 2px 8px rgba(16,24,40,.06);
+  }
+  .badge {
+    position: absolute; top: 14px; right: 14px; z-index: 20;
+    padding: 4px 9px; border: 1px solid #e9e4ff; border-radius: 999px;
+    background: rgba(244,243,255,.94); color: var(--violet);
+    font-size: 10.5px; font-weight: 650; letter-spacing: .02em;
+  }
+
+  /* ---------- viewer ---------- */
+  .viewer { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fcfcfd; border-right: 1px solid var(--line); }
+  .vhead { flex: none; padding: 14px 20px 12px; border-bottom: 1px solid var(--line-soft); background: rgba(255,255,255,.86); }
+  .crumbs { display: flex; align-items: center; gap: 6px; color: var(--soft); font-size: 10.5px; }
+  .crumbs b { color: var(--muted); font-weight: 600; }
+  .vtitle-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+  .vtitle { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #101828; font-size: 17px; font-weight: 720; letter-spacing: -.015em; }
+  .vactions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .btn { display: inline-flex; align-items: center; gap: 5px; height: 27px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .btn.primary { border-color: #101828; background: #101828; color: #fff; }
+  .vsub { display: flex; align-items: center; gap: 7px; margin-top: 5px; color: var(--soft); font-size: 10.5px; }
+  .vsub .dot { width: 3px; height: 3px; border-radius: 50%; background: #d0d5dd; }
+  .vtoolbar { flex: none; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 20px; border-bottom: 1px solid var(--line-soft); background: #fff; }
+  .tabs { display: flex; align-items: center; gap: 14px; height: 100%; }
+  .tab { position: relative; display: flex; align-items: center; gap: 5px; height: 100%; color: var(--muted); font-size: 11px; font-weight: 600; }
+  .tab.active { color: var(--blue); }
+  .tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--blue); }
+  .tab .n { color: var(--soft); font-weight: 500; }
+  .vbody { flex: 1; min-height: 0; display: flex; padding: 14px 16px 12px; gap: 12px; }
+  .panel { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; display: flex; flex-direction: column; }
+  .panel-head { flex: none; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; gap: 7px; }
+  .panel-title { color: #101828; font-size: 12px; font-weight: 700; }
+  .panel-sub { color: var(--soft); font-size: 9.5px; margin-left: 2px; }
+  .panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px; }
+  .panel-body::-webkit-scrollbar { width: 0; }
+
+  /* attachment rows */
+  .att-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--line-soft); border-radius: 8px; background: #fff; }
+  .att-row:hover { border-color: var(--line); }
+  .att-thumb { width: 32px; height: 32px; flex: none; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .att-thumb.file { display: grid; place-items: center; color: var(--blue); font-size: 10px; font-weight: 800; background: linear-gradient(135deg, #eff8ff 0%, #dbeafe 100%); }
+  .att-thumb.file.json { color: var(--green); background: linear-gradient(135deg, #ecfdf3 0%, #d3f2e2 100%); }
+  .att-thumb.file.md { color: var(--violet); background: linear-gradient(135deg, #f4f3ff 0%, #e4dffb 100%); }
+  .thumb-diagram { width: 100%; height: 100%; background: linear-gradient(135deg, #eff8ff 0%, #dbeafe 55%, #b2ddff 100%); position: relative; }
+  .thumb-diagram::before { content: ""; position: absolute; inset: 7px; border: 1.5px solid rgba(23,92,211,.45); border-radius: 4px; }
+  .thumb-diagram::after { content: "●"; position: absolute; left: 11px; top: 10px; color: #175cd3; font-size: 5px; }
+  .thumb-shot { width: 100%; height: 100%; background: linear-gradient(135deg, #f4f3ff 0%, #d9d6fe 55%, #c4bcf7 100%); position: relative; }
+  .thumb-shot::before { content: ""; position: absolute; inset: 7px; border: 1.5px solid rgba(105,65,198,.4); border-radius: 4px; }
+  .att-info { flex: 1; min-width: 0; }
+  .att-name { color: #101828; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .att-meta { color: var(--soft); font-size: 9.5px; margin-top: 1px; }
+  .model-badge { display: inline-flex; align-items: center; gap: 3px; margin-left: 5px; padding: 1px 5px; border-radius: 4px; background: var(--violet-soft); color: var(--violet); font-size: 8.5px; font-weight: 650; vertical-align: 1px; }
+  .model-badge i { width: 5px; height: 5px; border-radius: 50%; background: var(--violet); }
+  .att-action { flex: none; display: inline-flex; align-items: center; height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--muted); font-size: 10.5px; font-weight: 600; }
+
+  /* preview modal */
+  .backdrop { position: absolute; inset: 0; z-index: 40; background: rgba(16,24,40,.72); display: grid; place-items: center; padding: 12px; }
+  .modal { width: 100%; height: 100%; background: #fff; border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(16,24,40,.28); display: flex; flex-direction: column; overflow: hidden; }
+  .modal-head { flex: none; height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line-soft); }
+  .modal-title { color: #101828; font-size: 11.5px; font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .modal-close { margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .modal-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #f7f8fa; padding: 12px 56px 52px; overflow: auto; }
+  .modal-img { width: min(100%, 960px); aspect-ratio: 16 / 9; border-radius: 8px; background: linear-gradient(135deg, #eff8ff 0%, #dbeafe 55%, #b2ddff 100%); position: relative; box-shadow: 0 4px 16px rgba(16,24,40,.10); }
+  .modal-img::before { content: ""; position: absolute; inset: 22px; border: 2px dashed rgba(23,92,211,.5); border-radius: 8px; }
+  .modal-img::after { content: "架构图 preview.png"; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); color: #175cd3; font-size: 10px; font-weight: 700; }
+  .modal-foot { flex: none; height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 10px; }
+  .zoom { display: inline-flex; align-items: center; gap: 4px; }
+  .zoom b { min-width: 22px; height: 22px; padding: 0 5px; white-space: nowrap; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 11px; font-weight: 600; }
+  .zoom .pct { min-width: 38px; text-align: center; color: #101828; font-weight: 650; }
+  .modal-foot .grow { flex: 1; }
+
+  /* ---------- thread rail ---------- */
+  .threads { width: 300px; flex: none; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+  .threads-head { flex: none; padding: 10px 11px 8px; border-bottom: 1px solid var(--line-soft); }
+  .th-title { display: flex; align-items: center; gap: 6px; color: #101828; font-size: 11.5px; font-weight: 700; }
+  .th-title .count { padding: 0 5px; border-radius: 999px; background: #f2f4f7; color: #667085; font-size: 9px; font-weight: 700; }
+  .thread-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 9px 10px 8px; }
+  .thread-scroll::-webkit-scrollbar { width: 0; }
+  .thread { margin-bottom: 7px; padding: 8px 9px 7px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+  .thread.selected { border-color: #b2ddff; box-shadow: 0 0 0 2px #eff8ff; }
+  .tmeta { display: flex; align-items: center; gap: 5px; color: var(--soft); font-size: 8.5px; }
+  .avatar { width: 17px; height: 17px; flex: none; display: grid; place-items: center; border-radius: 50%; background: #101828; color: #fff; font-size: 7.5px; font-weight: 800; }
+  .avatar.model { background: var(--violet-soft); color: var(--violet); }
+  .tmeta b { color: #344054; font-size: 9px; font-weight: 650; }
+  .tmeta .anchor { margin-left: auto; padding: 1px 5px; border-radius: 4px; background: #eff8ff; color: var(--blue); font-size: 8px; font-weight: 650; }
+  .ttext { margin-top: 5px; color: #344054; font-size: 10px; line-height: 1.5; }
+  .reply { margin-top: 6px; padding: 6px 7px 5px; border: 1px solid #e9e4ff; border-radius: 7px; background: #fcfbff; }
+  .reply-head { display: flex; align-items: center; gap: 5px; }
+  .reply-head .who { color: #53389e; font-size: 9px; font-weight: 650; }
+  .reply-head .state { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; color: var(--green); font-size: 8px; font-weight: 650; }
+  .reply-body { margin-top: 4px; color: #475467; font-size: 9.5px; line-height: 1.5; }
+  .attachments { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .att-thumb-sm { width: 46px; height: 34px; border-radius: 5px; overflow: hidden; border: 1px solid var(--line); position: relative; }
+  .att-link { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 9px; font-weight: 600; text-decoration: none; }
+  .att-link .f { width: 9px; height: 9px; border-radius: 2px; background: #d3f2e2; }
+  .badge-sm { display: inline-flex; align-items: center; gap: 3px; padding: 1px 4px; border-radius: 4px; background: var(--violet-soft); color: var(--violet); font-size: 8px; font-weight: 650; }
+  .fail-chip { display: flex; align-items: flex-start; gap: 6px; padding: 7px 8px; border: 1px solid #fecdca; border-radius: 7px; background: var(--red-soft); color: #b42318; font-size: 8.5px; line-height: 1.4; }
+  .fail-chip b { color: #912018; }
+  .fail-chip .retry { margin-left: auto; flex: none; padding: 2px 6px; border: 1px solid #fecdca; border-radius: 4px; background: #fff; color: #b42318; font-size: 8px; font-weight: 600; }
+
+  /* flow board: generated image -> attach -> markdown -> reply */
+  .status-pill { margin-left: 2px; padding: 1px 6px; border-radius: 999px; background: var(--blue-soft); color: var(--blue); font-size: 9px; font-weight: 650; }
+  .badge-sm i { width: 5px; height: 5px; border-radius: 50%; background: var(--violet); }
+  .flow-strip { flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 9px 12px; border-bottom: 1px solid var(--line-soft); background: #fcfcfd; }
+  .flow-step { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--soft); font-size: 9px; font-weight: 600; white-space: nowrap; }
+  .flow-step b { width: 14px; height: 14px; display: grid; place-items: center; border-radius: 50%; background: #f2f4f7; color: var(--muted); font-size: 7.5px; }
+  .flow-step.done { border-color: #d1e9ff; background: var(--blue-soft); color: var(--blue); }
+  .flow-step.done b { background: var(--blue); color: #fff; }
+  .flow-step.active { border-color: #e9e4ff; background: var(--violet-soft); color: var(--violet); }
+  .flow-step.active b { background: var(--violet); color: #fff; }
+  .flow-arrow { color: var(--soft); font-size: 10px; }
+  .flow-doc { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px; background: #fff; }
+  .flow-doc h1 { margin: 0 0 10px; color: #101828; font-size: 19px; letter-spacing: -.01em; }
+  .flow-doc p { margin: 0 0 9px; color: #475467; font-size: 11px; line-height: 1.65; }
+  .flow-figure { margin-top: 14px; border: 1px solid var(--line-soft); border-radius: 8px; overflow: hidden; background: #fff; }
+  .flow-image { height: 190px; display: grid; place-items: center; background: linear-gradient(135deg, #eff8ff 0%, #dbeafe 55%, #b2ddff 100%); position: relative; }
+  .flow-image::before { content: ""; position: absolute; inset: 24px; border: 2px dashed rgba(23,92,211,.45); border-radius: 8px; }
+  .flow-image span { position: relative; z-index: 1; padding: 5px 9px; border-radius: 6px; background: rgba(255,255,255,.86); color: var(--blue); font: 600 10px var(--mono); }
+  .flow-cap { padding: 7px 10px; color: var(--soft); font-size: 9.5px; border-top: 1px solid var(--line-soft); display: flex; align-items: center; gap: 6px; }
+  .flow-cap .badge-sm { margin-left: 2px; }
+  .flow-reply { margin-top: 6px; padding: 6px 7px 5px; border: 1px solid #e9e4ff; border-radius: 7px; background: #fcfbff; }
+  .flow-reply .reply-head { display: flex; align-items: center; gap: 5px; }
+  .flow-reply .reply-head .who { color: #53389e; font-size: 9px; font-weight: 650; }
+  .flow-reply .reply-head .state { margin-left: auto; color: var(--green); font-size: 8px; font-weight: 650; }
+  .flow-reply .reply-body { margin-top: 4px; color: #475467; font-size: 9.5px; line-height: 1.5; }
+
+  /* empty board */
+  .board-empty .viewer { border-right: 1px solid var(--line); }
+  .empty-wrap { flex: 1; display: grid; place-items: center; }
+  .empty-box { text-align: center; max-width: 360px; }
+  .empty-icon { width: 44px; height: 44px; margin: 0 auto 10px; border: 1px dashed #d0d5dd; border-radius: 10px; display: grid; place-items: center; color: var(--soft); font-size: 18px; background: #f9fafb; }
+  .empty-title { color: #344054; font-size: 13px; font-weight: 650; }
+  .empty-hint { color: var(--soft); font-size: 10.5px; margin-top: 4px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<!-- ============ MAIN ============ -->
+<section class="board board-main" id="board-main">
+  <div class="stage">
+    <div class="app">
+      <div class="badge">工作项 · 附件双向管线</div>
+
+      <main class="viewer">
+        <header class="vhead">
+          <div class="crumbs">Cowork <span>/</span> 主题「工作项页设计」 <span>/</span> <b>工作项</b></div>
+          <div class="vtitle-row">
+            <h1 class="vtitle">PLAN：工作项交付物信息模型</h1>
+            <div class="vactions"><span class="btn primary">编辑</span><span class="btn">在应用中打开</span><span class="btn">导出</span><span class="btn">⋯</span></div>
+          </div>
+          <div class="vsub"><span>来自主题「工作项页设计」</span><span class="dot"></span><span>2 个文件</span><span class="dot"></span><span>更新 2 分钟前</span></div>
+        </header>
+
+        <div class="vtoolbar">
+          <nav class="tabs">
+            <span class="tab">文档</span>
+            <span class="tab">版本 <span class="n">3</span></span>
+            <span class="tab active">附件 <span class="n">4</span></span>
+          </nav>
+        </div>
+
+        <div class="vbody">
+          <section class="panel">
+            <div class="panel-head"><span class="panel-title">附件</span><span class="panel-sub">用户上传与模型生成归档在同一处</span></div>
+            <div class="panel-body">
+              <div class="att-row">
+                <div class="att-thumb"><div class="thumb-shot"></div></div>
+                <div class="att-info"><div class="att-name">界面截图.png</div><div class="att-meta">image/png · 1.2 MB · 你上传</div></div>
+                <span class="att-action">下载</span>
+              </div>
+              <div class="att-row">
+                <div class="att-thumb"><div class="thumb-diagram"></div></div>
+                <div class="att-info"><div class="att-name">架构图 preview.png<span class="model-badge"><i></i>模型生成</span></div><div class="att-meta">image/png · 460 KB · 模型生成</div></div>
+                <span class="att-action">下载</span>
+              </div>
+              <div class="att-row">
+                <div class="att-thumb file json">JS</div>
+                <div class="att-info"><div class="att-name">schema.json<span class="model-badge"><i></i>模型生成</span></div><div class="att-meta">text/plain · 18 KB · 模型生成</div></div>
+                <span class="att-action">下载</span>
+              </div>
+              <div class="att-row">
+                <div class="att-thumb file md">M↓</div>
+                <div class="att-info"><div class="att-name">notes.md</div><div class="att-meta">text/markdown · 6 KB · 你上传</div></div>
+                <span class="att-action">下载</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <aside class="threads">
+        <div class="threads-head"><div class="th-title">评论 <span class="count">3</span><span style="margin-left:auto;color:#98a2b3;font-size:9px;font-weight:500">按位置排序</span></div></div>
+        <div class="thread-scroll">
+          <article class="thread selected">
+            <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 14 行</span><span class="anchor">#2</span></div>
+            <div class="ttext">状态字段只应留在交付物记录里，协作记录不要重复存。</div>
+            <div class="reply">
+              <div class="reply-head"><span class="avatar model">M</span><span class="who">Cowork</span><span class="state">✓ 已回复</span></div>
+              <div class="reply-body">已改，并附上重构后的记录结构图。</div>
+              <div class="attachments">
+                <span class="att-thumb-sm"><div class="thumb-diagram"></div></span>
+                <span class="badge-sm">模型生成</span>
+                <a class="att-link"><span class="f"></span>schema.json</a>
+              </div>
+            </div>
+          </article>
+          <article class="thread">
+            <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 18 行</span><span class="anchor">#3</span></div>
+            <div class="ttext">投递失败时用户在哪里看到原因？</div>
+            <div class="attachments"><span class="att-thumb-sm"><div class="thumb-shot"></div></span><span class="att-link">界面截图.png</span></div>
+          </article>
+          <div class="fail-chip"><span>附件「超大.png」上传失败：<b>artifact/upload-too-large</b>，超过 5 MB 上限。</span><span class="retry">重试</span></div>
+        </div>
+      </aside>
+
+      <div class="backdrop">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="附件预览">
+          <div class="modal-head"><span class="modal-title">架构图 preview.png <span class="model-badge"><i></i>模型生成</span></span><span class="modal-close" aria-label="关闭">✕</span></div>
+          <div class="modal-body"><div class="modal-img"></div></div>
+          <div class="modal-foot">
+            <span class="zoom"><b>−</b><span class="pct">100%</span><b>＋</b><b>复位</b></span>
+            <span class="grow"></span>
+            <span>Esc 关闭 · 拖拽平移 · 滚轮缩放</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FLOW ============ -->
+<section class="board board-flow" id="board-flow">
+  <div class="stage">
+    <div class="app">
+      <div class="badge">工作项 · 模型生成图表并写入文档</div>
+      <main class="viewer">
+        <header class="vhead">
+          <div class="crumbs">Cowork <span>/</span> 主题「工作项页设计」 <span>/</span> <b>工作项</b></div>
+          <div class="vtitle-row"><h1 class="vtitle">PLAN：工作项交付物信息模型</h1><span class="status-pill">待确认</span></div>
+          <div class="vsub">来自主题「工作项页设计」 <span class="dot"></span> 2 个文件 <span class="dot"></span> 更新 2 分钟前 <span class="dot"></span> 附件 5</div>
+        </header>
+        <div class="vtoolbar">
+          <nav class="tabs"><span class="tab active">文档</span><span class="tab">版本 <span class="n">3</span></span><span class="tab">附件 <span class="n">5</span></span></nav>
+          <div class="vactions"><span class="seg"><span class="on">阅读</span><span>源码</span></span><span class="save"><span class="ok">✓</span>已保存 · r12</span></div>
+        </div>
+        <div class="vbody">
+          <div class="panel">
+            <div class="panel-head"><span class="panel-title">docs/work-item-model.md</span><span class="panel-sub">Markdown · r12</span><span class="panel-sub" style="margin-left:auto">模型生成 1 个附件</span></div>
+            <div class="flow-strip">
+              <span class="flow-step done"><b>1</b> 生成 chart-revenue.png</span><span class="flow-arrow">→</span>
+              <span class="flow-step done"><b>2</b> cowork_artifact_attach</span><span class="flow-arrow">→</span>
+              <span class="flow-step active"><b>3</b> 写入 Markdown URI</span><span class="flow-arrow">→</span>
+              <span class="flow-step"><b>4</b> reply + 附件预览</span>
+            </div>
+            <div class="flow-doc">
+              <h1>工作项交付物信息模型</h1>
+              <p>工作项是用户需要查看、确认、反馈的交付物，指向项目里已有文件。查看器负责展示、批注和编辑。</p>
+              <p>批注会话要求补充一张收入趋势图，模型先生成 PNG，再登记为工作项附件，最后写入文档引用。</p>
+              <div class="flow-figure">
+                <div class="flow-image"><span>chart-revenue.png · 模型生成</span></div>
+                <div class="flow-cap">图：收入趋势（模型生成）<span class="badge-sm"><i class="dot"></i>模型生成</span><span style="margin-left:auto;font-family:var(--mono)">cowork-attachment://attachment-...</span></div>
+              </div>
+            </div>
+          </div>
+          <aside class="threads">
+            <div class="threads-head"><div class="th-title">评论 <span class="count">2</span><span style="margin-left:auto;color:#98a2b3;font-size:9px;font-weight:500">按位置排序</span></div></div>
+            <div class="thread-scroll">
+              <article class="thread selected">
+                <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 3 行</span><span class="anchor">#1</span></div>
+                <div class="ttext">补一张收入趋势图，并说明数据来源。</div>
+                <div class="flow-reply">
+                  <div class="reply-head"><span class="avatar model">M</span><span class="who">Cowork</span><span class="state">✓ 已回复</span></div>
+                  <div class="reply-body">已生成 chart-revenue.png，登记为附件并写入第 3 节；数据来源为 2026 Q1–Q4 汇总。</div>
+                  <div class="attachments"><span class="att-thumb-sm"><div class="thumb-diagram"></div></span><span class="att-link">chart-revenue.png</span><span class="badge-sm">模型生成</span></div>
+                </div>
+              </article>
+              <article class="thread">
+                <div class="tmeta"><span class="avatar">Y</span><b>你</b><span>第 7 行</span><span class="anchor">#2</span></div>
+                <div class="ttext">模型回复和附件预览都要能看到同一张图。</div>
+              </article>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ============ EMPTY ============ -->
+<section class="board board-empty" id="board-empty">
+  <div class="stage">
+    <div class="app">
+      <div class="badge">工作项 · 附件双向管线 · 空态</div>
+      <main class="viewer">
+        <header class="vhead">
+          <div class="crumbs">Cowork <span>/</span> 主题「工作项页设计」 <span>/</span> <b>工作项</b></div>
+          <div class="vtitle-row"><h1 class="vtitle">PLAN：工作项交付物信息模型</h1></div>
+        </header>
+        <div class="vtoolbar">
+          <nav class="tabs"><span class="tab">文档</span><span class="tab">版本 <span class="n">3</span></span><span class="tab active">附件 <span class="n">0</span></span></nav>
+        </div>
+        <div class="empty-wrap">
+          <div class="empty-box">
+            <div class="empty-icon">📎</div>
+            <div class="empty-title">还没有附件</div>
+            <div class="empty-hint">在批注或回复里添加图片或文本文件；模型生成的图片与文件会自动归档到这里。</div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<script>
+  document.body.dataset.view = new URLSearchParams(location.search).get('view') || 'main';
+</script>
+</body>
+</html>

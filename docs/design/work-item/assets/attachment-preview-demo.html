@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cowork 附件图片预览：填满页面与宽/长图自适应</title>
+<style>
+  :root {
+    --ink: #101828;
+    --muted: #475467;
+    --soft: #98a2b3;
+    --line: #e4e7ec;
+    --line-soft: #eef0f3;
+    --canvas: #eef1f5;
+    --card: #fff;
+    --blue: #175cd3;
+    --blue-soft: #eff8ff;
+    --violet: #6941c6;
+    --violet-soft: #f4f3ff;
+    --green: #067647;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { font-family: var(--sans); color: var(--ink); background: var(--canvas); }
+  .board { display: none; }
+  body[data-view="wide"] .board-wide,
+  body[data-view="long"] .board-long { display: block; }
+  .stage {
+    width: 1280px; height: 900px; padding: 24px 32px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    background:
+      radial-gradient(900px 520px at 18% 10%, #ffffff 0%, rgba(255,255,255,0) 68%),
+      radial-gradient(720px 520px at 92% 92%, #e7ebf2 0%, rgba(231,235,242,0) 70%),
+      var(--canvas);
+  }
+  .board-label { width: 1208px; color: #667085; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .board-label span { color: #98a2b3; font-weight: 500; letter-spacing: 0; text-transform: none; }
+  .app {
+    position: relative; width: 1208px; height: 828px; overflow: hidden;
+    border: 1px solid #dfe3e8; border-radius: 18px; background: #fff;
+    box-shadow: 0 22px 60px rgba(16,24,40,.12), 0 2px 8px rgba(16,24,40,.06);
+  }
+
+  /* dimmed work-item shell behind the modal */
+  .shell { height: 100%; display: flex; flex-direction: column; background: #fcfcfd; }
+  .shell-head { flex: none; padding: 14px 20px 12px; border-bottom: 1px solid var(--line-soft); }
+  .crumbs { display: flex; gap: 6px; color: var(--soft); font-size: 10.5px; }
+  .crumbs b { color: var(--muted); font-weight: 600; }
+  .shell-title { margin: 7px 0 0; font-size: 21px; letter-spacing: -.015em; }
+  .shell-sub { margin-top: 5px; color: var(--soft); font-size: 10.5px; }
+  .shell-tabs { flex: none; display: flex; gap: 16px; height: 38px; align-items: center; padding: 0 20px; border-bottom: 1px solid var(--line-soft); background: #fff; color: var(--muted); font-size: 11px; font-weight: 600; }
+  .shell-tabs b { color: var(--blue); }
+  .shell-body { flex: 1; display: flex; gap: 10px; padding: 12px; min-height: 0; background: #f8fafc; }
+  .shell-paper { flex: 1; border: 1px solid var(--line); border-radius: 11px; background: #fff; padding: 18px 22px; }
+  .skeleton { height: 10px; border-radius: 4px; background: #eef0f3; margin: 10px 0; }
+  .skeleton.w40 { width: 40%; } .skeleton.w64 { width: 64%; } .skeleton.w82 { width: 82%; }
+  .shell-rail { width: 260px; border: 1px solid var(--line); border-radius: 11px; background: #fff; padding: 12px; }
+  .shell-rail .skeleton { height: 34px; border-radius: 7px; }
+
+  /* full-page preview layer */
+  .preview-layer {
+    position: absolute; inset: 0; z-index: 30;
+    padding: 12px; display: flex;
+    background: rgba(16,24,40,.72);
+  }
+  .dialog {
+    width: 100%; height: 100%; min-width: 0; min-height: 0;
+    display: flex; flex-direction: column; overflow: hidden;
+    border-radius: 14px; background: #fff;
+    box-shadow: 0 24px 80px rgba(16,24,40,.35);
+  }
+  .dialog-head {
+    flex: none; height: 44px; padding: 0 14px;
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--line-soft);
+    background: #fff;
+  }
+  .dialog-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+  .model-badge { display: inline-flex; align-items: center; gap: 3px; flex: none; padding: 1px 6px; border-radius: 4px; background: var(--violet-soft); color: var(--violet); font-size: 8.5px; font-weight: 650; }
+  .model-badge i { width: 5px; height: 5px; border-radius: 50%; background: var(--violet); }
+  .dialog-meta { margin-left: auto; color: var(--soft); font-size: 9.5px; white-space: nowrap; }
+  .dialog-close {
+    flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 7px; background: #fff;
+    color: var(--muted); font-size: 13px; cursor: pointer;
+  }
+  .preview-body {
+    flex: 1; min-height: 0; min-width: 0;
+    display: flex; overflow: auto; padding: 12px 56px 52px;
+    background: #f8fafc;
+  }
+  .preview-body.wide { align-items: center; justify-content: center; }
+  .preview-body.long { align-items: flex-start; justify-content: center; }
+  .media {
+    position: relative; flex: none; display: grid; place-items: center;
+    overflow: hidden; border-radius: 8px;
+    border: 1px solid rgba(23,92,211,.28);
+    background:
+      radial-gradient(420px 220px at 18% 12%, #ffffff 0%, rgba(255,255,255,0) 70%),
+      linear-gradient(135deg, #eff8ff 0%, #dbeafe 55%, #b2ddff 100%);
+    box-shadow: 0 8px 28px rgba(16,24,40,.12);
+  }
+  .media::before { content: ""; position: absolute; inset: 18px; border: 2px dashed rgba(23,92,211,.38); border-radius: 8px; }
+  .media-label {
+    position: relative; z-index: 1; padding: 8px 12px; border-radius: 7px;
+    background: rgba(255,255,255,.88); color: var(--blue);
+    font: 650 11px/1.45 var(--mono); text-align: center;
+  }
+  .media.wide { width: 100%; aspect-ratio: 1600 / 600; }
+  .media.long { width: 100%; height: 2400px; }
+  .media.long::after {
+    content: "长图 · 按宽度铺满，纵向滚动";
+    position: absolute; left: 50%; top: 240px; transform: translateX(-50%);
+    padding: 5px 8px; border-radius: 5px; background: rgba(255,255,255,.82);
+    color: var(--soft); font-size: 9px; white-space: nowrap;
+  }
+  .dialog-foot {
+    flex: none; height: 44px; padding: 0 14px;
+    display: flex; align-items: center; gap: 8px;
+    border-top: 1px solid var(--line-soft); background: #fff;
+    color: var(--muted); font-size: 10px;
+  }
+  .zoom { display: inline-flex; align-items: center; gap: 5px; }
+  .zoom b {
+    width: 24px; height: 24px; display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff;
+    font-size: 11px; font-weight: 650;
+  }
+  .zoom .pct { min-width: 40px; text-align: center; color: var(--ink); font-weight: 650; }
+  .fit { display: inline-flex; align-items: center; height: 24px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: #f9fafb; }
+  .fit span { padding: 2px 7px; border-radius: 4px; color: var(--soft); font-size: 9px; }
+  .fit span.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+  .grow { flex: 1; }
+  .hint { color: var(--soft); font-size: 9.5px; }
+  .download { padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--muted); font-size: 10px; font-weight: 600; }
+
+  @media (max-width: 640px) {
+    .preview-layer { padding: 6px; }
+    .dialog-head { height: auto; min-height: 44px; flex-wrap: wrap; padding: 6px 10px; }
+    .dialog-meta { display: none; }
+    .preview-body { padding: 8px 12px 44px; }
+    .dialog-foot { height: auto; min-height: 44px; flex-wrap: wrap; padding: 6px 10px; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body data-view="wide">
+
+<!-- ============ WIDE ============ -->
+<section class="board board-wide">
+  <div class="stage">
+    <div class="board-label">1 · 宽图预览 <span>弹层填满可用视口 · 图片按宽度贴边 · 不裁剪</span></div>
+    <div class="app">
+      <div class="shell" aria-hidden="true">
+        <div class="shell-head"><div class="crumbs">Cowork <span>/</span> 主题「工作项页设计」 <span>/</span> <b>工作项</b></div><h1 class="shell-title">PLAN：工作项交付物信息模型</h1><div class="shell-sub">来自主题「工作项页设计」 · 2 个文件 · 附件 5</div></div>
+        <div class="shell-tabs"><b>文档</b><span>版本 3</span><span>附件 5</span></div>
+        <div class="shell-body"><div class="shell-paper"><div class="skeleton w40"></div><div class="skeleton w82"></div><div class="skeleton w64"></div><div class="skeleton w82"></div><div class="skeleton w64"></div></div><div class="shell-rail"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></div>
+      </div>
+      <div class="preview-layer" role="dialog" aria-modal="true" aria-label="附件预览">
+        <div class="dialog">
+          <div class="dialog-head"><span class="dialog-title">wide-chart.png</span><span class="model-badge"><i></i>模型生成</span><span class="dialog-meta">1600 × 600 · 82 KB</span><button class="dialog-close" aria-label="关闭预览">×</button></div>
+          <div class="preview-body wide"><div class="media wide"><span class="media-label">wide-chart.png<br>1600 × 600</span></div></div>
+          <div class="dialog-foot"><div class="zoom"><b>−</b><span class="pct">100%</span><b>+</b></div><div class="fit"><span class="on">适应页面</span><span>适合宽度</span></div><span class="grow"></span><span class="hint">滚轮缩放 · 拖拽平移 · Esc 关闭</span><span class="download">下载</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LONG ============ -->
+<section class="board board-long">
+  <div class="stage">
+    <div class="board-label">2 · 长图预览 <span>默认适合宽度 · 填满页面并纵向滚动 · 可切适应页面</span></div>
+    <div class="app">
+      <div class="shell" aria-hidden="true">
+        <div class="shell-head"><div class="crumbs">Cowork <span>/</span> 主题「工作项页设计」 <span>/</span> <b>工作项</b></div><h1 class="shell-title">PLAN：工作项交付物信息模型</h1><div class="shell-sub">来自主题「工作项页设计」 · 2 个文件 · 附件 5</div></div>
+        <div class="shell-tabs"><b>文档</b><span>版本 3</span><span>附件 5</span></div>
+        <div class="shell-body"><div class="shell-paper"><div class="skeleton w40"></div><div class="skeleton w82"></div><div class="skeleton w64"></div><div class="skeleton w82"></div><div class="skeleton w64"></div></div><div class="shell-rail"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></div>
+      </div>
+      <div class="preview-layer" role="dialog" aria-modal="true" aria-label="附件预览">
+        <div class="dialog">
+          <div class="dialog-head"><span class="dialog-title">long-screenshot.png</span><span class="model-badge"><i></i>模型生成</span><span class="dialog-meta">800 × 2400 · 460 KB</span><button class="dialog-close" aria-label="关闭预览">×</button></div>
+          <div class="preview-body long"><div class="media long"><span class="media-label">long-screenshot.png<br>800 × 2400</span></div></div>
+          <div class="dialog-foot"><div class="zoom"><b>−</b><span class="pct">100%</span><b>+</b></div><div class="fit"><span>适应页面</span><span class="on">适合宽度</span></div><span class="grow"></span><span class="hint">向下滚动查看完整长图 · Esc 关闭</span><span class="download">下载</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  document.body.dataset.view = new URLSearchParams(location.search).get('view') || 'wide';
+</script>
+</body>
+</html>
