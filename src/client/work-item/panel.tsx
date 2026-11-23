@@ -33,9 +33,8 @@ import {
   type ViewerKind,
 } from './viewers/document.ts'
 import { DocumentSurface } from './viewers/viewer-document.tsx'
-import type { ReadingSurfaceConfig } from './viewers/viewer-document.tsx'
 import { applyRefreshedFile } from './viewers/viewer-refresh.ts'
-import { readFallbackReason } from './viewers/markdown.ts'
+import { createReadingSurface } from './reading-surface.ts'
 import {
   activeDispatchSummary,
   anchoredLineNumbers,
@@ -45,13 +44,11 @@ import {
   contentLines,
   errorPresentation,
   foldThreads,
-  lineRangeAnnotation,
   missingFileState,
   olderCall,
   olderCursor,
   olderEntryVisible,
   olderPageAvailable,
-  pinThread,
   readPersistedDraft,
   rebindFailure,
   removePersistedDraft,
@@ -133,6 +130,56 @@ function deliveryRetryTarget(
 /** Clear submitted UI state only when the user has not replaced it meanwhile. */
 function clearIfUnchanged<T>(current: T, submitted: T, cleared: T): T {
   return current === submitted ? cleared : current
+}
+
+/** The rail ordinal of one thread, or null when the thread is not in view. */
+function ordinalOf(
+  thread: WorkItemThread | null,
+  ordinals: ReadonlyMap<string, number>,
+): number | null {
+  return thread === null ? null : (ordinals.get(thread.threadId) ?? null)
+}
+
+/** Focus the rail composer after the state flush that reveals the rail. */
+function focusComposerAfterFlush(ref: { readonly current: HTMLTextAreaElement | null }): void {
+  requestAnimationFrame(() => { ref.current?.focus() })
+}
+
+/** The footer's delivery line for the loaded data, or empty before load. */
+function deliveryLine(
+  data: { readonly dispatches: readonly ArtifactDispatchSummary[] } | null,
+  threads: readonly WorkItemThread[],
+): string {
+  return data === null ? '' : deliverySummary(threads, data.dispatches)
+}
+
+/** The thread the record's active dispatch belongs to, if any. */
+function activeThreadOf(
+  data: { readonly record: ArtifactRecordV1; readonly dispatches: readonly ArtifactDispatchSummary[] } | null,
+  threads: readonly WorkItemThread[],
+): WorkItemThread | null {
+  if (data === null || data.record.activeDispatch === null) return null
+  return threadForDispatch(data.record.activeDispatch.dispatchId, data.dispatches, threads)
+}
+
+/** Whether a canvas file cannot be parsed and must fall back to the editor. */
+function canvasUnreadable(kind: ViewerKind, file: ArtifactFileResponse | null, content: string): boolean {
+  return kind === 'canvas' && file !== null && !parseCanvasScene(content).ok
+}
+
+/** Source lines of the loaded file, or an empty list before it arrives. */
+function linesOf(file: ArtifactFileResponse | null | undefined): string[] {
+  return file == null ? [] : contentLines(file.content)
+}
+
+/** Attachment URL in the owner session, or null without an open context. */
+function ownerAttachmentUrl(context: WorkItemOpenContext | null, attachmentId: string): string | null {
+  if (context === null) return null
+  return workItemApi.attachmentUrl({
+    sessionId: context.ownerSessionId,
+    artifactId: context.artifactId,
+    attachmentId,
+  })
 }
 
 /** The open context as a React value. */
@@ -247,8 +294,6 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   const [readMode, setReadMode] = useState(true)
   /** Block line to bring to the top after switching source → read. */
   const [readFocusLine, setReadFocusLine] = useState<number | null>(null)
-  /** Editor line to reveal after switching read → source. */
-  const [editorStartLine, setEditorStartLine] = useState(1)
   /** Top visible source line of the active surface, shared by the switch. */
   const viewportLineRef = useRef(1)
   const [showRail, setShowRail] = useState(false)
@@ -355,7 +400,6 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
       setEditing(false)
       setReadMode(true)
       setReadFocusLine(null)
-      setEditorStartLine(1)
       viewportLineRef.current = 1
       setEditDraft(file?.content ?? '')
       setSavedContent(file?.content ?? '')
@@ -533,61 +577,6 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     const timer = window.setInterval(report, ARTIFACT_PRESENCE_REPORT_INTERVAL_MS)
     return () => { window.clearInterval(timer) }
   }, [context, data?.file, data?.record.type, editing, savedContent, editDraft])
-
-  /** Enter the source editor without replacing a draft the user still owns. */
-  const enterEditing = useCallback(() => {
-    if (data?.file == null) return
-    // A draft that differs from the last save must not be replaced by the
-    // server content (a failed save is the common case): it is the user's
-    // only copy until a retry or an explicit discard.
-    if (editDraft === savedContent) {
-      setEditDraft(data.file.content)
-      setSavedContent(data.file.content)
-      setSavePhase('saved')
-    }
-    setEditing(true)
-    setConflict(null)
-    setReceipt(null)
-  }, [data?.file, editDraft, savedContent])
-
-  /**
-   * Switch the document surface. For Markdown the source surface is the
-   * editor, so the switch also enters or leaves editing; an unsaved draft
-   * stays in memory and keeps autosaving while the reading surface shows it.
-   */
-  const toggleEditing = useCallback(() => {
-    if (data?.file == null) return
-    const kind = viewerKindOf(data.record.type)
-    if (!editing) {
-      enterEditing()
-      if (kind === 'text') setReadMode(false)
-      return
-    }
-    setEditing(false)
-    if (kind === 'text') {
-      setReadFocusLine(viewportLineRef.current)
-      setReadMode(true)
-    }
-  }, [data, editing, enterEditing])
-
-  /** The toolbar's read/source switch; non-text families keep the old surface. */
-  const toggleReadMode = useCallback(() => {
-    if (data?.file == null) return
-    const kind = viewerKindOf(data.record.type)
-    if (kind !== 'text') {
-      setReadMode(value => !value)
-      return
-    }
-    if (readMode) {
-      setEditorStartLine(viewportLineRef.current)
-      setReadMode(false)
-      enterEditing()
-      return
-    }
-    setReadFocusLine(viewportLineRef.current)
-    setReadMode(true)
-    setEditing(false)
-  }, [data, enterEditing, readMode])
 
   /** Back: a dirty draft needs a second click so it is never lost silently. */
   const requestClose = useCallback(() => {
@@ -788,32 +777,19 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   /** Close the narrow drawer. */
   const closeRail = (): void => { setShowRail(false) }
 
-  const lines = useMemo(() => contentLines(data?.file?.content ?? ''), [data?.file?.content])
-  // The reading surface renders the draft while it differs from the saved
-  // text; pins and new annotations stay off until the draft is saved.
-  const readContent = dirty ? editDraft : (data?.file?.content ?? '')
-  const readFallback = useMemo(
-    () => (data?.record.type === 'text' ? readFallbackReason(readContent) : null),
-    [data?.record.type, readContent],
-  )
+  const lines = useMemo(() => linesOf(data?.file), [data?.file])
   const threads = useMemo(() => sortThreads(foldThreads(data?.events ?? [])), [data?.events])
-  const selectedAnchor = useMemo(
-    () => threads.find((thread) => thread.threadId === selectedThreadId)?.anchor ?? null,
-    [selectedThreadId, threads],
-  )
   const ordinals = useMemo(() => threadOrdinals(threads), [threads])
   const linePins = useMemo(() => threadLinePins(threads), [threads])
-  const activeThread = useMemo(
-    () => (data?.record.activeDispatch == null
-      ? null
-      : threadForDispatch(data.record.activeDispatch.dispatchId, data.dispatches, threads)),
-    [data?.record.activeDispatch, data?.dispatches, threads],
+  const activeThread = useMemo(() => activeThreadOf(data, threads), [data, threads])
+  const activeOrdinal = ordinalOf(activeThread, ordinals)
+  const footerSummary = useMemo(() => deliveryLine(data, threads), [data, threads])
+  /** Attachment URL in the owner session, resolved once per context. */
+  const attachmentUrl = useCallback(
+    (attachmentId: string) => ownerAttachmentUrl(context, attachmentId),
+    [context],
   )
-  const activeOrdinal = activeThread === null ? null : ordinals.get(activeThread.threadId) ?? null
-  const footerSummary = useMemo(
-    () => (data === null ? '' : deliverySummary(threads, data.dispatches)),
-    [data, threads],
-  )
+
   const focusThread = useCallback((thread: WorkItemThread) => {
     setSelectedThreadId(thread.threadId)
     const anchor = thread.anchor
@@ -838,65 +814,6 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   const pickLine = (line: number, extend: boolean): void => {
     setSelection(current => selectLine(current, line, extend))
   }
-
-  /** Open the comment entry for one line range and focus its composer. */
-  const annotateRange = (startLine: number, endLine: number, selectedText?: string): void => {
-    if (readOnly || dirty || data === null) return
-    const range = lineRangeAnnotation(lines, data.file, data.record.primaryPath, startLine, endLine, selectedText)
-    if (range === null) return
-    setReplyTarget(null)
-    setSelection({ startLine: range.startLine, endLine: range.endLine })
-    setPendingAnchor({ kind: 'line-range', ...range })
-    setViewTab('document')
-    setShowRail(true)
-    // The rail may still be collapsed in this frame; focus the composer after
-    // the state flush that makes it focusable.
-    requestAnimationFrame(() => { composerRef.current?.focus() })
-  }
-
-  const annotate = (): void => {
-    if (selection === null) return
-    annotateRange(selection.startLine, selection.endLine)
-  }
-
-  /** Keyboard annotation from the line list: one line, then the composer. */
-  const annotateLine = (line: number): void => { annotateRange(line, line) }
-
-  /** Reading-surface selection: line range plus the user's sub-line text. */
-  const annotateSelection = useCallback((startLine: number, endLine: number, selectedText: string): void => {
-    annotateRange(startLine, endLine, selectedText)
-  }, [annotateRange])
-
-  /** A line's pin opens the thread it numbers. */
-  const focusPin = (line: number): void => {
-    const thread = pinThread(linePins, threads, line)
-    if (thread !== null) focusThread(thread)
-  }
-
-  /** A block pin opens the thread it numbers (reading surface). */
-  const focusPinOrdinal = useCallback((ordinal: number): void => {
-    const thread = threads[ordinal - 1]
-    if (thread !== undefined) focusThread(thread)
-  }, [focusThread, threads])
-
-  /** The reading surface's image resolver: no wire route beyond attachments. */
-  const imageUrl = useCallback((src: string): string | null => {
-    if (context === null) return null
-    if (/^https?:\/\//i.test(src)) return src
-    const match = /^cowork-attachment:\/\/([A-Za-z0-9_-]+)$/.exec(src)
-    const attachmentId = match?.[1]
-    if (attachmentId === undefined) return null
-    return workItemApi.attachmentUrl({
-      sessionId: context.ownerSessionId,
-      artifactId: context.artifactId,
-      attachmentId,
-    })
-  }, [context])
-
-  /** Track the active surface's top line for the read/source switch. */
-  const trackViewportLine = useCallback((line: number): void => {
-    viewportLineRef.current = line
-  }, [])
 
   const submit = useCallback(async () => {
     if (context === null || data === null || draft.trim() === '' || submitting) return
@@ -1052,33 +969,20 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   }
   const record = data.record
   const kind = viewerKindOf(record.type)
-  // A canvas whose JSON cannot be parsed falls back to the source editor so a
-  // broken file stays repairable instead of trapping the user in an error pane.
-  const canvasBroken = kind === 'canvas' && data.file !== null && !parseCanvasScene(savedContent).ok
+  const canvasBroken = canvasUnreadable(kind, data.file, savedContent)
   const activity = activeDispatchSummary(record.activeDispatch)
   const missingFile = missingFileState(record, fileProblem.code)
   const olderBefore = olderCursor(data.events)
-  const reading: ReadingSurfaceConfig = {
-    content: readContent,
-    dirty,
-    annotateDisabled: readOnly || dirty || conflict !== null,
-    annotateReason: readOnly
-      ? '跨会话只读：切到所属会话后才能批注'
-      : (dirty
-        ? '未保存草稿：保存后可批注'
-        : (conflict === null ? null : '版本冲突：先在源码中处理')),
-    selectedAnchor,
-    focusLine: readFocusLine,
-    fallback: readFallback,
-    threads,
-    imageUrl,
-    onAnnotate: annotateSelection,
-    onPickPin: focusPinOrdinal,
-    onViewportLine: trackViewportLine,
-  }
-  // Text surfaces switch read/source through the editor; the other families
-  // keep the preview/source-lines switch and hide it while their editor is up.
-  const showMode = viewTab === 'document' && data.file !== null && (kind === 'text' || !editing)
+  const reading = createReadingSurface({
+    kind, file: data.file, record, lines, threads, pins: linePins, selectedThreadId, selection,
+    dirty, conflict, readOnly, editing, readMode, editDraft, savedContent, viewportLineRef,
+    focusLine: readFocusLine, viewTab, attachmentUrl,
+  }, {
+    setEditing, setReadMode, setEditDraft, setSavedContent, setSavePhase, setConflict, setReceipt,
+    setSelection, setPendingAnchor, setViewTab, setShowRail, setReadFocusLine,
+    focusComposer: () => { focusComposerAfterFlush(composerRef) },
+    openThread: focusThread,
+  })
   return (
     <div
       className="cwi-viewer"
@@ -1109,7 +1013,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
         readOnly={readOnly}
         onReturn={requestClose}
         onConfirm={() => { void confirmWork() }}
-        onToggleEditing={toggleEditing}
+        onToggleEditing={reading.toggleEditing}
         onOpen={() => { void openInApp() }}
         onExport={exportCurrentFile}
         onRefresh={() => { setRefreshToken(token => token + 1) }}
@@ -1130,13 +1034,13 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
         attachments={attachmentRows.length}
         editing={editing}
         readMode={readMode}
-        showMode={showMode}
+        showMode={reading.showMode}
         savePhase={savePhase}
         revision={data.file?.revision ?? record.revision}
         showRail={showRail}
         threadCount={threads.length}
         onTab={setViewTab}
-        onToggleReadMode={toggleReadMode}
+        onToggleReadMode={reading.toggleReadMode}
         onToggleRail={() => { setShowRail(value => !value) }}
       />
       {fileProblem.notice === null ? null : (
@@ -1185,15 +1089,15 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
             staleLines={staleLines}
             pins={linePins}
             attachments={attachmentRows}
-            reading={reading}
-            editorStartLine={editorStartLine}
+            reading={reading.config}
+            editorStartLine={viewportLineRef.current}
             onChangeDraft={(content) => { setEditDraft(content); setBackArmed(false) }}
             onSaveDraft={() => { void saveDraft() }}
-            onAnnotate={annotate}
-            onAnnotateLine={annotateLine}
+            onAnnotate={reading.annotate}
+            onAnnotateLine={reading.annotateLine}
             onClearSelection={() => { setSelection(null) }}
             onPickLine={pickLine}
-            onPickPin={focusPin}
+            onPickPin={reading.focusPin}
           />
           {viewTab === 'versions' ? (
             <VersionsPanel record={record} file={data.file} revisions={data.revisions} />

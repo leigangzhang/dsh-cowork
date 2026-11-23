@@ -1141,18 +1141,19 @@ async function selectReadingText(page, needle) {
     const root = document.querySelector('[data-testid="cwi-md-read"]')
     if (root === null) return false
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-      const index = node.textContent?.indexOf(text) ?? -1
-      if (index < 0) continue
-      const range = document.createRange()
-      range.setStart(node, index)
-      range.setEnd(node, index + text.length)
-      const selection = window.getSelection()
-      selection.removeAllRanges()
-      selection.addRange(range)
-      return true
-    }
-    return false
+    const nodes = []
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) nodes.push(node)
+    const target = nodes
+      .map((node) => ({ node, index: node.textContent?.indexOf(text) ?? -1 }))
+      .find((entry) => entry.index >= 0)
+    if (target === undefined) return false
+    const range = document.createRange()
+    range.setStart(target.node, target.index)
+    range.setEnd(target.node, target.index + text.length)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return true
   }, needle)
   assert.equal(found, true, `reading text not found: ${needle}`)
   await page.getByTestId('cwi-md-selection').waitFor({ timeout: 10_000 })
@@ -1173,9 +1174,9 @@ async function selectReadingRange(page, startText, endText) {
       }
       return null
     }
-    const first = locate(start)
-    const last = locate(end)
-    if (first === null || last === null) return false
+    const matches = [locate(start), locate(end)]
+    if (matches.some((match) => match === null)) return false
+    const [first, last] = matches
     const range = document.createRange()
     range.setStart(first.node, first.index)
     range.setEnd(last.node, last.index + end.length)

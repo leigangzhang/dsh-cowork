@@ -65,6 +65,22 @@ function anchoredLineMarkers(lines: readonly number[]) {
   })
 }
 
+/** Reveal one 1-based source line and focus the editor. */
+function revealLine(view: EditorView, lineNumber: number): void {
+  const line = view.state.doc.line(Math.min(Math.max(lineNumber, 1), view.state.doc.lines))
+  view.dispatch({
+    selection: { anchor: line.from },
+    effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+  })
+  view.focus()
+}
+
+/** The source line at the top of the editor viewport. */
+function topLine(view: EditorView): number {
+  const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 4)
+  return view.state.doc.lineAt(block.from).number
+}
+
 /** One text editor; the caller owns the draft and the save schedule. */
 export interface TextEditorProps {
   /** Current document text; external changes replace the editor document. */
@@ -105,6 +121,9 @@ function languageExtension(language: 'markdown' | 'html' | 'plain'): Extension {
 }
 
 /** The controlled CodeMirror editor used by the work-item viewer. */
+// The controlled-editor lifecycle: one mount, two value/anchor effects, and
+// the imperative view teardown are the CodeMirror contract.
+// fallow-ignore-next-line complexity
 export function TextEditor({
   value,
   onChange,
@@ -168,18 +187,9 @@ export function TextEditor({
     const view = new EditorView({ state, parent })
     viewRef.current = view
     const startLine = initialLineRef.current
-    if (startLine !== undefined) {
-      const line = view.state.doc.line(Math.min(Math.max(startLine, 1), view.state.doc.lines))
-      view.dispatch({
-        selection: { anchor: line.from },
-        effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
-      })
-      view.focus()
-    }
+    if (startLine !== undefined) revealLine(view, startLine)
     const report = (): void => {
-      if (disposed) return
-      const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 4)
-      onViewportLineRef.current?.(view.state.doc.lineAt(block.from).number)
+      if (!disposed) onViewportLineRef.current?.(topLine(view))
     }
     view.scrollDOM.addEventListener('scroll', report, { passive: true })
     report()

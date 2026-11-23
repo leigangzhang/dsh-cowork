@@ -12,40 +12,17 @@
  * own renderer and card.
  */
 import type { ReactElement } from 'react'
-import type { ArtifactAnchor, ArtifactFileResponse } from '../../../panel/artifact-contract.js'
+import type { ArtifactFileResponse } from '../../../panel/artifact-contract.js'
 import type { SaveConflict } from '../api.ts'
 import { TextEditor } from '../editor.tsx'
-import { formatBytes, type LineSelection, type ThreadPin, type WorkItemThread,
-  baseName,
-} from '../model.ts'
+import { formatBytes, type LineSelection, type ThreadPin, baseName } from '../model.ts'
 import { CanvasSurface } from './canvas.tsx'
+import type { ReadingSurfaceConfig } from '../reading-surface.ts'
 import { editorLanguage, readSurfaceKind, type ViewerKind } from './document.ts'
 import { DiagramView } from './diagram.tsx'
 import { HtmlPreview } from './html.tsx'
 import { MarkdownReadView } from './markdown-view.tsx'
 import { SourceLines } from './source-lines.tsx'
-
-/** Read-mode state the Markdown flow surface consumes. */
-export interface ReadingSurfaceConfig {
-  /** Saved text, or the unsaved draft while the viewer is dirty. */
-  readonly content: string
-  /** The draft differs from the saved file: pins hide and annotating stops. */
-  readonly dirty: boolean
-  /** Why the floating annotate entry is disabled, if it is. */
-  readonly annotateDisabled: boolean
-  readonly annotateReason: string | null
-  /** The selected thread's anchor, highlighted in the flow surface. */
-  readonly selectedAnchor: ArtifactAnchor | null
-  /** Source line to bring to the top after a source-to-read switch. */
-  readonly focusLine: number | null
-  /** Set when the file is too large to render; the source lines take over. */
-  readonly fallback: string | null
-  readonly threads: readonly WorkItemThread[]
-  readonly imageUrl: (src: string) => string | null
-  readonly onAnnotate: (startLine: number, endLine: number, selectedText: string) => void
-  readonly onPickPin: (ordinal: number) => void
-  readonly onViewportLine: (line: number) => void
-}
 
 /** Props shared by the document-tab renderers. */
 export interface DocumentSurfaceProps {
@@ -232,6 +209,47 @@ function EditorSurface({
   )
 }
 
+/** The range annotation bar above the numbered source lines. */
+// The disabled reason and range label are the bar's whole state matrix.
+// fallow-ignore-next-line complexity
+function SelectionBar({
+  selection,
+  readOnly,
+  annotateDisabled,
+  onAnnotate,
+  onClearSelection,
+}: {
+  readonly selection: LineSelection
+  readonly readOnly: boolean
+  readonly annotateDisabled: boolean
+  readonly onAnnotate: () => void
+  readonly onClearSelection: () => void
+}): ReactElement {
+  return (
+    <div className="cwi-selection-bar">
+      <span>
+        已选第 {selection.startLine}
+        {selection.endLine === selection.startLine ? '' : `–${selection.endLine}`} 行
+      </span>
+      <button
+        type="button"
+        className="cwi-primary"
+        data-testid="cwi-annotate"
+        disabled={readOnly || annotateDisabled}
+        title={readOnly
+          ? '跨会话只读：切到所属会话后才能批注'
+          : (annotateDisabled ? '未保存草稿或版本冲突：处理后可批注' : undefined)}
+        onClick={onAnnotate}
+      >
+        批注
+      </button>
+      <button type="button" className="cwi-secondary" onClick={onClearSelection}>
+        取消
+      </button>
+    </div>
+  )
+}
+
 /** The source-line surface, including the range annotation bar. */
 function SourceSurface({
   selection,
@@ -267,27 +285,13 @@ function SourceSurface({
   return (
     <>
       {selection === null ? null : (
-        <div className="cwi-selection-bar">
-          <span>
-            已选第 {selection.startLine}
-            {selection.endLine === selection.startLine ? '' : `–${selection.endLine}`} 行
-          </span>
-          <button
-            type="button"
-            className="cwi-primary"
-            data-testid="cwi-annotate"
-            disabled={readOnly || annotateDisabled}
-            title={readOnly
-              ? '跨会话只读：切到所属会话后才能批注'
-              : (annotateDisabled ? '未保存草稿或版本冲突：处理后可批注' : undefined)}
-            onClick={onAnnotate}
-          >
-            批注
-          </button>
-          <button type="button" className="cwi-secondary" onClick={onClearSelection}>
-            取消
-          </button>
-        </div>
+        <SelectionBar
+          selection={selection}
+          readOnly={readOnly}
+          annotateDisabled={annotateDisabled}
+          onAnnotate={onAnnotate}
+          onClearSelection={onClearSelection}
+        />
       )}
       <SourceLines
         lines={lines}

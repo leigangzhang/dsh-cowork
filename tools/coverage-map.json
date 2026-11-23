@@ -98,6 +98,10 @@
       "lane": "unit"
     },
     {
+      "path": "src/client/work-item/reading-surface.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/client/work-item/session-open.ts",
       "lane": "unit"
     },

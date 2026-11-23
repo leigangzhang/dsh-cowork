@@ -211,10 +211,10 @@ test('the owner map classifies every source file exactly once', () => {
   const map = JSON.parse(read('tools/coverage-map.json'))
   const result = validateOwnershipMap(map, sources)
   assert.deepEqual(result.failures, [])
-  assert.equal(sources.length, 116)
+  assert.equal(sources.length, 117)
   const byLane = { unit: 0, browser: 0, dev: 0 }
   for (const entry of map.files) byLane[entry.lane] += 1
-  assert.deepEqual(byLane, { unit: 93, browser: 23, dev: 0 })
+  assert.deepEqual(byLane, { unit: 94, browser: 23, dev: 0 })
   assert.deepEqual(
     map.files.filter((entry) => entry.lane === 'dev').map((entry) => entry.path).sort(),
     DEV_DRIVERS,

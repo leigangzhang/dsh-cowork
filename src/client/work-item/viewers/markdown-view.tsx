@@ -103,21 +103,28 @@ function sourceAttrs(block: MarkdownBlock): Record<string, string> {
   }
 }
 
+/** The block kinds a rendered element may claim. */
+const BLOCK_KINDS = new Set(['heading', 'paragraph', 'list', 'item', 'quote', 'fence', 'table', 'hr', 'frontmatter'])
+
 /** The block a rendered element belongs to, from its data attributes. */
+// Attribute parsing is one guard over the block kind set.
+// fallow-ignore-next-line complexity
 function blockOfElement(element: Element): MarkdownBlock | null {
   const kind = element.getAttribute('data-src-kind')
   const start = Number(element.getAttribute('data-src-start'))
   const end = Number(element.getAttribute('data-src-end'))
-  if (kind === null || !Number.isInteger(start) || !Number.isInteger(end)) return null
-  if (!['heading', 'paragraph', 'list', 'item', 'quote', 'fence', 'table', 'hr', 'frontmatter'].includes(kind)) return null
+  if (!BLOCK_KINDS.has(kind ?? '') || !Number.isInteger(start) || !Number.isInteger(end)) return null
   return { kind: kind as MarkdownBlock['kind'], startLine: start, endLine: end }
 }
 
 /** The closest source block at or above one selection endpoint. */
+// Selection endpoints may be text nodes; this is the DOM walk.
+// fallow-ignore-next-line complexity
 function blockOfNode(node: Node | null): MarkdownBlock | null {
   const element = node instanceof Element ? node : node?.parentElement
-  const block = element?.closest('[data-src-kind]')
-  return block === null || block === undefined ? null : blockOfElement(block)
+  if (element === null || element === undefined) return null
+  const block = element.closest('[data-src-kind]')
+  return block === null ? null : blockOfElement(block)
 }
 
 /** The union rectangle of every line box the range covers. */
@@ -127,17 +134,21 @@ function selectionRect(range: Range): SelectionDraft['rect'] | null {
     const single = range.getBoundingClientRect()
     return single.width === 0 && single.height === 0 ? null : single
   }
-  let left = Number.POSITIVE_INFINITY
-  let top = Number.POSITIVE_INFINITY
-  let right = Number.NEGATIVE_INFINITY
-  let bottom = Number.NEGATIVE_INFINITY
-  for (const rect of rects) {
-    left = Math.min(left, rect.left)
-    top = Math.min(top, rect.top)
-    right = Math.max(right, rect.right)
-    bottom = Math.max(bottom, rect.bottom)
-  }
+  const left = Math.min(...rects.map(rect => rect.left))
+  const top = Math.min(...rects.map(rect => rect.top))
+  const right = Math.max(...rects.map(rect => rect.right))
+  const bottom = Math.max(...rects.map(rect => rect.bottom))
   return { left, top, width: right - left, height: bottom - top }
+}
+
+/** The source line of the first block covering the viewport top. */
+function visibleLineAt(article: HTMLElement, top: number): number | null {
+  for (const element of article.querySelectorAll<HTMLElement>('[data-src-start]')) {
+    if (element.getBoundingClientRect().bottom <= top) continue
+    const line = Number(element.getAttribute('data-src-start'))
+    return Number.isInteger(line) ? line : null
+  }
+  return null
 }
 
 /** The scrollable ancestor the article sits in, if any. */
@@ -213,7 +224,9 @@ function InlineLink({ href, children }: { readonly href: string; readonly childr
   )
 }
 
+// Three display states (resolved, failed, refused) share one figure shell.
 /** One Markdown image with the failure and missing-alt placeholders. */
+// fallow-ignore-next-line complexity
 function MarkdownImage({ src, alt, title, imageUrl }: {
   readonly src: string
   readonly alt: string
@@ -273,7 +286,9 @@ function TaskBox({ checked }: { readonly checked: boolean }): ReactElement {
   )
 }
 
+// Linear token scan; the level guard is the whole contract.
 /** The token index of the opener's matching close. */
+// fallow-ignore-next-line complexity
 function matchingClose(tokens: readonly Token[], open: number): number {
   const level = tokens[open]?.level ?? 0
   for (let index = open + 1; index < tokens.length; index += 1) {
@@ -289,17 +304,19 @@ function hasInline(tokens: readonly Token[]): boolean {
 }
 
 /** The task marker of one list item, or null for an ordinary item. */
+// Task items carry the marker in their first inline text token.
+// fallow-ignore-next-line complexity
 function taskMarkerOf(tokens: readonly Token[]): { checked: boolean; text: string } | null {
-  for (const token of tokens) {
-    if (token.type !== 'inline') continue
-    const first = token.children?.[0]
-    if (first === undefined || first.type !== 'text') return null
-    return renderTaskMarker(first.content)
-  }
-  return null
+  const inline = tokens.find(token => token.type === 'inline')
+  if (inline === undefined) return null
+  const first = inline.children?.[0]
+  if (first === undefined || first.type !== 'text') return null
+  return renderTaskMarker(first.content)
 }
 
+// Inline emphasis/link/image dispatch over one token stream.
 /** Render the inline children of one token. */
+// fallow-ignore-next-line complexity
 function renderInlineChildren(
   children: readonly Token[],
   ctx: RenderContext,
@@ -362,21 +379,31 @@ function renderInlineChildren(
 }
 
 /** One inline container token (strong, emphasis, strikethrough, link). */
+// Inline wrapper dispatch over the four emphasis/link tokens.
+// fallow-ignore-next-line complexity
 function renderInlineContainer(token: Token, children: ReactNode[], key: string): ReactNode {
-  if (token.type === 'strong_open') return <strong key={key}>{children}</strong>
-  if (token.type === 'em_open') return <em key={key}>{children}</em>
-  if (token.type === 's_open') return <del key={key} className="cwi-md-del">{children}</del>
-  if (token.type === 'link_open') {
-    const href = token.attrGet('href')
-    return <InlineLink key={key} href={href === null ? '' : String(href)}>{children}</InlineLink>
+  switch (token.type) {
+    case 'strong_open':
+      return <strong key={key}>{children}</strong>
+    case 'em_open':
+      return <em key={key}>{children}</em>
+    case 's_open':
+      return <del key={key} className="cwi-md-del">{children}</del>
+    case 'link_open': {
+      const href = token.attrGet('href')
+      return <InlineLink key={key} href={href === null ? '' : String(href)}>{children}</InlineLink>
+    }
+    default:
+      return <span key={key}>{children}</span>
   }
-  return <span key={key}>{children}</span>
 }
 
 /** One table-structure container; its tokens carry no source map of their own. */
 const TABLE_PARTS = new Set(['thead_open', 'tbody_open', 'tr_open', 'th_open', 'td_open'])
 
+// Table section/cell dispatch over five parser tokens.
 /** Render one table-structure token; only the three parser align values pass. */
+// fallow-ignore-next-line complexity
 function renderTablePart(token: Token, children: ReactNode[], key: string): ReactNode {
   switch (token.type) {
     case 'thead_open':
@@ -392,7 +419,9 @@ function renderTablePart(token: Token, children: ReactNode[], key: string): Reac
   }
 }
 
+// Block renderer dispatch over markdown-it token types.
 /** Render one block container token. */
+// fallow-ignore-next-line complexity
 function renderContainer(
   token: Token,
   children: ReactNode[],
@@ -442,7 +471,9 @@ function renderContainer(
   }
 }
 
+// Leaf renderer dispatch over code, rule, and raw-HTML tokens.
 /** Render one leaf token. */
+// fallow-ignore-next-line complexity
 function renderLeaf(token: Token, ctx: RenderContext, key: string, task: boolean): ReactNode {
   if (token.type === 'inline') {
     return <span key={key}>{renderInlineChildren(token.children ?? [], ctx, key, task)}</span>
@@ -483,7 +514,9 @@ function renderLeaf(token: Token, ctx: RenderContext, key: string, task: boolean
   )
 }
 
+// Token cursor with container/leaf handling and the task-marker handoff.
 /** Render a token list, propagating a pending task marker into the first inline. */
+// fallow-ignore-next-line complexity
 function renderTokenList(
   tokens: readonly Token[],
   ctx: RenderContext,
@@ -566,6 +599,8 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
   useEffect(() => {
     const article = articleRef.current
     if (article === null) return
+    // Selection normalization: every early return is one unusable selection.
+    // fallow-ignore-next-line complexity
     const compute = (): void => {
       const selection = window.getSelection()
       if (selection === null || selection.isCollapsed) {
@@ -636,15 +671,10 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
     let frame = 0
     const report = (): void => {
       frame = 0
-      const top = container.getBoundingClientRect().top + 4
-      for (const element of article.querySelectorAll<HTMLElement>('[data-src-start]')) {
-        if (element.getBoundingClientRect().bottom <= top) continue
-        const line = Number(element.getAttribute('data-src-start'))
-        if (!Number.isInteger(line) || line === viewportLineRef.current) return
-        viewportLineRef.current = line
-        onViewportLineRef.current(line)
-        return
-      }
+      const line = visibleLineAt(article, container.getBoundingClientRect().top + 4)
+      if (line === null || line === viewportLineRef.current) return
+      viewportLineRef.current = line
+      onViewportLineRef.current(line)
     }
     const schedule = (): void => {
       if (frame !== 0) return

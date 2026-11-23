@@ -389,6 +389,44 @@ export function sanitizeLinkHref(href: string): string | null {
   }
 }
 
+/** Trim and reject control characters, backslashes, and raw whitespace. */
+function imageSourceValue(src: string): string | null {
+  const value = src.trim()
+  if (value === '') return null
+  if (/[\u0000-\u001f\u007f\\]/.test(value)) return null
+  return /\s/.test(value) ? null : value
+}
+
+/** The scheme name of one non-relative source, or null for a relative path. */
+function imageSchemeOf(value: string): string | null {
+  const match = /^([a-z][a-z0-9+.-]*):/i.exec(value)
+  return match?.[1]?.toLowerCase() ?? null
+}
+
+/** One absolute http(s) source, or null when disallowed or malformed. */
+function sanitizeHttpImage(name: string, value: string, allow: readonly ImageScheme[]): string | null {
+  if (!allow.includes(name === 'https' ? 'https' : 'http')) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === `${name}:` ? value : null
+  } catch {
+    return null
+  }
+}
+
+/** One attachment or other scheme; only a well-formed attachment id passes. */
+function sanitizeSchemeImage(name: string, value: string, allow: readonly ImageScheme[]): string | null {
+  if (name !== 'cowork-attachment' || !allow.includes('cowork-attachment')) return null
+  return /^cowork-attachment:\/\/[A-Za-z0-9_-]+$/.test(value) ? value : null
+}
+
+/** One project-relative path: no absolute form and no parent traversal. */
+function sanitizeRelativeImage(value: string, allow: readonly ImageScheme[]): string | null {
+  if (value.startsWith('//') || value.startsWith('/')) return null
+  if (value.split('/').includes('..')) return null
+  return allow.includes('relative') ? value : null
+}
+
 /**
  * Validate one image source before an `<img>` is created.
  *
@@ -404,29 +442,13 @@ export function sanitizeImageSrc(
   src: string,
   allow: readonly ImageScheme[] = IMAGE_SRC_SCHEMES,
 ): string | null {
-  const value = src.trim()
-  if (value === '' || /[\u0000-\u001f\u007f\\]/.test(value) || /\s/.test(value)) return null
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(value)
-  if (scheme !== null) {
-    const name = scheme[1]!.toLowerCase()
-    if (name === 'http' || name === 'https') {
-      if (!allow.includes(name)) return null
-      try {
-        const url = new URL(value)
-        return url.protocol === `${name}:` ? value : null
-      } catch {
-        return null
-      }
-    }
-    if (name === 'cowork-attachment') {
-      if (!allow.includes('cowork-attachment')) return null
-      return /^cowork-attachment:\/\/[A-Za-z0-9_-]+$/.test(value) ? value : null
-    }
-    return null
-  }
-  if (value.startsWith('//') || value.startsWith('/')) return null
-  if (value.split('/').includes('..')) return null
-  return allow.includes('relative') ? value : null
+  const value = imageSourceValue(src)
+  if (value === null) return null
+  const scheme = imageSchemeOf(value)
+  if (scheme === null) return sanitizeRelativeImage(value, allow)
+  return scheme === 'http' || scheme === 'https'
+    ? sanitizeHttpImage(scheme, value, allow)
+    : sanitizeSchemeImage(scheme, value, allow)
 }
 
 /**

@@ -103,23 +103,28 @@ function textOf(comment: CommentEventV1): string {
   return comment.type === 'create' || comment.type === 'reply' ? comment.body : ''
 }
 
+
+/** The bounded quote/context lines one line anchor contributes to a prompt. */
+function lineAnchorPrompt(found: Extract<ArtifactAnchor, { kind: 'line-range' }>): string {
+  const parts = [`Quote: ${found.quote.slice(0, 400)}`]
+  // The sub-line selection narrows the quote to what the user actually marked;
+  // it is prompt context only, never a relocation key.
+  if (found.selectedText !== undefined) parts.push(`Selected: ${found.selectedText.slice(0, 400)}`)
+  const before = found.contextBefore ?? ''
+  const after = found.contextAfter ?? ''
+  if (before.length > 0) parts.push(`Before: ${before.slice(0, 400)}`)
+  if (after.length > 0) parts.push(`After: ${after.slice(0, 400)}`)
+  return `\n${parts.join('\n')}`
+}
+
 /** The prompt's annotation block, bounded and separated as data. */
 function annotateBlock(comment: CommentEventV1, threadAnchor?: ArtifactAnchor): string {
   let anchor = 'whole file'
   let context = ''
   const source = comment.type === 'create' ? comment.anchor : threadAnchor
   if (source !== undefined && source.kind === 'line-range') {
-    const found = source
-    anchor = `lines ${String(found.startLine)}-${String(found.endLine)}`
-    const parts = [`Quote: ${found.quote.slice(0, 400)}`]
-    // The sub-line selection narrows the quote to what the user actually
-    // marked; it is prompt context only, never a relocation key.
-    if (found.selectedText !== undefined) parts.push(`Selected: ${found.selectedText.slice(0, 400)}`)
-    const before = found.contextBefore ?? ''
-    const after = found.contextAfter ?? ''
-    if (before.length > 0) parts.push(`Before: ${before.slice(0, 400)}`)
-    if (after.length > 0) parts.push(`After: ${after.slice(0, 400)}`)
-    context = `\n${parts.join('\n')}`
+    anchor = `lines ${String(source.startLine)}-${String(source.endLine)}`
+    context = lineAnchorPrompt(source)
   } else if (source !== undefined) {
     anchor = source.kind === 'whole' ? 'whole file' : source.kind
   }

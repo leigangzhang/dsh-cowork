@@ -49,6 +49,7 @@ src/client/work-item/
 ├─ list.tsx               WorkItemList：筛选、分组、卡片、打开
 ├─ store.ts               打开上下文（artifactId + ownerSessionId）与订阅
 ├─ model.ts               纯视图模型：筛选、分组、标签、活动/保存文案
+├─ reading-surface.ts     阅读/源码切换、批注门禁、选区→anchor、pin 聚焦
 ├─ api.ts                 列表/详情/文件/批注/保存/事件/上传
 ├─ editor.tsx             CodeMirror 6 文本与源码编辑
 ├─ thread-list.tsx        CommentRail 的筛选头与线程列表
