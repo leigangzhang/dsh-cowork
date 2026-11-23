@@ -186,9 +186,33 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 | 浮动批注入口 | 高 26px；圆角 7px；accent 底白字（或 surface+accent 描边）；`box-shadow 0 2px 8px`；距选区右上 `top:-34px`，clamp 内容盒；不遮挡选区文字 |
 | 部分文字选区 | 浏览器原生 selection 高亮；批注入口出现时不改变选区；会话头显示 `selectedText` 单行省略（最大 240px），无 `selectedText` 时显示整行 quote |
 | 批注栏宽度 | 默认 336px，范围 280–560px（`min(560, container − 360)`）；grip 左缘 6px 宽，hover/focus accent |
-| 列表态摘要卡 | 紧凑卡：`#N` chip 9px/700、`padding 1px 5px` 圆角 4px；选中环 `0 0 0 2px accent-soft`；无 composer |
-| 会话态消息 | 用户消息 surface 底；模型回复 `--cwi-model-soft` 底 + `--cwi-model-border` 边框；附件缩略图 max 220×160 圆角 8px |
+| 列表态摘要卡 | 紧凑卡；`#N` chip 与字号见 §7.1；选中环 `0 0 0 2px accent-soft`；无 composer |
+| 会话态消息 | 用户消息 surface 底；模型回复 `--cwi-model-soft` 底 + `--cwi-model-border` 边框；字号/行高见 §7.1；附件缩略图 max 220×160 圆角 8px |
 | 附件预览弹层 | 规格由 [attachment-pipeline.md](attachment-pipeline.md) §11 拥有；本页只验收触发、Esc/遮罩关闭、焦点返回和窄屏不遮 composer |
+
+### 7.1 批注栏与批注内容排版
+
+本节只约束批注栏与批注内容；右栏工作项列表仍按上表的卡片规格。批注正文取文档正文的 −2px（15px → 13px），再按位置向下递减；常驻正文不得低于 11px，chip 不得低于 10px。位置之间的区分同时用字号、颜色和底色，不只靠字号。
+
+| 位置 | 字号 / 行高 | 字重与风格 |
+|---|---|---|
+| 批注栏标题 | 14px / 20px | 650，ink |
+| 计数 / 排序 | 10.5px / 16px | 700 muted；500 soft，不换行 |
+| 筛选 / 只看待处理 | 11.5px / 16px；11px / 16px | 500；激活 600 |
+| 线程作者 | 11.5px / 16px | 650 ink；时间 10.5px / 16px、500 soft |
+| 行号 / 锚点范围 | 11px / 16px | 500 soft；`#N` chip 10px / 14px、650 accent-soft/accent |
+| 引用原文 | 12px / 18px | 400 muted；2px 左边框 + `--cwi-quote-bg` 底；最多 2 行省略 |
+| 批注正文 | 13px / 20px | 400 ink |
+| 模型回复正文 | 13px / 20px | 400 ink；`--cwi-model-soft` 底；作者 11.5px / 16px、650 violet |
+| 投递 / 状态 | 11px / 16px | 600；按状态取 warn/success/danger，文字与颜色同时表达 |
+| 线程操作（定位 / 标记已解决） | 11px / 16px | 600 soft；hover ink |
+| 会话头 | 返回 11.5px / 16px；标题 13px / 18px；行号 11px / 16px | 600；650；500 soft |
+| 消息作者 / 时间 | 11.5px / 16px；10.5px / 16px | 650；500 soft |
+| composer | 输入 13px / 20px；hint 11px / 16px；按钮 11.5px / 16px | 400；500；600 |
+| 已解决折叠行 | 11.5px / 16px | 600；虚线边框 |
+| 空态 | 12.5px / 18px | 400 soft |
+
+引用用「12px + muted + 左边框 + 浅底」与 13px 正文区分；模型回复用 `model-soft` 底色与 violet 作者区分；状态条保留 11px 但用状态色和图标，不靠缩小字号。正文、引用、meta、chip 四档形成 15 / 13 / 12 / 11 / 10 的层级。
 
 **验收四档**：1280 并排（正文 + 批注栏 336px）；1024 批注栏可缩 280px；768 抽屉；390 单列无横向滚动、附件 chip 最多 1 个 + `+N`。拖拽到 560px 时正文仍 ≥360px 可读；≥1024 档批注栏默认收起时正文满宽。
 
@@ -212,6 +236,7 @@ Cowork 面板 → 工作项标签（session scope，右栏宽约 300–420px）
 - 卡片投影：卡片渲染来源会话名（`sessionTitle ?? '未命名会话'`），不渲染 path 与 ownerSessionId，标题属性不含 path。— `tests`
 - 已完成：`confirmed` 文案「已完成」；折叠态渲染「已完成 N 个工作项」整行卡，展开为正常卡片。— `tests`
 - 批注栏两级：默认 `showRail=false`；工具条「批注 N」打开列表态；列表态无 composer/回复；点卡进会话态；返回列表。— `tests`
+- 批注排版：批注正文 13/20、引用 12/18、meta 11/16、chip 10/14；常驻正文无低于 11px 的字号；引用/正文/模型回复/状态四类可从字号、底色和字重区分。— `browser` + 四档截图
 - 宽度：拖拽/键盘调整钳制 [280, 560]，写 `localStorage`，重开恢复；窄屏抽屉。— `browser`
 - 浮动入口：选中/右键/菜单键出现靠近选区右上角的「批注」按钮，替代旧 sticky 条；点击新建会话。— `browser`
 - 附件预览：图片/文本/未知类型弹层，焦点锁定、Esc/遮罩关闭、下载。— `browser`
