@@ -1059,6 +1059,16 @@ export function registerCoworkApi(host: CoworkApiHost, ports: CoworkApiPorts): v
           const rows = await listSessionsBounded(ports)
           return rows.find((row) => row.sessionId === sessionId)?.title ?? null
         },
+        // One listing per list request: the route projects these titles onto
+        // every item instead of resolving an owner per record.
+        sessionTitles: async () => {
+          const rows = await listSessionsBounded(ports)
+          const titles = new Map<string, string>()
+          for (const row of rows) {
+            if (row.title !== undefined && row.title.trim() !== '') titles.set(row.sessionId, row.title)
+          }
+          return titles
+        },
         openWorkspacePath: ports.openWorkspacePath,
       }, artifactKit)),
   ]
