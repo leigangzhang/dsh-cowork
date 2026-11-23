@@ -357,6 +357,16 @@ ${MARKDOWN_READ_CSS}
 .cwi-resolved-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cwi-resolved-arrow { flex: none; color: var(--cwi-soft); }
 .cwi-rail-empty { margin: 12px; font-size: 12px; line-height: 1.6; color: var(--cwi-soft); }
+.cwi-rail-list, .cwi-rail-session { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cwi-rail-session-head { gap: 6px; }
+.cwi-rail-back { padding: 1px 0; border: 0; background: transparent; color: var(--cwi-accent); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+.cwi-rail-back:hover { text-decoration: underline; }
+.cwi-rail-back:focus-visible { outline: 2px solid var(--cwi-accent); outline-offset: 2px; }
+.cwi-rail-session-anchor { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cwi-rail-quote { color: var(--cwi-muted); font-size: 10px; line-height: 1.45; white-space: pre-wrap; }
+.cwi-rail-selection { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cwi-muted); font-size: 10.5px; line-height: 16px; }
+.cwi-rail-session-log { flex: 1; min-height: 0; overflow: auto; }
+.cwi-thread[data-summary="true"] { cursor: pointer; }
 .cwi-activity { flex: none; display: flex; align-items: center; gap: 7px; margin: 8px 10px 0; padding: 6px 8px; border: 1px solid var(--cwi-warn-soft); border-radius: 7px; background: var(--cwi-warn-soft); color: var(--cwi-warn); font-size: 10px; line-height: 1.4; }
 .cwi-activity[data-tone="error"] { background: var(--cwi-danger-soft); border-color: var(--cwi-danger-soft); color: var(--cwi-danger); }
 .cwi-activity[data-tone="done"] { background: var(--cwi-success-soft); border-color: var(--cwi-success-soft); color: var(--cwi-success); }

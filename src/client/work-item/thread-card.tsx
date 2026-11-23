@@ -31,6 +31,13 @@ export interface ThreadCardProps {
   readonly selected: boolean
   /** Render a resolved card's body directly (rail group or resolved filter). */
   readonly expandedByGroup?: boolean
+  /**
+   * The rail's list level: one read-only summary row.
+   *
+   * A summary card never expands in place and holds no reply or resolve
+   * control; clicking it (or Enter) enters the session level.
+   */
+  readonly summaryOnly?: boolean
   readonly now: Date
   readonly pending: boolean
   readonly dispatch: ArtifactDispatchSummary | null
@@ -38,8 +45,10 @@ export interface ThreadCardProps {
   /** Cross-session preview: reply and resolve stay visible but disabled. */
   readonly readOnly: boolean
   readonly onSelect: (thread: WorkItemThread) => void
+  /** Resolve/reopen; absent while the list level has no session controls. */
   readonly onToggle: (thread: WorkItemThread) => void
-  readonly onReply: (thread: WorkItemThread) => void
+  /** Reply; absent while the list level has no composer to receive it. */
+  readonly onReply?: (thread: WorkItemThread) => void
   readonly onRetry: (dispatch: ArtifactDispatchSummary) => void
   readonly onFocus: (thread: WorkItemThread) => void
   readonly attachmentUrl: (attachmentId: string) => string
@@ -144,6 +153,7 @@ export function ThreadCard({
   ordinal,
   selected,
   expandedByGroup = false,
+  summaryOnly = false,
   now,
   pending,
   dispatch,
@@ -162,7 +172,7 @@ export function ThreadCard({
   )
   const root = comments[0] ?? null
   const replies = comments.slice(1)
-  const compact = thread.resolved && !expanded && !expandedByGroup
+  const compact = !summaryOnly && thread.resolved && !expanded && !expandedByGroup
   const open = !thread.resolved
   const statusLabel = anchorStatusLabel(thread.anchorStatus)
   const stale = thread.anchorStatus === 'stale'
@@ -191,6 +201,7 @@ export function ThreadCard({
       data-resolved={thread.resolved ? 'true' : 'false'}
       data-selected={selected ? 'true' : 'false'}
       data-open={open ? 'true' : 'false'}
+      data-summary={summaryOnly ? 'true' : 'false'}
       tabIndex={0}
       onKeyDown={onCardKeyDown}
       onClick={() => { onSelect(thread) }}
@@ -201,7 +212,31 @@ export function ThreadCard({
         <span className="cwi-thread-anchor">{anchorLabel(thread.anchor)}</span>
         <span className="cwi-anchor-chip" data-tone={stale ? 'warn' : (thread.resolved ? 'done' : 'open')}>#{ordinal}</span>
       </div>
-      {compact ? (
+      {summaryOnly ? (
+        <>
+          <div className="cwi-thread-summary" data-testid="cwi-thread-summary">
+            {root === null ? '已解决' : commentBody(root)}
+          </div>
+          {thread.resolved ? (
+            <div className="cwi-thread-meta">
+              <span className="cwi-resolved-mark">✓ 已解决</span>
+              <span className="cwi-thread-time">{formatRelativeTime(thread.latestAt, now)}</span>
+            </div>
+          ) : null}
+          {quote === ''
+            ? null
+            : (
+                <button
+                  type="button"
+                  className="cwi-quote"
+                  data-testid="cwi-thread-focus"
+                  onClick={(event) => { event.stopPropagation(); onFocus(thread) }}
+                >
+                  {quote}
+                </button>
+              )}
+        </>
+      ) : compact ? (
         <>
           <div className="cwi-thread-summary">{root === null ? '已解决' : commentBody(root)}</div>
           <div className="cwi-thread-meta">
@@ -265,31 +300,33 @@ export function ThreadCard({
                 </div>
               )}
       <div className="cwi-thread-actions">
-        {thread.resolved
-          ? (expandedByGroup
-              ? null
+        {summaryOnly
+          ? null
+          : (thread.resolved
+              ? (expandedByGroup
+                  ? null
+                  : (
+                      <button
+                        type="button"
+                        className="cwi-thread-action"
+                        data-testid="cwi-thread-expand"
+                        onClick={() => { setExpanded(value => !value) }}
+                      >
+                        {expanded ? `收起 ${String(comments.length)} 条` : `已解决 · 展开 ${String(comments.length)} 条`}
+                      </button>
+                    ))
               : (
                   <button
                     type="button"
                     className="cwi-thread-action"
-                    data-testid="cwi-thread-expand"
-                    onClick={() => { setExpanded(value => !value) }}
+                    data-testid="cwi-thread-reply"
+                    disabled={pending || readOnly}
+                    title={readOnly ? '跨会话只读：切到所属会话后才能回复' : undefined}
+                    onClick={(event) => { event.stopPropagation(); onReply?.(thread) }}
                   >
-                    {expanded ? `收起 ${String(comments.length)} 条` : `已解决 · 展开 ${String(comments.length)} 条`}
+                    回复
                   </button>
-                ))
-          : (
-              <button
-                type="button"
-                className="cwi-thread-action"
-                data-testid="cwi-thread-reply"
-                disabled={pending || readOnly}
-                title={readOnly ? '跨会话只读：切到所属会话后才能回复' : undefined}
-                onClick={(event) => { event.stopPropagation(); onReply(thread) }}
-              >
-                回复
-              </button>
-            )}
+                ))}
         <button
           type="button"
           className="cwi-thread-action"
@@ -298,18 +335,24 @@ export function ThreadCard({
         >
           定位
         </button>
-        <span className="cwi-thread-actions-spacer" />
-        <button
-          type="button"
-          className="cwi-thread-action"
-          data-testid="cwi-thread-toggle"
-          data-resolved={thread.resolved ? 'true' : 'false'}
-          disabled={pending || readOnly}
-          title={readOnly ? '跨会话只读：切到所属会话后才能修改批注状态' : undefined}
-          onClick={(event) => { event.stopPropagation(); onToggle(thread) }}
-        >
-          {thread.resolved ? '重新打开' : '标记已解决 ✓'}
-        </button>
+        {summaryOnly
+          ? null
+          : (
+              <>
+                <span className="cwi-thread-actions-spacer" />
+                <button
+                  type="button"
+                  className="cwi-thread-action"
+                  data-testid="cwi-thread-toggle"
+                  data-resolved={thread.resolved ? 'true' : 'false'}
+                  disabled={pending || readOnly}
+                  title={readOnly ? '跨会话只读：切到所属会话后才能修改批注状态' : undefined}
+                  onClick={(event) => { event.stopPropagation(); onToggle(thread) }}
+                >
+                  {thread.resolved ? '重新打开' : '标记已解决 ✓'}
+                </button>
+              </>
+            )}
       </div>
     </article>
   )
