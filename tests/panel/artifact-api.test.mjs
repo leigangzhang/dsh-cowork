@@ -96,7 +96,7 @@ test('a cross-origin request is refused before any store work', async () => {
   })
 })
 
-test('list skips records from another project, reports corrupt ids, and truncates', async () => {
+test('list scans the whole project, skips other projects, reports corrupt ids, and truncates', async () => {
   const harness = await createHarness()
   try {
     const store = harness.runtime().store
@@ -110,9 +110,11 @@ test('list skips records from another project, reports corrupt ids, and truncate
       await writeFile(join(root, id, 'artifact.json'), JSON.stringify(makeRecord({ artifactId: id })))
     }
     const body = await jsonOf(await harness.request('/api/cowork.artifact.list', { query: { sessionId: SESSION } }))
-    assert.equal(body.items.length, 199)
+    // 201 same-project records are all scanned (not only the first 200); the
+    // response still carries the newest 200 and reports the extra match.
+    assert.equal(body.items.length, 200)
     assert.equal(body.truncated, true)
-    assert.equal(body.counts.total, 199)
+    assert.equal(body.counts.total, 201)
     assert.equal(body.items.every((item) => item.artifactId !== ARTIFACT), true)
     assert.ok(harness.logs.some((message) => message.includes('artifact-corrupt-0000-4000-8000-000000000000')))
   } finally {

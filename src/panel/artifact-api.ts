@@ -36,16 +36,20 @@ import {
   ARTIFACT_PRESENCE_PATH,
   ARTIFACT_REBIND_PATH,
   ARTIFACT_STATUS_PATH,
+  ARTIFACT_TYPE_LABELS,
   ARTIFACT_UPLOAD_PATH,
   MAX_ARTIFACT_ATTACHMENT_BYTES,
   MAX_ARTIFACT_ATTACHMENTS,
   MAX_ARTIFACT_ATTACHMENTS_PER_COMMENT,
   MAX_ARTIFACT_COMMENT_CHARS,
   MAX_ARTIFACT_COMMENTS,
+  MAX_ARTIFACT_SEARCH_CHARS,
   MAX_ARTIFACT_TEXT_BYTES,
   MAX_ARTIFACT_TEXT_LINES,
+  MAX_ARTIFACTS_PER_PROJECT,
   MAX_PRESENCE_RANGES,
   addArtifactToCounts,
+  artifactStatusMatches,
   artifactSummaryOf,
   emptyArtifactCounts,
   isArtifactStatus,
@@ -106,7 +110,51 @@ export { reconcileRecord } from './artifact-records.js'
 /** Recent delivery batches the detail response carries. */
 const DISPATCH_SUMMARY_LIMIT = 50
 
-/** `GET /api/cowork.artifact.list` — the right-rail list and its counts. */
+/**
+ * Owner-session titles for one list response.
+ *
+ * One call per request builds the whole map, so the route never resolves a
+ * title per record. A host without the port, or a failing listing, degrades to
+ * no titles: the list and its counts still answer, the cards fall back to
+ * 「未命名会话」 and the search matches title/type only. The failure is logged
+ * once because it is a host capability issue, not user data.
+ */
+async function sessionTitlesOf(ports: ArtifactApiPorts): Promise<ReadonlyMap<string, string>> {
+  if (ports.sessionTitles === undefined) {
+    ports.log?.('artifact list: host exposes no session-title listing; titles omitted')
+    return new Map()
+  }
+  try {
+    return await ports.sessionTitles()
+  } catch (error) {
+    ports.log?.(`session titles lookup failed: ${error instanceof Error ? error.message : String(error)}`)
+    return new Map()
+  }
+}
+
+/**
+ * Whether one work item matches the server-side search.
+ *
+ * The haystack is the title, the type's display label, and the owning
+ * session's title; a project-relative path is never searched, so the list does
+ * not leak file names through search. Matching is a case-insensitive substring
+ * over the joined fields; the join separator stops a query from spanning two
+ * fields.
+ */
+function matchesListSearch(record: ArtifactRecordV1, sessionTitle: string | null, needle: string): boolean {
+  const haystack = `${record.title}\n${ARTIFACT_TYPE_LABELS[record.type]}\n${sessionTitle ?? ''}`.toLowerCase()
+  return haystack.includes(needle)
+}
+
+/**
+ * `GET /api/cowork.artifact.list` — the right-rail list and its counts.
+ *
+ * The whole project is scanned (not just the first page) so a search can reach
+ * a work item past position 200; `status` and `q` then filter that scan. The
+ * per-state `counts` always describe the full project, never the filtered view.
+ * The newest 200 matches are returned, and `truncated` reports both a capped
+ * scan and a longer match set.
+ */
 async function handleList(
   request: Request,
   ports: ArtifactApiPorts,
@@ -117,23 +165,44 @@ async function handleList(
   if (status !== null && !isArtifactStatus(status)) {
     throw kit.fail('request/invalid-query', `unknown artifact status: ${status}`)
   }
+  const search = queryParam(request, 'q')
+  if (search !== null && search.length > MAX_ARTIFACT_SEARCH_CHARS) {
+    throw kit.fail(
+      'request/invalid-query',
+      `search query is longer than ${MAX_ARTIFACT_SEARCH_CHARS} characters`,
+    )
+  }
   const opened = await kit.openProject(sessionId)
   const runtime = ports.runtimeFor(opened.repoPath)
-  const scan = await runtime.store.listRecords(ARTIFACT_LIST_MAX_LIMIT)
+  const scan = await runtime.store.listRecords(MAX_ARTIFACTS_PER_PROJECT)
   for (const artifactId of scan.corrupt) {
     ports.log?.(`artifact list: skipping unreadable work item ${artifactId}`)
   }
   const projectRecords = scan.records.filter((record) => record.projectId === opened.projectId)
   let counts = emptyArtifactCounts()
   for (const record of projectRecords) counts = addArtifactToCounts(counts, record.status)
-  const items = projectRecords
-    .filter((record) => status === null || record.status === status)
-    .map((record) => artifactSummaryOf(record))
+  const titles = await sessionTitlesOf(ports)
+  const needle = search?.toLowerCase() ?? null
+  const matches = projectRecords.filter((record) => {
+    if (status !== null && !artifactStatusMatches(status, record.status)) return false
+    if (needle === null) return true
+    return matchesListSearch(record, titles.get(record.ownerSessionId) ?? null, needle)
+  })
+  // Newest first, with the id tie-break the store uses, so the cut at 200 is
+  // decided here rather than by whichever order a scan happened to return.
+  const items = matches
+    .slice()
+    .sort((left, right) => {
+      const order = right.updatedAt.localeCompare(left.updatedAt)
+      return order !== 0 ? order : left.artifactId.localeCompare(right.artifactId)
+    })
+    .slice(0, ARTIFACT_LIST_MAX_LIMIT)
+    .map((record) => ({ ...artifactSummaryOf(record), sessionTitle: titles.get(record.ownerSessionId) ?? null }))
   const response: ArtifactListResponse = {
     ok: true,
     items,
     counts,
-    truncated: scan.total > scan.records.length,
+    truncated: scan.total > scan.records.length || matches.length > ARTIFACT_LIST_MAX_LIMIT,
   }
   return kit.jsonResponse(200, response)
 }

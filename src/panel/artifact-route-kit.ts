@@ -34,6 +34,15 @@ export interface ArtifactApiPorts {
   log?(message: string): void
   /** Title of one session for the viewer breadcrumb; null when unavailable. */
   sessionTitle?(sessionId: string): Promise<string | null>
+  /**
+   * Titles of every listed session, keyed by session id, for one list request.
+   *
+   * The list route calls this once per request to project `sessionTitle` onto
+   * every item; it must never be called per record. A host without it (or a
+   * failing listing) leaves titles absent and lets the search fall back to
+   * title/type only.
+   */
+  sessionTitles?(): Promise<ReadonlyMap<string, string>>
   /** Host file-browser port used by the "open in app" action. */
   openWorkspacePath?(path: string): Promise<void>
 }
