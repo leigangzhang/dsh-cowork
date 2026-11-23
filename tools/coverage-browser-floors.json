@@ -78,7 +78,7 @@
       "functionCoverage": 100
     },
     "src/client/work-item/viewers/markdown-view.tsx": {
-      "lineCoverage": 94.97,
+      "lineCoverage": 95.03,
       "functionCoverage": 98.31
     },
     "src/client/work-item/viewers/source-lines.tsx": {

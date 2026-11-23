@@ -206,8 +206,11 @@ export function createReadingSurface(
   }
 
   const toggleReadMode = (): void => {
-    // A cross-session preview must never open an editor for the owner's file.
-    if (input.readOnly) return
+    // A cross-session preview may read the source view, but never edit it.
+    if (input.readOnly) {
+      sinks.setReadMode(!input.readMode)
+      return
+    }
     if (input.kind !== 'text') {
       sinks.setReadMode(!input.readMode)
       return
@@ -283,7 +286,7 @@ export function createReadingSurface(
     annotate,
     annotateLine: line => { annotateRange(line, line) },
     focusPin,
-    showMode: input.viewTab === 'document' && input.file !== null && !input.readOnly
+    showMode: input.viewTab === 'document' && input.file !== null
       && (input.kind === 'text' || !input.editing),
   }
 }

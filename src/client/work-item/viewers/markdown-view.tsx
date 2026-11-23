@@ -755,7 +755,13 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
       data-testid="cwi-md-read"
       ref={articleRef}
       aria-label="Markdown 文档"
-      onClick={(event) => { if (event.target === event.currentTarget) onClearThreadRef.current() }}
+      onClick={(event) => {
+        const target = event.target
+        if (!(target instanceof Element)) return
+        if (target.closest('[data-testid="cwi-md-pin"]') !== null) return
+        if (target.closest('[data-testid="cwi-md-selection"]') !== null) return
+        onClearThreadRef.current()
+      }}
     >
       {split.frontmatter === null ? null : (
         <details

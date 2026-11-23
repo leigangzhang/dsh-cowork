@@ -794,7 +794,15 @@ async function scenarioWorkItemCrossSession(page, fixtures) {
   assert.match(await banner.innerText(), /当前会话不是该工作项所属会话/)
   assert.match(await banner.innerText(), /在所属会话打开/)
   assert.equal(await page.getByTestId('cwi-edit').isDisabled(), true)
-  assert.equal(await page.getByTestId('cwi-mode').count(), 0, 'a read-only preview has no surface switch')
+  // A read-only preview can read the numbered source but never opens an editor.
+  const mode = page.getByTestId('cwi-mode')
+  assert.equal(await mode.getAttribute('data-mode'), 'read')
+  await mode.click()
+  assert.equal(await mode.getAttribute('data-mode'), 'source')
+  await page.getByTestId('cwi-lines').waitFor({ timeout: 10_000 })
+  assert.equal(await page.getByTestId('cwi-editor').count(), 0)
+  await mode.click()
+  await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
   assert.equal(await page.getByTestId('cwi-confirm').isDisabled(), true)
   await openRail(page)
   assert.equal(await page.getByTestId('cwi-thread-reply').first().isDisabled(), true)
@@ -1444,6 +1452,11 @@ async function scenarioWorkItemMarkdown(page, fixtures) {
     // Escape drops the selected-thread highlight and the floating entry.
     await page.keyboard.press('Escape')
     await page.locator('.cwi-md-thread-target').waitFor({ state: 'detached', timeout: 10_000 })
+    // Clicking another block also drops the highlight.
+    await pin.click()
+    await page.locator('.cwi-md-thread-target').first().waitFor({ timeout: 10_000 })
+    await page.locator('[data-src-kind="paragraph"]').filter({ hasText: '尾部段落 0。' }).click()
+    await page.locator('.cwi-md-thread-target').waitFor({ state: 'detached', timeout: 10_000 })
 
     // Table pin: the outer block owns it, so the inner scroller cannot clip it
     // or grow the paper with phantom overflow.
@@ -1480,7 +1493,11 @@ async function scenarioWorkItemMarkdown(page, fixtures) {
     await page.route('**/api/cowork.artifact.comment*', async (route) => {
       await route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), dispatch: false }) })
     })
-    assert.equal(await selectReadingTextImmediately(page, '粗体'), true, 'the floating entry is debounced')
+    assert.equal(await selectReadingTextImmediately(page, '粗体'), true, 'the floating entry is deferred')
+    // A zero-delay render would already be in the DOM after this short window;
+    // the debounce constant keeps it out until the real boundary.
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 30)))
+    assert.equal(await page.getByTestId('cwi-md-selection').count(), 0, 'the entry respects the debounce window')
     await page.getByTestId('cwi-md-selection').waitFor({ timeout: 10_000 })
     await page.getByTestId('cwi-annotate').click()
     assert.match(await page.getByTestId('cwi-rail').innerText(), /第 3 行/)

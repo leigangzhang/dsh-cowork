@@ -144,13 +144,14 @@ test('the mode switch enters and leaves editing without discarding a draft', () 
   ])
 })
 
-test('a cross-session preview cannot enter the editor or switch surfaces', () => {
+test('a cross-session preview can read the source view but never edit it', () => {
   const calls = sinks()
   const surface = reading.createReadingSurface(input({ readOnly: true, editing: true, readMode: false }), calls)
   surface.toggleEditing()
-  surface.toggleReadMode()
   assert.deepEqual(calls.calls, [])
-  assert.equal(surface.showMode, false)
+  surface.toggleReadMode()
+  assert.deepEqual(calls.calls, [['readMode', true]])
+  assert.equal(surface.showMode, true)
 })
 
 test('non-Markdown families toggle the numbered source surface only', () => {

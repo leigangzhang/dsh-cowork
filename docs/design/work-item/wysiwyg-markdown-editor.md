@@ -328,7 +328,7 @@ interface MarkdownBlock {
 |---|---|---|
 | 单测（`node --test`） | `splitFrontmatter` 偏移、`parseMarkdownBlocks` 的 token map（标题/段落/列表项/引用/围栏/表格行）、`blockAtLine`、`lineRangeForSelection` 唯一命中/重复/跨块回退、`sanitizeLinkHref`、`sanitizeImageSrc`、任务标记、降级阈值 | `tests/client/work-item-markdown.test.mjs` 红 |
 | 单测 | 渲染路径无 `innerHTML`/`dangerouslySetInnerHTML`；原始 HTML 字面；`javascript:`/`data:` 拒绝；表格对齐只接受三值 | 安全单测/静态检查红；浏览器 `scenarioWorkItemMarkdown` 断言 |
-| 浏览器（`npm run test:browser`） | 阅读态构造渲染（表格/任务/代码/图片成功与失败占位/data: 拒绝/frontmatter）、块级 pin（含 table 外置容器）与 Escape 清除高亮、选区浮动入口与同任务内不出现的 debounce 断言、阅读↔源码滚动位置、dirty 时 pin/批注禁用与保存恢复、跨会话无表面开关、1024/768/820/390 无横向溢出、降级提示 | `tests/browser/scenarios.mjs` 的 `scenarioWorkItemMarkdown` 与跨会话/草稿场景红 |
+| 浏览器（`npm run test:browser`） | 阅读态构造渲染（表格/任务/代码/图片成功与失败占位/data: 拒绝/frontmatter）、块级 pin（含 table 外置容器）与 Escape 清除高亮、选区浮动入口与同任务内不出现的 debounce 断言、阅读↔源码滚动位置、dirty 时 pin/批注禁用与保存恢复、跨会话可切到只读源码面、不可进入编辑、1024/768/820/390 无横向溢出、降级提示 | `tests/browser/scenarios.mjs` 的 `scenarioWorkItemMarkdown` 与跨会话/草稿场景红 |
 | 浏览器 | 保存/冲突三选、跨会话只读、图片失败占位、任务列表不可勾选 | 浏览器 lane 红 |
 | 真实宿主 | 图片粘贴上传 → 附件引用 → 阅读态渲染；保存 → anchor 重定位 | `test:host-smoke` / 真机 E2E |
 | 截图 | 1280/1024/768/390 亮暗各一；关键盒 ±2px；双板 demo 实际生成 | 交付闸门 `page-verify` + `dev_visual_check` |

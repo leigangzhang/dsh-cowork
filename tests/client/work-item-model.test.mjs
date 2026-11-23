@@ -761,6 +761,22 @@ test('saveTarget refuses a read-only preview and reports the addressed file', ()
 })
 
 test('readOwnDraft hides the stored draft from a cross-session preview', () => {
-  assert.equal(model.readOwnDraft('artifact-1', true), null)
-  assert.equal(model.readOwnDraft('artifact-1', false), null)
+  const storage = new Map()
+  const savedWindow = globalThis.window
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => { storage.set(key, value) },
+      removeItem: (key) => { storage.delete(key) },
+    },
+  }
+  try {
+    model.savePersistedDraft('artifact-1', { content: 'draft', baseRevision: 2, baseVersion: 'v2', savedAt: 'now' })
+    assert.equal(model.readOwnDraft('artifact-1', true), null)
+    assert.deepEqual(model.readOwnDraft('artifact-1', false), {
+      content: 'draft', baseRevision: 2, baseVersion: 'v2', savedAt: 'now',
+    })
+  } finally {
+    globalThis.window = savedWindow
+  }
 })

@@ -75,15 +75,9 @@ function revealLine(view: EditorView, lineNumber: number): void {
   view.focus()
 }
 
-/** The nearest scrollable ancestor above the editor. */
-function scrollerOf(element: HTMLElement): HTMLElement | null {
-  let node = element.parentElement
-  while (node !== null) {
-    const overflow = window.getComputedStyle(node).overflowY
-    if (overflow === 'auto' || overflow === 'scroll') return node
-    node = node.parentElement
-  }
-  return null
+/** The viewer content scroller, with the document root as a safe fallback. */
+function scrollerOf(element: HTMLElement): HTMLElement {
+  return element.closest<HTMLElement>('[data-testid="cwi-content"]') ?? document.documentElement
 }
 
 /**
@@ -94,10 +88,7 @@ function scrollerOf(element: HTMLElement): HTMLElement | null {
  * the outer scroller's top rather than at `scrollDOM.scrollTop`, which stays 0.
  */
 function topLine(view: EditorView): number {
-  const scroller = scrollerOf(view.dom)
-  const viewportTop = scroller === null
-    ? view.dom.getBoundingClientRect().top
-    : scroller.getBoundingClientRect().top
+  const viewportTop = scrollerOf(view.dom).getBoundingClientRect().top
   const offset = viewportTop - view.dom.getBoundingClientRect().top
   const block = view.lineBlockAtHeight(Math.max(0, offset + 4))
   return view.state.doc.lineAt(block.from).number
@@ -125,7 +116,7 @@ export interface TextEditorProps {
    * First 1-based line to reveal when the editor mounts. The reading surface
    * passes its top block's line so a surface switch keeps the place.
    */
-  readonly initialLine?: number | undefined
+  readonly initialLine: number
   /** Reports the source line at the top of the editor viewport on scroll. */
   readonly onViewportLine?: ((line: number) => void) | undefined
   /**
@@ -164,7 +155,7 @@ export function TextEditor({
   const onBlurRef = useRef(onBlur)
   const anchoredLinesRef = useRef(anchoredLines)
   const anchorsAuthoritativeRef = useRef(anchorsAuthoritative)
-  const initialLineRef = useRef(initialLine)
+
   const onViewportLineRef = useRef(onViewportLine)
   const [anchoredCompartment] = useState(() => new Compartment())
 
@@ -173,7 +164,6 @@ export function TextEditor({
   onBlurRef.current = onBlur
   anchoredLinesRef.current = anchoredLines
   anchorsAuthoritativeRef.current = anchorsAuthoritative
-  initialLineRef.current = initialLine
   onViewportLineRef.current = onViewportLine
 
   // The view is created once; props flow through refs so a parent render never
@@ -208,28 +198,23 @@ export function TextEditor({
     })
     const view = new EditorView({ state, parent })
     viewRef.current = view
-    const startLine = initialLineRef.current
     const report = (): void => {
       if (disposed) return
       onViewportLineRef.current?.(topLine(view))
     }
-    if (startLine !== undefined) {
-      revealLine(view, startLine)
-      // The scroll effect is measured after this commit; reporting before that
-      // would hand the reading surface line 1 instead of the revealed line.
-      requestAnimationFrame(() => { requestAnimationFrame(report) })
-    } else {
-      report()
-    }
+    revealLine(view, initialLine)
+    // The scroll effect is measured after this commit; reporting before that
+    // would hand the reading surface line 1 instead of the revealed line.
+    requestAnimationFrame(() => { requestAnimationFrame(report) })
     view.scrollDOM.addEventListener('scroll', report, { passive: true })
     const outerScroller = scrollerOf(view.dom)
-    outerScroller?.addEventListener('scroll', report, { passive: true })
+    outerScroller.addEventListener('scroll', report, { passive: true })
     return () => {
       // A blur while the host is being removed must not schedule a second save
       // next to the explicit "exit edit" flush.
       disposed = true
       view.scrollDOM.removeEventListener('scroll', report)
-      outerScroller?.removeEventListener('scroll', report)
+      outerScroller.removeEventListener('scroll', report)
       view.destroy()
       viewRef.current = null
     }
