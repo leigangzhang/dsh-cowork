@@ -40,45 +40,37 @@ Cowork 右栏（session scope）
 
 ```text
 src/client/work-item/
-├─ index.tsx              注册 main panel、可选快捷键、懒加载入口
-├─ panel.tsx              WorkItemPanel：数据加载、工具条、内容区、评论栏
-├─ list.tsx               WorkItemList：筛选、分组、卡片
+├─ panel.tsx              WorkItemViewer：打开上下文、加载、保存、批注、批注栏
+├─ panel-frames.tsx       窄屏断点、缺失文件重绑、加载/错误占位、抽屉关闭
+├─ view-registration.ts   有打开项才注册 conversation.view，关闭即注销
+├─ view-tab.ts            tab strip 点击 + aria-selected 校验 + 重试上限
+├─ session-open.ts        「在所属会话打开」：偏好、openSession、切换校验
+├─ session-preference.ts  dsh.conversation.<id>.view 合并写入与主会话判定
+├─ list.tsx               WorkItemList：筛选、分组、卡片、打开
+├─ store.ts               打开上下文（artifactId + ownerSessionId）与订阅
 ├─ model.ts               纯视图模型：筛选、分组、标签、活动/保存文案
-├─ store.ts               打开上下文、选中项、订阅（useSyncExternalStore）
 ├─ api.ts                 列表/详情/文件/批注/保存/事件/上传
-├─ contracts.ts           客户端侧服务/槽位类型（wire 类型复用 panel/artifact-contract.ts）
-├─ styles.ts              页面样式和 token
-├─ hooks/useArtifact.ts   详情 + 文件内容 + 版本
-├─ hooks/useComments.ts   线程、批注定位、状态
-├─ hooks/useArtifactEvents.ts SSE/刷新、Last-Event-ID
-├─ components/
-│  ├─ ViewerHeader.tsx
-│  ├─ ViewerToolbar.tsx
-│  ├─ CommentRail.tsx
-│  ├─ CommentCard.tsx
-│  ├─ Composer.tsx
-│  ├─ AttachmentBar.tsx
-│  ├─ ActivityState.tsx
-│  ├─ SaveState.tsx
-│  ├─ ConflictBanner.tsx
-│  └─ EmptyStates.tsx
-├─ editors/
-│  ├─ TextEditor.tsx      CodeMirror 6
-│  ├─ RichDocEditor.tsx   TipTap + 表格扩展
-│  ├─ TableEditor.tsx     自建网格 + excel 读写
-│  ├─ DiagramSource.tsx   图表源码 + Pele 预览
-│  ├─ CanvasEditor.tsx    Excalidraw 懒加载
-│  └─ HtmlSource.tsx      HTML/CSS/JS 源码
-├─ viewers/
-│  ├─ PdfViewer.tsx
-│  ├─ ImageViewer.tsx
-│  └─ HtmlPreview.tsx
-└─ lazy.ts                Excalidraw / Doc / 表格 / 图表按需加载
+├─ editor.tsx             CodeMirror 6 文本与源码编辑
+├─ thread-list.tsx        CommentRail 的筛选头与线程列表
+├─ thread-card.tsx        单条线程卡（回复、解决、投递状态、附件）
+├─ comment-composer.tsx   批注/回复输入与附件
+├─ viewer-header.tsx      标题/状态/操作行与更多菜单
+├─ viewer-toolbar.tsx     文档/版本/附件、阅读/源码、保存状态、批注开关
+├─ viewer-side-tabs.tsx   版本与附件面板
+├─ viewer-footer.tsx      投递摘要、内容版本与更新时间
+└─ viewers/
+   ├─ document.ts         类型判定、Markdown 行投影、画布场景校验
+   ├─ viewer-document.tsx 按类型选择编辑器/只读渲染器
+   ├─ source-lines.tsx    编号行、选区、锚点 pin、键盘行操作
+   ├─ diagram.tsx         Mermaid 预览与错误定位
+   ├─ canvas.tsx          Excalidraw 懒加载与只读/编辑切换
+   ├─ html.tsx            HTML 静态/交互沙箱预览
+   └─ viewer-refresh.ts   刷新事件的草稿保留与编辑器重建策略
 ```
 
 - 当前 `src/client/panel.tsx` 由 `TopicList`/`TopicStates`（`src/client/list.tsx`）和 `InboxPanel`（`src/client/inbox.tsx`）组成；主题页与收件箱的数据逻辑不改，只把它们放进第一个标签，工作项列表作为兄弟标签。
-- 查看器入口在现有 `src/client/index.tsx` 里注册；当前 `export const inject = ['slots']`，可选服务用 `ctx.inject([...])`，`uiWorkspace` 已在用。`layout` 也按可选服务处理：新增 `ctx.inject(['layout'], …)` 和 `ClientContext` 类型片段，宿主没有 `layout` 时只退化打开/返回，不阻止插件加载。`dsh.client.inject` 是包级依赖的排序信息，不是服务注入，不改变这个降级。
-- `store.ts` 只存“打开上下文 + 当前选中项”，不引入全局状态库；跨组件用 `useSyncExternalStore`。
+- 查看器入口在现有 `src/client/index.tsx` 里绑定 `conversation.view`；当前 `export const inject = ['slots']`，可选服务用 `ctx.inject([...])`（`uiWorkspace`、`sessions`、`sessionNotices`、`sidebarRight`）。打开/关闭不再依赖 `layout`。`dsh.client.inject` 是包级依赖的排序信息，不是服务注入，不改变这个降级。
+- `store.ts` 只存打开上下文（`artifactId` + `ownerSessionId`），不引入全局状态库；跨组件用 `useSyncExternalStore`。
 - 纯函数放 `model.ts`，React-free，沿用 `node --test` 的类型剥离测试方式。
 
 ## 数据契约（拟）
