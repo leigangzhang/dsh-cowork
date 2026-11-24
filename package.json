@@ -60,7 +60,12 @@
     "test:host-smoke": "node scripts/evidence/host-smoke.mjs",
     "test:e2e": "node scripts/evidence/e2e.mjs",
     "test:e2e:live": "node scripts/evidence/e2e.mjs --mode live",
-    "test:e2e:bash": "node scripts/evidence/e2e.mjs --mode bash"
+    "test:e2e:bash": "node scripts/evidence/e2e.mjs --mode bash",
+    "plugin:status": "bash scripts/dev/plugin-profile.sh status",
+    "plugin:install": "bash scripts/dev/plugin-profile.sh install",
+    "plugin:uninstall": "bash scripts/dev/plugin-profile.sh uninstall",
+    "plugin:vendor": "bash scripts/dev/plugin-profile.sh vendor",
+    "plugin:hot": "bash scripts/dev/plugin-profile.sh hot"
   },
   "exports": {
     ".": {
