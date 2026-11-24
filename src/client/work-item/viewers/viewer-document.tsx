@@ -409,9 +409,8 @@ function menuTarget(container: HTMLElement, entry: HTMLElement | null): SourceSh
   }
   if (!focusInside(container, entry)) return null
   const line = activeLineOf(container)
-  return line === null
-    ? null
-    : { target: { startLine: line, endLine: line }, rect: linesRect(container, line, line) }
+  if (line === null) return null
+  return { target: { startLine: line, endLine: line }, rect: linesRect(container, line, line) }
 }
 
 /** Whether one node belongs to the floating entry. */

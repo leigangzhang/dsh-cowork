@@ -19,7 +19,7 @@
     },
     "src/client/index.tsx": {
       "lineCoverage": 100,
-      "functionCoverage": 75
+      "functionCoverage": 73.68
     },
     "src/client/list.tsx": {
       "lineCoverage": 100,

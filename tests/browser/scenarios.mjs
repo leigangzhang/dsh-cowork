@@ -1334,6 +1334,13 @@ async function scenarioWorkItemRailAndList(page, fixtures) {
     await page.getByTestId('cwi-composer').fill('')
     await backToRailList(page)
 
+    // 定位 scrolls the viewer to a card's anchor without entering its thread
+    // session: the card becomes the selected one and the rail keeps the list.
+    const locateCard = page.locator('[data-testid="cwi-thread"]').first()
+    await locateCard.getByTestId('cwi-thread-locate').click()
+    assert.equal(await page.getByTestId('cwi-rail-list').isVisible(), true)
+    assert.equal(await page.locator('[data-testid="cwi-thread"][data-selected="true"]').count(), 1)
+
     // The width grip: pointer drag, container clamp, persisted value, keyboard
     // step, and the same width after closing and reopening the rail. The
     // default viewport leaves the viewer container too narrow for any width
@@ -1563,6 +1570,35 @@ async function scenarioWorkItemChain(page) {
   // annotation chrome; exactly one delivery row exists for this batch.
   assert.ok(await page.locator('[data-chat-flow-kind="user"] .cw-user-row').count() >= 1)
   assert.equal(await page.locator('.cw-annotation-row').count(), 1)
+
+  // The local time + copy row copies the message text and confirms inside the
+  // row for a bounded window. Headless Chromium denies clipboard writes without
+  // a granted permission, so the scenario grants it before pressing the button.
+  const userRow = page.locator('[data-chat-flow-kind="user"] .cw-user-row').first()
+  const copyAction = '[data-chat-flow-kind="user"] .cw-user-row .cw-user-action'
+  const copyButton = userRow.locator('.cw-user-action')
+  assert.equal(await copyButton.getAttribute('aria-label'), '复制')
+  const rowText = await userRow.innerText()
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: new URL(page.url()).origin,
+  })
+  await copyButton.click()
+  await page.waitForFunction(
+    (selector) => document.querySelector(selector)?.getAttribute('aria-label') === '已复制',
+    copyAction,
+    { timeout: 10_000 },
+  )
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  assert.ok(
+    copied.length > 0 && rowText.includes(copied),
+    `the copy affordance must write the message text, got ${copied}`,
+  )
+  // The confirmation is a window, not a permanent label.
+  await page.waitForFunction(
+    (selector) => document.querySelector(selector)?.getAttribute('aria-label') === '复制',
+    copyAction,
+    { timeout: 10_000 },
+  )
   await coworkTab(page).click()
   await viewer.waitFor({ timeout: 10_000 })
 
@@ -2339,6 +2375,270 @@ async function scenarioWorkItemTypes(page) {
   await backToTopicTab(page)
 }
 
+/** Select a range of numbered source lines the way a reader drags over them. */
+async function selectSourceRange(page, start, end) {
+  const selected = await page.evaluate(({ from, to }) => {
+    const textNodes = (line) => {
+      const row = document.querySelector(`[data-testid="cwi-line"][data-line="${String(line)}"]`)
+      if (row === null) return []
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
+      const nodes = []
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) nodes.push(node)
+      return nodes
+    }
+    const locate = (line, text) => {
+      for (const node of textNodes(line)) {
+        const index = node.textContent?.indexOf(text) ?? -1
+        if (index >= 0) return { node, index }
+      }
+      return null
+    }
+    const first = locate(from.line, from.text)
+    const last = locate(to.line, to.text)
+    const selection = window.getSelection()
+    if (first === null || last === null || selection === null) return false
+    const range = document.createRange()
+    range.setStart(first.node, first.index)
+    range.setEnd(last.node, last.index + to.text.length)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return true
+  }, { from: start, to: end })
+  assert.equal(selected, true, `source range not selectable: ${start.text} … ${end.text}`)
+}
+
+/**
+ * Open the floating entry for a source range and wait for its range label.
+ *
+ * A scroll or resize collapses a browser text selection, so the scenario
+ * re-applies the same range once when the entry did not survive the layout.
+ */
+async function showSourceRange(page, start, end, label, attempt = 0) {
+  await selectSourceRange(page, start, end)
+  try {
+    await page.waitForFunction(
+      (expected) => document.querySelector('[data-testid="cwi-annotate-pop"]')?.textContent?.includes(expected) === true,
+      label,
+      { timeout: 10_000 },
+    )
+  } catch (error) {
+    if (attempt >= 1) throw error
+    await showSourceRange(page, start, end, label, attempt + 1)
+  }
+}
+
+/** Dismiss the floating entry without touching the line selection state. */
+async function dismissSourceEntry(page) {
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-annotate-pop').waitFor({ state: 'detached', timeout: 10_000 })
+}
+
+/** Wait until the composer owns focus, the destination of every annotate entry. */
+async function waitForComposerFocus(page) {
+  await page.waitForFunction(
+    () => document.activeElement?.getAttribute('data-testid') === 'cwi-composer',
+    undefined,
+    { timeout: 10_000 },
+  )
+}
+
+/** Let two animation frames pass so a React update from an input event lands. */
+async function settleFrames(page) {
+  await page.evaluate(
+    () => new Promise((resolve) => { requestAnimationFrame(() => { requestAnimationFrame(resolve) }) }),
+  )
+}
+
+/**
+ * The numbered source surface's annotation entry points.
+ *
+ * A line click, a real text selection, a right click, and the context-menu key
+ * all open the same floating entry with the same range mapping, the entry's
+ * button hands that range to the composer, and the inline fallback covers the
+ * unmeasured line list.
+ */
+async function scenarioWorkItemSourceAnnotate(page) {
+  await ensurePanel(page)
+  await ensureTopicList(page)
+  await openWorkItemTab(page)
+  const card = await artifactCard(page)
+  const sourcePath = 'docs/browser-source.csv'
+  const sourceContent = 'name,qty\nalpha,1\nbeta,2\ngamma,3\ndelta,4\nepsilon,5\n'
+  const patchSource = (record) => {
+    record.type = 'table'
+    record.title = '浏览器源码批注'
+    record.primaryPath = sourcePath
+    record.files = [{
+      ...record.files[0],
+      path: sourcePath,
+      mediaType: 'text/csv',
+      editable: true,
+      size: Buffer.byteLength(sourceContent, 'utf8'),
+      sha256: '',
+    }]
+    return record
+  }
+  await page.route('**/api/cowork.artifact.detail*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.record = patchSource(body.record)
+    await route.fulfill({ response, json: body })
+  })
+  // Viewing records status through a second response; keep it on the same
+  // family, or the real text fixture overwrites this scenario's source viewer.
+  await page.route('**/api/cowork.artifact.status*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.record = patchSource(body.record)
+    await route.fulfill({ response, json: body })
+  })
+  await page.route('**/api/cowork.artifact.file*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        artifactId: BROWSER_ARTIFACT,
+        path: sourcePath,
+        mediaType: 'text/csv',
+        content: sourceContent,
+        size: Buffer.byteLength(sourceContent, 'utf8'),
+        sha256: '',
+        revision: 1,
+        fsVersion: 'fixture-source',
+      }),
+    })
+  })
+  try {
+    await card.click()
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    await waitForDocKind(page, 'source')
+    assert.equal(await page.getByTestId('cwi-doc-view').getAttribute('data-kind'), 'source')
+    const line = (number) => page.locator(`[data-testid="cwi-line"][data-line="${String(number)}"]`)
+    await line(1).waitFor({ timeout: 15_000 })
+    assert.match(await page.getByTestId('cwi-lines').innerText(), /epsilon,5/)
+    const pop = page.getByTestId('cwi-annotate-pop')
+    const annotateWithPop = async () => {
+      await pop.getByTestId('cwi-annotate').click()
+      await waitForComposerFocus(page)
+    }
+
+    // A line click opens the entry for that line; its button maps the range
+    // into the composer, which is where the comment is written.
+    await line(2).click()
+    await pop.waitFor({ timeout: 10_000 })
+    assert.match(await pop.innerText(), /第 2 行/)
+    await annotateWithPop()
+    assert.match(await page.getByTestId('cwi-rail').innerText(), /第 2 行/)
+    await page.getByTestId('cwi-rail').getByRole('button', { name: '取消位置' }).click()
+    await dismissSourceEntry(page)
+
+    // A text selection across two lines wins over the click target: the entry
+    // carries that range, and both a right click and the menu key reuse it
+    // instead of mapping a single line.
+    await showSourceRange(page, { line: 3, text: 'beta' }, { line: 4, text: 'gamma' }, '第 3–4 行')
+    // The entry floats over the lines below the selection, so the press is
+    // dispatched at the row instead of through a pointer position.
+    await line(5).dispatchEvent('contextmenu')
+    assert.match(await pop.innerText(), /第 3–4 行/)
+    await page.getByTestId('cwi-lines').focus()
+    await page.keyboard.press('Shift+F10')
+    assert.match(await pop.innerText(), /第 3–4 行/)
+    await annotateWithPop()
+    const quote = page.getByTestId('cwi-selected-text')
+    await quote.waitFor({ timeout: 10_000 })
+    assert.match(await quote.innerText(), /beta/)
+    await page.getByTestId('cwi-rail').getByRole('button', { name: '取消位置' }).click()
+    await dismissSourceEntry(page)
+
+    // Without a selection a right click annotates the line under the pointer,
+    // and a right click outside the list opens nothing.
+    await line(5).dispatchEvent('contextmenu')
+    await pop.waitFor({ timeout: 10_000 })
+    assert.match(await pop.innerText(), /第 5 行/)
+    await page.keyboard.press('Escape')
+    await pop.waitFor({ state: 'detached', timeout: 10_000 })
+    await page.getByTestId('cwi-file-head').dispatchEvent('contextmenu')
+    await settleFrames(page)
+    assert.equal(await pop.count(), 0)
+
+    // The menu key opens the entry for the keyboard-active line and moves focus
+    // into it; from outside the list the same key opens nothing.
+    await page.getByTestId('cwi-lines').focus()
+    const activeBefore = Number(
+      await page.locator('[data-line][data-active="true"]').first().getAttribute('data-line'),
+    )
+    await page.keyboard.press('ArrowDown')
+    const expectedLine = Math.min(6, activeBefore + 1)
+    await page.keyboard.press('Shift+F10')
+    await pop.waitFor({ timeout: 10_000 })
+    assert.match(await pop.innerText(), new RegExp(`第 ${String(expectedLine)} 行`))
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute('data-testid') === 'cwi-annotate',
+      undefined,
+      { timeout: 10_000 },
+    )
+    // The entry keeps the menu-key path alive while it owns focus.
+    await page.keyboard.press('Shift+F10')
+    assert.match(await pop.innerText(), new RegExp(`第 ${String(expectedLine)} 行`))
+    await page.keyboard.press('Escape')
+    await pop.waitFor({ state: 'detached', timeout: 10_000 })
+    await page.getByTestId('cwi-composer').focus()
+    await page.keyboard.press('Shift+F10')
+    await settleFrames(page)
+    assert.equal(await pop.count(), 0)
+
+    // A text selection inside the hidden document maps its lines but measures
+    // no rectangle, so it must not resurrect the floating entry.
+    const viewTab = (label) => page.getByTestId('cwi-view-tab').filter({ hasText: label })
+    await line(2).click()
+    await pop.waitFor({ timeout: 10_000 })
+    await viewTab('附件').focus()
+    await page.keyboard.press('Enter')
+    await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
+    await selectSourceRange(page, { line: 3, text: 'beta' }, { line: 3, text: 'beta' })
+    await settleFrames(page)
+    assert.equal(await pop.count(), 0)
+    await page.evaluate(() => window.getSelection()?.removeAllRanges())
+    await settleFrames(page)
+    await viewTab('文档').focus()
+    await page.keyboard.press('Enter')
+
+    // The inline fallback: with the rows carried outside the layout the list has
+    // no usable rectangle, so the surface offers the range's last line as a
+    // button instead of the floating entry. Squeezing the rows stands in for the
+    // detached or unmeasured list this fallback exists for.
+    const viewport = page.viewportSize()
+    assert.notEqual(viewport, null)
+    const squeeze = await page.addStyleTag({
+      content: '.cwi-lines .cwi-line { height: 0; min-height: 0; padding-top: 0; padding-bottom: 0; overflow: visible; }',
+    })
+    await page.setViewportSize({ width: viewport.width - 20, height: viewport.height })
+    await settleFrames(page)
+    assert.equal(await pop.count(), 0)
+    const inline = page.locator('[data-testid="cwi-line"][data-line="2"] [data-testid="cwi-line-annotate"]')
+    await inline.waitFor({ timeout: 10_000 })
+    assert.match(await inline.getAttribute('aria-label'), /批注所选内容/)
+    await inline.focus()
+    await page.keyboard.press('Enter')
+    await waitForComposerFocus(page)
+    assert.match(await page.getByTestId('cwi-rail').innerText(), /第 2 行/)
+    // Once the list measures again the next refresh returns the floating entry.
+    await squeeze.evaluate((element) => { element.remove() })
+    await page.setViewportSize(viewport)
+    await pop.waitFor({ timeout: 10_000 })
+    assert.match(await pop.innerText(), /第 2 行/)
+    await page.getByTestId('cwi-rail').getByRole('button', { name: '取消位置' }).click()
+  } finally {
+    await page.unroute('**/api/cowork.artifact.detail*')
+    await page.unroute('**/api/cowork.artifact.status*')
+    await page.unroute('**/api/cowork.artifact.file*')
+  }
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
 /**
  * The rail consumes the project SSE stream itself: a comment created outside
  * the list changes its count without remounting the tab, and a stopped stream
@@ -2777,6 +3077,32 @@ async function scenarioWorkItemEdges(page, fixtures) {
   await pending.waitFor({ timeout: 15_000 })
   await page.getByRole('button', { name: '移除附件 remove-me.txt' }).click()
   await pending.waitFor({ state: 'detached', timeout: 10_000 })
+
+  // A pasted image is claimed by the composer and published as soon as it is
+  // stored, so a pasted image never lingers as an orphan upload.
+  const pasteImageClaimed = await page.getByTestId('cwi-composer').evaluate((textarea, base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+    const data = new DataTransfer()
+    data.items.add(new File([bytes], 'pasted.png', { type: 'image/png' }))
+    return textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, png.toString('base64'))
+  assert.equal(pasteImageClaimed, false, 'an image paste belongs to the composer')
+  const pastedChip = page.getByTestId('cwi-pending-attachments')
+  await pastedChip.waitFor({ timeout: 15_000 })
+  const pastedRemove = pastedChip.getByRole('button')
+  assert.equal(await pastedRemove.count(), 1, 'the pasted image is one pending attachment')
+  assert.match(await pastedRemove.getAttribute('aria-label'), /^移除附件 /)
+  // A paste without an image stays text: the composer claims nothing and adds
+  // no attachment.
+  const pasteTextClaimed = await page.getByTestId('cwi-composer').evaluate((textarea) => {
+    const data = new DataTransfer()
+    data.items.add(new File([new Uint8Array([1, 2, 3])], 'pasted.md', { type: 'text/markdown' }))
+    return textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  assert.equal(pasteTextClaimed, true, 'a non-image paste keeps the browser default')
+  assert.equal(await page.getByRole('button', { name: /移除附件 / }).count(), 1)
+  await pastedRemove.click()
+  await pastedChip.waitFor({ state: 'detached', timeout: 10_000 })
 
   // A text attachment renders as a named download link.
   const link = textThread.getByTestId('cwi-attachment-link').first()
@@ -3900,6 +4226,7 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioWorkItemChain(page)
   await scenarioWorkItemMarkdown(page, fixtures)
   await scenarioWorkItemTypes(page)
+  await scenarioWorkItemSourceAnnotate(page)
   await scenarioWorkItemListLive(page, fixtures)
   await scenarioWorkItemEdit(page, fixtures)
   await scenarioWorkItemDraft(page)
