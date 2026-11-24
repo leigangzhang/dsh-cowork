@@ -86,6 +86,28 @@ test('writes are guarded by the opaque version token', async () => {
   })
 })
 
+test('a sandboxed host writes under a policy rooted at the project', async () => {
+  await withFixtureRepo({ 'docs/spec.md': 'one\n' }, async (repo) => {
+    const host = fakeHostFs({ sandboxMode: 'workspace-write' })
+    const port = artifactFiles.createHostArtifactFiles(host, repo.repoPath)
+    await port.writeText('docs/spec.md', 'two\n', null)
+    const write = host.calls.find(([kind]) => kind === 'writeText')
+    assert.ok(write !== undefined)
+    assert.deepEqual(write[4], { mode: 'workspace-write', workspaceRoot: repo.repoPath })
+  })
+})
+
+test('a host without confinement receives no sandbox policy', async () => {
+  await withFixtureRepo({ 'docs/spec.md': 'one\n' }, async (repo) => {
+    const host = fakeHostFs()
+    const port = artifactFiles.createHostArtifactFiles(host, repo.repoPath)
+    await port.writeText('docs/spec.md', 'two\n', null)
+    const write = host.calls.find(([kind]) => kind === 'writeText')
+    assert.ok(write !== undefined)
+    assert.equal(write[4], undefined)
+  })
+})
+
 test('a symlink out of the repository and a directory are refused', async () => {
   await withFixtureRepo({ 'docs/spec.md': 'x', 'outside/target.md': 'secret' }, async (repo) => {
     const outside = await makeRepo({ 'target.md': 'secret' })
