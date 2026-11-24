@@ -427,6 +427,11 @@ export function AttachmentPreview({ attachment, url, onClose }: AttachmentPrevie
     const node = stageRef.current
     if (node !== null && node.hasPointerCapture(event.pointerId)) node.releasePointerCapture(event.pointerId)
   }
+  // Close on click, not on mousedown: the browser's default mousedown handling
+  // blurs a pressed non-focusable backdrop to <body> after the handler runs, so
+  // a restoreFocus inside a mousedown handler would be undone immediately. By
+  // the click, that default handling has already happened and the provider's
+  // focus restore to the trigger sticks.
   const onBackdrop = (event: ReactMouseEvent<HTMLDivElement>): void => {
     if (event.target === event.currentTarget) onClose()
   }
@@ -435,7 +440,7 @@ export function AttachmentPreview({ attachment, url, onClose }: AttachmentPrevie
     <div
       className="cwi-preview-backdrop"
       data-testid="cwi-preview"
-      onMouseDown={onBackdrop}
+      onClick={onBackdrop}
     >
       <section
         className="cwi-preview"

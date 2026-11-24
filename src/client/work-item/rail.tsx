@@ -525,6 +525,13 @@ function RailList(props: CommentRailProps): ReactElement {
       >
         <ActivityStrip dispatch={props.activeDispatch} ordinal={props.activeOrdinal} now={props.now} />
       </ThreadList>
+      {!props.visible || props.receipt === null
+        ? null
+        : (
+            <div className="cwi-receipt cwi-rail-receipt" data-testid="cwi-rail-receipt" role="status">
+              {props.receipt}
+            </div>
+          )}
     </div>
   )
 }

@@ -36,6 +36,7 @@ export const RAIL_CSS = `
 .cwi-resolved-arrow { flex: none; color: var(--cwi-soft); }
 .cwi-rail-empty { margin: 12px; font-size: 12px; line-height: 1.6; color: var(--cwi-soft); }
 .cwi-rail-list, .cwi-rail-session { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.cwi-rail-list > .cwi-rail-receipt { flex: none; margin: 0 10px 10px; }
 .cwi-rail-session-head { gap: 6px; }
 .cwi-rail-back { padding: 1px 0; border: 0; background: transparent; color: var(--cwi-accent); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
 .cwi-rail-back:hover { text-decoration: underline; }
