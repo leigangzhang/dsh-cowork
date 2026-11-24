@@ -29,7 +29,7 @@ import type {
  * the ASCII core carries a format version. The value must stay identical to
  * `ANNOTATION_MARKER` in `src/platform/annotation-prompt.ts`.
  */
-export const ANNOTATION_MARKER = '\uE000cowork-annotation/v1\uE001'
+export const ANNOTATION_MARKER_TEXT = '\uE000cowork-annotation/v1\uE001'
 
 /** Row title shown before the summary; also the empty-summary fallback. */
 const ANNOTATION_ROW_TITLE = '批注投递'
@@ -40,11 +40,11 @@ export const COPIED_LABEL = '已复制'
 
 /** Whether one text starts with the delivery marker line. */
 function isAnnotationDelivery(text: unknown): text is string {
-  return typeof text === 'string' && text.startsWith(`${ANNOTATION_MARKER}\n`)
+  return typeof text === 'string' && text.startsWith(`${ANNOTATION_MARKER_TEXT}\n`)
 }
 
 /** The annotation text the browser renders: one-line summary plus expanded body. */
-export interface ParsedAnnotationText {
+export interface ParsedAnnotationMessage {
   readonly summary: string
   readonly body: string
 }
@@ -60,7 +60,7 @@ export interface ParsedAnnotationText {
  * @param text - the joined message text, or any untrusted value
  * @returns the parsed parts, or `null` when this is a normal user message
  */
-export function parseAnnotationText(text: unknown): ParsedAnnotationText | null {
+export function parseAnnotationMessage(text: unknown): ParsedAnnotationMessage | null {
   if (!isAnnotationDelivery(text)) return null
   const lines = text.split('\n')
   const summary = (lines[1] ?? '').trim() || ANNOTATION_ROW_TITLE
@@ -92,6 +92,61 @@ export interface MessageContentParts {
   readonly extraBlocks: readonly unknown[]
 }
 
+/** One classified content block: text, an attachment input, or a pass-through. */
+type ContentPart =
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'attachment'; readonly attachment: UserContentAttachmentView }
+  | { readonly kind: 'extra'; readonly block: unknown }
+
+/** The attachment input one image/file block projects, or null. */
+function attachmentPartOf(candidate: { type?: unknown; attachment?: unknown }): UserContentAttachmentView | null {
+  if (candidate.type === 'image' && candidate.attachment !== undefined) {
+    return { type: 'image', image: { attachment: candidate.attachment } }
+  }
+  if (candidate.type === 'file' && candidate.attachment !== undefined) {
+    return { type: 'file', file: candidate.attachment }
+  }
+  return null
+}
+
+/** Classify one content block without trusting its shape. */
+function contentPartOf(block: unknown): ContentPart {
+  if (typeof block === 'string') return { kind: 'text', text: block }
+  if (block === null || typeof block !== 'object') return { kind: 'extra', block }
+  const candidate = block as { type?: unknown; text?: unknown; attachment?: unknown }
+  if (candidate.type === 'text' && typeof candidate.text === 'string') {
+    return { kind: 'text', text: candidate.text }
+  }
+  const attachment = attachmentPartOf(candidate)
+  return attachment === null ? { kind: 'extra', block } : { kind: 'attachment', attachment }
+}
+
+/** The three content groups of a non-array value. */
+function singleContentParts(content: unknown): MessageContentParts {
+  const single = textOfBlock(content)
+  if (single !== null) return { text: single, attachments: [], extraBlocks: [] }
+  return {
+    text: '',
+    attachments: [],
+    extraBlocks: content === null || content === undefined ? [] : [content],
+  }
+}
+
+/** The text of one classified text part. */
+function isTextPart(part: ContentPart): part is { readonly kind: 'text'; readonly text: string } {
+  return part.kind === 'text'
+}
+
+/** One classified attachment input. */
+function isAttachmentPart(part: ContentPart): part is { readonly kind: 'attachment'; readonly attachment: UserContentAttachmentView } {
+  return part.kind === 'attachment'
+}
+
+/** One pass-through block, kept in its original shape. */
+function isExtraPart(part: ContentPart): part is { readonly kind: 'extra'; readonly block: unknown } {
+  return part.kind === 'extra'
+}
+
 /**
  * Split a durable message's content into text, attachments, and unknown blocks.
  *
@@ -105,39 +160,13 @@ export interface MessageContentParts {
  */
 export function messageContentParts(content: unknown): MessageContentParts {
   if (typeof content === 'string') return { text: content, attachments: [], extraBlocks: [] }
-  if (!Array.isArray(content)) {
-    const single = textOfBlock(content)
-    if (single !== null) return { text: single, attachments: [], extraBlocks: [] }
-    return { text: '', attachments: [], extraBlocks: content === null || content === undefined ? [] : [content] }
+  if (!Array.isArray(content)) return singleContentParts(content)
+  const parts = content.map(contentPartOf)
+  return {
+    text: parts.filter(isTextPart).map((part) => part.text).join(''),
+    attachments: parts.filter(isAttachmentPart).map((part) => part.attachment),
+    extraBlocks: parts.filter(isExtraPart).map((part) => part.block),
   }
-  const text: string[] = []
-  const attachments: UserContentAttachmentView[] = []
-  const extraBlocks: unknown[] = []
-  for (const block of content) {
-    if (typeof block === 'string') {
-      text.push(block)
-      continue
-    }
-    if (block === null || typeof block !== 'object') {
-      extraBlocks.push(block)
-      continue
-    }
-    const candidate = block as { type?: unknown; text?: unknown; attachment?: unknown }
-    if (candidate.type === 'text' && typeof candidate.text === 'string') {
-      text.push(candidate.text)
-      continue
-    }
-    if (candidate.type === 'image' && candidate.attachment !== undefined) {
-      attachments.push({ type: 'image', image: { attachment: candidate.attachment } })
-      continue
-    }
-    if (candidate.type === 'file' && candidate.attachment !== undefined) {
-      attachments.push({ type: 'file', file: candidate.attachment })
-      continue
-    }
-    extraBlocks.push(block)
-  }
-  return { text: text.join(''), attachments, extraBlocks }
 }
 
 /** What one delivered message shows: a fixed title, the summary, and the body. */
@@ -154,7 +183,7 @@ export interface AnnotationDisplay {
  * @returns the display parts, or `null` when the message has no marker
  */
 export function annotationDisplay(content: unknown): AnnotationDisplay | null {
-  const parsed = parseAnnotationText(contentText(content))
+  const parsed = parseAnnotationMessage(contentText(content))
   if (parsed === null) return null
   return { title: ANNOTATION_ROW_TITLE, summary: parsed.summary, body: parsed.body }
 }

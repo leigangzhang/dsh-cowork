@@ -502,6 +502,21 @@ function GroupHeader({ group, expanded, onToggle }: {
   )
 }
 
+/** The cards of one expanded group. */
+function GroupCards({ group, now, onOpen }: {
+  readonly group: WorkItemGroup
+  readonly now: Date
+  readonly onOpen: (item: ArtifactSummaryV1) => void
+}): ReactElement {
+  return (
+    <>
+      {group.items.map((item) => (
+        <WorkItemCard key={item.artifactId} item={item} now={now} onOpen={onOpen} />
+      ))}
+    </>
+  )
+}
+
 /**
  * One status group.
  *
@@ -521,15 +536,14 @@ function WorkItemGroupSection({
 }): ReactElement {
   const [expanded, setExpanded] = useState(() => groupStartsExpanded(group))
   const toggle = (): void => { setExpanded(toggledGroupExpanded) }
+  const expand = (): void => { setExpanded(true) }
   if (!expanded && group.collapsedByDefault) {
-    return <CollapsedGroupCard group={group} onExpand={() => { setExpanded(true) }} />
+    return <CollapsedGroupCard group={group} onExpand={expand} />
   }
   return (
-    <div className="cwi-group" data-testid="cwi-group" data-group={group.status} data-collapsed={expanded ? 'false' : 'true'}>
+    <div className="cwi-group" data-testid="cwi-group" data-group={group.status} data-collapsed={String(!expanded)}>
       <GroupHeader group={group} expanded={expanded} onToggle={toggle} />
-      {expanded ? group.items.map(item => (
-        <WorkItemCard key={item.artifactId} item={item} now={now} onOpen={onOpen} />
-      )) : null}
+      {expanded ? <GroupCards group={group} now={now} onOpen={onOpen} /> : null}
     </div>
   )
 }

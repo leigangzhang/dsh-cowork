@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  ANNOTATION_MARKER,
+  ANNOTATION_MARKER_TEXT,
   COPIED_LABEL,
   COPY_LABEL,
   annotationDisplay,
@@ -10,7 +10,7 @@ import {
   bindAnnotationNode,
   formatMessageClock,
   messageContentParts,
-  parseAnnotationText,
+  parseAnnotationMessage,
 } from '../../src/client/annotation-model.ts'
 import {
   ANNOTATION_MARKER as PLATFORM_MARKER,
@@ -31,40 +31,40 @@ function delivery({ summary = '处理工作项「Spec」的 1 条批注', body =
 }
 
 test('the browser marker is the exact documented sentinel', () => {
-  assert.equal(ANNOTATION_MARKER, '\uE000cowork-annotation/v1\uE001')
-  assert.equal(MARKER, ANNOTATION_MARKER)
+  assert.equal(ANNOTATION_MARKER_TEXT, '\uE000cowork-annotation/v1\uE001')
+  assert.equal(MARKER, ANNOTATION_MARKER_TEXT)
   // One declaration per half (the client cannot import the platform module);
   // this equality is what keeps them from drifting.
-  assert.equal(ANNOTATION_MARKER, PLATFORM_MARKER)
+  assert.equal(ANNOTATION_MARKER_TEXT, PLATFORM_MARKER)
 })
 
-test('parseAnnotationText recognizes only a first-line marker', () => {
-  assert.deepEqual(parseAnnotationText(delivery()), {
+test('the browser parser recognizes only a first-line marker', () => {
+  assert.deepEqual(parseAnnotationMessage(delivery()), {
     summary: '处理工作项「Spec」的 1 条批注',
     body: 'Work item: artifact-1',
   })
-  assert.equal(parseAnnotationText('帮我看下 hero 区块的文案'), null)
-  assert.equal(parseAnnotationText(''), null)
-  assert.equal(parseAnnotationText(MARKER), null)
-  assert.equal(parseAnnotationText(`x${MARKER}\n摘要`), null)
-  assert.equal(parseAnnotationText(`${MARKER}\r\n摘要`), null)
-  assert.equal(parseAnnotationText(undefined), null)
-  assert.equal(parseAnnotationText(null), null)
-  assert.equal(parseAnnotationText(42), null)
+  assert.equal(parseAnnotationMessage('帮我看下 hero 区块的文案'), null)
+  assert.equal(parseAnnotationMessage(''), null)
+  assert.equal(parseAnnotationMessage(MARKER), null)
+  assert.equal(parseAnnotationMessage(`x${MARKER}\n摘要`), null)
+  assert.equal(parseAnnotationMessage(`${MARKER}\r\n摘要`), null)
+  assert.equal(parseAnnotationMessage(undefined), null)
+  assert.equal(parseAnnotationMessage(null), null)
+  assert.equal(parseAnnotationMessage(42), null)
 })
 
-test('parseAnnotationText falls back to the row title instead of throwing', () => {
-  assert.deepEqual(parseAnnotationText(`${MARKER}\n\n\nWork item: artifact-1`), {
+test('the browser parser falls back to the row title instead of throwing', () => {
+  assert.deepEqual(parseAnnotationMessage(`${MARKER}\n\n\nWork item: artifact-1`), {
     summary: '批注投递',
     body: 'Work item: artifact-1',
   })
-  assert.deepEqual(parseAnnotationText(`${MARKER}\n   \n\nbody line`), {
+  assert.deepEqual(parseAnnotationMessage(`${MARKER}\n   \n\nbody line`), {
     summary: '批注投递',
     body: 'body line',
   })
-  assert.deepEqual(parseAnnotationText(`${MARKER}\n`), { summary: '批注投递', body: '批注投递' })
-  assert.deepEqual(parseAnnotationText(`${MARKER}\n摘要\n\n\n`), { summary: '摘要', body: '批注投递' })
-  assert.doesNotThrow(() => parseAnnotationText(`${MARKER}\n\u0000\n\n\u0000`))
+  assert.deepEqual(parseAnnotationMessage(`${MARKER}\n`), { summary: '批注投递', body: '批注投递' })
+  assert.deepEqual(parseAnnotationMessage(`${MARKER}\n摘要\n\n\n`), { summary: '摘要', body: '批注投递' })
+  assert.doesNotThrow(() => parseAnnotationMessage(`${MARKER}\n\u0000\n\n\u0000`))
 })
 
 test('the browser parser matches the platform parser on every boundary', () => {
@@ -82,7 +82,7 @@ test('the browser parser matches the platform parser on every boundary', () => {
     {},
   ]
   for (const text of cases) {
-    assert.deepEqual(parseAnnotationText(text), parsePlatformAnnotationText(text), JSON.stringify(text))
+    assert.deepEqual(parseAnnotationMessage(text), parsePlatformAnnotationText(text), JSON.stringify(text))
   }
 })
 
