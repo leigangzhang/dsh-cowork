@@ -271,6 +271,44 @@ test('an upload posts raw bytes with the name in the query', async () => {
   assert.deepEqual([...calls[0].init.body], [1, 2, 3])
 })
 
+test('an attach publishes a stored upload by id', async () => {
+  const { calls, impl } = fakeFetch(() => ok({
+    ok: true,
+    attachment: { attachmentId: 'attachment-1', name: 'shot.png', mediaType: 'image/png', size: 3, sha256: 'x' },
+    source: 'user',
+    published: true,
+  }))
+  const api = createWorkItemApi(impl)
+  const result = await api.attachArtifact({
+    sessionId: 's',
+    artifactId: 'a',
+    attachmentId: 'attachment-1',
+    name: 'shot.png',
+  })
+  assert.equal(result.published, true)
+  assert.equal(result.source, 'user')
+  assert.equal(calls[0].input, '/api/cowork.artifact.attach')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.equal(calls[0].init.headers['content-type'], 'application/json')
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    sessionId: 's',
+    artifactId: 'a',
+    attachmentId: 'attachment-1',
+  })
+})
+
+test('an attach failure keeps the typed error', async () => {
+  const { impl } = fakeFetch(() => failure(404, 'artifact/not-found', 'unknown attachment'))
+  await assert.rejects(createWorkItemApi(impl).attachArtifact({
+    sessionId: 's', artifactId: 'a', attachmentId: 'missing', name: 'x.png',
+  }), (error) => {
+    assert.equal(error instanceof WorkItemApiError, true)
+    assert.equal(error.code, 'artifact/not-found')
+    assert.equal(error.status, 404)
+    return true
+  })
+})
+
 test('the attachment URL is the same-origin read route', () => {
   const api = createWorkItemApi(async () => ok({ ok: true }))
   assert.equal(

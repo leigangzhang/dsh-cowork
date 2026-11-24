@@ -51,6 +51,8 @@ test('the sheet covers the list, viewer, rail, and the narrow layout', () => {
     '.cwi-rail', '.cwi-rail-list', '.cwi-rail-session', '.cwi-rail-back',
     '.cwi-rail-grip', '.cwi-annotate-pop', '.cwi-annotate-button', '.cwi-line-annotate',
     '.cwi-thread[data-summary="true"]', '.cwi-thread', '.cwi-composer',
+    '.cwi-attachment-model', '.cwi-attachment-open', '.cwi-preview',
+    '.cwi-preview-backdrop', '.cwi-preview-stage', '.cwi-preview-text',
   ]) {
     assert.ok(WORK_ITEM_CSS.includes(selector), selector)
   }
@@ -63,6 +65,12 @@ test('the sheet covers the list, viewer, rail, and the narrow layout', () => {
   assert.ok(WORK_ITEM_CSS.includes(
     '.cwi-card-status[data-status="pending-view"], .cwi-card-status[data-status="pending-confirm"]',
   ))
+  // §9.2 viewport sizing lives verbatim in the sheet.
+  assert.ok(WORK_ITEM_CSS.includes('width: min(calc(100vw - 24px), 1600px)'))
+  assert.ok(WORK_ITEM_CSS.includes('height: min(calc(100vh - 24px), 1100px)'))
+  assert.ok(WORK_ITEM_CSS.includes('background: rgba(16,24,40,.72)'))
+  assert.ok(WORK_ITEM_CSS.includes('min-height: 44px'))
+  assert.ok(WORK_ITEM_CSS.includes('@media (max-width: 639px)'))
 })
 
 test('the Cowork view hides the host composer only while it is mounted', () => {
