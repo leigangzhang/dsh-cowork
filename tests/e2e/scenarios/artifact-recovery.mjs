@@ -6,7 +6,8 @@
  * one) before the plugin runtime is created. The first artifact route then runs
  * the real recovery pass: the in-flight batch becomes `stale` without a new
  * prompt, and the queued batch is re-scheduled and replied to by the scripted
- * model. Assertions read the routes and files, never the prompt text.
+ * model. Assertions read the routes and files; the only prompt-text assertions
+ * pin the annotation delivery format the scripted model routes on.
  */
 
 import { createHash } from 'node:crypto'
@@ -16,6 +17,20 @@ import { join } from 'node:path'
 import { text, tool } from '../support/scripted-model.mjs'
 
 export const artifactRecoveryId = 'artifact-recovery'
+
+/**
+ * Re-throw a dispatch wait timeout with the model prompts that actually ran.
+ *
+ * A routing mismatch otherwise shows up only as a 30s timeout with no clue
+ * which message shape reached the scripted model.
+ */
+function withPromptDiagnostics(ctx, sessionId, error) {
+  const observed = ctx.model.calls
+    .filter((call) => call.sessionId === sessionId)
+    .map((call) => call.prompt.split('\n')[0].slice(0, 80))
+  const reason = error instanceof Error ? error.message : String(error)
+  return new Error(`${reason}; model prompts: ${JSON.stringify(observed)}`)
+}
 
 const NOTES_PATH = 'notes.md'
 const QUEUED_COMMENT = 'comment-recovery-queued'
@@ -27,12 +42,18 @@ const FAILED_ARTIFACT = 'artifact-00000000-0000-4000-8000-000000000003'
 export async function runArtifactRecovery(ctx) {
   const repo = await mkdtemp(join(tmpdir(), 'cowork-recovery-'))
   const content = '# recovery notes\n\nfirst line\n'
+  // Every annotation delivery the scripted model received, with the ids it
+  // parsed from the structured block; the checks below pin that format.
+  const deliveries = []
   try {
     ctx.model.setHandler(({ prompt, toolResults }) => {
       if (toolResults.length > 0) return text('Step complete.')
-      if (prompt.includes('cowork_artifact_reply')) {
-        const artifactId = /artifact-[A-Za-z0-9-]+/.exec(prompt)?.[0] ?? ''
-        const commentIds = [...prompt.matchAll(/annotation (comment-[A-Za-z0-9-]+)/g)].map((match) => match[1])
+      // Route on the versioned marker's visible ASCII core; the old rule lived
+      // in the prompt text and no longer appears in the delivered message.
+      if (prompt.includes('cowork-annotation/v1')) {
+        const artifactId = /Work item: (artifact-[A-Za-z0-9-]+)/.exec(prompt)?.[1] ?? ''
+        const commentIds = [...prompt.matchAll(/--- annotation (comment-[A-Za-z0-9-]+) ---/g)].map((match) => match[1])
+        deliveries.push({ prompt, artifactId, commentIds })
         return tool('cowork_artifact_reply', { artifactId, commentIds, body: '恢复后的回复' })
       }
       return text('No scripted step matched this prompt.')
@@ -144,7 +165,7 @@ export async function runArtifactRecovery(ctx) {
     const replied = await ctx.waitUntil('the queued batch to be rescheduled and replied', async () => {
       const detail = await detailOf(QUEUED_ARTIFACT)
       return detail.body?.record?.activeDispatch?.state === 'replied' ? detail.body.record : undefined
-    }, { timeoutMs: 30_000 })
+    }, { timeoutMs: 30_000 }).catch((error) => { throw withPromptDiagnostics(ctx, sessionId, error) })
     ctx.check('recovery rescheduled the queued batch to replied', replied.activeDispatch.state === 'replied', replied.activeDispatch.state)
     const comments = await ctx.client.panelGet(
       `/api/cowork.artifact.comments?sessionId=${encodeURIComponent(sessionId)}&artifactId=${encodeURIComponent(QUEUED_ARTIFACT)}`,
@@ -169,8 +190,27 @@ export async function runArtifactRecovery(ctx) {
     const retryReplied = await ctx.waitUntil('the retried batch to be replied', async () => {
       const detail = await detailOf(FAILED_ARTIFACT)
       return detail.body?.record?.activeDispatch?.state === 'replied' ? detail.body.record : undefined
-    }, { timeoutMs: 30_000 })
+    }, { timeoutMs: 30_000 }).catch((error) => { throw withPromptDiagnostics(ctx, sessionId, error) })
     ctx.check('the retried batch reached replied', retryReplied.activeDispatch.state === 'replied', retryReplied.activeDispatch.state)
+
+    // Both deliveries (the queued reschedule and the failed-batch retry) carry
+    // the marker, the structured context, and the ids the handler parsed.
+    ctx.check(
+      'every recovery delivery carries the annotation marker and context',
+      deliveries.length === 2
+        && deliveries.every((delivery) => delivery.prompt.includes('cowork-annotation/v1')
+          && delivery.prompt.includes('Annotations (')),
+      `deliveries=${String(deliveries.length)}`,
+    )
+    ctx.check(
+      'each recovery delivery names its own work item and comment block',
+      deliveries.length === 2
+        && deliveries[0].artifactId === QUEUED_ARTIFACT
+        && deliveries[1].artifactId === FAILED_ARTIFACT
+        && deliveries.every((delivery) => JSON.stringify(delivery.commentIds) === JSON.stringify([QUEUED_COMMENT])
+          && delivery.prompt.includes(`--- annotation ${QUEUED_COMMENT} ---`)),
+      deliveries.map((delivery) => `${delivery.artifactId}:${JSON.stringify(delivery.commentIds)}`).join(','),
+    )
 
     // The stale batch must not have prompted the session again.
     const prompts = ctx.model.calls.filter((call) => call.sessionId === sessionId).map((call) => call.prompt)

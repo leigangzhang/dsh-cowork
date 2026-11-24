@@ -7,8 +7,9 @@
  * consume the project SSE stream. The scripted model attaches a project PNG as
  * a model-sourced attachment through `cowork_artifact_attach`, and must call
  * `cowork_artifact_reply` for the dispatched annotation to become `replied`.
- * Assertions use the routes, the tool payloads, and the files, never prompt
- * text except to route the scripted model.
+ * Assertions use the routes, the tool payloads, and the files; the only
+ * prompt-text assertions pin the annotation delivery format the scripted model
+ * routes on, so a format drift fails with the observed message.
  */
 
 import { rename, writeFile } from 'node:fs/promises'
@@ -40,6 +41,22 @@ function panelOk(response) {
 /** Whether one rebind response reported a changed record. */
 function rebindChanged(response) {
   return response.body?.changed === true
+}
+
+/**
+ * Re-throw a dispatch wait timeout with the model prompts that actually ran.
+ *
+ * A routing mismatch used to surface only as "timed out waiting for the batch
+ * to become replied"; naming the observed prompts makes a format drift
+ * actionable (the first line is the annotation marker or the prompt's own
+ * opening line).
+ */
+function withPromptDiagnostics(ctx, sessionId, error) {
+  const observed = ctx.model.calls
+    .filter((call) => call.sessionId === sessionId)
+    .map((call) => call.prompt.split('\n')[0].slice(0, 80))
+  const reason = error instanceof Error ? error.message : String(error)
+  return new Error(`${reason}; model prompts: ${JSON.stringify(observed)}`)
 }
 
 /** Check the response that moved the registered file to its new path. */
@@ -84,6 +101,11 @@ async function runRebindStep(ctx, masterId, artifactId) {
 
 /** @param {ReturnType<import('../support/context.mjs').createScenarioContext>} ctx */
 export async function runArtifactChain(ctx) {
+  // The last annotation delivery the scripted model received, with the ids it
+  // parsed out of the structured block; the assertions below pin the format so
+  // a drift fails with the observed message instead of silently starving the
+  // dispatch.
+  let delivery = null
   ctx.model.setHandler(({ prompt, toolResults }) => {
     if (toolResults.length > 0) return text('Step complete.')
     if (prompt.includes('cowork_project_init')) return tool('cowork_project_init', {})
@@ -104,9 +126,13 @@ export async function runArtifactChain(ctx) {
         new_string: '# GUARD TEST',
       })
     }
-    if (prompt.includes('cowork_artifact_reply')) {
-      const artifactId = /artifact-[A-Za-z0-9-]+/.exec(prompt)?.[0] ?? ''
-      const commentIds = [...prompt.matchAll(/annotation (comment-[A-Za-z0-9-]+)/g)].map((match) => match[1])
+    // The dispatch message is the versioned marker plus one structured block
+    // per comment; route on the marker's visible ASCII core, not on any tool
+    // name that used to appear in the prompt.
+    if (prompt.includes('cowork-annotation/v1')) {
+      const artifactId = /Work item: (artifact-[A-Za-z0-9-]+)/.exec(prompt)?.[1] ?? ''
+      const commentIds = [...prompt.matchAll(/--- annotation (comment-[A-Za-z0-9-]+) ---/g)].map((match) => match[1])
+      delivery = { prompt, artifactId, commentIds }
       return tool('cowork_artifact_reply', {
         artifactId,
         commentIds,
@@ -195,10 +221,31 @@ export async function runArtifactChain(ctx) {
   const replied = await ctx.waitUntil('the dispatched batch becomes replied', async () => {
     const current = await ctx.client.panelGet(`/api/cowork.artifact.detail?sessionId=${encodeURIComponent(masterId)}&artifactId=${encodeURIComponent(artifactId)}`)
     return current.body?.record?.activeDispatch?.state === 'replied' ? current.body : undefined
-  }, { timeoutMs: 30_000 })
+  }, { timeoutMs: 30_000 }).catch((error) => { throw withPromptDiagnostics(ctx, masterId, error) })
   ctx.check('the model reply closed the dispatch', replied.record.activeDispatch.state === 'replied', replied.record.activeDispatch.state)
 
-  const dispatchTurn = ctx.model.calls.find((call) => call.sessionId === masterId && call.prompt.includes('cowork_artifact_reply'))
+  // The delivery format is a contract the scripted model depends on: marker,
+  // structured context, and one block per comment id.
+  ctx.check(
+    'the delivery prompt carries the annotation marker',
+    delivery?.prompt.includes('cowork-annotation/v1') === true,
+    delivery === null ? 'no marker-routed prompt' : delivery.prompt.slice(0, 80),
+  )
+  ctx.check(
+    'the delivery prompt carries the structured annotation context',
+    delivery !== null
+      && delivery.prompt.includes('Annotations (')
+      && delivery.prompt.includes(`--- annotation ${commentId} ---`)
+      && delivery.prompt.includes(`Work item: ${artifactId}`),
+    delivery?.prompt.slice(0, 160),
+  )
+  ctx.check(
+    'the scripted model parsed the delivery ids',
+    delivery !== null && delivery.artifactId === artifactId && JSON.stringify(delivery.commentIds) === JSON.stringify([commentId]),
+    `${delivery?.artifactId}:${JSON.stringify(delivery?.commentIds)}`,
+  )
+
+  const dispatchTurn = ctx.model.calls.find((call) => call.sessionId === masterId && call.prompt.includes('cowork-annotation/v1'))
   ctx.check('the dispatched reply inherits the session model', dispatchTurn?.model === selection.model, dispatchTurn?.model)
   ctx.check('the dispatched reply inherits the session reasoning effort', dispatchTurn?.effort === selection.reasoningEffort, dispatchTurn?.effort)
 
