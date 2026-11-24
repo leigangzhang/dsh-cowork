@@ -140,6 +140,7 @@ interface AttachmentPublishV1 {
 
 - **发布即计数**：`attachmentCount` 改为「`attachments.jsonl` 的去重行数」，在首次发布时 +1：浏览器 attach、评论/回复引用、`cowork_artifact_attach` 三条路径都调用同一发布函数；重复引用同一 id 不再 +1。
 - **孤儿 upload 不计数不展示**：`saveUpload` 只落字节，不写 `attachments.jsonl`、不加计数；只有发布动作才让它进入列表。用户上传后未发布 → 该 upload 保持孤儿，附件页与计数都不显示它。Markdown 粘贴图片必须在 upload 后立即调用浏览器 attach，因此不会成为孤儿。
+- **uploads/ 存储封顶**：每工作项 `uploads/` 的字节条目封顶 200（含未发布 upload）；上传路由落盘前用 `countUploads` 统计已存条目，达到 `MAX_ARTIFACT_ATTACHMENTS` 即返回 `artifact/limit-reached`，孤儿字节因此不能无界增长；该封顶不改变发布计数与展示口径。
 - **content-addressed 幂等（否决）**：每次 `sourcePath` attach 都 mint 新 id；同 sourcePath 再次 attach 得到新 id。理由：同一路径内容会变，按 sha 去重会让「改了文件再 attach」静默返回旧附件，产生内容歧义。浏览器 `attachmentId` 重入才是幂等边界。
 - **`artifact.updated`**：发布时发 `{ attachmentId }`，前端据此刷新附件页与计数；不新增事件类型。
 - 读取：`detail` 响应新增 `publishedAttachments: AttachmentPublishV1[]`（由 store 读 `attachments.jsonl` 派生，bounded ≤ 200）。前端附件页、计数、badge 均以此为准；thread 内缩略图继续从评论 `attachments` 数组取（`attachmentRowsOf`），二者用同一 `attachmentId` 对齐。

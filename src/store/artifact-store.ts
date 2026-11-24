@@ -154,6 +154,40 @@ export class ArtifactStore {
     return (await this.readUpload(artifactId, attachmentId)) !== null
   }
 
+  /**
+   * How many upload files one work item stores, published or not.
+   *
+   * The upload directory is the byte store: every stored id is one file named
+   * by its `attachment-*` id, and any other entry is ignored so a stray file
+   * cannot inflate the count. The scan stops at `limit` because callers only
+   * compare against a cap; a missing directory counts as zero.
+   * @param artifactId - work item id.
+   * @param limit - stop counting once this many files were seen; defaults to the
+   * attachment cap.
+   * @returns the number of upload files found, capped at `limit`.
+   */
+  // The upload route reaches this method through the runtime's store instance;
+  // fallow's member scan does not follow that edge, so the method looks unused.
+  // fallow-ignore-next-line unused-class-member
+  async countUploads(artifactId: string, limit: number = MAX_ARTIFACT_ATTACHMENTS): Promise<number> {
+    if (!Number.isSafeInteger(limit) || limit <= 0) return 0
+    let names
+    try {
+      names = await readdir(this.uploadsDir(artifactId))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return 0
+      throw error
+    }
+    let count = 0
+    for (const name of names) {
+      if (!SAFE_UPLOAD_ID.test(name)) continue
+      count += 1
+      if (count >= limit) return count
+    }
+    return count
+  }
+
   /** Run `operation` while holding the artifact writer lock. */
   async withLock<T>(operation: () => Promise<T>): Promise<T> {
     return withProjectLock(this.lockFile, operation)
