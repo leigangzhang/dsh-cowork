@@ -2,16 +2,16 @@
   "formatVersion": 1,
   "pluginVersion": "0.2.0",
   "dshVersion": "0.2.1-rc.2",
-  "catalogSha256": "34a5ee22efe5cadef59418816ccf71ffd1eb3b7ba26e6772e2d68ca5c920495e",
+  "catalogSha256": "144adca4bf0717fe5b35860f68f4b20616482e2c001eec7b0b09c8ce4bfe1b8c",
   "nodeVersion": "v22.22.1",
   "command": "npm run test:e2e -- --record",
-  "recordedAt": "2026-11-23T18:37:28.425Z",
+  "recordedAt": "2026-11-24T05:56:01.170Z",
   "result": "pass",
   "artifact": {
-    "head": "a9e63964aa6f0290fd58eac6d6c35254d6700f9c",
+    "head": "228df7a58c8d297947b328f73b01f61edd29a47f",
     "dirty": false,
     "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "tarballSha256": "057d6d612c4f90d02cbeacc89bc6c6f8b3ed7234803f79dc7ea32d6618881fa4"
+    "tarballSha256": "1a781570cbfc1e2852790d5d8fb90b10b72b871a2a7707b82f8dbbe57a8c2c38"
   },
   "scenarios": [
     {
@@ -68,59 +68,59 @@
           "passed": true
         },
         {
-          "name": "session session-9e193813-8… runs in the fixture",
+          "name": "session session-4d2545d7-e… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-9e193813-8… is not running",
+          "name": "session session-4d2545d7-e… is not running",
           "passed": true
         },
         {
-          "name": "session session-bd0308a2-c… runs in the fixture",
+          "name": "session session-d6a43e07-c… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-bd0308a2-c… is not running",
+          "name": "session session-d6a43e07-c… is not running",
           "passed": true
         },
         {
-          "name": "session session-a12aee3a-4… runs in the fixture",
+          "name": "session session-7546642c-0… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-a12aee3a-4… is not running",
+          "name": "session session-7546642c-0… is not running",
           "passed": true
         },
         {
-          "name": "session session-40acfb34-9… runs in the fixture",
+          "name": "session session-6bc56ce4-a… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-40acfb34-9… is not running",
+          "name": "session session-6bc56ce4-a… is not running",
           "passed": true
         },
         {
-          "name": "topic session-bd0308a2-c… is a real session",
+          "name": "topic session-d6a43e07-c… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-bd0308a2-c… mounted cowork-topic",
+          "name": "topic session-d6a43e07-c… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-a12aee3a-4… is a real session",
+          "name": "topic session-7546642c-0… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-a12aee3a-4… mounted cowork-topic",
+          "name": "topic session-7546642c-0… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-40acfb34-9… is a real session",
+          "name": "topic session-6bc56ce4-a… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-40acfb34-9… mounted cowork-topic",
+          "name": "topic session-6bc56ce4-a… mounted cowork-topic",
           "passed": true
         },
         {
@@ -504,6 +504,18 @@
           "passed": true
         },
         {
+          "name": "the delivery prompt carries the annotation marker",
+          "passed": true
+        },
+        {
+          "name": "the delivery prompt carries the structured annotation context",
+          "passed": true
+        },
+        {
+          "name": "the scripted model parsed the delivery ids",
+          "passed": true
+        },
+        {
           "name": "the dispatched reply inherits the session model",
           "passed": true
         },
@@ -548,11 +560,31 @@
           "passed": true
         },
         {
-          "name": "the attachment is referenced by a comment",
+          "name": "storing bytes publishes nothing",
+          "passed": true
+        },
+        {
+          "name": "the browser attach route publishes the upload as a user attachment",
+          "passed": true
+        },
+        {
+          "name": "publishing the same upload again is idempotent",
+          "passed": true
+        },
+        {
+          "name": "the attachment is referenced by a comment and still counted once",
           "passed": true
         },
         {
           "name": "the attachment route serves the bytes",
+          "passed": true
+        },
+        {
+          "name": "cowork_artifact_attach publishes a model attachment",
+          "passed": true
+        },
+        {
+          "name": "detail lists both published attachments with their source",
           "passed": true
         },
         {
@@ -616,6 +648,14 @@
         },
         {
           "name": "the retried batch reached replied",
+          "passed": true
+        },
+        {
+          "name": "every recovery delivery carries the annotation marker and context",
+          "passed": true
+        },
+        {
+          "name": "each recovery delivery names its own work item and comment block",
           "passed": true
         },
         {
