@@ -1,6 +1,6 @@
 # Cowork 工作项：右栏列表与文档批注栏/批注会话设计
 
-Status: proposed（2026-11-23；本文与 [2026-11-23-work-item-rail-and-annotation](../../../.agents/notes/proposed/feature/2026-11-23-work-item-rail-and-annotation.md) 互链）
+Status: implemented（2026-11-23；实现落点见 [list.tsx](../../../src/client/work-item/list.tsx)、[rail-state.ts](../../../src/client/work-item/rail-state.ts)、[rail.tsx](../../../src/client/work-item/rail.tsx)、[rail-geometry.ts](../../../src/client/work-item/rail-geometry.ts)；决策记录见 [2026-11-23-work-item-rail-and-annotation](../../../.agents/notes/implemented/feature/2026-11-23-work-item-rail-and-annotation.md)）
 
 本文覆盖两块，写清各自边界：
 
