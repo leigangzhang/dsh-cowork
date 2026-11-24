@@ -1,6 +1,6 @@
 # Cowork 工作项附件双向管线设计
 
-Status: proposed（2026-11-23；决策记录见 [2026-11-23-artifact-attachment-pipeline](../../../.agents/notes/proposed/feature/2026-11-23-artifact-attachment-pipeline.md)）
+Status: implemented（2026-11-23；实现落点见 [artifact.ts](../../../src/tools/artifact.ts)、[artifact-runtime.ts](../../../src/platform/artifact-runtime.ts)、[attachment-preview.tsx](../../../src/client/work-item/attachment-preview.tsx)；决策记录见 [2026-11-23-artifact-attachment-pipeline](../../../.agents/notes/implemented/feature/2026-11-23-artifact-attachment-pipeline.md)）
 
 本文是工作项「附件双向管线」的详细设计：模型如何生成/登记附件、用户如何上传附件、两者如何在 thread 与附件页展示、以及预览弹层与安全边界。它建立在三份已有设计之上，只写本页增量，不复制大段：
 

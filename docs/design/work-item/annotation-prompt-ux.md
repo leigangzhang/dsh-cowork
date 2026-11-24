@@ -1,8 +1,8 @@
 # Cowork 批注提示词与折叠 UX 设计
 
-Status: design proposal（2026-11-23）
+Status: implemented（2026-11-23；实现落点见 [annotation-prompt.ts](../../../src/platform/annotation-prompt.ts)、[annotation-node.tsx](../../../src/client/annotation-node.tsx)；实现与验收见[决策记录](../../../.agents/notes/implemented/feature/2026-11-23-annotation-prompt-ux.md)）
 
-本页设计「批注投递」的用户提示词形态：短消息 + system prompt 静态规则 + marker 折叠。它与[工作项前端设计](work-item-frontend.md)（批注、投递、渲染器）和[工作项后端设计](work-item-backend.md)（dispatcher、prompt、`cowork_artifact_reply`）交叉，但只拥有「投递到主题会话的那条消息如何组织、如何折叠、如何不破坏普通用户消息」这一件事。视觉尺寸/间距/颜色以[共享视觉验收基线](visual-acceptance.md)为准，本页只写增量项。决策与取舍见[决策记录](../../../.agents/notes/proposed/feature/2026-11-23-annotation-prompt-ux.md)。
+本页设计「批注投递」的用户提示词形态：短消息 + system prompt 静态规则 + marker 折叠。它与[工作项前端设计](work-item-frontend.md)（批注、投递、渲染器）和[工作项后端设计](work-item-backend.md)（dispatcher、prompt、`cowork_artifact_reply`）交叉，但只拥有「投递到主题会话的那条消息如何组织、如何折叠、如何不破坏普通用户消息」这一件事。视觉尺寸/间距/颜色以[共享视觉验收基线](visual-acceptance.md)为准，本页只写增量项。决策与取舍见[决策记录](../../../.agents/notes/implemented/feature/2026-11-23-annotation-prompt-ux.md)。
 
 宿主源码行号与机制按本地 checkout `~/Workspace/deepseek-harness`（`dsh-v0.2.2-rc.2`）记录；本机运行宿主是 `0.2.1-rc.2`，实现期以运行宿主为准（与 [work-item-backend.md](work-item-backend.md) §宿主调研 同口径）。
 
@@ -294,4 +294,4 @@ Attachments: <attachmentId> (<name>, <mediaType>)     # 无附件省略
 ## 14. 相关文档
 
 - [共享视觉验收基线](visual-acceptance.md)、[工作项前端设计](work-item-frontend.md)、[工作项后端设计](work-item-backend.md)
-- [决策记录](../../../.agents/notes/proposed/feature/2026-11-23-annotation-prompt-ux.md)
+- [决策记录](../../../.agents/notes/implemented/feature/2026-11-23-annotation-prompt-ux.md)
