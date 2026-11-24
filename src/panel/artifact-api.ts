@@ -913,12 +913,15 @@ async function handleUpload(
     throw kit.fail('request/invalid-query', `name must be at most ${String(MAX_ARTIFACT_ATTACHMENT_NAME_CHARS)} characters`)
   }
   const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
-  // The cap bounds published attachments; refusing an upload that could never
-  // be published keeps orphan bytes out of the store.
-  if (record.attachmentCount >= MAX_ARTIFACT_ATTACHMENTS) {
+  // Two caps bound one upload. The published cap refuses bytes that could never
+  // be published; the stored-upload cap bounds orphan bytes too, because storing
+  // publishes nothing and `attachmentCount` alone would let them grow without
+  // limit. Published count and list still count only published rows.
+  const storedUploads = await runtime.store.countUploads(record.artifactId)
+  if (record.attachmentCount >= MAX_ARTIFACT_ATTACHMENTS || storedUploads >= MAX_ARTIFACT_ATTACHMENTS) {
     throw new ArtifactDomainError(
       'artifact/limit-reached',
-      `work item already holds ${String(MAX_ARTIFACT_ATTACHMENTS)} attachments`,
+      `work item already stores ${String(storedUploads)} upload file(s) and holds ${String(record.attachmentCount)} published attachment(s); the cap is ${String(MAX_ARTIFACT_ATTACHMENTS)}`,
     )
   }
   const bytes = await readBodyWithCap(request, MAX_ARTIFACT_ATTACHMENT_BYTES, kit)

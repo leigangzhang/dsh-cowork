@@ -229,6 +229,44 @@ test('upload ids are validated and an unreadable entry is reported', async () =>
   })
 })
 
+test('countUploads counts stored upload files and ignores other entries', async () => {
+  await withStore(async (store, repo) => {
+    await store.createRecord(makeRecord())
+    assert.equal(await store.countUploads(ARTIFACT), 0, 'a missing upload directory counts as zero')
+    for (const attachmentId of ['attachment-a1', 'attachment-b2', 'attachment-c3']) {
+      await store.saveUpload(ARTIFACT, attachmentId, new Uint8Array([1, 2, 3]))
+    }
+    const directory = join(repo.repoPath, '.dsh-cowork', 'artifacts', ARTIFACT, 'uploads')
+    await writeFile(join(directory, 'notes.txt'), 'not an upload id')
+    await writeFile(join(directory, 'artifact-lookalike'), 'not an upload prefix')
+    assert.equal(await store.countUploads(ARTIFACT), 3)
+    // The scan short-circuits at the requested bound.
+    assert.equal(await store.countUploads(ARTIFACT, 2), 2)
+    assert.equal(await store.countUploads(ARTIFACT, 0), 0)
+    await assert.rejects(store.countUploads('../escape'), (error) => {
+      assert.equal(error.code, 'artifact/not-found')
+      return true
+    })
+  })
+})
+
+test('an unreadable upload directory is reported instead of counting zero', async () => {
+  await withStore(async (store, repo) => {
+    await store.createRecord(makeRecord())
+    const directory = join(repo.repoPath, '.dsh-cowork', 'artifacts', ARTIFACT, 'uploads')
+    await mkdir(directory, { recursive: true })
+    await chmod(directory, 0o000)
+    try {
+      await assert.rejects(store.countUploads(ARTIFACT), (error) => {
+        assert.equal(error.code, 'EACCES')
+        return true
+      })
+    } finally {
+      await chmod(directory, 0o700)
+    }
+  })
+})
+
 test('the artifact writer lock is the independent artifacts lock', async () => {
   await withStore(async (store) => {
     const order = []
