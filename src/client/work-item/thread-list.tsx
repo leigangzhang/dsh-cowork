@@ -68,7 +68,14 @@ function resolvedSummary(
   return `已解决 ${String(count)} 条：${ordinal === undefined ? '' : `#${String(ordinal)} `}${hint}`
 }
 
-/** One rail summary card; the list level never expands a thread inline. */
+/**
+ * One rail summary card; the list level never expands a thread inline.
+ *
+ * A summary card renders no reply and no resolve control, so those callbacks
+ * cannot fire: the container's resolve callback passes through unchanged and
+ * the optional reply callback stays unset, instead of wrapping calls the list
+ * level can never make.
+ */
 function card(row: RailListRow, props: ThreadListProps): ReactElement {
   return (
     <ThreadCard
@@ -83,8 +90,7 @@ function card(row: RailListRow, props: ThreadListProps): ReactElement {
       retrying={props.retrying}
       readOnly={props.readOnly}
       onSelect={() => { props.onSelect(row.thread) }}
-      onToggle={() => { props.onToggle(row.thread) }}
-      onReply={() => { /* list level has no reply control */ }}
+      onToggle={props.onToggle}
       onRetry={props.onRetry}
       onFocus={() => { props.onFocus(row.thread) }}
       attachmentUrl={props.attachmentUrl}
