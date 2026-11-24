@@ -2635,17 +2635,17 @@ async function scenarioWorkItemDraft(page) {
   await backToRailList(page)
 
   // The failed batch belongs to the thread resolved earlier. Expand the
-  // resolved summary, then open that thread's session: the receipt line lives
-  // in the session composer (the list level has no receipt surface).
+  // resolved summary: its card carries the retry action and the list level now
+  // shows the same receipt the session composer owns.
   await page.getByTestId('cwi-resolved-line').click()
   const resolvedThread = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
   await resolvedThread.waitFor({ timeout: 10_000 })
-  await enterThreadSession(page, resolvedThread)
-  // A failed batch exposes retry; the mocked route proves both the failure
-  // receipt and the optimistic success path without enqueueing a real model
-  // turn.
+  // A failed batch exposes retry on its summary card; the mocked first call
+  // fails and the failure receipt is visible at the list level.
   await page.getByTestId('cwi-dispatch-retry').first().click()
-  await page.getByText(/重试失败/).first().waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-rail-receipt').filter({ hasText: '重试失败' }).waitFor({ timeout: 10_000 })
+  await enterThreadSession(page, resolvedThread)
+  // The session composer keeps its own receipt for the optimistic success.
   await page.getByTestId('cwi-dispatch-retry').first().click()
   await page.getByText('已重新投递').waitFor({ timeout: 10_000 })
 
@@ -3146,11 +3146,18 @@ async function scenarioWorkItemKeyboard(page) {
 async function scenarioWorkItemNarrow(page) {
   await page.setViewportSize({ width: 820, height: 900 })
   try {
-    const list = await openWorkItemTab(page)
-    const listLayout = await list.evaluate((element) => ({
-      direction: getComputedStyle(element).flexDirection,
-      overflow: element.scrollWidth - element.clientWidth,
-    }))
+    await openWorkItemTab(page)
+    // The tab activation can replace the list frame between the readiness wait
+    // and the read (a detached element reports empty computed styles), so poll
+    // the connected, styled frame instead of taking one sample.
+    const layoutHandle = await page.waitForFunction(() => {
+      const element = document.querySelector('[data-testid="cwi-list"]')
+      if (element === null || !element.isConnected) return null
+      const style = getComputedStyle(element)
+      if (style.flexDirection === '') return null
+      return { direction: style.flexDirection, overflow: element.scrollWidth - element.clientWidth }
+    }, undefined, { timeout: 10_000 })
+    const listLayout = await layoutHandle.jsonValue()
     assert.equal(listLayout.direction, 'column', 'the rail list must stay a single column')
     assert.ok(listLayout.overflow <= 1, `the rail list overflows horizontally by ${listLayout.overflow}px`)
 
@@ -3291,16 +3298,17 @@ async function scenarioWorkItemPaging(page) {
     const failedRequest = waitForCommentsPage(page, 'event-a')
     await page.getByTestId('cwi-load-older').click()
     assert.equal(new URL((await failedRequest).url()).searchParams.get('limit'), '200')
-    // The paging action lives on the list level, which has no receipt surface
-    // (the composer receipt is session-only and the viewer receipt is hidden
-    // while the rail is open): the failure is observable through the retained
-    // action and the unchanged rows.
+    // The list level renders the same receipt the session composer owns, so the
+    // failed older page is visible without opening the thread session.
+    await page.getByTestId('cwi-rail-receipt').filter({ hasText: '加载更早的批注失败' }).waitFor({ timeout: 10_000 })
     await page.getByTestId('cwi-load-older').waitFor({ timeout: 10_000 })
     assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 2)
 
     const olderRequest = waitForCommentsPage(page, 'event-a')
     await page.getByTestId('cwi-load-older').click()
     assert.equal(new URL((await olderRequest).url()).searchParams.get('limit'), '200')
+    // A new load clears the previous receipt instead of leaving it stuck.
+    await page.getByTestId('cwi-rail-receipt').waitFor({ state: 'detached', timeout: 10_000 })
     await page.locator('[data-testid="cwi-thread"][data-thread-id="thread-old"]').waitFor({ timeout: 10_000 })
     assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 3)
     assert.equal(await target.getAttribute('data-selected'), 'true', 'loading older rows must keep the selection')
@@ -3675,11 +3683,9 @@ async function scenarioWorkItemAttachmentEvidence(page, fixtures) {
   await page.getByTestId('cwi-preview-dialog').waitFor({ timeout: 15_000 })
   await page.mouse.click(6, 6)
   await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
-  // The provider restores focus inside the backdrop's mousedown handler, but
-  // Chromium's default focus behavior then blurs the pressed non-focusable
-  // backdrop to <body>; the backdrop path therefore closes without returning
-  // focus (reported as a product finding; Esc and the close button do return
-  // it). Do not encode the missing contract as an assertion.
+  // All three close paths restore focus to the trigger; this one goes through
+  // the backdrop's click handler, after the browser's default mousedown blur.
+  await waitForFocusIdentity(page, `预览 ${BROWSER_ATTACHMENTS.userShot.name}`)
   const modelThumb = page.getByRole('button', { name: `预览 ${BROWSER_ATTACHMENTS.modelChart.name}` })
   await modelThumb.focus()
   await modelThumb.click()
