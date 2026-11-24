@@ -1088,6 +1088,85 @@ const CONFIRMED_ARTIFACT = 'artifact-browser-confirmed'
 /** A second unresolved item used to prove the server search narrows the list. */
 const OTHER_ARTIFACT = 'artifact-browser-other'
 
+/** Injected rows, keyed by the projection the scenario is exercising. */
+const INJECTED_LIST_ROWS = {
+  confirmed: (base) => ({
+    ...base,
+    artifactId: CONFIRMED_ARTIFACT,
+    title: '已完成的浏览器交付物',
+    status: 'confirmed',
+    activeDispatch: null,
+  }),
+  other: (base) => ({
+    ...base,
+    artifactId: OTHER_ARTIFACT,
+    title: '其他交付物',
+    status: 'needs-feedback',
+    activeDispatch: null,
+    commentCount: 0,
+  }),
+}
+
+/** Whether one list request carries the server-side `q` filter. */
+function listRequestIsFiltered(route) {
+  return new URL(route.request().url()).searchParams.get('q') !== null
+}
+
+/** The row one injected list read appends, or null when it appends none. */
+function injectedRowFor(kind, base, filtered) {
+  if (filtered || base === undefined) return null
+  const build = INJECTED_LIST_ROWS[kind]
+  return build === undefined ? null : build(base)
+}
+
+/**
+ * Append the row the current projection injects to one list response.
+ *
+ * A server-filtered read keeps the server's result: injecting rows into a `q`
+ * response would fake the search the assertion is supposed to prove.
+ */
+async function injectListRows(route, kindOf) {
+  const response = await route.fetch()
+  const body = await response.json()
+  const row = injectedRowFor(kindOf(), body.items[0], listRequestIsFiltered(route))
+  if (row !== null) body.items = [...body.items, row]
+  await route.fulfill({ response, json: body })
+}
+
+/** Whether the rail grip settled on its default width inside the container clamp. */
+function railWidthSettledInContainer() {
+  const probe = railWidthProbe()
+  if (probe === null) return false
+  const upperBound = Math.max(280, Math.min(560, probe.containerWidth - 360))
+  return probe.containerWidth > 900 && probe.width === 336 && probe.width <= upperBound
+
+  /** The grip width and the rail container width, or null before they mount. */
+  function railWidthProbe() {
+    const railElement = document.querySelector('[data-testid="cwi-rail"]')
+    const gripElement = document.querySelector('[data-testid="cwi-rail-grip"]')
+    if (railElement === null || gripElement === null) return null
+    const parent = railElement.parentElement
+    if (parent === null) return null
+    return { containerWidth: parent.clientWidth, width: Number(gripElement.getAttribute('aria-valuenow')) }
+  }
+}
+
+/** Dispatch a context-menu event on the current selection; false when unavailable. */
+function dispatchContextMenuOnSelection() {
+  const target = selectedElement()
+  if (target === null) return false
+  target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+  return true
+
+  /** The element that owns the selection start, or null. */
+  function selectedElement() {
+    const selection = window.getSelection()
+    if (selection === null || selection.rangeCount === 0) return null
+    const start = selection.getRangeAt(0).startContainer
+    return start.nodeType === Node.TEXT_NODE ? start.parentElement : start
+  }
+}
+
 /**
  * The work-item list projection and the comment rail's two levels.
  *
@@ -1110,37 +1189,7 @@ async function scenarioWorkItemRailAndList(page, fixtures) {
 
   /** Injected rows: 'confirmed' for the fold, 'other' for search, 'off' to drop. */
   let injected = 'confirmed'
-  await page.route('**/api/cowork.artifact.list*', async (route) => {
-    const response = await route.fetch()
-    const body = await response.json()
-    const base = body.items[0]
-    // A server-filtered read must keep the server's result: injecting rows into
-    // a `q` response would fake a search the assertion is supposed to prove.
-    const filtered = new URL(route.request().url()).searchParams.get('q') !== null
-    if (filtered || base === undefined) {
-      await route.fulfill({ response, json: body })
-      return
-    }
-    if (injected === 'confirmed') {
-      body.items = [...body.items, {
-        ...base,
-        artifactId: CONFIRMED_ARTIFACT,
-        title: '已完成的浏览器交付物',
-        status: 'confirmed',
-        activeDispatch: null,
-      }]
-    } else if (injected === 'other') {
-      body.items = [...body.items, {
-        ...base,
-        artifactId: OTHER_ARTIFACT,
-        title: '其他交付物',
-        status: 'needs-feedback',
-        activeDispatch: null,
-        commentCount: 0,
-      }]
-    }
-    await route.fulfill({ response, json: body })
-  })
+  await page.route('**/api/cowork.artifact.list*', async (route) => injectListRows(route, () => injected))
   /** Re-enter the work-items tab so the list reads the patched catalog. */
   const reloadList = async () => {
     await page.locator('[data-testid="cw-tab"][data-tab="topics"]').click()
@@ -1298,15 +1347,7 @@ async function scenarioWorkItemRailAndList(page, fixtures) {
     // to leave the 280px floor also waits for the ResizeObserver update the
     // drag handler reads.
     assert.equal(await page.evaluate(() => localStorage.getItem('cowork.work-item.railWidth')), null)
-    await page.waitForFunction(() => {
-      const railElement = document.querySelector('[data-testid="cwi-rail"]')
-      const gripElement = document.querySelector('[data-testid="cwi-rail-grip"]')
-      const parent = railElement?.parentElement ?? null
-      if (railElement === null || gripElement === null || parent === null) return false
-      const upperBound = Math.max(280, Math.min(560, parent.clientWidth - 360))
-      const value = Number(gripElement.getAttribute('aria-valuenow'))
-      return parent.clientWidth > 900 && value === 336 && value <= upperBound
-    }, undefined, { timeout: 10_000 })
+    await page.waitForFunction(railWidthSettledInContainer, undefined, { timeout: 10_000 })
     const containerWidth = await rail.evaluate(element => element.parentElement?.clientWidth ?? 0)
     assert.ok(containerWidth > 900, 'the rail container must be wide enough to resize')
     const upper = Math.max(280, Math.min(560, containerWidth - 360))
@@ -1926,15 +1967,7 @@ async function scenarioWorkItemMarkdown(page, fixtures) {
     // A context-menu request on the same selection opens it too.
     await page.keyboard.press('Escape')
     await readingEntry.waitFor({ state: 'detached', timeout: 5_000 })
-    const contextDispatched = await page.evaluate(() => {
-      const selection = window.getSelection()
-      if (selection === null || selection.rangeCount === 0) return false
-      const start = selection.getRangeAt(0).startContainer
-      const element = start.nodeType === Node.TEXT_NODE ? start.parentElement : start
-      if (element === null) return false
-      element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
-      return true
-    })
+    const contextDispatched = await page.evaluate(dispatchContextMenuOnSelection)
     assert.equal(contextDispatched, true, 'the selection must be available for a context-menu request')
     await readingEntry.waitFor({ timeout: 10_000 })
     await page.getByTestId('cwi-annotate').click()
