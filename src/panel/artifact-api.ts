@@ -57,6 +57,8 @@ import {
   isArtifactStatus,
   type ArtifactAnchor,
   type ArtifactAttachResponse,
+  type ArtifactCounts,
+  type ArtifactStatus,
   type ArtifactCommentResponse,
   type ArtifactCommentResolveResponse,
   type ArtifactCommentsResponse,
@@ -160,6 +162,79 @@ function matchesListSearch(record: ArtifactRecordV1, sessionTitle: string | null
   return haystack.includes(needle)
 }
 
+/** The validated `status`/`q` filters of one list request. */
+interface ListQueryFilters {
+  readonly status: ArtifactStatus | null
+  readonly search: string | null
+}
+
+/** Read and validate the list request's optional filters. */
+function listQueryOf(request: Request, kit: ArtifactRouteKit): ListQueryFilters {
+  const status = queryParam(request, 'status')
+  if (status !== null && !isArtifactStatus(status)) {
+    throw kit.fail('request/invalid-query', `unknown artifact status: ${status}`)
+  }
+  const search = queryParam(request, 'q')
+  if (search !== null && search.length > MAX_ARTIFACT_SEARCH_CHARS) {
+    throw kit.fail(
+      'request/invalid-query',
+      `search query is longer than ${MAX_ARTIFACT_SEARCH_CHARS} characters`,
+    )
+  }
+  return { status, search }
+}
+
+/** The per-status counts of one project scan. */
+function countProjectRecords(records: readonly ArtifactRecordV1[]): ArtifactCounts {
+  let counts = emptyArtifactCounts()
+  for (const record of records) counts = addArtifactToCounts(counts, record.status)
+  return counts
+}
+
+/** Whether one record passes the status and search filters. */
+function listRecordMatches(
+  record: ArtifactRecordV1,
+  filters: ListQueryFilters,
+  titles: ReadonlyMap<string, string>,
+  needle: string | null,
+): boolean {
+  if (filters.status !== null && !artifactStatusMatches(filters.status, record.status)) return false
+  if (needle === null) return true
+  return matchesListSearch(record, titles.get(record.ownerSessionId) ?? null, needle)
+}
+
+/** The project records that pass the list filters. */
+function matchingListRecords(
+  records: readonly ArtifactRecordV1[],
+  filters: ListQueryFilters,
+  titles: ReadonlyMap<string, string>,
+): ArtifactRecordV1[] {
+  const needle = filters.search?.toLowerCase() ?? null
+  return records.filter((record) => listRecordMatches(record, filters, titles, needle))
+}
+
+/** The store's newest-first order with the artifact id as the tie-break. */
+function newestFirst(left: ArtifactRecordV1, right: ArtifactRecordV1): number {
+  const order = right.updatedAt.localeCompare(left.updatedAt)
+  return order !== 0 ? order : left.artifactId.localeCompare(right.artifactId)
+}
+
+/** The bounded list rows of one response, newest first. */
+function listItemsOf(records: readonly ArtifactRecordV1[], titles: ReadonlyMap<string, string>): ArtifactListResponse['items'] {
+  return records
+    .slice()
+    .sort(newestFirst)
+    .slice(0, ARTIFACT_LIST_MAX_LIMIT)
+    .map((record) => ({ ...artifactSummaryOf(record), sessionTitle: titles.get(record.ownerSessionId) ?? null }))
+}
+
+/** Log the work items a scan could not parse; they stay out of the list. */
+function logCorruptRecords(ports: ArtifactApiPorts, corrupt: readonly string[]): void {
+  for (const artifactId of corrupt) {
+    ports.log?.(`artifact list: skipping unreadable work item ${artifactId}`)
+  }
+}
+
 /**
  * `GET /api/cowork.artifact.list` — the right-rail list and its counts.
  *
@@ -175,47 +250,18 @@ async function handleList(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const sessionId = requireQuery(request, 'sessionId', kit, 'request/session-required')
-  const status = queryParam(request, 'status')
-  if (status !== null && !isArtifactStatus(status)) {
-    throw kit.fail('request/invalid-query', `unknown artifact status: ${status}`)
-  }
-  const search = queryParam(request, 'q')
-  if (search !== null && search.length > MAX_ARTIFACT_SEARCH_CHARS) {
-    throw kit.fail(
-      'request/invalid-query',
-      `search query is longer than ${MAX_ARTIFACT_SEARCH_CHARS} characters`,
-    )
-  }
+  const filters = listQueryOf(request, kit)
   const opened = await kit.openProject(sessionId)
   const runtime = ports.runtimeFor(opened.repoPath)
   const scan = await runtime.store.listRecords(MAX_ARTIFACTS_PER_PROJECT)
-  for (const artifactId of scan.corrupt) {
-    ports.log?.(`artifact list: skipping unreadable work item ${artifactId}`)
-  }
+  logCorruptRecords(ports, scan.corrupt)
   const projectRecords = scan.records.filter((record) => record.projectId === opened.projectId)
-  let counts = emptyArtifactCounts()
-  for (const record of projectRecords) counts = addArtifactToCounts(counts, record.status)
   const titles = await sessionTitlesOf(ports)
-  const needle = search?.toLowerCase() ?? null
-  const matches = projectRecords.filter((record) => {
-    if (status !== null && !artifactStatusMatches(status, record.status)) return false
-    if (needle === null) return true
-    return matchesListSearch(record, titles.get(record.ownerSessionId) ?? null, needle)
-  })
-  // Newest first, with the id tie-break the store uses, so the cut at 200 is
-  // decided here rather than by whichever order a scan happened to return.
-  const items = matches
-    .slice()
-    .sort((left, right) => {
-      const order = right.updatedAt.localeCompare(left.updatedAt)
-      return order !== 0 ? order : left.artifactId.localeCompare(right.artifactId)
-    })
-    .slice(0, ARTIFACT_LIST_MAX_LIMIT)
-    .map((record) => ({ ...artifactSummaryOf(record), sessionTitle: titles.get(record.ownerSessionId) ?? null }))
+  const matches = matchingListRecords(projectRecords, filters, titles)
   const response: ArtifactListResponse = {
     ok: true,
-    items,
-    counts,
+    items: listItemsOf(matches, titles),
+    counts: countProjectRecords(projectRecords),
     truncated: scan.total > scan.records.length || matches.length > ARTIFACT_LIST_MAX_LIMIT,
   }
   return kit.jsonResponse(200, response)
@@ -469,56 +515,112 @@ async function commentAnchor(
   return { anchor, fileRevision: file.revision }
 }
 
-/** `POST /api/cowork.artifact.comment` — append one comment (or reply). */
-async function handleComment(
-  request: Request,
-  ports: ArtifactApiPorts,
-  kit: ArtifactRouteKit,
-): Promise<Response> {
-  const body = await kit.readJsonBody(request)
+/** The validated parts of one comment/reply request body. */
+interface CommentRequestParts {
+  readonly text: string
+  readonly wantsDispatch: boolean
+  readonly threadId: string | null
+}
+
+/** Read and validate the optional reply thread id. */
+function replyThreadIdOf(body: Record<string, unknown>, kit: ArtifactRouteKit): string | null {
+  if (body.threadId === undefined) return null
+  if (typeof body.threadId !== 'string' || body.threadId === '') {
+    throw kit.fail('request/invalid-body', 'body field threadId must be a non-empty string')
+  }
+  if (body.anchor !== undefined) {
+    throw kit.fail('request/invalid-body', 'a reply inherits its thread anchor; do not send anchor')
+  }
+  return body.threadId
+}
+
+/** Read and validate the body fields every comment/reply shares. */
+function commentRequestOf(body: Record<string, unknown>, kit: ArtifactRouteKit): CommentRequestParts {
   const text = requireBodyString(body, 'body', kit)
   if (text.length > MAX_ARTIFACT_COMMENT_CHARS) {
     throw kit.fail('request/invalid-body', `body must be at most ${MAX_ARTIFACT_COMMENT_CHARS} characters`)
   }
   const wantsDispatch = body.dispatch === undefined ? true : body.dispatch === true
-  let rootThreadId: string | null = null
-  if (body.threadId !== undefined) {
-    if (typeof body.threadId !== 'string' || body.threadId === '') {
-      throw kit.fail('request/invalid-body', 'body field threadId must be a non-empty string')
-    }
-    if (body.anchor !== undefined) {
-      throw kit.fail('request/invalid-body', 'a reply inherits its thread anchor; do not send anchor')
-    }
-    rootThreadId = body.threadId
+  return { text, wantsDispatch, threadId: replyThreadIdOf(body, kit) }
+}
+
+/** Reject a reply whose root thread does not exist. */
+async function assertReplyThread(runtime: ArtifactRuntime, artifactId: string, threadId: string): Promise<void> {
+  const comments = await runtime.store.readComments(artifactId)
+  if (!comments.some((event) => event.type === 'create' && event.commentId === threadId)) {
+    throw new ArtifactDomainError('artifact/not-found', `unknown comment thread: ${threadId}`, threadId)
   }
-  const { record, runtime } = await openRecordFromBody(ports, kit, body)
-  const artifactId = record.artifactId
-  const now = nowOf(ports)
-  if (rootThreadId !== null) {
-    const comments = await runtime.store.readComments(artifactId)
-    if (!comments.some((event) => event.type === 'create' && event.commentId === rootThreadId)) {
-      throw new ArtifactDomainError('artifact/not-found', `unknown comment thread: ${rootThreadId}`, rootThreadId)
-    }
+}
+
+/** The optional anchor fields one created comment records. */
+function anchorFieldsOf(anchorResult: { anchor: ArtifactAnchor; fileRevision: number | null } | null): {
+  anchor?: ArtifactAnchor
+  fileRevision?: number
+} {
+  if (anchorResult === null) return {}
+  return {
+    anchor: anchorResult.anchor,
+    ...(anchorResult.fileRevision === null ? {} : { fileRevision: anchorResult.fileRevision }),
   }
-  const anchorResult = rootThreadId === null ? await commentAnchor(runtime, record, body.anchor) : null
-  const attachments = await commentAttachments(runtime, record, body.attachments, kit)
-  const commentId = `comment-${randomUUID()}`
-  const event: CommentEventV1 = {
+}
+
+/** The comment event one request appends. */
+function commentEventOf(input: {
+  readonly artifactId: string
+  readonly commentId: string
+  readonly threadId: string | null
+  readonly text: string
+  readonly anchorResult: { anchor: ArtifactAnchor; fileRevision: number | null } | null
+  readonly attachments: readonly AttachmentRefV1[]
+  readonly now: Date
+}): CommentEventV1 {
+  return {
     version: ARTIFACT_COMMENT_VERSION,
     eventId: `comment-event-${randomUUID()}`,
-    artifactId,
-    commentId,
-    threadId: rootThreadId ?? commentId,
-    type: rootThreadId === null ? 'create' : 'reply',
+    artifactId: input.artifactId,
+    commentId: input.commentId,
+    threadId: input.threadId ?? input.commentId,
+    type: input.threadId === null ? 'create' : 'reply',
     author: 'user',
-    body: text,
-    createdAt: now.toISOString(),
-    ...(anchorResult === null
-      ? {}
-      : { anchor: anchorResult.anchor, ...(anchorResult.fileRevision === null ? {} : { fileRevision: anchorResult.fileRevision }) }),
-    ...(attachments.length === 0 ? {} : { attachments }),
+    body: input.text,
+    createdAt: input.now.toISOString(),
+    ...anchorFieldsOf(input.anchorResult),
+    ...(input.attachments.length === 0 ? {} : { attachments: input.attachments }),
   }
-  const result = await runtime.store.withLock(async () => {
+}
+
+/** Publish the attachments one comment references, inside its transaction. */
+async function publishCommentAttachments(
+  runtime: ArtifactRuntime,
+  artifactId: string,
+  attachments: readonly AttachmentRefV1[],
+  now: Date,
+): Promise<ArtifactEventV1[]> {
+  const events: ArtifactEventV1[] = []
+  for (const attachment of attachments) {
+    const outcome = await publishAttachmentUnlocked(runtime, { artifactId, attachment, source: 'user', now })
+    if (outcome.event !== null) events.push(outcome.event)
+  }
+  return events
+}
+
+/** Append the comment's own `comment.created`/`reply.created` event. */
+function appendCommentCreated(runtime: ArtifactRuntime, event: CommentEventV1, now: Date): Promise<ArtifactEventV1> {
+  const type = event.type === 'create' ? 'comment.created' : 'reply.created'
+  return runtime.store.appendEventUnlocked(
+    createEventRow(event.artifactId, type, now, { commentId: event.commentId }),
+  )
+}
+
+/** Commit the comment, its attachment publishes, and its events as one lock. */
+async function commitComment(
+  runtime: ArtifactRuntime,
+  event: CommentEventV1,
+  attachments: readonly AttachmentRefV1[],
+  now: Date,
+): Promise<{ record: ArtifactRecordV1; events: ArtifactEventV1[] }> {
+  const { artifactId } = event
+  return runtime.store.withLock(async () => {
     const current = await runtime.store.readRecord(artifactId)
     if (current !== null && current.commentCount >= MAX_ARTIFACT_COMMENTS) {
       throw new ArtifactDomainError('artifact/comment-limit', `work item already holds ${String(MAX_ARTIFACT_COMMENTS)} comments`)
@@ -526,56 +628,88 @@ async function handleComment(
     // Referencing a stored upload publishes it in this same transaction: the
     // comment and the attachment list never disagree, and a re-reference of an
     // already-published id stays a no-op.
-    const publishEvents: ArtifactEventV1[] = []
-    for (const attachment of attachments) {
-      const outcome = await publishAttachmentUnlocked(runtime, {
-        artifactId,
-        attachment,
-        source: 'user',
-        now,
-      })
-      if (outcome.event !== null) publishEvents.push(outcome.event)
-    }
+    const publishEvents = await publishCommentAttachments(runtime, artifactId, attachments, now)
     await runtime.store.appendCommentUnlocked(event)
     const saved = await runtime.store.mutateRecordUnlocked(artifactId, (open) =>
       applyCommentEvent(open, event, now).record)
     const events = [
       ...publishEvents,
-      await runtime.store.appendEventUnlocked(createEventRow(artifactId, rootThreadId === null ? 'comment.created' : 'reply.created', now, { commentId })),
+      await appendCommentCreated(runtime, event, now),
       await runtime.store.appendEventUnlocked(
         createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
       ),
     ]
     return { record: saved, events }
   })
-  publishAll(runtime, result.events)
-  let dispatch: DispatchRecordV1 | null = null
-  let dispatchError: ArtifactDispatchError | null = null
-  if (wantsDispatch && runtime.dispatch !== null) {
-    try {
-      dispatch = await runtime.dispatch.enqueue({
-        record: result.record,
-        commentIds: [commentId],
-        comments: [event],
-      })
-    } catch (error) {
-      // The comment is committed; a full queue is a visible delivery failure,
-      // not a reason to lose the user's annotation.
-      const code = error instanceof ArtifactDomainError ? error.code : 'artifact/dispatch-unavailable'
-      dispatchError = { code, message: error instanceof Error ? error.message : String(error) }
-      ports.log?.(`artifact comment: dispatch not queued: ${dispatchError.message}`)
-    }
+}
+
+/** Queue the dispatched batch; a full queue is a visible failure, not a lost comment. */
+async function enqueueCommentDispatch(
+  runtime: ArtifactRuntime,
+  record: ArtifactRecordV1,
+  commentId: string,
+  event: CommentEventV1,
+  wantsDispatch: boolean,
+  ports: ArtifactApiPorts,
+): Promise<{ dispatch: DispatchRecordV1 | null; dispatchError: ArtifactDispatchError | null }> {
+  if (!wantsDispatch || runtime.dispatch === null) return { dispatch: null, dispatchError: null }
+  try {
+    const dispatch = await runtime.dispatch.enqueue({ record, commentIds: [commentId], comments: [event] })
+    return { dispatch, dispatchError: null }
+  } catch (error) {
+    const code = error instanceof ArtifactDomainError ? error.code : 'artifact/dispatch-unavailable'
+    const dispatchError = { code, message: error instanceof Error ? error.message : String(error) }
+    ports.log?.(`artifact comment: dispatch not queued: ${dispatchError.message}`)
+    return { dispatch: null, dispatchError }
   }
-  const response: ArtifactCommentResponse = {
+}
+
+/** The comment route's response body, including the queued dispatch when present. */
+function commentResponseOf(
+  event: CommentEventV1,
+  parts: { dispatch: DispatchRecordV1 | null; dispatchError: ArtifactDispatchError | null },
+  record: ArtifactRecordV1,
+): ArtifactCommentResponse {
+  const { dispatch, dispatchError } = parts
+  return {
     ok: true,
     comment: event,
     dispatch,
     dispatchError,
     record: dispatch === null
-      ? result.record
-      : { ...result.record, activeDispatch: { dispatchId: dispatch.dispatchId, state: dispatch.state, updatedAt: dispatch.updatedAt } },
+      ? record
+      : { ...record, activeDispatch: { dispatchId: dispatch.dispatchId, state: dispatch.state, updatedAt: dispatch.updatedAt } },
   }
-  return kit.jsonResponse(200, response)
+}
+
+/** `POST /api/cowork.artifact.comment` — append one comment (or reply). */
+async function handleComment(
+  request: Request,
+  ports: ArtifactApiPorts,
+  kit: ArtifactRouteKit,
+): Promise<Response> {
+  const body = await kit.readJsonBody(request)
+  const parts = commentRequestOf(body, kit)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
+  const artifactId = record.artifactId
+  const now = nowOf(ports)
+  if (parts.threadId !== null) await assertReplyThread(runtime, artifactId, parts.threadId)
+  const anchorResult = parts.threadId === null ? await commentAnchor(runtime, record, body.anchor) : null
+  const attachments = await commentAttachments(runtime, record, body.attachments, kit)
+  const commentId = `comment-${randomUUID()}`
+  const event = commentEventOf({
+    artifactId,
+    commentId,
+    threadId: parts.threadId,
+    text: parts.text,
+    anchorResult,
+    attachments,
+    now,
+  })
+  const result = await commitComment(runtime, event, attachments, now)
+  publishAll(runtime, result.events)
+  const dispatchParts = await enqueueCommentDispatch(runtime, result.record, commentId, event, parts.wantsDispatch, ports)
+  return kit.jsonResponse(200, commentResponseOf(event, dispatchParts, result.record))
 }
 
 /** `POST /api/cowork.artifact.dispatch.retry` — retry one failed batch. */

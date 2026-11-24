@@ -5,16 +5,18 @@
  * renderer keeps that path byte-for-byte where it can (content delegated to the
  * host `conversation.chat.user.content` factory, message-source chain rendered,
  * only the time/copy row self-implemented) and adds one special case: a message
- * whose text starts with {@link ANNOTATION_MARKER} is a batch delivery from the
+ * whose text starts with {@link ANNOTATION_MARKER_TEXT} is a batch delivery from the
  * work-item dispatcher, so it renders as a full-width disclosure row instead of
- * a bubble. The marker line never reaches the DOM.
+ * a bubble. The marker line never reaches the DOM. {@link parseAnnotationMessage}
+ * in the model owns the marker check and the summary/body split; this node only
+ * renders its result.
  *
  * The registration is installed through `registerAnnotationNode`, which owns the
  * `conversation.chat.node` key `user` registration and its child declaration for
  * the message-source seat.
  */
 import { useEffect, useReducer, useRef, useState } from 'react'
-import type { KeyboardEvent, ReactElement } from 'react'
+import type { KeyboardEvent, ReactElement, ReactNode } from 'react'
 import {
   COPIED_LABEL,
   COPY_LABEL,
@@ -25,7 +27,7 @@ import {
   formatMessageClock,
   messageContentParts,
 } from './annotation-model.ts'
-import type { AnnotationDisplay, AnnotationNodeBindingDeps } from './annotation-model.ts'
+import type { AnnotationDisplay, AnnotationNodeBindingDeps, MessageContentParts } from './annotation-model.ts'
 import type {
   ChatUserMessageData,
   ChatUserNodeProps,
@@ -76,41 +78,128 @@ function CheckGlyph(): ReactElement {
   )
 }
 
-/** The minimal time + copy row; MessageIconActions is not exported by primitives. */
-function UserActions({ text, time }: { readonly text: string; readonly time: number | undefined }): ReactElement {
+/** How long the copy confirmation stays visible. */
+const COPIED_RESET_MS = 1_500
+
+/** One clipboard write; resolves false when the API is absent or denied. */
+async function copyText(text: string): Promise<boolean> {
+  const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard
+  if (clipboard === undefined) return false
+  try {
+    await clipboard.writeText(text)
+    return true
+  } catch {
+    // A denied clipboard permission is not a row failure; the affordance stays.
+    return false
+  }
+}
+
+/** The copy flag plus the action that sets it and clears it after the window. */
+function useCopiedFlag(): { readonly copied: boolean; readonly markCopied: () => void } {
   const [copied, setCopied] = useState(false)
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => {
     if (resetTimer.current !== null) clearTimeout(resetTimer.current)
   }, [])
-
-  const onCopy = (): void => {
-    const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard
-    if (clipboard === undefined) return
-    void clipboard.writeText(text).then(() => {
-      setCopied(true)
-      if (resetTimer.current !== null) clearTimeout(resetTimer.current)
-      resetTimer.current = setTimeout(() => { setCopied(false) }, 1_500)
-    }).catch(() => {
-      // A denied clipboard permission is not a row failure; the affordance stays.
-    })
+  const markCopied = (): void => {
+    setCopied(true)
+    if (resetTimer.current !== null) clearTimeout(resetTimer.current)
+    resetTimer.current = setTimeout(() => { setCopied(false) }, COPIED_RESET_MS)
   }
+  return { copied, markCopied }
+}
 
+/** The optional time label of the action row. */
+function UserClock({ time }: { readonly time: number | undefined }): ReactElement | null {
   const clock = formatMessageClock(time)
+  return clock === null ? null : <span className="cw-user-time">{clock}</span>
+}
+
+/** The copy button; its label and glyph follow the confirmation flag. */
+function CopyButton({ copied, onCopy }: {
+  readonly copied: boolean
+  readonly onCopy: () => void
+}): ReactElement {
+  const label = copied ? COPIED_LABEL : COPY_LABEL
+  return (
+    <button type="button" className="cw-user-action" aria-label={label} title={label} onClick={onCopy}>
+      {copied ? <CheckGlyph /> : <CopyGlyph />}
+    </button>
+  )
+}
+
+/** The minimal time + copy row; MessageIconActions is not exported by primitives. */
+function UserActions({ text, time }: { readonly text: string; readonly time: number | undefined }): ReactElement {
+  const { copied, markCopied } = useCopiedFlag()
+  const onCopy = (): void => { void copyText(text).then((ok) => { if (ok) markCopied() }) }
   return (
     <div className="cw-user-actions" data-clock="start">
-      {clock === null ? null : <span className="cw-user-time">{clock}</span>}
-      <button
-        type="button"
-        className="cw-user-action"
-        aria-label={copied ? COPIED_LABEL : COPY_LABEL}
-        title={copied ? COPIED_LABEL : COPY_LABEL}
-        onClick={onCopy}
-      >
-        {copied ? <CheckGlyph /> : <CopyGlyph />}
-      </button>
+      <UserClock time={time} />
+      <CopyButton copied={copied} onCopy={onCopy} />
     </div>
   )
+}
+
+/** The host factory's content output, or null when no factory is mounted. */
+function delegatedUserContent(
+  renderFactorySlot: ChatUserNodeProps['renderFactorySlot'],
+  content: UserContentDataView,
+  facts: Record<string, unknown>,
+  loadImage: ChatUserNodeProps['loadImage'],
+): ReactNode {
+  return renderFactorySlot?.(
+    'conversation.chat.user.content',
+    { content, loadImage, facts, interactive: true },
+  ) ?? null
+}
+
+/** The bubble content: the host factory output, else the plain-text fallback. */
+function UserRowBody({ text, delegated }: {
+  readonly text: string
+  readonly delegated: ReactNode
+}): ReactElement {
+  return <>{delegated ?? <div className="cw-user-fallback">{text}</div>}</>
+}
+
+/**
+ * Normal user message: the host-equivalent thin shell.
+ *
+ * Content is delegated whole to the host `conversation.chat.user.content`
+ * factory; the message-source chain is rendered from the declared child slot.
+ * Only the right-aligned column and the time/copy row are local, because the
+ * host keeps `MessageIconActions` and `UserStyleBubble` inside `ui-chat`.
+ */
+/** The content view the host user-content factory receives. */
+function userContentView(parts: MessageContentParts, data: ChatUserMessageData | undefined): UserContentDataView {
+  return {
+    text: parts.text,
+    attachments: parts.attachments,
+    extraBlocks: parts.extraBlocks,
+    ...(data?.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }),
+  }
+}
+
+/** The session labels fact, omitted when the host sent none. */
+function sessionLabelsOf(data: ChatUserMessageData | undefined): Record<string, unknown> {
+  return data?.referenceLabels === undefined ? {} : { sessionLabels: data.referenceLabels }
+}
+
+/** The skill names fact, omitted when the host sent none. */
+function skillNamesOf(data: ChatUserMessageData | undefined): Record<string, unknown> {
+  return data?.skillNames === undefined ? {} : { skillNames: data.skillNames }
+}
+
+/** The optional user facts the host factory reads. */
+function userFactsOf(data: ChatUserMessageData | undefined): Record<string, unknown> {
+  return { ...sessionLabelsOf(data), ...skillNamesOf(data) }
+}
+
+/** The message-source chain above the row, or null. */
+function userBeforeSlot(
+  renderSlotChain: ChatUserNodeProps['renderSlotChain'],
+  data: ChatUserMessageData | undefined,
+): ReactNode {
+  return renderSlotChain?.('conversation.chat.user.before', { source: data?.source, kind: 'user' }, { fallback: null }) ?? null
 }
 
 /**
@@ -127,29 +216,12 @@ function NormalUserRow({
   readonly data: ChatUserMessageData | undefined
 } & Pick<ChatUserNodeProps, 'renderFactorySlot' | 'renderSlotChain' | 'loadImage'>): ReactElement {
   const parts = messageContentParts(data?.content)
-  const content: UserContentDataView = {
-    text: parts.text,
-    attachments: parts.attachments,
-    extraBlocks: parts.extraBlocks,
-    ...(data?.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }),
-  }
-  const facts = {
-    ...(data?.referenceLabels === undefined ? {} : { sessionLabels: data.referenceLabels }),
-    ...(data?.skillNames === undefined ? {} : { skillNames: data.skillNames }),
-  }
-  const before = renderSlotChain?.(
-    'conversation.chat.user.before',
-    { source: data?.source, kind: 'user' },
-    { fallback: null },
-  ) ?? null
-  const delegated = renderFactorySlot?.(
-    'conversation.chat.user.content',
-    { content, loadImage, facts, interactive: true },
-  ) ?? null
+  const before = userBeforeSlot(renderSlotChain, data)
+  const delegated = delegatedUserContent(renderFactorySlot, userContentView(parts, data), userFactsOf(data), loadImage)
   return (
     <div className="cw-user-row">
       {before}
-      {delegated ?? <div className="cw-user-fallback">{parts.text}</div>}
+      <UserRowBody text={parts.text} delegated={delegated} />
       <UserActions text={parts.text} time={data?.time} />
     </div>
   )

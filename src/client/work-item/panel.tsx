@@ -327,6 +327,9 @@ async function uploadAttachment(
   return published.attachment
 }
 
+/** The most pending attachments one comment keeps. */
+const MAX_PENDING_ATTACHMENTS = 5
+
 async function uploadAttachments(
   context: WorkItemOpenContext,
   files: readonly File[],
@@ -335,6 +338,30 @@ async function uploadAttachments(
   const added: AttachmentRefV1[] = []
   for (const file of files) added.push(await uploadAttachment(context, file, publish))
   return added
+}
+
+/** The context an upload can run in, or null while the viewer is not ready. */
+function uploadTarget(context: WorkItemOpenContext | null, ready: boolean): WorkItemOpenContext | null {
+  return context !== null && ready ? context : null
+}
+
+/** The bounded file list of one upload, or null when it carries nothing. */
+function uploadFiles(files: FileList | readonly File[] | null): File[] | null {
+  if (files === null) return null
+  const list = Array.from(files).slice(0, MAX_PENDING_ATTACHMENTS)
+  return list.length === 0 ? null : list
+}
+
+/** One upload attempt: the target, the files, and whether to publish first. */
+function uploadPlan(
+  context: WorkItemOpenContext | null,
+  ready: boolean,
+  files: FileList | readonly File[] | null,
+): { readonly target: WorkItemOpenContext; readonly files: File[] } | null {
+  const target = uploadTarget(context, ready)
+  if (target === null) return null
+  const list = uploadFiles(files)
+  return list === null ? null : { target, files: list }
 }
 
 /**
@@ -351,12 +378,13 @@ function useAttachmentUpload(
     files: FileList | readonly File[] | null,
     options?: { readonly publish?: boolean },
   ) => {
-    if (context === null || !ready || files === null || files.length === 0) return
+    const plan = uploadPlan(context, ready, files)
+    if (plan === null) return
     setUploading(true)
     setReceipt(null)
     try {
-      const added = await uploadAttachments(context, Array.from(files).slice(0, 5), options?.publish === true)
-      setPendingAttachments(current => [...current, ...added].slice(0, 5))
+      const added = await uploadAttachments(plan.target, plan.files, options?.publish === true)
+      setPendingAttachments(current => [...current, ...added].slice(0, MAX_PENDING_ATTACHMENTS))
     } catch (error) {
       setReceipt(`附件上传失败：${messageOf(error)}`)
     } finally {

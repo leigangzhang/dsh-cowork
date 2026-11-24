@@ -160,9 +160,12 @@ function attachmentsOf(comment: CommentEventV1): string {
 }
 
 /**
- * One annotation block: a fixed-order field list that the model can parse
- * without guessing. Missing fields are omitted, never faked, and each value is
- * flattened onto its own line and bounded on its own.
+ * One annotation block: a fixed-order field list the model can parse without
+ * guessing.
+ *
+ * Each field group is its own small renderer so a missing field is simply an
+ * empty spread; the order (header, File, Revision, Lines, Quote, Selected,
+ * Before, After, Body, Attachments) is the parse contract.
  */
 function annotationBlock(
   record: ArtifactRecordV1,
@@ -171,34 +174,52 @@ function annotationBlock(
 ): string {
   const anchor = comment.type === 'create' ? comment.anchor : threadAnchor
   const path = anchor?.path ?? record.primaryPath
-  const file = record.files.find((entry) => entry.path === path)
-  const revision = comment.type === 'create' && comment.fileRevision !== undefined
-    ? comment.fileRevision
-    : file?.revision ?? record.revision
-  const lines = [
+  const quote = quoteOf(comment, anchor)
+  const attachments = attachmentsOf(comment)
+  return [
     `--- annotation ${comment.commentId} ---`,
     `File: ${oneLine(path, FILE_MAX_CHARS)}`,
-    `Revision: ${String(revision)}`,
+    `Revision: ${String(blockRevisionOf(record, comment, path))}`,
+    ...lineRangeFields(anchor),
+    ...singleLineField('Quote', quote),
+    ...selectedField(anchor),
+    ...contextFields(anchor),
+    `Body: ${oneLine(textOf(comment), BODY_MAX_CHARS)}`,
+    ...singleLineField('Attachments', attachments),
+  ].join('\n')
+}
+
+/** The revision one block reports: the comment's recorded one, else the file's. */
+function blockRevisionOf(record: ArtifactRecordV1, comment: CommentEventV1, path: string): number {
+  if (comment.type === 'create' && comment.fileRevision !== undefined) return comment.fileRevision
+  const file = record.files.find((entry) => entry.path === path)
+  return file?.revision ?? record.revision
+}
+
+/** The `Lines:` line of a line-range anchor, if the anchor has one. */
+function lineRangeFields(anchor: ArtifactAnchor | undefined): string[] {
+  if (anchor?.kind !== 'line-range') return []
+  return [`Lines: ${String(anchor.startLine)}-${String(anchor.endLine)}`]
+}
+
+/** One optional `Label: value` line, omitted for an empty or blank value. */
+function singleLineField(label: string, value: string): string[] {
+  return value === '' ? [] : [`${label}: ${value}`]
+}
+
+/** The `Selected:` line of a line-range anchor's sub-line selection. */
+function selectedField(anchor: ArtifactAnchor | undefined): string[] {
+  if (anchor?.kind !== 'line-range' || anchor.selectedText === undefined) return []
+  return singleLineField('Selected', oneLine(anchor.selectedText, CONTEXT_MAX_CHARS))
+}
+
+/** The `Before:`/`After:` lines of a line-range anchor. */
+function contextFields(anchor: ArtifactAnchor | undefined): string[] {
+  if (anchor?.kind !== 'line-range') return []
+  return [
+    ...singleLineField('Before', oneLine(anchor.contextBefore ?? '', CONTEXT_MAX_CHARS)),
+    ...singleLineField('After', oneLine(anchor.contextAfter ?? '', CONTEXT_MAX_CHARS)),
   ]
-  if (anchor?.kind === 'line-range') {
-    lines.push(`Lines: ${String(anchor.startLine)}-${String(anchor.endLine)}`)
-  }
-  const quote = quoteOf(comment, anchor)
-  if (quote !== '') lines.push(`Quote: ${quote}`)
-  if (anchor?.kind === 'line-range' && anchor.selectedText !== undefined) {
-    const selected = oneLine(anchor.selectedText, CONTEXT_MAX_CHARS)
-    if (selected !== '') lines.push(`Selected: ${selected}`)
-  }
-  if (anchor?.kind === 'line-range') {
-    const before = oneLine(anchor.contextBefore ?? '', CONTEXT_MAX_CHARS)
-    if (before !== '') lines.push(`Before: ${before}`)
-    const after = oneLine(anchor.contextAfter ?? '', CONTEXT_MAX_CHARS)
-    if (after !== '') lines.push(`After: ${after}`)
-  }
-  lines.push(`Body: ${oneLine(textOf(comment), BODY_MAX_CHARS)}`)
-  const attachments = attachmentsOf(comment)
-  if (attachments !== '') lines.push(`Attachments: ${attachments}`)
-  return lines.join('\n')
 }
 
 /**
@@ -306,6 +327,48 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Whether one agent carries the identity a registration needs. */
+function hasAgentIdentity(agent: AnnotationPromptAgent | undefined | null): agent is AnnotationPromptAgent {
+  return agent !== undefined && agent !== null && typeof agent.id === 'string' && agent.id.length > 0
+}
+
+/** Whether one agent belongs to a preset that receives the annotation rules. */
+function isAnnotationAgent(agent: AnnotationPromptAgent): boolean {
+  const preset = agent.session?.header?.agentPreset
+  return typeof preset === 'string' && COWORK_ANNOTATION_PRESETS.includes(preset)
+}
+
+/**
+ * Register the static section on one agent.
+ *
+ * A host refusal is logged and counted, never thrown: one bad agent must not
+ * stop plugin startup or the remaining agents.
+ */
+function registerAnnotationSection(
+  agent: AnnotationPromptAgent,
+  deps: AnnotationPromptDeps,
+  sectionDisposers: Array<() => void>,
+  registeredIds: string[],
+  duplicateAgents: Set<string>,
+): void {
+  try {
+    const releaseSection = agent.ctx.systemPrompt.section({
+      name: COWORK_ANNOTATION_SECTION,
+      order: COWORK_ANNOTATION_ORDER,
+      interpolate: false,
+      text: ANNOTATION_SECTION_TEXT,
+    })
+    if (typeof releaseSection !== 'function') {
+      throw new Error(`${COWORK_ANNOTATION_SECTION}: section() returned no disposer`)
+    }
+    sectionDisposers.push(releaseSection)
+    registeredIds.push(agent.id)
+  } catch (error) {
+    duplicateAgents.add(agent.id)
+    deps.log?.(`cowork: annotation section registration failed for agent ${agent.id}: ${describeError(error)}`)
+  }
+}
+
 /**
  * Register the annotation section for every current and future cowork-topic
  * agent.
@@ -361,30 +424,10 @@ export function registerAnnotationPrompt(
   }
 
   const tryRegister = (agent: AnnotationPromptAgent | undefined): void => {
-    if (disposed || agent === undefined || agent === null) return
-    if (typeof agent.id !== 'string' || agent.id.length === 0) return
-    if (attempted.has(agent.id)) return
-
-    const preset = agent.session?.header?.agentPreset
-    if (typeof preset !== 'string' || !COWORK_ANNOTATION_PRESETS.includes(preset)) return
-
+    if (disposed || !hasAgentIdentity(agent)) return
+    if (attempted.has(agent.id) || !isAnnotationAgent(agent)) return
     attempted.add(agent.id)
-    try {
-      const releaseSection = agent.ctx.systemPrompt.section({
-        name: COWORK_ANNOTATION_SECTION,
-        order: COWORK_ANNOTATION_ORDER,
-        interpolate: false,
-        text: ANNOTATION_SECTION_TEXT,
-      })
-      if (typeof releaseSection !== 'function') {
-        throw new Error(`${COWORK_ANNOTATION_SECTION}: section() returned no disposer`)
-      }
-      sectionDisposers.push(releaseSection)
-      registeredIds.push(agent.id)
-    } catch (error) {
-      duplicateAgents.add(agent.id)
-      deps.log?.(`cowork: annotation section registration failed for agent ${agent.id}: ${describeError(error)}`)
-    }
+    registerAnnotationSection(agent, deps, sectionDisposers, registeredIds, duplicateAgents)
   }
 
   unsubscribe = host.onAgentCreated((payload) => {
