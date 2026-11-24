@@ -1,6 +1,14 @@
 {
   "version": 1,
   "files": {
+    "src/client/annotation-node.tsx": {
+      "lineCoverage": 91,
+      "functionCoverage": 86
+    },
+    "src/client/annotation-styles.ts": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
+    },
     "src/client/contracts.ts": {
       "lineCoverage": 100,
       "functionCoverage": 100
@@ -21,6 +29,14 @@
       "lineCoverage": 95.89,
       "functionCoverage": 97.37
     },
+    "src/client/work-item/annotation-pop.tsx": {
+      "lineCoverage": 100,
+      "functionCoverage": 100
+    },
+    "src/client/work-item/attachment-preview.tsx": {
+      "lineCoverage": 95,
+      "functionCoverage": 90
+    },
     "src/client/work-item/comment-composer.tsx": {
       "lineCoverage": 100,
       "functionCoverage": 100
@@ -40,6 +56,10 @@
     "src/client/work-item/panel.tsx": {
       "lineCoverage": 95.16,
       "functionCoverage": 91.06
+    },
+    "src/client/work-item/rail.tsx": {
+      "lineCoverage": 95,
+      "functionCoverage": 94
     },
     "src/client/work-item/thread-card.tsx": {
       "lineCoverage": 91.75,

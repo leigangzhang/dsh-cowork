@@ -70,9 +70,5 @@ body[data-ds-dark-theme] .cwi-md-read ::selection { background: color-mix(in srg
 .cwi-md-pin-tip { display: none; position: absolute; right: 0; top: -23px; padding: 1px 5px; border-radius: 4px; background: var(--cwi-accent-soft); color: var(--cwi-accent); font-size: 9px; font-weight: 700; line-height: 16px; white-space: nowrap; }
 .cwi-md-pin:hover .cwi-md-pin-tip, .cwi-md-pin:focus-visible .cwi-md-pin-tip { display: block; }
 .cwi-md-thread-target { background: var(--cwi-accent-soft); box-shadow: inset 2px 0 0 var(--cwi-accent); }
-.cwi-md-selection { position: fixed; z-index: 10; display: flex; align-items: center; gap: 6px; height: 36px; padding: 4px 8px; border: 1px solid var(--cwi-border); border-radius: 10px; background: var(--cwi-surface); box-shadow: 0 8px 24px #10182829; }
-.cwi-md-selection-range { padding: 0 3px; color: var(--cwi-soft); font-size: 9px; font-weight: 600; line-height: 16px; white-space: nowrap; }
-.cwi-md-selection-button { height: 26px; padding: 0 12px; border-radius: 7px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
-.cwi-md-selection-button:focus-visible { outline: 2px solid var(--cwi-accent); outline-offset: 1px; }
 .cwi-md-html-block { margin: 0 0 15px; white-space: pre-wrap; font-family: var(--cwi-mono); font-size: 12.75px; line-height: 20px; color: var(--cwi-muted); }
 `

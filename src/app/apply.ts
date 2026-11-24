@@ -1,7 +1,7 @@
 /**
  * @dsh-external/dsh-cowork host plugin entry point.
  *
- * This module assembles the business surface — the panel API, the twenty-three
+ * This module assembles the business surface — the panel API, the twenty-six
  * cowork tools, the three presets, and the project-memory and annotation prompt
  * sections — and starts the opt-in dev surface when `Config.enableDevRoutes` is
  * true. The configuration schema and its one defaults table live in
@@ -316,7 +316,7 @@ export function apply(ctx: Context, config: Config): void {
       `${PLUGIN_NAME}: reviewer.reclaim must be '${CONFIG_DEFAULTS.reviewer.reclaim}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
     )
   }
-  // M1 assembly services: one dependency bag for the presets and the twenty-three tools.
+  // M1 assembly services: one dependency bag for the presets and the twenty-six tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: the dev surface canonicalizes its own copy, because
   // only it compares paths against a host session cwd.
@@ -487,7 +487,7 @@ export function apply(ctx: Context, config: Config): void {
     })
   }
 
-  // M1: the three runtime presets and the twenty-three cowork tools, owned by this fiber.
+  // M1: the three runtime presets and the twenty-six cowork tools, owned by this fiber.
   ctx.effect(() => registerPresets(coworkDeps.agentPresets).then((disposers) => async () => {
     for (const dispose of disposers) await dispose()
   }), 'dsh-cowork: cowork presets')
