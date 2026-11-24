@@ -393,7 +393,7 @@ test('apply registers the business surface and dispose releases every effect', a
     host.listeners.map((entry) => entry.name).sort(),
     ['agent/created', 'session/disposed', 'session/event', 'session/event'],
   )
-  assert.equal(host.tools.length, 25)
+  assert.equal(host.tools.length, 26)
   assert.equal(host.presets.length, 3)
   assert.equal(host.info.at(-1), `[${PLUGIN}] cowork tools, presets, and panel ready`)
 
@@ -462,7 +462,7 @@ test('enableDevRoutes adds the loopback health route only on request', async () 
   }
   // The business surface is unchanged by the dev gate; only the topic
   // lifecycle listener remains after the M12 event feed retired.
-  assert.equal(host.tools.length, 25)
+  assert.equal(host.tools.length, 26)
   assert.equal(host.listeners.filter((entry) => entry.name === 'session/event').length, 2)
 })
 
@@ -541,7 +541,7 @@ test('a programming failure in the repair pass is logged and never fails startup
   assert.ok(failure, 'the repair catch arm must be reported')
   assert.ok(failure.startsWith(`[${PLUGIN}] workspace repair failed: `), failure)
   // The rest of the assembly mounted despite the failed pass.
-  assert.equal(host.tools.length, 25)
+  assert.equal(host.tools.length, 26)
 })
 
 /* ------------------------------------------------------------------ */
@@ -556,7 +556,7 @@ test('a host without remoteExportList keeps the internal presets and logs the fa
   const fallback = host.warn.find((line) => line.includes('internal preset entries stay visible:'))
   assert.ok(fallback, 'the fail-open path must be reported')
   assert.match(fallback, /agentPresets\.remoteExportList is unavailable/)
-  assert.equal(host.tools.length, 25)
+  assert.equal(host.tools.length, 26)
   // The effect returned a usable disposer even though hiding failed.
   await disposeAll(host)
   assert.equal(host.tools.length, 0)
@@ -673,7 +673,7 @@ test('a duplicate memory section is skipped and reported once per agent', async 
       host.warn.some((line) => line.includes('memory section registration failed for agent agent-duplicate')),
       true,
     )
-    assert.equal(host.tools.length, 25)
+    assert.equal(host.tools.length, 26)
   })
 })
 
