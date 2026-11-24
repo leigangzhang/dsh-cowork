@@ -38,6 +38,7 @@ Class: feature
 - `attachmentCount` 的语义变了：新记录是「已发布附件数」，上传后未发布（浏览器没有 attach、也没有评论/回复引用）的字节不计数、不展示、读不到。旧记录没有 `attachments.jsonl` 时按评论引用派生出只读清单，不写盘、不做破坏性迁移；旧孤儿字节保持不可见，需要统一旧计数时另开显式对账迁移。
 - 新增第三个追加式 JSONL 日志 `attachments.jsonl`。它是发布清单、计数与「模型生成」来源的事实源，评论引用没有可靠的 `source`，所以不能只靠评论推导；若未来发布清单能完全由其他事实推导，可回退删除该文件。
 - `sourcePath` attach 不去重：同一文件重复 attach 会产生多行、多计数，直到 200 上限；调用方应对同一批产物只 attach 一次。
+- 孤儿 upload 的 200 条存储封顶在上传路由、`saveUpload` 写锁外检查：极端并发下同一工作项的上传可同时通过检查，短暂超出上限最多 N 条（N 为同时通过检查的请求数），后续上传或重试即按新计数恢复拒绝；已发布附件计数仍由锁内发布事务精确封顶。见 [attachment-pipeline.md](../../../../docs/design/work-item/attachment-pipeline.md) §7。
 - 类型白名单仍是图片四类与文本六类；SVG/HTML/PDF/DOCX、任意二进制与拒绝名单路径都被挡下。项目内相对图片仍不能预览（KI-64），模型必须 attach 后改用 `cowork-attachment://`。附件没有删除/重命名（KI-55），发布行只追加。
 - `cowork_artifact_attach` 是可选工具：模型可以不调用而只用 reply 引用已有附件，生成即展示是增强路径而非强制。keyless E2E 用脚本模型固定调用它来证明工具与路由链路；真实模型采用率只在观测性的 live lane（需要 `DEEPSEEK_API_KEY`，不产出发布证据）里可见，不在本决策证据内。
 - 浏览器 lane 的「模型生成」附件行来自 fixture 写入的发布清单，不是模型调用；脚本 provider 只回文本。因此模型生成 → 登记 → 展示的每一段都有证据，但整链由两段拼成：keyless E2E 证明工具与发布，浏览器 lane 证明展示与预览。
