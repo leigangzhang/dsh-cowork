@@ -5,13 +5,13 @@
   "catalogSha256": "144adca4bf0717fe5b35860f68f4b20616482e2c001eec7b0b09c8ce4bfe1b8c",
   "nodeVersion": "v22.22.1",
   "command": "npm run test:e2e -- --record",
-  "recordedAt": "2026-11-24T05:56:01.170Z",
+  "recordedAt": "2026-11-24T06:10:01.535Z",
   "result": "pass",
   "artifact": {
-    "head": "228df7a58c8d297947b328f73b01f61edd29a47f",
+    "head": "fc2a0991e593e57c0db1439a7220f108d072ab72",
     "dirty": false,
     "workingDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "tarballSha256": "1a781570cbfc1e2852790d5d8fb90b10b72b871a2a7707b82f8dbbe57a8c2c38"
+    "tarballSha256": "20fc483049d9bc614407e0869b550b797a4e6d2cd146600b286192334ff68fd4"
   },
   "scenarios": [
     {
@@ -68,59 +68,59 @@
           "passed": true
         },
         {
-          "name": "session session-4d2545d7-e… runs in the fixture",
+          "name": "session session-1b39682d-b… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-4d2545d7-e… is not running",
+          "name": "session session-1b39682d-b… is not running",
           "passed": true
         },
         {
-          "name": "session session-d6a43e07-c… runs in the fixture",
+          "name": "session session-cd877268-0… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-d6a43e07-c… is not running",
+          "name": "session session-cd877268-0… is not running",
           "passed": true
         },
         {
-          "name": "session session-7546642c-0… runs in the fixture",
+          "name": "session session-374069c5-5… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-7546642c-0… is not running",
+          "name": "session session-374069c5-5… is not running",
           "passed": true
         },
         {
-          "name": "session session-6bc56ce4-a… runs in the fixture",
+          "name": "session session-f1336850-d… runs in the fixture",
           "passed": true
         },
         {
-          "name": "session session-6bc56ce4-a… is not running",
+          "name": "session session-f1336850-d… is not running",
           "passed": true
         },
         {
-          "name": "topic session-d6a43e07-c… is a real session",
+          "name": "topic session-cd877268-0… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-d6a43e07-c… mounted cowork-topic",
+          "name": "topic session-cd877268-0… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-7546642c-0… is a real session",
+          "name": "topic session-374069c5-5… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-7546642c-0… mounted cowork-topic",
+          "name": "topic session-374069c5-5… mounted cowork-topic",
           "passed": true
         },
         {
-          "name": "topic session-6bc56ce4-a… is a real session",
+          "name": "topic session-f1336850-d… is a real session",
           "passed": true
         },
         {
-          "name": "topic session-6bc56ce4-a… mounted cowork-topic",
+          "name": "topic session-f1336850-d… mounted cowork-topic",
           "passed": true
         },
         {
