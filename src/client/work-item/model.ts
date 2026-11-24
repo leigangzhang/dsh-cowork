@@ -25,6 +25,7 @@ import {
   type ArtifactStatus,
   type ArtifactSummaryV1,
   type ArtifactType,
+  type AttachmentPublishV1,
   type CommentEventV1,
   type DispatchState,
 } from '../../panel/artifact-contract.js'
@@ -445,8 +446,72 @@ function commentAttachments(event: CommentEventV1): AttachmentRefV1[] {
 }
 
 /** Every attachment carried by the folded threads, in display order. */
-export function attachmentRowsOf(threads: readonly WorkItemThread[]): AttachmentRefV1[] {
+function attachmentRowsOf(threads: readonly WorkItemThread[]): AttachmentRefV1[] {
   return threads.flatMap((thread) => thread.comments.flatMap(commentAttachments))
+}
+
+/** Empty copy of the attachment page. */
+export const ATTACHMENT_EMPTY_TEXT = '还没有附件。在批注或回复里添加图片或文本文件。'
+
+/** Row state when the stored bytes are gone. */
+export const ATTACHMENT_MISSING_TEXT = '附件已缺失'
+
+/** Text badge that marks a model-published attachment. */
+export const MODEL_ATTACHMENT_LABEL = '模型生成'
+
+/** One attachment the page or a thread renders, with its publication source. */
+export interface AttachmentDisplayRow {
+  readonly attachmentId: string
+  readonly name: string
+  readonly mediaType: string
+  readonly size: number
+  /** `model` only for `cowork_artifact_attach`; browser uploads are `user`. */
+  readonly source: 'user' | 'model'
+}
+
+/**
+ * The attachment page's rows.
+ *
+ * The published log (`detail.publishedAttachments`) is the source of truth; a
+ * host that does not maintain it (older records) falls back to the refs the
+ * comments carry, which predate the publish log and cannot be model-flagged.
+ * @param published - detail.publishedAttachments, or null/undefined when the
+ * host did not send it.
+ * @param threads - folded threads, used only for the fallback.
+ * @returns rows in publish/comment order with a source for the badge.
+ */
+export function attachmentDisplayRows(
+  published: readonly AttachmentPublishV1[] | null | undefined,
+  threads: readonly WorkItemThread[],
+): AttachmentDisplayRow[] {
+  if (published !== null && published !== undefined) {
+    return published.map((entry) => ({
+      attachmentId: entry.attachmentId,
+      name: entry.name,
+      mediaType: entry.mediaType,
+      size: entry.size,
+      source: entry.source,
+    }))
+  }
+  return attachmentRowsOf(threads).map((entry) => ({ ...entry, source: 'user' }))
+}
+
+/** Where a composer attachment came from. */
+export type AttachmentAttachSource = 'paste' | 'picker'
+
+/**
+ * Upload options for one composer source.
+ *
+ * A pasted image publishes right after upload so an abandoned draft cannot
+ * leave it orphaned; a picked file waits for the comment's publish path.
+ */
+export function attachOptionsFor(source: AttachmentAttachSource): { readonly publish: boolean } {
+  return { publish: source === 'paste' }
+}
+
+/** The badge text one attachment source shows, or null for a user upload. */
+export function attachmentSourceBadge(source: 'user' | 'model'): string | null {
+  return source === 'model' ? MODEL_ATTACHMENT_LABEL : null
 }
 
 /** The thread a line's pin numbers, or null when the line has no pin. */
@@ -1014,10 +1079,15 @@ export function markdownLines(lines: readonly string[]): ReadLine[] {
   })
 }
 
-/** Session title and kept snapshots carried by the detail response. */
+/** Session title, kept snapshots, and publish log carried by the detail response. */
 export interface DetailMeta {
   readonly sessionTitle: string | null
   readonly revisions: readonly number[]
+  /**
+   * Published attachments in publish order; null when this host/record predates
+   * `attachments.jsonl` and the page must fall back to comment refs.
+   */
+  readonly publishedAttachments: readonly AttachmentPublishV1[] | null
 }
 
 /**
@@ -1027,12 +1097,13 @@ export interface DetailMeta {
  * @returns normalized title and snapshot list.
  */
 export function detailMeta(
-  detail: Pick<ArtifactDetailResponse, 'sessionTitle' | 'revisions'>,
+  detail: Pick<ArtifactDetailResponse, 'sessionTitle' | 'revisions' | 'publishedAttachments'>,
   fallback?: DetailMeta,
 ): DetailMeta {
   return {
     sessionTitle: detail.sessionTitle ?? fallback?.sessionTitle ?? null,
     revisions: detail.revisions ?? fallback?.revisions ?? [],
+    publishedAttachments: detail.publishedAttachments ?? fallback?.publishedAttachments ?? null,
   }
 }
 

@@ -16,6 +16,7 @@ import {
   ARTIFACT_EDIT_PATH,
   ARTIFACT_FILE_PATH,
   ARTIFACT_ATTACHMENT_PATH,
+  ARTIFACT_ATTACH_PATH,
   ARTIFACT_LIST_PATH,
   ARTIFACT_OPEN_PATH,
   ARTIFACT_PRESENCE_PATH,
@@ -23,6 +24,7 @@ import {
   ARTIFACT_UPLOAD_PATH,
   ARTIFACT_STATUS_PATH,
   type ArtifactAnchor,
+  type ArtifactAttachResponse,
   type ArtifactDispatchRetryResponse,
   type ArtifactCommentResolveResponse,
   type ArtifactCommentResponse,
@@ -65,6 +67,15 @@ export interface CommentInput {
   /** Existing root comment being replied to; replies inherit its anchor. */
   readonly threadId?: string
   readonly attachments?: readonly AttachmentRefV1[]
+}
+
+/** One browser publish of an already-stored upload. */
+export interface AttachArtifactInput {
+  readonly sessionId: string
+  readonly artifactId: string
+  readonly attachmentId: string
+  /** The caller's copy of the name; the route re-derives it from the bytes. */
+  readonly name: string
 }
 
 /** One attachment upload. */
@@ -174,6 +185,8 @@ export interface WorkItemApi {
   edit(input: EditInput): Promise<ArtifactEditResponse>
   presence(input: PresenceInput): Promise<ArtifactPresenceResponse>
   upload(input: UploadInput): Promise<ArtifactUploadResponse>
+  /** Publish one stored upload so it leaves the orphan state and counts. */
+  attachArtifact(input: AttachArtifactInput): Promise<ArtifactAttachResponse>
   /** Rebind a registered file that moved; the old path must still be registered. */
   rebind(input: RebindInput): Promise<ArtifactRebindResult>
   /** Same-origin URL of one stored attachment, for an `<img>` or a download link. */
@@ -306,6 +319,15 @@ export function createWorkItemApi(fetchImpl: FetchLike = (input, init) => fetch(
     },
     async presence(input) {
       return post<ArtifactPresenceResponse>(ARTIFACT_PRESENCE_PATH, input)
+    },
+    async attachArtifact(input) {
+      // The route publishes the stored bytes; name stays a caller-side display
+      // value and is never trusted over the upload's own metadata.
+      return post<ArtifactAttachResponse>(ARTIFACT_ATTACH_PATH, {
+        sessionId: input.sessionId,
+        artifactId: input.artifactId,
+        attachmentId: input.attachmentId,
+      })
     },
     async upload(input) {
       const response = await fetchImpl(withQuery(ARTIFACT_UPLOAD_PATH, {

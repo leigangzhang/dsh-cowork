@@ -525,15 +525,23 @@ test('baseName keeps the last path segment', () => {
 })
 
 test('detailMeta normalizes optional fields and keeps the previous values', () => {
-  assert.deepEqual(model.detailMeta({ sessionTitle: '主题', revisions: [3, 2] }), {
-    sessionTitle: '主题',
-    revisions: [3, 2],
+  assert.deepEqual(
+    model.detailMeta({ sessionTitle: '主题', revisions: [3, 2], publishedAttachments: [] }),
+    { sessionTitle: '主题', revisions: [3, 2], publishedAttachments: [] },
+  )
+  const previous = { sessionTitle: '旧标题', revisions: [1], publishedAttachments: null }
+  assert.deepEqual(model.detailMeta({}, previous), previous)
+  assert.deepEqual(model.detailMeta({}, undefined), {
+    sessionTitle: null,
+    revisions: [],
+    publishedAttachments: null,
   })
-  assert.deepEqual(model.detailMeta({}, { sessionTitle: '旧标题', revisions: [1] }), {
-    sessionTitle: '旧标题',
-    revisions: [1],
-  })
-  assert.deepEqual(model.detailMeta({}, undefined), { sessionTitle: null, revisions: [] })
+  // A fresh publish log replaces the previous one; an absent one keeps it.
+  const published = [{ attachmentId: 'a1' }]
+  assert.deepEqual(
+    model.detailMeta({ publishedAttachments: published }, previous).publishedAttachments,
+    published,
+  )
 })
 
 test('viewerTabs labels counts only when present', () => {
@@ -798,11 +806,47 @@ test('line ranges, stale ranges, attachments, and pins fold from the threads', (
   ])
   assert.deepEqual([...model.anchoredLineNumbers(threads)].sort((left, right) => left - right), [2, 3, 5])
   assert.deepEqual([...model.staleLineNumbers(threads)], [5])
-  assert.deepEqual(model.attachmentRowsOf(threads).map((row) => row.attachmentId), ['a1'])
+  assert.deepEqual(model.attachmentDisplayRows(null, threads).map((row) => row.attachmentId), ['a1'])
   const pins = model.threadLinePins(threads)
   assert.equal(model.pinThread(pins, threads, 2), threads[0])
   assert.equal(model.pinThread(pins, threads, 99), null)
   assert.equal(model.pinThread(new Map(), threads, 2), null)
+})
+
+test('only a pasted image publishes before the comment exists', () => {
+  assert.deepEqual(model.attachOptionsFor('paste'), { publish: true })
+  assert.deepEqual(model.attachOptionsFor('picker'), { publish: false })
+})
+
+test('the attachment page prefers the publish log and falls back to comment refs', () => {
+  const threads = model.foldThreads([
+    comment({ commentId: 'c1', threadId: 'c1', eventId: 'e1', body: 'hello' }),
+    comment({
+      commentId: 'c1',
+      threadId: 'c1',
+      eventId: 'e2',
+      type: 'reply',
+      body: 'reply',
+      attachments: [{ attachmentId: 'a1', name: 'x.png', mediaType: 'image/png', size: 1, sha256: 'x' }],
+    }),
+  ])
+  const published = [
+    { version: 1, attachmentId: 'a1', name: 'x.png', mediaType: 'image/png', size: 1, sha256: 'x', source: 'user', publishedAt: '2026-01-01T00:00:00.000Z' },
+    { version: 1, attachmentId: 'a2', name: 'chart.png', mediaType: 'image/png', size: 2, sha256: 'y', source: 'model', publishedAt: '2026-01-01T00:00:01.000Z' },
+  ]
+  assert.deepEqual(model.attachmentDisplayRows(published, threads).map((row) => [row.attachmentId, row.source]), [
+    ['a1', 'user'],
+    ['a2', 'model'],
+  ])
+  // Older hosts omit publishedAttachments: the comment refs are shown as user uploads.
+  assert.deepEqual(model.attachmentDisplayRows(null, threads).map((row) => [row.attachmentId, row.source]), [
+    ['a1', 'user'],
+  ])
+  assert.deepEqual(model.attachmentDisplayRows(undefined, threads).map((row) => row.attachmentId), ['a1'])
+  assert.equal(model.attachmentSourceBadge('model'), '模型生成')
+  assert.equal(model.attachmentSourceBadge('user'), null)
+  assert.equal(model.ATTACHMENT_EMPTY_TEXT, '还没有附件。在批注或回复里添加图片或文本文件。')
+  assert.equal(model.ATTACHMENT_MISSING_TEXT, '附件已缺失')
 })
 
 test('rebindOldPath prefers the registered primary entry and falls back to primaryPath', () => {

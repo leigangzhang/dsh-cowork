@@ -13,6 +13,7 @@ import type { ArtifactDispatchSummary, CommentEventV1 } from '../../panel/artifa
 import {
   anchorLabel,
   anchorStatusLabel,
+  attachmentSourceBadge,
   commentAuthor,
   commentBody,
   dispatchDetailLabel,
@@ -22,6 +23,7 @@ import {
   isRetryableDispatch,
   type WorkItemThread,
 } from './model.ts'
+import { useAttachmentPreview } from './attachment-preview.tsx'
 
 /** Props of one thread card. */
 export interface ThreadCardProps {
@@ -76,36 +78,63 @@ function Avatar({ event }: { readonly event: ThreadComment }): ReactElement {
   )
 }
 
-/** Attachments carried by one comment, as a thumbnail or a download link. */
+/**
+ * Attachments carried by one comment, as a thumbnail or a download link.
+ *
+ * A model-authored comment marks each of its attachments with the 模型生成
+ * badge; the button opens the same preview overlay as the attachment page.
+ */
 function Attachments({ event, attachmentUrl }: {
   readonly event: ThreadComment
   readonly attachmentUrl: (attachmentId: string) => string
 }): ReactElement | null {
+  const preview = useAttachmentPreview()
   const attachments = event.attachments ?? []
   if (attachments.length === 0) return null
+  const source = event.author === 'model' ? 'model' : 'user'
+  const badge = attachmentSourceBadge(source)
   return (
     <div className="cwi-attachments">
-      {attachments.map((attachment) => (attachment.mediaType.startsWith('image/')
-        ? (
-            <img
-              key={attachment.attachmentId}
-              className="cwi-attachment-thumb"
-              data-testid="cwi-attachment-thumb"
-              src={attachmentUrl(attachment.attachmentId)}
-              alt={attachment.name}
-            />
-          )
-        : (
-            <a
-              key={attachment.attachmentId}
-              className="cwi-attachment-link"
-              data-testid="cwi-attachment-link"
-              href={attachmentUrl(attachment.attachmentId)}
-              download={attachment.name}
-            >
-              {attachment.name}
-            </a>
-          )))}
+      {attachments.map((attachment) => (
+        <span key={attachment.attachmentId} className="cwi-attachment-item">
+          {attachment.mediaType.startsWith('image/')
+            ? (
+                <button
+                  type="button"
+                  className="cwi-attachment-open"
+                  data-testid="cwi-attachment-preview"
+                  aria-label={`预览 ${attachment.name}`}
+                  onClick={() => {
+                    preview?.open({
+                      attachmentId: attachment.attachmentId,
+                      name: attachment.name,
+                      mediaType: attachment.mediaType,
+                      size: attachment.size,
+                      source,
+                    })
+                  }}
+                >
+                  <img
+                    className="cwi-attachment-thumb"
+                    data-testid="cwi-attachment-thumb"
+                    src={attachmentUrl(attachment.attachmentId)}
+                    alt={attachment.name}
+                  />
+                </button>
+              )
+            : (
+                <a
+                  className="cwi-attachment-link"
+                  data-testid="cwi-attachment-link"
+                  href={attachmentUrl(attachment.attachmentId)}
+                  download={attachment.name}
+                >
+                  {attachment.name}
+                </a>
+              )}
+          {badge === null ? null : <span className="cwi-attachment-model" data-testid="cwi-attachment-model">{badge}</span>}
+        </span>
+      ))}
       {attachments.map((attachment) => (
         <span key={`${attachment.attachmentId}-meta`} className="cwi-thread-meta" data-testid="cwi-attachment-meta">
           {attachment.name} · {attachment.mediaType} · {formatBytes(attachment.size)}
