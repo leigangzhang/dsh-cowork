@@ -24,12 +24,12 @@ import {
   ARTIFACT_COMMENTS_PATH,
   ARTIFACT_COMMENTS_DEFAULT_LIMIT,
   ARTIFACT_COMMENTS_MAX_LIMIT,
+  ARTIFACT_ATTACH_PATH,
   ARTIFACT_ATTACHMENT_PATH,
   ARTIFACT_DETAIL_PATH,
   ARTIFACT_EDIT_PATH,
   ARTIFACT_EVENTS_PATH,
   ARTIFACT_FILE_PATH,
-  ARTIFACT_LIST_MAX_LIMIT,
   ARTIFACT_LIST_PATH,
   ARTIFACT_OPEN_PATH,
   ARTIFACT_OPEN_UNSUPPORTED_CODE,
@@ -38,6 +38,7 @@ import {
   ARTIFACT_STATUS_PATH,
   ARTIFACT_UPLOAD_PATH,
   MAX_ARTIFACT_ATTACHMENT_BYTES,
+  MAX_ARTIFACT_ATTACHMENT_NAME_CHARS,
   MAX_ARTIFACT_ATTACHMENTS,
   MAX_ARTIFACT_ATTACHMENTS_PER_COMMENT,
   MAX_ARTIFACT_COMMENT_CHARS,
@@ -45,11 +46,8 @@ import {
   MAX_ARTIFACT_TEXT_BYTES,
   MAX_ARTIFACT_TEXT_LINES,
   MAX_PRESENCE_RANGES,
-  addArtifactToCounts,
-  artifactSummaryOf,
-  emptyArtifactCounts,
-  isArtifactStatus,
   type ArtifactAnchor,
+  type ArtifactAttachResponse,
   type ArtifactCommentResponse,
   type ArtifactCommentResolveResponse,
   type ArtifactCommentsResponse,
@@ -58,7 +56,6 @@ import {
   type ArtifactEventV1,
   type ArtifactFileResponse,
   type ArtifactOpenResponse,
-  type ArtifactListResponse,
   type ArtifactPresenceResponse,
   type ArtifactRecordV1,
   type ArtifactDispatchError,
@@ -70,13 +67,24 @@ import {
   type CommentEventV1,
   type DispatchRecordV1,
 } from './artifact-contract.js'
-import type { ArtifactRuntime } from '../platform/artifact-runtime.js'
+import {
+  attachmentRefOf,
+  publishAttachmentUnlocked,
+  publishedAttachmentsOf,
+  type ArtifactRuntime,
+} from '../platform/artifact-runtime.js'
 import { createEventRow, parseLastEventId, openArtifactEventStream } from '../platform/artifact-events.js'
 import { ArtifactDomainError } from '../domains/artifact/errors.js'
 import { parseArtifactAnchor, deriveLineAnchor } from '../domains/artifact/anchor.js'
 import { isTextMediaType } from '../domains/artifact/paths.js'
 import { sha256Hex, sha256HexBytes } from '../platform/artifact-files.js'
-import { attachmentMediaType, isUtf8, sniffImageMediaType } from '../domains/artifact/attachments.js'
+import {
+  attachmentMediaType,
+  isUtf8,
+  publishedAttachmentMediaType,
+  sanitizeAttachmentName,
+  sniffImageMediaType,
+} from '../domains/artifact/attachments.js'
 import { parseAttachmentRef } from '../store/artifact-schema.js'
 import { applyCommentEvent, applyStatusAction } from '../domains/artifact/state.js'
 import type { ArtifactStatusAction } from '../domains/artifact/state.js'
@@ -96,6 +104,7 @@ import {
   requireQuery,
 } from './artifact-records.js'
 import { handleRebind } from './artifact-rebind.js'
+import { handleList } from './artifact-list-api.js'
 
 // The route plumbing types used to live here; they are re-exported so existing
 // importers (the panel assembly) keep one stable import site.
@@ -105,38 +114,6 @@ export { reconcileRecord } from './artifact-records.js'
 
 /** Recent delivery batches the detail response carries. */
 const DISPATCH_SUMMARY_LIMIT = 50
-
-/** `GET /api/cowork.artifact.list` — the right-rail list and its counts. */
-async function handleList(
-  request: Request,
-  ports: ArtifactApiPorts,
-  kit: ArtifactRouteKit,
-): Promise<Response> {
-  const sessionId = requireQuery(request, 'sessionId', kit, 'request/session-required')
-  const status = queryParam(request, 'status')
-  if (status !== null && !isArtifactStatus(status)) {
-    throw kit.fail('request/invalid-query', `unknown artifact status: ${status}`)
-  }
-  const opened = await kit.openProject(sessionId)
-  const runtime = ports.runtimeFor(opened.repoPath)
-  const scan = await runtime.store.listRecords(ARTIFACT_LIST_MAX_LIMIT)
-  for (const artifactId of scan.corrupt) {
-    ports.log?.(`artifact list: skipping unreadable work item ${artifactId}`)
-  }
-  const projectRecords = scan.records.filter((record) => record.projectId === opened.projectId)
-  let counts = emptyArtifactCounts()
-  for (const record of projectRecords) counts = addArtifactToCounts(counts, record.status)
-  const items = projectRecords
-    .filter((record) => status === null || record.status === status)
-    .map((record) => artifactSummaryOf(record))
-  const response: ArtifactListResponse = {
-    ok: true,
-    items,
-    counts,
-    truncated: scan.total > scan.records.length,
-  }
-  return kit.jsonResponse(200, response)
-}
 
 /**
  * The owning session's title for the viewer breadcrumb.
@@ -217,9 +194,10 @@ async function handleDetail(
     errorCode: dispatch.errorCode,
     updatedAt: dispatch.updatedAt,
   }))
-  const [sessionTitle, revisions] = await Promise.all([
+  const [sessionTitle, revisions, publishedAttachments] = await Promise.all([
     sessionTitleOf(ports, record.ownerSessionId),
     revisionsOf(ports, runtime, artifactId),
+    publishedAttachmentsOf(runtime, artifactId),
   ])
   const response: ArtifactDetailResponse = {
     ok: true,
@@ -228,6 +206,7 @@ async function handleDetail(
     dispatches,
     sessionTitle,
     revisions,
+    publishedAttachments,
   }
   return kit.jsonResponse(200, response)
 }
@@ -384,6 +363,173 @@ async function commentAnchor(
   return { anchor, fileRevision: file.revision }
 }
 
+/** The validated parts of one comment/reply request body. */
+interface CommentRequestParts {
+  readonly text: string
+  readonly wantsDispatch: boolean
+  readonly threadId: string | null
+}
+
+/** Read and validate the optional reply thread id. */
+function replyThreadIdOf(body: Record<string, unknown>, kit: ArtifactRouteKit): string | null {
+  if (body.threadId === undefined) return null
+  if (typeof body.threadId !== 'string' || body.threadId === '') {
+    throw kit.fail('request/invalid-body', 'body field threadId must be a non-empty string')
+  }
+  if (body.anchor !== undefined) {
+    throw kit.fail('request/invalid-body', 'a reply inherits its thread anchor; do not send anchor')
+  }
+  return body.threadId
+}
+
+/** Read and validate the body fields every comment/reply shares. */
+function commentRequestOf(body: Record<string, unknown>, kit: ArtifactRouteKit): CommentRequestParts {
+  const text = requireBodyString(body, 'body', kit)
+  if (text.length > MAX_ARTIFACT_COMMENT_CHARS) {
+    throw kit.fail('request/invalid-body', `body must be at most ${MAX_ARTIFACT_COMMENT_CHARS} characters`)
+  }
+  const wantsDispatch = body.dispatch === undefined ? true : body.dispatch === true
+  return { text, wantsDispatch, threadId: replyThreadIdOf(body, kit) }
+}
+
+/** Reject a reply whose root thread does not exist. */
+async function assertReplyThread(runtime: ArtifactRuntime, artifactId: string, threadId: string): Promise<void> {
+  const comments = await runtime.store.readComments(artifactId)
+  if (!comments.some((event) => event.type === 'create' && event.commentId === threadId)) {
+    throw new ArtifactDomainError('artifact/not-found', `unknown comment thread: ${threadId}`, threadId)
+  }
+}
+
+/** The optional anchor fields one created comment records. */
+function anchorFieldsOf(anchorResult: { anchor: ArtifactAnchor; fileRevision: number | null } | null): {
+  anchor?: ArtifactAnchor
+  fileRevision?: number
+} {
+  if (anchorResult === null) return {}
+  return {
+    anchor: anchorResult.anchor,
+    ...(anchorResult.fileRevision === null ? {} : { fileRevision: anchorResult.fileRevision }),
+  }
+}
+
+/** The comment event one request appends. */
+function commentEventOf(input: {
+  readonly artifactId: string
+  readonly commentId: string
+  readonly threadId: string | null
+  readonly text: string
+  readonly anchorResult: { anchor: ArtifactAnchor; fileRevision: number | null } | null
+  readonly attachments: readonly AttachmentRefV1[]
+  readonly now: Date
+}): CommentEventV1 {
+  return {
+    version: ARTIFACT_COMMENT_VERSION,
+    eventId: `comment-event-${randomUUID()}`,
+    artifactId: input.artifactId,
+    commentId: input.commentId,
+    threadId: input.threadId ?? input.commentId,
+    type: input.threadId === null ? 'create' : 'reply',
+    author: 'user',
+    body: input.text,
+    createdAt: input.now.toISOString(),
+    ...anchorFieldsOf(input.anchorResult),
+    ...(input.attachments.length === 0 ? {} : { attachments: input.attachments }),
+  }
+}
+
+/** Publish the attachments one comment references, inside its transaction. */
+async function publishCommentAttachments(
+  runtime: ArtifactRuntime,
+  artifactId: string,
+  attachments: readonly AttachmentRefV1[],
+  now: Date,
+): Promise<ArtifactEventV1[]> {
+  const events: ArtifactEventV1[] = []
+  for (const attachment of attachments) {
+    const outcome = await publishAttachmentUnlocked(runtime, { artifactId, attachment, source: 'user', now })
+    if (outcome.event !== null) events.push(outcome.event)
+  }
+  return events
+}
+
+/** Append the comment's own `comment.created`/`reply.created` event. */
+function appendCommentCreated(runtime: ArtifactRuntime, event: CommentEventV1, now: Date): Promise<ArtifactEventV1> {
+  const type = event.type === 'create' ? 'comment.created' : 'reply.created'
+  return runtime.store.appendEventUnlocked(
+    createEventRow(event.artifactId, type, now, { commentId: event.commentId }),
+  )
+}
+
+/** Commit the comment, its attachment publishes, and its events as one lock. */
+async function commitComment(
+  runtime: ArtifactRuntime,
+  event: CommentEventV1,
+  attachments: readonly AttachmentRefV1[],
+  now: Date,
+): Promise<{ record: ArtifactRecordV1; events: ArtifactEventV1[] }> {
+  const { artifactId } = event
+  return runtime.store.withLock(async () => {
+    const current = await runtime.store.readRecord(artifactId)
+    if (current !== null && current.commentCount >= MAX_ARTIFACT_COMMENTS) {
+      throw new ArtifactDomainError('artifact/comment-limit', `work item already holds ${String(MAX_ARTIFACT_COMMENTS)} comments`)
+    }
+    // Referencing a stored upload publishes it in this same transaction: the
+    // comment and the attachment list never disagree, and a re-reference of an
+    // already-published id stays a no-op.
+    const publishEvents = await publishCommentAttachments(runtime, artifactId, attachments, now)
+    await runtime.store.appendCommentUnlocked(event)
+    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (open) =>
+      applyCommentEvent(open, event, now).record)
+    const events = [
+      ...publishEvents,
+      await appendCommentCreated(runtime, event, now),
+      await runtime.store.appendEventUnlocked(
+        createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
+      ),
+    ]
+    return { record: saved, events }
+  })
+}
+
+/** Queue the dispatched batch; a full queue is a visible failure, not a lost comment. */
+async function enqueueCommentDispatch(
+  runtime: ArtifactRuntime,
+  record: ArtifactRecordV1,
+  commentId: string,
+  event: CommentEventV1,
+  wantsDispatch: boolean,
+  ports: ArtifactApiPorts,
+): Promise<{ dispatch: DispatchRecordV1 | null; dispatchError: ArtifactDispatchError | null }> {
+  if (!wantsDispatch || runtime.dispatch === null) return { dispatch: null, dispatchError: null }
+  try {
+    const dispatch = await runtime.dispatch.enqueue({ record, commentIds: [commentId], comments: [event] })
+    return { dispatch, dispatchError: null }
+  } catch (error) {
+    const code = error instanceof ArtifactDomainError ? error.code : 'artifact/dispatch-unavailable'
+    const dispatchError = { code, message: error instanceof Error ? error.message : String(error) }
+    ports.log?.(`artifact comment: dispatch not queued: ${dispatchError.message}`)
+    return { dispatch: null, dispatchError }
+  }
+}
+
+/** The comment route's response body, including the queued dispatch when present. */
+function commentResponseOf(
+  event: CommentEventV1,
+  parts: { dispatch: DispatchRecordV1 | null; dispatchError: ArtifactDispatchError | null },
+  record: ArtifactRecordV1,
+): ArtifactCommentResponse {
+  const { dispatch, dispatchError } = parts
+  return {
+    ok: true,
+    comment: event,
+    dispatch,
+    dispatchError,
+    record: dispatch === null
+      ? record
+      : { ...record, activeDispatch: { dispatchId: dispatch.dispatchId, state: dispatch.state, updatedAt: dispatch.updatedAt } },
+  }
+}
+
 /** `POST /api/cowork.artifact.comment` — append one comment (or reply). */
 async function handleComment(
   request: Request,
@@ -391,95 +537,27 @@ async function handleComment(
   kit: ArtifactRouteKit,
 ): Promise<Response> {
   const body = await kit.readJsonBody(request)
-  const text = requireBodyString(body, 'body', kit)
-  if (text.length > MAX_ARTIFACT_COMMENT_CHARS) {
-    throw kit.fail('request/invalid-body', `body must be at most ${MAX_ARTIFACT_COMMENT_CHARS} characters`)
-  }
-  const wantsDispatch = body.dispatch === undefined ? true : body.dispatch === true
-  let rootThreadId: string | null = null
-  if (body.threadId !== undefined) {
-    if (typeof body.threadId !== 'string' || body.threadId === '') {
-      throw kit.fail('request/invalid-body', 'body field threadId must be a non-empty string')
-    }
-    if (body.anchor !== undefined) {
-      throw kit.fail('request/invalid-body', 'a reply inherits its thread anchor; do not send anchor')
-    }
-    rootThreadId = body.threadId
-  }
+  const parts = commentRequestOf(body, kit)
   const { record, runtime } = await openRecordFromBody(ports, kit, body)
   const artifactId = record.artifactId
   const now = nowOf(ports)
-  if (rootThreadId !== null) {
-    const comments = await runtime.store.readComments(artifactId)
-    if (!comments.some((event) => event.type === 'create' && event.commentId === rootThreadId)) {
-      throw new ArtifactDomainError('artifact/not-found', `unknown comment thread: ${rootThreadId}`, rootThreadId)
-    }
-  }
-  const anchorResult = rootThreadId === null ? await commentAnchor(runtime, record, body.anchor) : null
+  if (parts.threadId !== null) await assertReplyThread(runtime, artifactId, parts.threadId)
+  const anchorResult = parts.threadId === null ? await commentAnchor(runtime, record, body.anchor) : null
   const attachments = await commentAttachments(runtime, record, body.attachments, kit)
   const commentId = `comment-${randomUUID()}`
-  const event: CommentEventV1 = {
-    version: ARTIFACT_COMMENT_VERSION,
-    eventId: `comment-event-${randomUUID()}`,
+  const event = commentEventOf({
     artifactId,
     commentId,
-    threadId: rootThreadId ?? commentId,
-    type: rootThreadId === null ? 'create' : 'reply',
-    author: 'user',
-    body: text,
-    createdAt: now.toISOString(),
-    ...(anchorResult === null
-      ? {}
-      : { anchor: anchorResult.anchor, ...(anchorResult.fileRevision === null ? {} : { fileRevision: anchorResult.fileRevision }) }),
-    ...(attachments.length === 0 ? {} : { attachments }),
-  }
-  const result = await runtime.store.withLock(async () => {
-    const current = await runtime.store.readRecord(artifactId)
-    if (current !== null && current.commentCount >= MAX_ARTIFACT_COMMENTS) {
-      throw new ArtifactDomainError('artifact/comment-limit', `work item already holds ${String(MAX_ARTIFACT_COMMENTS)} comments`)
-    }
-    await runtime.store.appendCommentUnlocked(event)
-    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => {
-      // An upload already counted when it was stored; attaching the ref must
-      // not count the same bytes again.
-      return applyCommentEvent(current, event, now).record
-    })
-    const events = [
-      await runtime.store.appendEventUnlocked(createEventRow(artifactId, rootThreadId === null ? 'comment.created' : 'reply.created', now, { commentId })),
-      await runtime.store.appendEventUnlocked(
-        createEventRow(artifactId, 'artifact.updated', now, { revision: saved.revision }),
-      ),
-    ]
-    return { record: saved, events }
+    threadId: parts.threadId,
+    text: parts.text,
+    anchorResult,
+    attachments,
+    now,
   })
+  const result = await commitComment(runtime, event, attachments, now)
   publishAll(runtime, result.events)
-  let dispatch: DispatchRecordV1 | null = null
-  let dispatchError: ArtifactDispatchError | null = null
-  if (wantsDispatch && runtime.dispatch !== null) {
-    try {
-      dispatch = await runtime.dispatch.enqueue({
-        record: result.record,
-        commentIds: [commentId],
-        comments: [event],
-      })
-    } catch (error) {
-      // The comment is committed; a full queue is a visible delivery failure,
-      // not a reason to lose the user's annotation.
-      const code = error instanceof ArtifactDomainError ? error.code : 'artifact/dispatch-unavailable'
-      dispatchError = { code, message: error instanceof Error ? error.message : String(error) }
-      ports.log?.(`artifact comment: dispatch not queued: ${dispatchError.message}`)
-    }
-  }
-  const response: ArtifactCommentResponse = {
-    ok: true,
-    comment: event,
-    dispatch,
-    dispatchError,
-    record: dispatch === null
-      ? result.record
-      : { ...result.record, activeDispatch: { dispatchId: dispatch.dispatchId, state: dispatch.state, updatedAt: dispatch.updatedAt } },
-  }
-  return kit.jsonResponse(200, response)
+  const dispatchParts = await enqueueCommentDispatch(runtime, result.record, commentId, event, parts.wantsDispatch, ports)
+  return kit.jsonResponse(200, commentResponseOf(event, dispatchParts, result.record))
 }
 
 /** `POST /api/cowork.artifact.dispatch.retry` — retry one failed batch. */
@@ -813,13 +891,15 @@ async function readBodyWithCap(request: Request, maxBytes: number, kit: Artifact
   return bytes
 }
 
-/** The media type one uploaded name and its bytes resolve to. */
 /**
- * `POST /api/cowork.artifact.upload` — one comment attachment.
+ * `POST /api/cowork.artifact.upload` — store one attachment's bytes.
  *
  * The body is the raw bytes; the name rides the query string because the
  * connection route streams the body. Images are checked by magic bytes, text
- * must be UTF-8, and the stored file is never overwritten.
+ * must be UTF-8, and the stored file is never overwritten. Storing bytes
+ * publishes nothing: the attachment counts, appears in the list, and becomes
+ * readable only when the browser attach route or a comment/reply reference
+ * publishes the id.
  */
 async function handleUpload(
   request: Request,
@@ -829,11 +909,24 @@ async function handleUpload(
   const sessionId = requireQuery(request, 'sessionId', kit, 'request/session-required')
   const artifactId = requireQuery(request, 'artifactId', kit, 'request/invalid-query')
   const name = requireQuery(request, 'name', kit, 'request/invalid-query')
-  if (name.length > 200) throw kit.fail('request/invalid-query', 'name must be at most 200 characters')
-  const { runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  if (name.length > MAX_ARTIFACT_ATTACHMENT_NAME_CHARS) {
+    throw kit.fail('request/invalid-query', `name must be at most ${String(MAX_ARTIFACT_ATTACHMENT_NAME_CHARS)} characters`)
+  }
+  const { record, runtime } = await openRecord(ports, kit, sessionId, artifactId)
+  // Two caps bound one upload. The published cap refuses bytes that could never
+  // be published; the stored-upload cap bounds orphan bytes too, because storing
+  // publishes nothing and `attachmentCount` alone would let them grow without
+  // limit. Published count and list still count only published rows.
+  const storedUploads = await runtime.store.countUploads(record.artifactId)
+  if (record.attachmentCount >= MAX_ARTIFACT_ATTACHMENTS || storedUploads >= MAX_ARTIFACT_ATTACHMENTS) {
+    throw new ArtifactDomainError(
+      'artifact/limit-reached',
+      `work item already stores ${String(storedUploads)} upload file(s) and holds ${String(record.attachmentCount)} published attachment(s); the cap is ${String(MAX_ARTIFACT_ATTACHMENTS)}`,
+    )
+  }
   const bytes = await readBodyWithCap(request, MAX_ARTIFACT_ATTACHMENT_BYTES, kit)
   if (bytes.byteLength === 0) throw new ArtifactDomainError('artifact/upload-invalid', 'attachment is empty')
-  const mediaType = attachmentMediaType(name, bytes)
+  const mediaType = publishedAttachmentMediaType(name, bytes)
   const attachment: AttachmentRefV1 = {
     attachmentId: `attachment-${randomUUID()}`,
     name,
@@ -842,25 +935,65 @@ async function handleUpload(
     sha256: sha256HexBytes(bytes),
   }
   await runtime.store.saveUpload(artifactId, attachment.attachmentId, bytes)
-  const now = nowOf(ports)
-  const result = await runtime.store.withLock(async () => {
-    const saved = await runtime.store.mutateRecordUnlocked(artifactId, (current) => {
-      if (current.attachmentCount >= MAX_ARTIFACT_ATTACHMENTS) {
-        throw new ArtifactDomainError('artifact/limit-reached', `work item already holds ${String(MAX_ARTIFACT_ATTACHMENTS)} attachments`)
-      }
-      return {
-        ...current,
-        attachmentCount: current.attachmentCount + 1,
-        updatedAt: now.toISOString(),
-      }
-    })
-    const events = [await runtime.store.appendEventUnlocked(
-      createEventRow(artifactId, 'artifact.updated', now, { attachmentId: attachment.attachmentId }),
-    )]
-    return { record: saved, events }
-  })
-  publishAll(runtime, result.events)
   const response: ArtifactUploadResponse = { ok: true, attachment }
+  return kit.jsonResponse(200, response)
+}
+
+/**
+ * `POST /api/cowork.artifact.attach` — publish one stored upload.
+ *
+ * The browser uploads bytes first (which counts nothing), then publishes the
+ * upload here, so an attachment appears, counts, and becomes readable only
+ * after publication. The display name is optional; the media type, size, and
+ * hash are always re-derived from the stored bytes. Publishing the same id
+ * twice is idempotent: the existing row is returned with `published: false`.
+ */
+async function handleAttach(
+  request: Request,
+  ports: ArtifactApiPorts,
+  kit: ArtifactRouteKit,
+): Promise<Response> {
+  const body = await kit.readJsonBody(request)
+  const attachmentId = requireBodyString(body, 'attachmentId', kit)
+  const { record, runtime } = await openRecordFromBody(ports, kit, body)
+  const already = (await runtime.store.readAttachmentPublishes(record.artifactId))
+    .find((row) => row.attachmentId === attachmentId)
+  if (already !== undefined) {
+    const response: ArtifactAttachResponse = {
+      ok: true,
+      attachment: attachmentRefOf(already),
+      source: 'user',
+      published: false,
+    }
+    return kit.jsonResponse(200, response)
+  }
+  const bytes = await runtime.store.readUpload(record.artifactId, attachmentId)
+  if (bytes === null) {
+    throw new ArtifactDomainError(
+      'artifact/upload-invalid',
+      `attachment is not stored on this work item: ${attachmentId}`,
+      attachmentId,
+    )
+  }
+  if (bytes.byteLength === 0) throw new ArtifactDomainError('artifact/upload-invalid', 'attachment is empty', attachmentId)
+  const name = sanitizeAttachmentName(body.name, attachmentId)
+  const attachment: AttachmentRefV1 = {
+    attachmentId,
+    name,
+    mediaType: publishedAttachmentMediaType(name, bytes),
+    size: bytes.byteLength,
+    sha256: sha256HexBytes(bytes),
+  }
+  const now = nowOf(ports)
+  const outcome = await runtime.store.withLock(() =>
+    publishAttachmentUnlocked(runtime, { artifactId: record.artifactId, attachment, source: 'user', now }))
+  if (outcome.event !== null) runtime.events.publish(outcome.event)
+  const response: ArtifactAttachResponse = {
+    ok: true,
+    attachment: attachmentRefOf(outcome.publish),
+    source: 'user',
+    published: outcome.published,
+  }
   return kit.jsonResponse(200, response)
 }
 
@@ -874,15 +1007,15 @@ async function handleAttachment(
   const artifactId = requireQuery(request, 'artifactId', kit, 'request/invalid-query')
   const attachmentId = requireQuery(request, 'attachmentId', kit, 'request/invalid-query')
   const { runtime } = await openRecord(ports, kit, sessionId, artifactId)
-  const events = await runtime.store.readComments(artifactId)
-  let ref: AttachmentRefV1 | null = null
-  for (const event of events) {
-    if (event.type !== 'create' && event.type !== 'reply') continue
-    ref = (event.attachments ?? []).find((entry) => entry.attachmentId === attachmentId) ?? ref
-  }
-  if (ref === null) {
+  // Published attachments are the only readable ones; an orphan upload has
+  // bytes but no publish row, so it stays invisible. A record without the
+  // publish log falls back to its comment refs (read-only legacy path).
+  const publish = (await publishedAttachmentsOf(runtime, artifactId))
+    .find((row) => row.attachmentId === attachmentId)
+  if (publish === undefined) {
     throw new ArtifactDomainError('artifact/not-found', `unknown attachment: ${attachmentId}`, attachmentId)
   }
+  const ref = attachmentRefOf(publish)
   const bytes = await runtime.store.readUpload(artifactId, attachmentId)
   if (bytes === null) {
     throw new ArtifactDomainError('artifact/not-found', `attachment content is missing: ${attachmentId}`, attachmentId)
@@ -953,6 +1086,7 @@ export function artifactPanelRoutes(
     route(ARTIFACT_EDIT_PATH, ['POST'], (request) => handleEdit(request, ports, kit)),
     route(ARTIFACT_PRESENCE_PATH, ['POST'], (request) => handlePresence(request, ports, kit)),
     route(ARTIFACT_UPLOAD_PATH, ['POST'], (request) => handleUpload(request, ports, kit), 'streaming'),
+    route(ARTIFACT_ATTACH_PATH, ['POST'], (request) => handleAttach(request, ports, kit)),
     route(ARTIFACT_ATTACHMENT_PATH, ['GET'], (request) => handleAttachment(request, ports, kit)),
     route(ARTIFACT_EVENTS_PATH, ['GET'], (request) => handleEvents(request, ports, kit)),
     route(ARTIFACT_OPEN_PATH, ['POST'], (request) => handleOpen(request, ports, kit)),

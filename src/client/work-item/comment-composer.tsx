@@ -5,9 +5,9 @@
  * All state stays in the viewer container; this component is the presentational
  * shell driven by test ids.
  */
-import type { ReactElement, Ref } from 'react'
+import type { ClipboardEvent, ReactElement, Ref } from 'react'
 import type { ArtifactAnchor, AttachmentRefV1 } from '../../panel/artifact-contract.js'
-import { anchorLabel, type WorkItemThread } from './model.ts'
+import { anchorLabel, attachOptionsFor, type WorkItemThread } from './model.ts'
 
 /** Props of the comment composer. */
 interface CommentComposerProps {
@@ -24,9 +24,24 @@ interface CommentComposerProps {
   readonly onDraft: (value: string) => void
   readonly onCancelReply: () => void
   readonly onCancelAnchor: () => void
-  readonly onAttach: (files: FileList | null) => void
+  /**
+   * Files from the picker or an image pasted into the textarea.
+   *
+   * `publish` marks a paste: the container publishes the upload as soon as it
+   * is stored so a pasted image is never an orphan. The picker keeps the
+   * comment-submit publish path.
+   */
+  readonly onAttach: (
+    files: FileList | readonly File[] | null,
+    options?: { readonly publish?: boolean },
+  ) => void
   readonly onRemoveAttachment: (attachmentId: string) => void
   readonly onSubmit: () => void
+}
+
+/** Images pasted into the textarea; other clipboard kinds stay text. */
+function pastedImages(event: ClipboardEvent<HTMLTextAreaElement>): File[] {
+  return Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
 }
 
 // Profile/state display matrix (reply, line context, attachments, receipt).
@@ -85,6 +100,12 @@ export function CommentComposer({
           ? '切到所属会话后才能批注'
           : (replyTarget !== null ? '回复这条批注…' : (pendingAnchor === null ? '写下整体批注…' : '写下对所选行的批注…'))}
         onChange={(event) => { onDraft(event.target.value) }}
+        onPaste={(event) => {
+          const files = pastedImages(event)
+          if (files.length === 0) return
+          event.preventDefault()
+          onAttach(files, attachOptionsFor('paste'))
+        }}
       />
       <div className="cwi-composer-row">
         <label
@@ -101,7 +122,7 @@ export function CommentComposer({
             multiple
             accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.tsv,.json"
             onChange={(event) => {
-              onAttach(event.target.files)
+              onAttach(event.target.files, attachOptionsFor('picker'))
               event.target.value = ''
             }}
           />

@@ -171,7 +171,7 @@ test('Config defaults pin the M10 isolation and reviewer settings', () => {
   const normalized = normalizeConfig({})
   assert.deepEqual(normalized.isolation, { provider: 'clone' })
   assert.deepEqual(normalized.reviewer, { reclaim: 'after-verdict' })
-  assert.equal(BUSINESS_TOOL_ORDER.length, 25)
+  assert.equal(BUSINESS_TOOL_ORDER.length, 26)
 })
 
 test('CONFIG_DEFAULTS is the one defaults table behind both readers', () => {

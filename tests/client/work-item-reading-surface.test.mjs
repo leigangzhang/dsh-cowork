@@ -212,6 +212,20 @@ test('the current selection and keyboard line annotation reuse the same entry', 
   assert.equal(line.calls.find(([name]) => name === 'pendingAnchor')[1].startLine, 2)
 })
 
+test('annotateLines carries the mapped range and sub-line selection', () => {
+  const calls = sinks()
+  const surface = reading.createReadingSurface(input(), calls)
+  surface.annotateLines(1, 2, '  saved  ')
+  const pending = calls.calls.find(([name]) => name === 'pendingAnchor')[1]
+  assert.equal(pending.startLine, 1)
+  assert.equal(pending.endLine, 2)
+  assert.equal(pending.selectedText, 'saved')
+  assert.equal(pending.quote, 'saved text\nsecond line')
+  const quiet = sinks()
+  reading.createReadingSurface(input({ readOnly: true }), quiet).annotateLines(1, 1)
+  assert.deepEqual(quiet.calls, [])
+})
+
 test('pins open the thread they number and ignore unknown indexes', () => {
   const byLine = sinks()
   reading.createReadingSurface(input(), byLine).focusPin(1)

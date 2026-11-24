@@ -3,7 +3,18 @@ import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { BROWSER_ARTIFACT, BROWSER_REQUESTS, BROWSER_SPEC, BROWSER_SPEC_PATH, BROWSER_TOPICS } from './fixtures.mjs'
+import {
+  BROWSER_ARTIFACT,
+  BROWSER_ATTACHMENT_ARTIFACT,
+  BROWSER_ATTACHMENTS,
+  BROWSER_ATTACHMENT_TEXT_HEAD,
+  BROWSER_EMPTY_ARTIFACT,
+  BROWSER_REQUESTS,
+  BROWSER_SPEC,
+  BROWSER_SPEC_PATH,
+  BROWSER_TOPICS,
+  seedAttachmentArtifacts,
+} from './fixtures.mjs'
 
 const PATH_RESOLVE = '/api/cowork.topic.resolve'
 const PATH_REOPEN = '/api/cowork.topic.reopen'
@@ -614,6 +625,58 @@ async function fillEditor(page, text) {
 }
 
 /**
+ * Trigger the viewer's menu refresh and wait for the load it restarts
+ * (detail → file → comments → first-view status).
+ *
+ * The load's completion resets the viewer to reading mode. A caller that opens
+ * an editor, a preview, or another surface afterwards must wait for it, or the
+ * late reset competes with the new surface.
+ */
+async function refreshViewer(page) {
+  await page.getByTestId('cwi-more').click()
+  await page.getByTestId('cwi-menu').waitFor({ timeout: 5_000 })
+  const detail = page.waitForResponse((response) => {
+    try {
+      const url = new URL(response.url())
+      return url.pathname === '/api/cowork.artifact.detail' && response.request().method() === 'GET'
+    } catch {
+      return false
+    }
+  })
+  const file = page.waitForResponse((response) => {
+    try {
+      const url = new URL(response.url())
+      return url.pathname === '/api/cowork.artifact.file' && response.request().method() === 'GET'
+    } catch {
+      return false
+    }
+  })
+  // The load's last step records the first-view status; by the time that
+  // request is issued, the surface has already been reset.
+  const status = page.waitForRequest((request) => {
+    try {
+      const url = new URL(request.url())
+      return url.pathname === '/api/cowork.artifact.status' && request.method() === 'POST'
+    } catch {
+      return false
+    }
+  })
+  await page.getByTestId('cwi-menu-refresh').click()
+  await page.getByTestId('cwi-menu').waitFor({ state: 'detached', timeout: 5_000 })
+  await detail
+  await file
+  await page.waitForResponse((response) => {
+    try {
+      return new URL(response.url()).pathname === '/api/cowork.artifact.comments'
+        && response.request().method() === 'GET'
+    } catch {
+      return false
+    }
+  }, { timeout: 10_000 })
+  await status
+}
+
+/**
  * Start one deterministic conversation in the selected Session.
  *
  * A Session is blank until its first prompt, and the host renders no
@@ -676,6 +739,26 @@ async function openRail(page) {
   await page.getByTestId('cwi-rail-toggle').click()
   await rail.waitFor({ timeout: 10_000 })
   return rail
+}
+
+/**
+ * Enter one thread's session level from the list by clicking its summary card.
+ * The list level is read-only: the composer and reply/toggle controls exist
+ * only here.
+ */
+async function enterThreadSession(page, card = page.locator('[data-testid="cwi-thread"]').first()) {
+  // The summary card's quote button stops propagation; the plain summary text
+  // is the part that selects the card.
+  const summary = card.getByTestId('cwi-thread-summary')
+  if (await summary.count() > 0) await summary.first().click()
+  else await card.click({ position: { x: 12, y: 12 } })
+  await page.getByTestId('cwi-rail-session').waitFor({ timeout: 10_000 })
+}
+
+/** Return from one thread's session to the rail's read-only list level. */
+async function backToRailList(page) {
+  await page.getByTestId('cwi-rail-back').click()
+  await page.getByTestId('cwi-rail-list').waitFor({ timeout: 10_000 })
 }
 
 /** The host tab strip buttons in the conversation header. */
@@ -805,6 +888,10 @@ async function scenarioWorkItemCrossSession(page, fixtures) {
   await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
   assert.equal(await page.getByTestId('cwi-confirm').isDisabled(), true)
   await openRail(page)
+  // The rail opens at the read-only list level; the reply/toggle controls and
+  // the composer live in the thread's session level.
+  assert.equal(await page.getByTestId('cwi-composer').count(), 0, 'the list level is read-only')
+  await enterThreadSession(page)
   assert.equal(await page.getByTestId('cwi-thread-reply').first().isDisabled(), true)
   assert.equal(await page.getByTestId('cwi-thread-toggle').first().isDisabled(), true)
   assert.equal(await page.getByTestId('cwi-composer').isDisabled(), true)
@@ -996,6 +1083,322 @@ async function scenarioWorkItemOwnerFailure(page, fixtures) {
   await backToTopicTab(page)
 }
 
+/** The confirmed work item the projection scenario injects into one list read. */
+const CONFIRMED_ARTIFACT = 'artifact-browser-confirmed'
+/** A second unresolved item used to prove the server search narrows the list. */
+const OTHER_ARTIFACT = 'artifact-browser-other'
+
+/** Injected rows, keyed by the projection the scenario is exercising. */
+const INJECTED_LIST_ROWS = {
+  confirmed: (base) => ({
+    ...base,
+    artifactId: CONFIRMED_ARTIFACT,
+    title: '已完成的浏览器交付物',
+    status: 'confirmed',
+    activeDispatch: null,
+  }),
+  other: (base) => ({
+    ...base,
+    artifactId: OTHER_ARTIFACT,
+    title: '其他交付物',
+    status: 'needs-feedback',
+    activeDispatch: null,
+    commentCount: 0,
+  }),
+}
+
+/** Whether one list request carries the server-side `q` filter. */
+function listRequestIsFiltered(route) {
+  return new URL(route.request().url()).searchParams.get('q') !== null
+}
+
+/** The row one injected list read appends, or null when it appends none. */
+function injectedRowFor(kind, base, filtered) {
+  if (filtered || base === undefined) return null
+  const build = INJECTED_LIST_ROWS[kind]
+  return build === undefined ? null : build(base)
+}
+
+/**
+ * Append the row the current projection injects to one list response.
+ *
+ * A server-filtered read keeps the server's result: injecting rows into a `q`
+ * response would fake the search the assertion is supposed to prove.
+ */
+async function injectListRows(route, kindOf) {
+  const response = await route.fetch()
+  const body = await response.json()
+  const row = injectedRowFor(kindOf(), body.items[0], listRequestIsFiltered(route))
+  if (row !== null) body.items = [...body.items, row]
+  await route.fulfill({ response, json: body })
+}
+
+/** Whether the rail grip settled on its default width inside the container clamp. */
+function railWidthSettledInContainer() {
+  const probe = railWidthProbe()
+  if (probe === null) return false
+  const upperBound = Math.max(280, Math.min(560, probe.containerWidth - 360))
+  return probe.containerWidth > 900 && probe.width === 336 && probe.width <= upperBound
+
+  /** The grip width and the rail container width, or null before they mount. */
+  function railWidthProbe() {
+    const railElement = document.querySelector('[data-testid="cwi-rail"]')
+    const gripElement = document.querySelector('[data-testid="cwi-rail-grip"]')
+    if (railElement === null || gripElement === null) return null
+    const parent = railElement.parentElement
+    if (parent === null) return null
+    return { containerWidth: parent.clientWidth, width: Number(gripElement.getAttribute('aria-valuenow')) }
+  }
+}
+
+/** Dispatch a context-menu event on the current selection; false when unavailable. */
+function dispatchContextMenuOnSelection() {
+  const target = selectedElement()
+  if (target === null) return false
+  target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+  return true
+
+  /** The element that owns the selection start, or null. */
+  function selectedElement() {
+    const selection = window.getSelection()
+    if (selection === null || selection.rangeCount === 0) return null
+    const start = selection.getRangeAt(0).startContainer
+    return start.nodeType === Node.TEXT_NODE ? start.parentElement : start
+  }
+}
+
+/**
+ * The work-item list projection and the comment rail's two levels.
+ *
+ * One injected list row exercises the 已完成 fold, and a second injected row
+ * proves the server search narrows an otherwise two-card list. Neither row is
+ * persisted, so every other scenario keeps its own seeded counts. Then the
+ * viewer proves the rail starts collapsed, opens on the list level, keeps the
+ * composer draft across a session round-trip, and owns a clamped, persisted
+ * width grip.
+ */
+async function scenarioWorkItemRailAndList(page, fixtures) {
+  // One real list read gives the expected session-title projection.
+  const listed = await page.evaluate(async (sessionId) => {
+    const response = await fetch(`/api/cowork.artifact.list?sessionId=${encodeURIComponent(sessionId)}`)
+    return response.json()
+  }, fixtures.primarySessionId)
+  const seededItem = listed.items.find(item => item.artifactId === BROWSER_ARTIFACT)
+  assert.ok(seededItem, 'the fixture item must be in the list projection')
+  const expectedSource = `来源：${seededItem.sessionTitle ?? '未命名会话'}`
+
+  /** Injected rows: 'confirmed' for the fold, 'other' for search, 'off' to drop. */
+  let injected = 'confirmed'
+  await page.route('**/api/cowork.artifact.list*', async (route) => injectListRows(route, () => injected))
+  /** Re-enter the work-items tab so the list reads the patched catalog. */
+  const reloadList = async () => {
+    await page.locator('[data-testid="cw-tab"][data-tab="topics"]').click()
+    await waitForOverview(page)
+    await page.locator('[data-testid="cw-tab"][data-tab="work-items"]').click()
+    await page.getByTestId('cwi-list').waitFor({ timeout: 15_000 })
+  }
+  const cardCountIs = (expected) => page.waitForFunction(count =>
+    document.querySelectorAll('[data-testid="cwi-card"]').length === count, expected, { timeout: 15_000 })
+
+  try {
+    await openWorkItemTab(page)
+    const card = await artifactCard(page)
+
+    // Card projection: title, comment count, status, and the session name; the
+    // stored path, record id, and owner session id never reach the card.
+    assert.match(await card.innerText(), /1 条评论/)
+    assert.equal(await card.getByTestId('cwi-card-title').innerText(), '浏览器交付物')
+    assert.equal(await card.getByTestId('cwi-card-status').innerText(), '需反馈')
+    assert.equal(await card.getByTestId('cwi-card-source').innerText(), expectedSource)
+    const cardText = await card.innerText()
+    assert.equal(cardText.includes(BROWSER_SPEC_PATH), false, 'the card must not leak the stored path')
+    assert.equal(cardText.includes(fixtures.primarySessionId), false, 'the card must not leak the owner session id')
+    assert.equal(cardText.includes(BROWSER_ARTIFACT), false, 'the card must not leak the record id')
+
+    // 已完成 is one folded summary row; expanding shows the card and the header
+    // collapses it again.
+    const confirmedSummary = page.getByTestId('cwi-group-summary')
+    await confirmedSummary.waitFor({ timeout: 15_000 })
+    assert.match(await confirmedSummary.innerText(), /已完成 1 个工作项/)
+    assert.equal(await confirmedSummary.getAttribute('aria-expanded'), 'false')
+    const confirmedGroup = page.locator('[data-testid="cwi-group"][data-group="confirmed"]')
+    assert.equal(await confirmedGroup.getAttribute('data-collapsed'), 'true')
+    assert.equal(await page.getByTestId('cwi-card').count(), 1)
+    await confirmedSummary.click()
+    await confirmedGroup.filter({ hasText: '已完成的浏览器交付物' }).waitFor({ timeout: 10_000 })
+    assert.equal(await confirmedGroup.getAttribute('data-collapsed'), 'false')
+    const confirmedCard = page.locator(`[data-testid="cwi-card"][data-artifact-id="${CONFIRMED_ARTIFACT}"]`)
+    await confirmedCard.waitFor({ timeout: 10_000 })
+    assert.equal(await confirmedCard.getByTestId('cwi-card-status').innerText(), '已完成')
+    await confirmedGroup.getByTestId('cwi-group-toggle').click()
+    await confirmedSummary.waitFor({ timeout: 10_000 })
+    assert.equal(await page.getByTestId('cwi-card').count(), 1)
+    assert.equal(await confirmedGroup.getAttribute('data-collapsed'), 'true')
+
+    // Search narrows a two-card list to the one matching title and asks the
+    // server with `q`.
+    injected = 'other'
+    await reloadList()
+    await cardCountIs(2)
+    const searchToggle = page.getByTestId('cwi-search-toggle')
+    assert.equal(await searchToggle.getAttribute('aria-expanded'), 'false')
+    await searchToggle.click()
+    const searchInput = page.getByTestId('cwi-search-input')
+    await searchInput.waitFor({ timeout: 5_000 })
+    assert.equal(await searchInput.getAttribute('type'), 'search')
+    const searchRequest = page.waitForRequest((request) => {
+      try {
+        const url = new URL(request.url())
+        return url.pathname === '/api/cowork.artifact.list' && url.searchParams.get('q') === '浏览器交'
+      } catch {
+        return false
+      }
+    })
+    await searchInput.fill('浏览器交')
+    assert.equal(new URL((await searchRequest).url()).searchParams.get('q'), '浏览器交')
+    await cardCountIs(1)
+    assert.equal(await page.getByTestId('cwi-card-title').innerText(), '浏览器交付物')
+    // × restores the full list and collapses the field.
+    await page.getByTestId('cwi-search-clear').click()
+    await searchInput.waitFor({ state: 'detached', timeout: 5_000 })
+    await cardCountIs(2)
+    // Esc also closes and clears the field.
+    await page.getByTestId('cwi-search-toggle').click()
+    const escInput = page.getByTestId('cwi-search-input')
+    await escInput.waitFor({ timeout: 5_000 })
+    await escInput.fill('浏览器交')
+    await cardCountIs(1)
+    await escInput.press('Escape')
+    await escInput.waitFor({ state: 'detached', timeout: 5_000 })
+    await cardCountIs(2)
+    // Reopening starts from an empty query.
+    await page.getByTestId('cwi-search-toggle').click()
+    const emptyInput = page.getByTestId('cwi-search-input')
+    await emptyInput.waitFor({ timeout: 5_000 })
+    assert.equal(await emptyInput.inputValue(), '')
+    // No match: the surface names the query and offers 清除搜索.
+    await emptyInput.fill('不存在的工作项XYZ')
+    const noResult = page.getByTestId('cwi-list-no-result')
+    await noResult.waitFor({ timeout: 10_000 })
+    assert.match(await noResult.innerText(), /没有匹配「不存在的工作项XYZ」/)
+    await page.getByTestId('cwi-search-clear-empty').click()
+    await noResult.waitFor({ state: 'detached', timeout: 10_000 })
+    await cardCountIs(2)
+
+    // Drop the injected rows before the next scenario reads the catalog.
+    injected = 'off'
+    await reloadList()
+    await cardCountIs(1)
+    assert.equal(await page.getByTestId('cwi-group-summary').count(), 0)
+
+    // The rail starts collapsed at the toolbar's 批注 N button and opens on the
+    // read-only list level.
+    await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ARTIFACT}"]`).click()
+    await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+    const rail = page.getByTestId('cwi-rail')
+    const railToggle = page.getByTestId('cwi-rail-toggle')
+    assert.equal(await railToggle.getAttribute('aria-expanded'), 'false')
+    assert.match(await railToggle.innerText(), /^批注 1$/)
+    assert.equal(await rail.isHidden(), true)
+    await railToggle.click()
+    await rail.waitFor({ timeout: 10_000 })
+    assert.equal(await rail.getAttribute('data-view'), 'list')
+
+    // The list level renders summary cards and filters only: no composer, no
+    // reply, no submit control.
+    assert.equal(await page.getByTestId('cwi-rail-list').isVisible(), true)
+    assert.equal(await page.getByTestId('cwi-thread-filter').count(), 1)
+    assert.ok(await page.getByTestId('cwi-thread-summary').count() >= 1)
+    assert.equal(await page.getByTestId('cwi-composer').count(), 0)
+    assert.equal(await page.getByTestId('cwi-submit').count(), 0)
+    assert.equal(await page.getByTestId('cwi-thread-reply').count(), 0)
+
+    // A summary card enters the session level: composer, reply, and a back
+    // entry; returning restores the list level.
+    const summaryCard = page.locator('[data-testid="cwi-thread"]').first()
+    await enterThreadSession(page, summaryCard)
+    assert.equal(await page.getByTestId('cwi-composer').isVisible(), true)
+    assert.equal(await page.getByTestId('cwi-rail-back').isVisible(), true)
+    assert.match(await page.getByTestId('cwi-rail-session-head').innerText(), /第 3 行/)
+    await backToRailList(page)
+    assert.equal(await page.getByTestId('cwi-composer').count(), 0)
+
+    // The composer draft survives the list/session round-trip.
+    await enterThreadSession(page, summaryCard)
+    await page.getByTestId('cwi-composer').waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-composer').fill('草稿保留验证')
+    await backToRailList(page)
+    await enterThreadSession(page, summaryCard)
+    await page.getByTestId('cwi-composer').waitFor({ timeout: 10_000 })
+    assert.equal(await page.getByTestId('cwi-composer').inputValue(), '草稿保留验证')
+    await page.getByTestId('cwi-composer').fill('')
+    await backToRailList(page)
+
+    // 定位 scrolls the viewer to a card's anchor without entering its thread
+    // session: the card becomes the selected one and the rail keeps the list.
+    const locateCard = page.locator('[data-testid="cwi-thread"]').first()
+    await locateCard.getByTestId('cwi-thread-locate').click()
+    assert.equal(await page.getByTestId('cwi-rail-list').isVisible(), true)
+    assert.equal(await page.locator('[data-testid="cwi-thread"][data-selected="true"]').count(), 1)
+
+    // The width grip: pointer drag, container clamp, persisted value, keyboard
+    // step, and the same width after closing and reopening the rail. The
+    // default viewport leaves the viewer container too narrow for any width
+    // change (the clamp pins it to 280), so this check uses a wide viewport and
+    // restores the lane's size afterwards.
+    await page.setViewportSize({ width: 1920, height: 1000 })
+    const grip = page.getByTestId('cwi-rail-grip')
+    await grip.waitFor({ timeout: 10_000 })
+    // No width was stored yet in this lane, so the measured container must
+    // re-clamp the 336px default before the drag: waiting for the aria value
+    // to leave the 280px floor also waits for the ResizeObserver update the
+    // drag handler reads.
+    assert.equal(await page.evaluate(() => localStorage.getItem('cowork.work-item.railWidth')), null)
+    await page.waitForFunction(railWidthSettledInContainer, undefined, { timeout: 10_000 })
+    const containerWidth = await rail.evaluate(element => element.parentElement?.clientWidth ?? 0)
+    assert.ok(containerWidth > 900, 'the rail container must be wide enough to resize')
+    const upper = Math.max(280, Math.min(560, containerWidth - 360))
+    assert.ok(upper > 280, 'the wide viewport must leave room above the minimum width')
+    const currentWidth = Number(await grip.getAttribute('aria-valuenow'))
+    assert.ok(currentWidth >= 280 && currentWidth <= upper, `initial width ${currentWidth} outside [280, ${upper}]`)
+    const gripBox = await grip.boundingBox()
+    assert.notEqual(gripBox, null)
+    await page.mouse.move(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(gripBox.x + gripBox.width / 2 - 40, gripBox.y + gripBox.height / 2, { steps: 5 })
+    await page.mouse.up()
+    await page.waitForFunction((target) => {
+      const element = document.querySelector('[data-testid="cwi-rail-grip"]')
+      return element !== null && Math.abs(Number(element.getAttribute('aria-valuenow')) - target) <= 2
+    }, currentWidth + 40, { timeout: 5_000 })
+    const draggedWidth = Number(await grip.getAttribute('aria-valuenow'))
+    assert.ok(draggedWidth <= upper, 'the drag must respect the container clamp')
+    assert.equal(Number(await page.evaluate(() => localStorage.getItem('cowork.work-item.railWidth'))), draggedWidth)
+    const railBox = await rail.boundingBox()
+    assert.notEqual(railBox, null)
+    assert.ok(Math.abs(railBox.width - draggedWidth) <= 1.5, 'the rail renders the dragged width')
+    await railToggle.click()
+    await rail.waitFor({ state: 'hidden', timeout: 5_000 })
+    await railToggle.click()
+    await rail.waitFor({ timeout: 10_000 })
+    assert.equal(Number(await grip.getAttribute('aria-valuenow')), draggedWidth)
+    await grip.focus()
+    await page.keyboard.press('ArrowLeft')
+    const expectedWidth = Math.round(Math.min(Math.max(draggedWidth + 8, 280), upper))
+    await page.waitForFunction((target) => {
+      const element = document.querySelector('[data-testid="cwi-rail-grip"]')
+      return element !== null && Number(element.getAttribute('aria-valuenow')) === target
+    }, expectedWidth, { timeout: 5_000 })
+
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  } finally {
+    await page.setViewportSize({ width: 1440, height: 1000 }).catch(() => {})
+    await page.unroute('**/api/cowork.artifact.list*').catch(() => {})
+  }
+  await backToTopicTab(page)
+}
+
 /** Open the work-item tab and return the rail locator. */
 async function openWorkItemTab(page) {
   await ensurePanel(page)
@@ -1053,14 +1456,19 @@ async function scenarioWorkItemChain(page) {
   assert.equal(await page.getByTestId('cwi-title').innerText(), '浏览器交付物')
   await openRail(page)
   assert.match(await page.getByTestId('cwi-status').innerText(), /需反馈/)
+  // The rail opens at the read-only list level: one summary card per thread.
+  assert.equal(await page.getByTestId('cwi-rail-list').isVisible(), true)
   const existing = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '已有的浏览器批注' })
   await existing.waitFor({ timeout: 10_000 })
   assert.equal(await existing.getAttribute('data-resolved'), 'false')
+  assert.equal(await page.getByTestId('cwi-composer').count(), 0, 'the list level holds no composer')
 
-  // A cross-block text selection becomes one anchored comment; the anchor
-  // keeps the selected text beside the full-line quote.
+  // A cross-block text selection becomes one anchored comment; the floating
+  // entry opens the session level for the new annotation, where the composer
+  // and the anchor header are.
   await selectReadingRange(page, '第一段：逐行批注。', '第二段：模型与用户共享的版本。')
   await page.getByTestId('cwi-annotate').click()
+  await page.getByTestId('cwi-rail-session').waitFor({ timeout: 10_000 })
   assert.match(await page.getByTestId('cwi-rail').innerText(), /第 3–4 行/)
   const composer = page.getByTestId('cwi-composer')
   const commentRequest = page.waitForRequest((request) => {
@@ -1082,8 +1490,10 @@ async function scenarioWorkItemChain(page) {
   assert.equal(await created.getAttribute('data-resolved'), 'false')
   chainThreadId = await created.getAttribute('data-thread-id')
 
-  // The three-state filter and its shortcut stay in sync: pending keeps both
-  // unresolved cards and hides the (empty) resolved summary.
+  // The three-state filter belongs to the list level: return there before
+  // reading it. Pending keeps both unresolved cards and hides the (empty)
+  // resolved summary.
+  await backToRailList(page)
   const filter = page.getByTestId('cwi-thread-filter')
   await filter.selectOption('pending')
   assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 2)
@@ -1091,9 +1501,11 @@ async function scenarioWorkItemChain(page) {
   await page.getByTestId('cwi-rail-pending-filter').uncheck({ force: true })
   assert.equal(await filter.inputValue(), 'all')
 
-  // Resolve it: the server appends one resolve row and the rail groups it
-  // under the resolved summary.
-  await created.getByTestId('cwi-thread-toggle').click()
+  // Resolve it from its session level: the server appends one resolve row and
+  // the list level groups it under the resolved summary.
+  await enterThreadSession(page, created)
+  await page.getByTestId('cwi-thread-toggle').click()
+  await backToRailList(page)
   await page.getByTestId('cwi-resolved-line').waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-resolved-line').click()
   const resolvedCard = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
@@ -1120,6 +1532,76 @@ async function scenarioWorkItemChain(page) {
   const reopened = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
   await reopened.waitFor({ timeout: 10_000 })
   assert.equal(await reopened.getAttribute('data-resolved'), 'true')
+
+  // The comment submitted above was delivered to this Session by the real
+  // dispatcher. In Chat the marker message renders as a folded disclosure row;
+  // the marker sentinel itself never reaches the user-visible text. (The
+  // scripted provider echoes the prompt into its assistant reply, so the
+  // marker assertion is scoped to the user rows.)
+  await chatTab(page).click()
+  await viewer.waitFor({ state: 'detached', timeout: 10_000 })
+  const annotationRow = page.locator('.cw-annotation-row').first()
+  await annotationRow.waitFor({ timeout: 30_000 })
+  const annotationTrigger = annotationRow.locator('.cw-annotation-trigger')
+  assert.equal(await annotationTrigger.getAttribute('aria-expanded'), 'false', 'a delivery starts collapsed')
+  assert.match(await annotationTrigger.innerText(), /批注投递/)
+  assert.match(await annotationTrigger.innerText(), /处理工作项「浏览器交付物」/)
+  const annotationBodyId = await annotationTrigger.getAttribute('aria-controls')
+  assert.ok(annotationBodyId !== null && annotationBodyId !== '', 'the trigger controls its body')
+  const userRowsText = (await page.locator('[data-chat-flow-kind="user"]').allInnerTexts()).join('\n')
+  assert.equal(userRowsText.includes('\uE000'), false, 'the marker sentinel must not reach user text')
+  assert.equal(userRowsText.includes('\uE001'), false)
+  assert.equal(userRowsText.includes('cowork-annotation/v1'), false)
+  await annotationTrigger.click()
+  assert.equal(await annotationTrigger.getAttribute('aria-expanded'), 'true')
+  const annotationBody = page.locator(`[id="${annotationBodyId}"]`)
+  await annotationBody.waitFor({ timeout: 10_000 })
+  assert.match(await annotationBody.innerText(), /Annotations \(/)
+  assert.match(await annotationBody.innerText(), /Work item: /)
+  await annotationBody.focus()
+  await page.keyboard.press('Escape')
+  assert.equal(await annotationTrigger.getAttribute('aria-expanded'), 'false', 'Escape collapses the row')
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.className.includes('cw-annotation-trigger') === true),
+    true,
+    'Escape returns focus to the trigger',
+  )
+  // Ordinary user messages keep the host bubble path and never render the
+  // annotation chrome; exactly one delivery row exists for this batch.
+  assert.ok(await page.locator('[data-chat-flow-kind="user"] .cw-user-row').count() >= 1)
+  assert.equal(await page.locator('.cw-annotation-row').count(), 1)
+
+  // The local time + copy row copies the message text and confirms inside the
+  // row for a bounded window. Headless Chromium denies clipboard writes without
+  // a granted permission, so the scenario grants it before pressing the button.
+  const userRow = page.locator('[data-chat-flow-kind="user"] .cw-user-row').first()
+  const copyAction = '[data-chat-flow-kind="user"] .cw-user-row .cw-user-action'
+  const copyButton = userRow.locator('.cw-user-action')
+  assert.equal(await copyButton.getAttribute('aria-label'), '复制')
+  const rowText = await userRow.innerText()
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: new URL(page.url()).origin,
+  })
+  await copyButton.click()
+  await page.waitForFunction(
+    (selector) => document.querySelector(selector)?.getAttribute('aria-label') === '已复制',
+    copyAction,
+    { timeout: 10_000 },
+  )
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  assert.ok(
+    copied.length > 0 && rowText.includes(copied),
+    `the copy affordance must write the message text, got ${copied}`,
+  )
+  // The confirmation is a window, not a permanent label.
+  await page.waitForFunction(
+    (selector) => document.querySelector(selector)?.getAttribute('aria-label') === '复制',
+    copyAction,
+    { timeout: 10_000 },
+  )
+  await coworkTab(page).click()
+  await viewer.waitFor({ timeout: 10_000 })
+
   await page.getByTestId('cwi-back').click()
   await backToTopicTab(page)
 }
@@ -1499,7 +1981,33 @@ async function scenarioWorkItemMarkdown(page, fixtures) {
     await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 30)))
     assert.equal(await page.getByTestId('cwi-md-selection').count(), 0, 'the entry respects the debounce window')
     await page.getByTestId('cwi-md-selection').waitFor({ timeout: 10_000 })
+    // The floating entry is the shared annotate pop: one class for both
+    // surfaces, the reading surface's test id, the range chip, and the button.
+    // The old selection bar is gone everywhere.
+    const readingEntry = page.getByTestId('cwi-md-selection')
+    assert.equal(await readingEntry.evaluate(element => element.classList.contains('cwi-annotate-pop')), true)
+    assert.match(await readingEntry.locator('.cwi-annotate-range').innerText(), /第 3 行/)
+    assert.equal(await page.locator('.cwi-selection-bar').count(), 0, 'the old selection bar is gone')
+    // Shift+F10 opens the same entry and focuses its annotate button.
+    await page.keyboard.press('Escape')
+    await readingEntry.waitFor({ state: 'detached', timeout: 5_000 })
+    await page.keyboard.press('Shift+F10')
+    await readingEntry.waitFor({ timeout: 10_000 })
+    // The handler focuses the entry's button in an animation frame after the
+    // entry mounts; wait for that frame instead of sampling it.
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute('data-testid') === 'cwi-annotate',
+      undefined,
+      { timeout: 5_000 },
+    )
+    // A context-menu request on the same selection opens it too.
+    await page.keyboard.press('Escape')
+    await readingEntry.waitFor({ state: 'detached', timeout: 5_000 })
+    const contextDispatched = await page.evaluate(dispatchContextMenuOnSelection)
+    assert.equal(contextDispatched, true, 'the selection must be available for a context-menu request')
+    await readingEntry.waitFor({ timeout: 10_000 })
     await page.getByTestId('cwi-annotate').click()
+    await page.getByTestId('cwi-rail-session').waitFor({ timeout: 10_000 })
     assert.match(await page.getByTestId('cwi-rail').innerText(), /第 3 行/)
     assert.equal(await page.getByTestId('cwi-selected-text').innerText(), '粗体')
     const commentRequest = page.waitForRequest((request) => {
@@ -1746,9 +2254,14 @@ async function scenarioWorkItemTypes(page) {
     // The numbered source keeps line picking, the range bar, keyboard
     // annotation, and line pins usable for non-Markdown families.
     await page.locator('[data-testid="cwi-line"][data-line="1"]').click()
-    await page.locator('.cwi-selection-bar').waitFor({ timeout: 10_000 })
+    // The floating entry replaced the old selection bar; Escape dismisses it.
+    const sourceEntry = page.locator('.cwi-annotate-pop')
+    await sourceEntry.waitFor({ timeout: 10_000 })
+    assert.match(await sourceEntry.locator('.cwi-annotate-range').innerText(), /第 1 行/)
     assert.equal(await page.getByTestId('cwi-annotate').isDisabled(), false)
-    await page.locator('.cwi-selection-bar').getByRole('button', { name: '取消' }).click()
+    await page.keyboard.press('Escape')
+    await sourceEntry.waitFor({ state: 'detached', timeout: 5_000 })
+    assert.equal(await page.locator('.cwi-selection-bar').count(), 0)
     await page.getByTestId('cwi-lines').focus()
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Enter')
@@ -1862,6 +2375,270 @@ async function scenarioWorkItemTypes(page) {
   await backToTopicTab(page)
 }
 
+/** Select a range of numbered source lines the way a reader drags over them. */
+async function selectSourceRange(page, start, end) {
+  const selected = await page.evaluate(({ from, to }) => {
+    const textNodes = (line) => {
+      const row = document.querySelector(`[data-testid="cwi-line"][data-line="${String(line)}"]`)
+      if (row === null) return []
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
+      const nodes = []
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) nodes.push(node)
+      return nodes
+    }
+    const locate = (line, text) => {
+      for (const node of textNodes(line)) {
+        const index = node.textContent?.indexOf(text) ?? -1
+        if (index >= 0) return { node, index }
+      }
+      return null
+    }
+    const first = locate(from.line, from.text)
+    const last = locate(to.line, to.text)
+    const selection = window.getSelection()
+    if (first === null || last === null || selection === null) return false
+    const range = document.createRange()
+    range.setStart(first.node, first.index)
+    range.setEnd(last.node, last.index + to.text.length)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return true
+  }, { from: start, to: end })
+  assert.equal(selected, true, `source range not selectable: ${start.text} … ${end.text}`)
+}
+
+/**
+ * Open the floating entry for a source range and wait for its range label.
+ *
+ * A scroll or resize collapses a browser text selection, so the scenario
+ * re-applies the same range once when the entry did not survive the layout.
+ */
+async function showSourceRange(page, start, end, label, attempt = 0) {
+  await selectSourceRange(page, start, end)
+  try {
+    await page.waitForFunction(
+      (expected) => document.querySelector('[data-testid="cwi-annotate-pop"]')?.textContent?.includes(expected) === true,
+      label,
+      { timeout: 10_000 },
+    )
+  } catch (error) {
+    if (attempt >= 1) throw error
+    await showSourceRange(page, start, end, label, attempt + 1)
+  }
+}
+
+/** Dismiss the floating entry without touching the line selection state. */
+async function dismissSourceEntry(page) {
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-annotate-pop').waitFor({ state: 'detached', timeout: 10_000 })
+}
+
+/** Wait until the composer owns focus, the destination of every annotate entry. */
+async function waitForComposerFocus(page) {
+  await page.waitForFunction(
+    () => document.activeElement?.getAttribute('data-testid') === 'cwi-composer',
+    undefined,
+    { timeout: 10_000 },
+  )
+}
+
+/** Let two animation frames pass so a React update from an input event lands. */
+async function settleFrames(page) {
+  await page.evaluate(
+    () => new Promise((resolve) => { requestAnimationFrame(() => { requestAnimationFrame(resolve) }) }),
+  )
+}
+
+/**
+ * The numbered source surface's annotation entry points.
+ *
+ * A line click, a real text selection, a right click, and the context-menu key
+ * all open the same floating entry with the same range mapping, the entry's
+ * button hands that range to the composer, and the inline fallback covers the
+ * unmeasured line list.
+ */
+async function scenarioWorkItemSourceAnnotate(page) {
+  await ensurePanel(page)
+  await ensureTopicList(page)
+  await openWorkItemTab(page)
+  const card = await artifactCard(page)
+  const sourcePath = 'docs/browser-source.csv'
+  const sourceContent = 'name,qty\nalpha,1\nbeta,2\ngamma,3\ndelta,4\nepsilon,5\n'
+  const patchSource = (record) => {
+    record.type = 'table'
+    record.title = '浏览器源码批注'
+    record.primaryPath = sourcePath
+    record.files = [{
+      ...record.files[0],
+      path: sourcePath,
+      mediaType: 'text/csv',
+      editable: true,
+      size: Buffer.byteLength(sourceContent, 'utf8'),
+      sha256: '',
+    }]
+    return record
+  }
+  await page.route('**/api/cowork.artifact.detail*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.record = patchSource(body.record)
+    await route.fulfill({ response, json: body })
+  })
+  // Viewing records status through a second response; keep it on the same
+  // family, or the real text fixture overwrites this scenario's source viewer.
+  await page.route('**/api/cowork.artifact.status*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.record = patchSource(body.record)
+    await route.fulfill({ response, json: body })
+  })
+  await page.route('**/api/cowork.artifact.file*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        artifactId: BROWSER_ARTIFACT,
+        path: sourcePath,
+        mediaType: 'text/csv',
+        content: sourceContent,
+        size: Buffer.byteLength(sourceContent, 'utf8'),
+        sha256: '',
+        revision: 1,
+        fsVersion: 'fixture-source',
+      }),
+    })
+  })
+  try {
+    await card.click()
+    await page.getByTestId('cwi-viewer').waitFor({ timeout: 15_000 })
+    await waitForDocKind(page, 'source')
+    assert.equal(await page.getByTestId('cwi-doc-view').getAttribute('data-kind'), 'source')
+    const line = (number) => page.locator(`[data-testid="cwi-line"][data-line="${String(number)}"]`)
+    await line(1).waitFor({ timeout: 15_000 })
+    assert.match(await page.getByTestId('cwi-lines').innerText(), /epsilon,5/)
+    const pop = page.getByTestId('cwi-annotate-pop')
+    const annotateWithPop = async () => {
+      await pop.getByTestId('cwi-annotate').click()
+      await waitForComposerFocus(page)
+    }
+
+    // A line click opens the entry for that line; its button maps the range
+    // into the composer, which is where the comment is written.
+    await line(2).click()
+    await pop.waitFor({ timeout: 10_000 })
+    assert.match(await pop.innerText(), /第 2 行/)
+    await annotateWithPop()
+    assert.match(await page.getByTestId('cwi-rail').innerText(), /第 2 行/)
+    await page.getByTestId('cwi-rail').getByRole('button', { name: '取消位置' }).click()
+    await dismissSourceEntry(page)
+
+    // A text selection across two lines wins over the click target: the entry
+    // carries that range, and both a right click and the menu key reuse it
+    // instead of mapping a single line.
+    await showSourceRange(page, { line: 3, text: 'beta' }, { line: 4, text: 'gamma' }, '第 3–4 行')
+    // The entry floats over the lines below the selection, so the press is
+    // dispatched at the row instead of through a pointer position.
+    await line(5).dispatchEvent('contextmenu')
+    assert.match(await pop.innerText(), /第 3–4 行/)
+    await page.getByTestId('cwi-lines').focus()
+    await page.keyboard.press('Shift+F10')
+    assert.match(await pop.innerText(), /第 3–4 行/)
+    await annotateWithPop()
+    const quote = page.getByTestId('cwi-selected-text')
+    await quote.waitFor({ timeout: 10_000 })
+    assert.match(await quote.innerText(), /beta/)
+    await page.getByTestId('cwi-rail').getByRole('button', { name: '取消位置' }).click()
+    await dismissSourceEntry(page)
+
+    // Without a selection a right click annotates the line under the pointer,
+    // and a right click outside the list opens nothing.
+    await line(5).dispatchEvent('contextmenu')
+    await pop.waitFor({ timeout: 10_000 })
+    assert.match(await pop.innerText(), /第 5 行/)
+    await page.keyboard.press('Escape')
+    await pop.waitFor({ state: 'detached', timeout: 10_000 })
+    await page.getByTestId('cwi-file-head').dispatchEvent('contextmenu')
+    await settleFrames(page)
+    assert.equal(await pop.count(), 0)
+
+    // The menu key opens the entry for the keyboard-active line and moves focus
+    // into it; from outside the list the same key opens nothing.
+    await page.getByTestId('cwi-lines').focus()
+    const activeBefore = Number(
+      await page.locator('[data-line][data-active="true"]').first().getAttribute('data-line'),
+    )
+    await page.keyboard.press('ArrowDown')
+    const expectedLine = Math.min(6, activeBefore + 1)
+    await page.keyboard.press('Shift+F10')
+    await pop.waitFor({ timeout: 10_000 })
+    assert.match(await pop.innerText(), new RegExp(`第 ${String(expectedLine)} 行`))
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute('data-testid') === 'cwi-annotate',
+      undefined,
+      { timeout: 10_000 },
+    )
+    // The entry keeps the menu-key path alive while it owns focus.
+    await page.keyboard.press('Shift+F10')
+    assert.match(await pop.innerText(), new RegExp(`第 ${String(expectedLine)} 行`))
+    await page.keyboard.press('Escape')
+    await pop.waitFor({ state: 'detached', timeout: 10_000 })
+    await page.getByTestId('cwi-composer').focus()
+    await page.keyboard.press('Shift+F10')
+    await settleFrames(page)
+    assert.equal(await pop.count(), 0)
+
+    // A text selection inside the hidden document maps its lines but measures
+    // no rectangle, so it must not resurrect the floating entry.
+    const viewTab = (label) => page.getByTestId('cwi-view-tab').filter({ hasText: label })
+    await line(2).click()
+    await pop.waitFor({ timeout: 10_000 })
+    await viewTab('附件').focus()
+    await page.keyboard.press('Enter')
+    await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
+    await selectSourceRange(page, { line: 3, text: 'beta' }, { line: 3, text: 'beta' })
+    await settleFrames(page)
+    assert.equal(await pop.count(), 0)
+    await page.evaluate(() => window.getSelection()?.removeAllRanges())
+    await settleFrames(page)
+    await viewTab('文档').focus()
+    await page.keyboard.press('Enter')
+
+    // The inline fallback: with the rows carried outside the layout the list has
+    // no usable rectangle, so the surface offers the range's last line as a
+    // button instead of the floating entry. Squeezing the rows stands in for the
+    // detached or unmeasured list this fallback exists for.
+    const viewport = page.viewportSize()
+    assert.notEqual(viewport, null)
+    const squeeze = await page.addStyleTag({
+      content: '.cwi-lines .cwi-line { height: 0; min-height: 0; padding-top: 0; padding-bottom: 0; overflow: visible; }',
+    })
+    await page.setViewportSize({ width: viewport.width - 20, height: viewport.height })
+    await settleFrames(page)
+    assert.equal(await pop.count(), 0)
+    const inline = page.locator('[data-testid="cwi-line"][data-line="2"] [data-testid="cwi-line-annotate"]')
+    await inline.waitFor({ timeout: 10_000 })
+    assert.match(await inline.getAttribute('aria-label'), /批注所选内容/)
+    await inline.focus()
+    await page.keyboard.press('Enter')
+    await waitForComposerFocus(page)
+    assert.match(await page.getByTestId('cwi-rail').innerText(), /第 2 行/)
+    // Once the list measures again the next refresh returns the floating entry.
+    await squeeze.evaluate((element) => { element.remove() })
+    await page.setViewportSize(viewport)
+    await pop.waitFor({ timeout: 10_000 })
+    assert.match(await pop.innerText(), /第 2 行/)
+    await page.getByTestId('cwi-rail').getByRole('button', { name: '取消位置' }).click()
+  } finally {
+    await page.unroute('**/api/cowork.artifact.detail*')
+    await page.unroute('**/api/cowork.artifact.status*')
+    await page.unroute('**/api/cowork.artifact.file*')
+  }
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
 /**
  * The rail consumes the project SSE stream itself: a comment created outside
  * the list changes its count without remounting the tab, and a stopped stream
@@ -1907,10 +2684,9 @@ async function scenarioWorkItemEdit(page, fixtures) {
   await page.getByTestId('cwi-more').click()
   await page.getByTestId('cwi-menu-copy').click()
   await page.getByText(/路径已复制|复制失败/).waitFor({ timeout: 5_000 })
-  await page.getByTestId('cwi-more').click()
-  await page.getByTestId('cwi-menu').waitFor({ timeout: 5_000 })
-  await page.getByTestId('cwi-menu-refresh').click()
-  await page.getByTestId('cwi-menu').waitFor({ state: 'detached', timeout: 5_000 })
+  // The menu refresh restarts the viewer load; wait for it before entering the
+  // editor, because the load's completion resets the surface to reading mode.
+  await refreshViewer(page)
   await page.getByTestId('cwi-edit').click()
   const editor = page.getByTestId('cwi-editor')
   await editor.waitFor({ timeout: 10_000 })
@@ -2182,18 +2958,27 @@ async function scenarioWorkItemDraft(page) {
   assert.equal(await rail.isHidden(), true)
   await openRail(page)
 
+  // A pin opens its thread's session level; the resolved summary lives one
+  // back click away on the list level.
   await page.getByTestId('cwi-md-pin').first().waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-md-pin').first().click()
+  await page.getByTestId('cwi-rail-session').waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-thread-focus').first().click()
   await page.getByTestId('cwi-md-read').waitFor({ timeout: 10_000 })
+  await backToRailList(page)
 
-  // The failed batch belongs to the thread resolved earlier; expand the
-  // resolved summary before reaching its retry action.
+  // The failed batch belongs to the thread resolved earlier. Expand the
+  // resolved summary: its card carries the retry action and the list level now
+  // shows the same receipt the session composer owns.
   await page.getByTestId('cwi-resolved-line').click()
-  // A failed batch exposes retry; the mocked route proves both the failure
-  // receipt and the optimistic success path without enqueueing a real model
-  // turn.
+  const resolvedThread = page.locator(`[data-testid="cwi-thread"][data-thread-id="${chainThreadId}"]`)
+  await resolvedThread.waitFor({ timeout: 10_000 })
+  // A failed batch exposes retry on its summary card; the mocked first call
+  // fails and the failure receipt is visible at the list level.
   await page.getByTestId('cwi-dispatch-retry').first().click()
-  await page.getByText(/重试失败/).first().waitFor({ timeout: 10_000 })
+  await page.getByTestId('cwi-rail-receipt').filter({ hasText: '重试失败' }).waitFor({ timeout: 10_000 })
+  await enterThreadSession(page, resolvedThread)
+  // The session composer keeps its own receipt for the optimistic success.
   await page.getByTestId('cwi-dispatch-retry').first().click()
   await page.getByText('已重新投递').waitFor({ timeout: 10_000 })
 
@@ -2257,13 +3042,15 @@ async function scenarioWorkItemEdges(page, fixtures) {
   // Reply inside a thread: cancel first, then commit a real reply.
   const textThread = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '这张文本附件说明问题' }).first()
   await textThread.waitFor({ timeout: 15_000 })
+  // The list level has no reply control: enter the thread's session first.
+  await enterThreadSession(page, textThread)
   const replyTarget = page.getByTestId('cwi-reply-target')
-  await textThread.getByTestId('cwi-thread-reply').click()
+  await page.getByTestId('cwi-thread-reply').first().click()
   await replyTarget.waitFor({ timeout: 10_000 })
   assert.match(await replyTarget.innerText(), /回复/)
   await replyTarget.getByRole('button', { name: '取消回复' }).click()
   await replyTarget.waitFor({ state: 'detached', timeout: 10_000 })
-  await textThread.getByTestId('cwi-thread-reply').click()
+  await page.getByTestId('cwi-thread-reply').first().click()
   await replyTarget.waitFor({ timeout: 10_000 })
   await page.getByTestId('cwi-composer').fill('浏览器线程回复')
   await page.getByTestId('cwi-submit').click()
@@ -2290,6 +3077,32 @@ async function scenarioWorkItemEdges(page, fixtures) {
   await pending.waitFor({ timeout: 15_000 })
   await page.getByRole('button', { name: '移除附件 remove-me.txt' }).click()
   await pending.waitFor({ state: 'detached', timeout: 10_000 })
+
+  // A pasted image is claimed by the composer and published as soon as it is
+  // stored, so a pasted image never lingers as an orphan upload.
+  const pasteImageClaimed = await page.getByTestId('cwi-composer').evaluate((textarea, base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+    const data = new DataTransfer()
+    data.items.add(new File([bytes], 'pasted.png', { type: 'image/png' }))
+    return textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, png.toString('base64'))
+  assert.equal(pasteImageClaimed, false, 'an image paste belongs to the composer')
+  const pastedChip = page.getByTestId('cwi-pending-attachments')
+  await pastedChip.waitFor({ timeout: 15_000 })
+  const pastedRemove = pastedChip.getByRole('button')
+  assert.equal(await pastedRemove.count(), 1, 'the pasted image is one pending attachment')
+  assert.match(await pastedRemove.getAttribute('aria-label'), /^移除附件 /)
+  // A paste without an image stays text: the composer claims nothing and adds
+  // no attachment.
+  const pasteTextClaimed = await page.getByTestId('cwi-composer').evaluate((textarea) => {
+    const data = new DataTransfer()
+    data.items.add(new File([new Uint8Array([1, 2, 3])], 'pasted.md', { type: 'text/markdown' }))
+    return textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  assert.equal(pasteTextClaimed, true, 'a non-image paste keeps the browser default')
+  assert.equal(await page.getByRole('button', { name: /移除附件 / }).count(), 1)
+  await pastedRemove.click()
+  await pastedChip.waitFor({ state: 'detached', timeout: 10_000 })
 
   // A text attachment renders as a named download link.
   const link = textThread.getByTestId('cwi-attachment-link').first()
@@ -2386,9 +3199,12 @@ async function scenarioWorkItemLive(page, fixtures) {
       body: JSON.stringify({ sessionId, artifactId, body: '来自 SSE 的评论' }),
     })
   }, { sessionId: fixtures.primarySessionId, artifactId: BROWSER_ARTIFACT })
-  await page.locator('[data-testid="cwi-thread"]').filter({ hasText: '来自 SSE 的评论' })
-    .waitFor({ timeout: 15_000 })
+  const liveThread = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '来自 SSE 的评论' })
+  await liveThread.waitFor({ timeout: 15_000 })
   await page.getByTestId('cwi-activity').waitFor({ timeout: 10_000 })
+  // The list level is read-only; entering the new thread's session reveals
+  // the composer used by the attachment steps below.
+  await enterThreadSession(page, liveThread)
 
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
   await page.getByTestId('cwi-file-input').setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: png })
@@ -2689,11 +3505,18 @@ async function scenarioWorkItemKeyboard(page) {
 async function scenarioWorkItemNarrow(page) {
   await page.setViewportSize({ width: 820, height: 900 })
   try {
-    const list = await openWorkItemTab(page)
-    const listLayout = await list.evaluate((element) => ({
-      direction: getComputedStyle(element).flexDirection,
-      overflow: element.scrollWidth - element.clientWidth,
-    }))
+    await openWorkItemTab(page)
+    // The tab activation can replace the list frame between the readiness wait
+    // and the read (a detached element reports empty computed styles), so poll
+    // the connected, styled frame instead of taking one sample.
+    const layoutHandle = await page.waitForFunction(() => {
+      const element = document.querySelector('[data-testid="cwi-list"]')
+      if (element === null || !element.isConnected) return null
+      const style = getComputedStyle(element)
+      if (style.flexDirection === '') return null
+      return { direction: style.flexDirection, overflow: element.scrollWidth - element.clientWidth }
+    }, undefined, { timeout: 10_000 })
+    const listLayout = await layoutHandle.jsonValue()
     assert.equal(listLayout.direction, 'column', 'the rail list must stay a single column')
     assert.ok(listLayout.overflow <= 1, `the rail list overflows horizontally by ${listLayout.overflow}px`)
 
@@ -2708,6 +3531,8 @@ async function scenarioWorkItemNarrow(page) {
     assert.notEqual(railBox, null)
     assert.ok(railBox.x >= 0 && railBox.x + railBox.width <= 821, 'the drawer must stay inside the viewport')
     assert.equal(await page.getByTestId('cwi-rail-backdrop').count(), 1)
+    // A drawer keeps the sheet width: the resize grip is a wide-layout control.
+    assert.equal(await page.getByTestId('cwi-rail-grip').count(), 0)
 
     // Escape closes the drawer and returns focus to its toggle.
     await page.keyboard.press('Escape')
@@ -2823,18 +3648,26 @@ async function scenarioWorkItemPaging(page) {
     assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 2)
 
     const target = page.locator('[data-testid="cwi-thread"][data-thread-id="thread-b"]')
-    await target.click()
-    assert.equal(await target.getAttribute('data-selected'), 'true')
+    // A summary card opens the thread's session; paging lives on the list.
+    await enterThreadSession(page, target)
+    assert.equal(await target.getAttribute('data-selected'), 'true', 'the opened thread is selected')
+    await backToRailList(page)
+    assert.equal(await target.getAttribute('data-selected'), 'true', 'loading older rows keeps the selection')
 
     const failedRequest = waitForCommentsPage(page, 'event-a')
     await page.getByTestId('cwi-load-older').click()
     assert.equal(new URL((await failedRequest).url()).searchParams.get('limit'), '200')
-    await page.getByRole('status').filter({ hasText: '加载更早的批注失败' }).waitFor({ timeout: 10_000 })
-    assert.equal(await page.getByTestId('cwi-load-older').count(), 1)
+    // The list level renders the same receipt the session composer owns, so the
+    // failed older page is visible without opening the thread session.
+    await page.getByTestId('cwi-rail-receipt').filter({ hasText: '加载更早的批注失败' }).waitFor({ timeout: 10_000 })
+    await page.getByTestId('cwi-load-older').waitFor({ timeout: 10_000 })
+    assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 2)
 
     const olderRequest = waitForCommentsPage(page, 'event-a')
     await page.getByTestId('cwi-load-older').click()
     assert.equal(new URL((await olderRequest).url()).searchParams.get('limit'), '200')
+    // A new load clears the previous receipt instead of leaving it stuck.
+    await page.getByTestId('cwi-rail-receipt').waitFor({ state: 'detached', timeout: 10_000 })
     await page.locator('[data-testid="cwi-thread"][data-thread-id="thread-old"]').waitFor({ timeout: 10_000 })
     assert.equal(await page.locator('[data-testid="cwi-thread"]').count(), 3)
     assert.equal(await target.getAttribute('data-selected'), 'true', 'loading older rows must keep the selection')
@@ -2981,6 +3814,394 @@ async function scenarioWorkItemRebind(page) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Attachment publish log, preview overlay, and responsive layout      */
+/* ------------------------------------------------------------------ */
+
+/** One attachment page row, addressed by its visible file name. */
+function attachmentRow(page, name) {
+  return page.getByTestId('cwi-attachment-row').filter({ hasText: name })
+}
+
+/** Open the viewer's attachments tab and wait for its panel. */
+async function openAttachmentsTab(page) {
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '附件' }).click()
+  await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
+}
+
+/** Wait until the open preview image decoded and the stage sized it. */
+async function waitForPreviewImage(page) {
+  const image = page.getByTestId('cwi-preview-image')
+  await image.waitFor({ timeout: 15_000 })
+  // The first frame renders a 1px placeholder until the stage is measured and
+  // the natural size arrives; wait for the real composed size, not just decode.
+  await page.waitForFunction(() => {
+    const node = document.querySelector('[data-testid="cwi-preview-image"]')
+    return node !== null && node.complete && node.naturalWidth > 0
+      && Number.parseFloat(node.style.width) > 1
+  }, undefined, { timeout: 15_000 })
+  return image
+}
+
+/** The open preview's dialog, image, stage, and footer boxes in viewport pixels. */
+function previewMetrics(page) {
+  return page.evaluate(() => {
+    const boxOf = (selector) => {
+      const node = document.querySelector(selector)
+      if (node === null) return null
+      const rect = node.getBoundingClientRect()
+      return {
+        left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+        right: rect.right, bottom: rect.bottom,
+      }
+    }
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      dialog: boxOf('[data-testid="cwi-preview-dialog"]'),
+      image: boxOf('[data-testid="cwi-preview-image"]'),
+      text: boxOf('[data-testid="cwi-preview-text"]'),
+      stage: boxOf('.cwi-preview-stage'),
+      footer: boxOf('.cwi-preview-foot'),
+    }
+  })
+}
+
+/** Assert the dialog follows the §9.2 viewport formula and return its metrics. */
+async function assertPreviewCoversViewport(page, padding) {
+  const metrics = await previewMetrics(page)
+  assert.ok(metrics.dialog !== null, 'the preview dialog is open')
+  const expectedWidth = Math.min(metrics.viewport.width - padding, 1600)
+  const expectedHeight = Math.min(metrics.viewport.height - padding, 1100)
+  assert.ok(
+    Math.abs(metrics.dialog.width - expectedWidth) <= 2,
+    `preview width ${metrics.dialog.width} != ${expectedWidth}`,
+  )
+  assert.ok(
+    Math.abs(metrics.dialog.height - expectedHeight) <= 2,
+    `preview height ${metrics.dialog.height} != ${expectedHeight}`,
+  )
+  return metrics
+}
+
+/** The accessible identity of the focused element (aria-label, test id, or tag). */
+function focusedIdentity(page) {
+  return page.evaluate(() => {
+    const active = document.activeElement
+    if (active === null) return ''
+    return active.getAttribute('aria-label') ?? active.getAttribute('data-testid') ?? active.tagName
+  })
+}
+
+/** Wait until the element that opened the preview owns focus again. */
+async function waitForFocusIdentity(page, identity) {
+  await page.waitForFunction((expected) => {
+    const active = document.activeElement
+    if (active === null) return false
+    const actual = active.getAttribute('aria-label') ?? active.getAttribute('data-testid') ?? active.tagName
+    return actual === expected
+  }, identity, { timeout: 5_000 })
+}
+
+/**
+ * The published attachment work item, the preview overlay's three open/close
+ * paths, the fit/zoom rules, and the model-authored row.
+ *
+ * The fixture writes the attachment work item late so every earlier scenario
+ * keeps its seeded list counts. Its `attachments.jsonl` uses the exact row
+ * shape the attach tool writes (`source: 'model'`) and the comment refs the
+ * browser upload path writes (`source: 'user'`); the page reads both through
+ * the real detail and attachment routes.
+ */
+async function scenarioWorkItemAttachmentEvidence(page, fixtures) {
+  await seedAttachmentArtifacts(fixtures.primary.repoPath, fixtures.primarySessionId)
+  // Force the list to re-read the catalog it now shows.
+  await page.locator('[data-testid="cw-tab"][data-tab="topics"]').click()
+  await waitForOverview(page)
+  await openWorkItemTab(page)
+
+  // A work item with no publish log, comments, or uploads renders the empty copy.
+  await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_EMPTY_ARTIFACT}"]`).click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await openAttachmentsTab(page)
+  assert.equal(await page.getByTestId('cwi-attachment-row').count(), 0)
+  assert.match(await page.getByTestId('cwi-attachment-empty').innerText(), /还没有附件/)
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // The attachment work item: its Markdown resolves the cowork-attachment URI
+  // through the published bytes, and the page lists both publication sources.
+  await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ATTACHMENT_ARTIFACT}"]`).click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-md-image').waitFor({ timeout: 15_000 })
+  await page.waitForFunction(() => {
+    const image = document.querySelector('[data-testid="cwi-md-image"]')
+    return image !== null && image.complete && image.naturalWidth > 0
+  }, undefined, { timeout: 15_000 })
+  const documentImage = page.getByTestId('cwi-md-image')
+  assert.equal(await documentImage.evaluate(node => node.naturalWidth), BROWSER_ATTACHMENTS.modelChart.width)
+  const documentSrc = await documentImage.getAttribute('src')
+  assert.match(documentSrc, /\/api\/cowork\.artifact\.attachment/)
+  assert.match(documentSrc, new RegExp(BROWSER_ATTACHMENTS.modelChart.attachmentId))
+
+  await openAttachmentsTab(page)
+  const rows = page.getByTestId('cwi-attachment-row')
+  await rows.first().waitFor({ timeout: 10_000 })
+  assert.equal(await rows.count(), 6)
+  const modelRow = attachmentRow(page, BROWSER_ATTACHMENTS.modelChart.name)
+  assert.equal(await modelRow.getAttribute('data-source'), 'model')
+  assert.equal(await modelRow.getByTestId('cwi-attachment-model').innerText(), '模型生成')
+  const userRow = attachmentRow(page, BROWSER_ATTACHMENTS.userShot.name)
+  assert.equal(await userRow.getAttribute('data-source'), 'user')
+  assert.equal(await userRow.getByTestId('cwi-attachment-model').count(), 0)
+  for (const name of [
+    BROWSER_ATTACHMENTS.userShot.name,
+    BROWSER_ATTACHMENTS.modelChart.name,
+    BROWSER_ATTACHMENTS.userNote.name,
+  ]) {
+    const row = attachmentRow(page, name)
+    assert.match(await row.getByTestId('cwi-attachment-link').getAttribute('href'), /\/api\/cowork\.artifact\.attachment/)
+  }
+  // The missing row marks absent bytes after its thumbnail fails to load.
+  const missingRow = attachmentRow(page, BROWSER_ATTACHMENTS.missing.name)
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="cwi-attachment-row"][data-missing="true"]') !== null,
+    undefined,
+    { timeout: 15_000 },
+  )
+  assert.equal(await missingRow.getAttribute('data-missing'), 'true')
+  assert.match(await missingRow.getByTestId('cwi-attachment-meta').innerText(), /附件已缺失/)
+
+  // Path 1: the page row. Dialog semantics, viewport size, background lock,
+  // zoom, fit switching without a refetch, and Esc with focus return.
+  const attachmentRequests = []
+  const recordAttachmentRequest = (request) => {
+    if (request.url().includes('/api/cowork.artifact.attachment')
+      && request.url().includes(BROWSER_ATTACHMENTS.modelChart.attachmentId)) {
+      attachmentRequests.push(request.url())
+    }
+  }
+  page.on('request', recordAttachmentRequest)
+  try {
+    await modelRow.getByTestId('cwi-attachment-preview').click()
+    const dialog = page.getByTestId('cwi-preview-dialog')
+    await dialog.waitFor({ timeout: 15_000 })
+    assert.equal(await dialog.getAttribute('role'), 'dialog')
+    assert.equal(await dialog.getAttribute('aria-modal'), 'true')
+    assert.match(await page.locator('.cwi-preview-title').innerText(), new RegExp(BROWSER_ATTACHMENTS.modelChart.name))
+    assert.equal(await page.getByTestId('cwi-preview-model').innerText(), '模型生成')
+    await waitForPreviewImage(page)
+    const metrics = await assertPreviewCoversViewport(page, 24)
+    assert.equal(await page.evaluate(() => document.body.style.overflow), 'hidden')
+    const covered = await page.evaluate(() => {
+      const node = document.elementFromPoint(window.innerWidth - 4, window.innerHeight - 4)
+      return node !== null && node.closest('[data-testid="cwi-preview"]') !== null
+    })
+    assert.equal(covered, true, 'the backdrop covers the background surface')
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '100%')
+    await page.getByTestId('cwi-preview-zoom-in').click()
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '110%')
+    await page.getByTestId('cwi-preview-zoom-in').click()
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '120%')
+    await page.getByTestId('cwi-preview-zoom-out').click()
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '110%')
+    await page.getByTestId('cwi-preview-zoom-reset').click()
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '100%')
+    const requestsBeforeFit = attachmentRequests.length
+    assert.equal(await page.getByTestId('cwi-preview-fit').innerText(), '适应页面')
+    await page.getByTestId('cwi-preview-fit').click()
+    await page.waitForFunction(() => document.querySelector('[data-testid="cwi-preview-fit"]')?.textContent === '适合宽度')
+    await page.getByTestId('cwi-preview-fit').click()
+    await page.waitForFunction(() => document.querySelector('[data-testid="cwi-preview-fit"]')?.textContent === '适应页面')
+    assert.equal(attachmentRequests.length, requestsBeforeFit, 'fit switching must not refetch the image')
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+    await waitForFocusIdentity(page, `预览 ${BROWSER_ATTACHMENTS.modelChart.name}`)
+    assert.notEqual(await page.evaluate(() => document.body.style.overflow), 'hidden')
+    assert.ok(Math.abs(metrics.image.width - metrics.stage.width) <= 2, 'the wide chart touches the stage width')
+  } finally {
+    page.off('request', recordAttachmentRequest)
+  }
+
+  // Paths 2 and 3: the thread card in the rail's session level. The user photo
+  // closes on a backdrop press; the model reply image closes on the button.
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '文档' }).click()
+  await openRail(page)
+  const threadCard = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '模型生成了附件图表' }).first()
+  await threadCard.waitFor({ timeout: 10_000 })
+  await enterThreadSession(page, threadCard)
+  assert.equal(await page.getByTestId('cwi-attachment-preview').count(), 2)
+  assert.equal(await page.getByTestId('cwi-attachment-model').count(), 1)
+  assert.equal(await page.getByTestId('cwi-attachment-model').innerText(), '模型生成')
+  const userItem = page.locator('.cwi-attachment-item').filter({ hasText: BROWSER_ATTACHMENTS.userShot.name })
+  assert.equal(await userItem.getByTestId('cwi-attachment-model').count(), 0)
+  const userThumb = page.getByRole('button', { name: `预览 ${BROWSER_ATTACHMENTS.userShot.name}` })
+  // Focus the trigger first, the way keyboard users reach it; the provider
+  // captures whatever owns focus when the preview opens.
+  await userThumb.focus()
+  await userThumb.click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ timeout: 15_000 })
+  await page.mouse.click(6, 6)
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+  // All three close paths restore focus to the trigger; this one goes through
+  // the backdrop's click handler, after the browser's default mousedown blur.
+  await waitForFocusIdentity(page, `预览 ${BROWSER_ATTACHMENTS.userShot.name}`)
+  const modelThumb = page.getByRole('button', { name: `预览 ${BROWSER_ATTACHMENTS.modelChart.name}` })
+  await modelThumb.focus()
+  await modelThumb.click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ timeout: 15_000 })
+  assert.equal(await page.getByTestId('cwi-preview-model').innerText(), '模型生成')
+  await page.getByTestId('cwi-preview-close').click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+  await waitForFocusIdentity(page, `预览 ${BROWSER_ATTACHMENTS.modelChart.name}`)
+  await backToRailList(page)
+
+  // Wide image: contain touches the stage width and keeps the aspect ratio.
+  await openAttachmentsTab(page)
+  await attachmentRow(page, BROWSER_ATTACHMENTS.wide.name).getByTestId('cwi-attachment-preview').click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ timeout: 15_000 })
+  await waitForPreviewImage(page)
+  const wideMetrics = await previewMetrics(page)
+  assert.ok(Math.abs(wideMetrics.image.width - wideMetrics.stage.width) <= 2, 'contain touches the stage width')
+  const wideAspect = BROWSER_ATTACHMENTS.wide.width / BROWSER_ATTACHMENTS.wide.height
+  assert.ok(Math.abs(wideMetrics.image.height - Math.round(wideMetrics.image.width / wideAspect)) <= 3)
+  assert.equal(await page.getByTestId('cwi-preview-fit').innerText(), '适应页面')
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // Long image: the default fit is width, and the stage scrolls vertically.
+  await attachmentRow(page, BROWSER_ATTACHMENTS.long.name).getByTestId('cwi-attachment-preview').click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ timeout: 15_000 })
+  await waitForPreviewImage(page)
+  const longMetrics = await previewMetrics(page)
+  assert.equal(await page.getByTestId('cwi-preview-fit').innerText(), '适合宽度')
+  assert.ok(Math.abs(longMetrics.image.width - longMetrics.stage.width) <= 2, 'width fit touches the stage width')
+  assert.ok(longMetrics.image.height > longMetrics.stage.height, 'the long image is taller than the stage')
+  const longScroll = await page.evaluate(() => {
+    const stage = document.querySelector('.cwi-preview-stage')
+    return stage === null ? null : { scrollHeight: stage.scrollHeight, clientHeight: stage.clientHeight }
+  })
+  assert.ok(longScroll !== null && longScroll.scrollHeight > longScroll.clientHeight + 10, 'the stage scrolls vertically')
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // Text attachment: read-only pre slice, truncation note, and the full download.
+  await attachmentRow(page, BROWSER_ATTACHMENTS.userNote.name).getByTestId('cwi-attachment-preview').click()
+  const textPreview = page.getByTestId('cwi-preview-text')
+  await textPreview.waitFor({ timeout: 15_000 })
+  await page.waitForFunction(
+    (head) => document.querySelector('[data-testid="cwi-preview-text"]')?.textContent?.includes(head) === true,
+    BROWSER_ATTACHMENT_TEXT_HEAD,
+    { timeout: 15_000 },
+  )
+  assert.match(await textPreview.innerText(), new RegExp(BROWSER_ATTACHMENT_TEXT_HEAD))
+  assert.equal(await page.getByTestId('cwi-preview-truncated').isVisible(), true)
+  assert.match(await page.getByTestId('cwi-preview-download').getAttribute('href'), /\/api\/cowork\.artifact\.attachment/)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // Missing bytes: opening the row's preview reports the same absent state.
+  await missingRow.getByTestId('cwi-attachment-preview').click()
+  const missingPreview = page.getByTestId('cwi-preview-missing')
+  await missingPreview.waitFor({ timeout: 15_000 })
+  assert.match(await missingPreview.innerText(), /附件已缺失/)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // A viewer refresh re-reads the publish log; the document image and both
+  // sources survive the server round-trip.
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '文档' }).click()
+  await refreshViewer(page)
+  await page.getByTestId('cwi-md-image').waitFor({ timeout: 15_000 })
+  await page.waitForFunction(
+    (width) => {
+      const image = document.querySelector('[data-testid="cwi-md-image"]')
+      return image !== null && image.complete && image.naturalWidth === width
+    },
+    BROWSER_ATTACHMENTS.modelChart.width,
+    { timeout: 15_000 },
+  )
+  await openAttachmentsTab(page)
+  assert.equal(await rows.count(), 6)
+  assert.equal(await attachmentRow(page, BROWSER_ATTACHMENTS.modelChart.name).getAttribute('data-source'), 'model')
+  assert.equal(await attachmentRow(page, BROWSER_ATTACHMENTS.userShot.name).getAttribute('data-source'), 'user')
+
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
+/**
+ * The four responsive widths: no horizontal page scroll, and at 390 the open
+ * preview stays inside the viewport with the footer below the image stage.
+ */
+async function scenarioWorkItemResponsive(page) {
+  const viewports = [
+    { width: 1280, height: 900 },
+    { width: 1024, height: 900 },
+    { width: 768, height: 900 },
+    { width: 390, height: 844 },
+  ]
+  const settleLayout = () => page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => { requestAnimationFrame(resolve) })
+  }))
+  try {
+    await openWorkItemTab(page)
+    await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ATTACHMENT_ARTIFACT}"]`).click()
+    await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+    await openAttachmentsTab(page)
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport)
+      await settleLayout()
+      const scrolled = await page.evaluate(() => ({
+        document: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth,
+        width: window.innerWidth,
+      }))
+      assert.ok(scrolled.document <= scrolled.width + 1, `page horizontal scroll at ${viewport.width}: ${scrolled.document}`)
+      assert.ok(scrolled.body <= scrolled.width + 1, `body horizontal scroll at ${viewport.width}: ${scrolled.body}`)
+      assert.equal(await page.getByTestId('cwi-viewer').isVisible(), true)
+    }
+
+    // 390: the dialog fits the narrow viewport and the footer never covers the
+    // image. The host shell overlays the viewer with the right sidebar at this
+    // width, so the dialog is opened wide and then resized with it open; the
+    // §9.2 narrow formula is what the measurement below proves.
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await settleLayout()
+    await attachmentRow(page, BROWSER_ATTACHMENTS.modelChart.name).getByTestId('cwi-attachment-preview').click()
+    const dialog = page.getByTestId('cwi-preview-dialog')
+    await dialog.waitFor({ timeout: 15_000 })
+    await waitForPreviewImage(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await settleLayout()
+    await page.waitForFunction(() => {
+      const stage = document.querySelector('.cwi-preview-stage')
+      const image = document.querySelector('[data-testid="cwi-preview-image"]')
+      return stage !== null && image !== null && Number.parseFloat(image.style.width) <= stage.clientWidth + 1
+    }, undefined, { timeout: 10_000 })
+    const metrics = await assertPreviewCoversViewport(page, 12)
+    assert.ok(metrics.dialog.left >= -1, 'the dialog starts inside the viewport')
+    assert.ok(metrics.dialog.right <= metrics.viewport.width + 1, 'the dialog ends inside the viewport')
+    assert.ok(metrics.stage.bottom <= metrics.footer.top + 1, 'the footer sits below the image stage')
+    const overflow = await page.evaluate(() => ({
+      document: document.documentElement.scrollWidth,
+      width: window.innerWidth,
+    }))
+    assert.ok(overflow.document <= overflow.width + 1, 'the open preview adds no page horizontal scroll')
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+    // The narrow shell overlays the viewer, so return to the lane width before
+    // driving the toolbar back action.
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await settleLayout()
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  } finally {
+    await page.setViewportSize({ width: 1440, height: 1000 }).catch(() => {})
+  }
+  await backToTopicTab(page)
+}
+
 /**
  * Run the scenarios that never navigate the page.
  *
@@ -2999,11 +4220,13 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioPanelTabs(page)
   await scenarioWorkItemViewTab(page)
   await scenarioWorkItemTabFailure(page, fixtures)
+  await scenarioWorkItemRailAndList(page, fixtures)
   await scenarioWorkItemCrossSession(page, fixtures)
   await scenarioWorkItemOwnerFailure(page, fixtures)
   await scenarioWorkItemChain(page)
   await scenarioWorkItemMarkdown(page, fixtures)
   await scenarioWorkItemTypes(page)
+  await scenarioWorkItemSourceAnnotate(page)
   await scenarioWorkItemListLive(page, fixtures)
   await scenarioWorkItemEdit(page, fixtures)
   await scenarioWorkItemDraft(page)
@@ -3015,6 +4238,8 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioWorkItemNarrow(page)
   await scenarioWorkItemPaging(page)
   await scenarioWorkItemRebind(page)
+  await scenarioWorkItemAttachmentEvidence(page, fixtures)
+  await scenarioWorkItemResponsive(page)
   await scenarioFilterSetup(page)
 }
 

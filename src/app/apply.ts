@@ -1,11 +1,11 @@
 /**
  * @dsh-external/dsh-cowork host plugin entry point.
  *
- * This module assembles the business surface — the panel API, the twenty-three
- * cowork tools, the three presets, and the project-memory prompt section — and
- * starts the opt-in dev surface when `Config.enableDevRoutes` is true. The
- * configuration schema and its one defaults table live in `src/app/config.ts`; the
- * dev route (loopback health) lives in
+ * This module assembles the business surface — the panel API, the twenty-six
+ * cowork tools, the three presets, and the project-memory and annotation prompt
+ * sections — and starts the opt-in dev surface when `Config.enableDevRoutes` is
+ * true. The configuration schema and its one defaults table live in
+ * `src/app/config.ts`; the dev route (loopback health) lives in
  * `src/app/dev-surfaces.ts`.
  */
 import { createHash } from 'node:crypto'
@@ -26,6 +26,8 @@ import { MEMORY_FILES, MEMORY_KINDS, memoryFilePath, parseMemoryFile, renderMemo
 import type { MemoryInjectInput } from '../domains/memory/memory.js'
 import { registerMemoryPrompt } from '../platform/memory-prompt.js'
 import type { MemoryPromptAgent, MemoryPromptDeps, MemoryPromptHost, MemoryRender } from '../platform/memory-prompt.js'
+import { registerAnnotationPrompt } from '../platform/annotation-prompt.js'
+import type { AnnotationPromptHost } from '../platform/annotation-prompt.js'
 import { registerPresets } from '../platform/presets.js'
 import { HIDDEN_PRESET_IDS, hidePresetsFromRoster } from '../platform/preset-visibility.js'
 import type { PresetRosterService } from '../platform/preset-visibility.js'
@@ -314,7 +316,7 @@ export function apply(ctx: Context, config: Config): void {
       `${PLUGIN_NAME}: reviewer.reclaim must be '${CONFIG_DEFAULTS.reviewer.reclaim}' (M10 supports only after-verdict); got '${settings.reviewer.reclaim}'`,
     )
   }
-  // M1 assembly services: one dependency bag for the presets and the twenty-three tools.
+  // M1 assembly services: one dependency bag for the presets and the twenty-six tools.
   const assembly = ctx as unknown as CoworkAssemblyHost
   // Business repo path: the dev surface canonicalizes its own copy, because
   // only it compares paths against a host session cwd.
@@ -485,7 +487,7 @@ export function apply(ctx: Context, config: Config): void {
     })
   }
 
-  // M1: the three runtime presets and the twenty-three cowork tools, owned by this fiber.
+  // M1: the three runtime presets and the twenty-six cowork tools, owned by this fiber.
   ctx.effect(() => registerPresets(coworkDeps.agentPresets).then((disposers) => async () => {
     for (const dispose of disposers) await dispose()
   }), 'dsh-cowork: cowork presets')
@@ -516,18 +518,32 @@ export function apply(ctx: Context, config: Config): void {
   // M2: project memory rides in the system prompt of every cowork agent. The
   // section is registered per agent (current and future) and released when the
   // plugin unloads, so a hot reload does not leave a stale provider behind.
-  const memoryHost: MemoryPromptHost = {
-    onAgentCreated: (listener) => {
-      const events = ctx as unknown as {
-        on(
-          name: string,
-          handler: (payload: { agent: MemoryPromptAgent; source?: string }) => void,
-        ): () => void
+  // Both prompt-section registrations share one `agent/created` subscription:
+  // each module still owns its preset filter, dedupe, and teardown, while the
+  // fiber owns exactly one host listener.
+  const promptSectionListeners = new Set<(payload: { agent: MemoryPromptAgent; source?: string }) => void>()
+  const promptSectionHost = {
+    onAgentCreated(listener: (payload: { agent: MemoryPromptAgent; source?: string }) => void): () => void {
+      promptSectionListeners.add(listener)
+      return () => {
+        promptSectionListeners.delete(listener)
       }
-      return events.on('agent/created', (payload) => listener(payload))
     },
-    listAgents: () => assembly.agents.list(),
+    listAgents: (): readonly MemoryPromptAgent[] => assembly.agents.list(),
   }
+  ctx.effect(() => {
+    const events = ctx as unknown as {
+      on(
+        name: string,
+        handler: (payload: { agent: MemoryPromptAgent; source?: string }) => void,
+      ): () => void
+    }
+    return events.on('agent/created', (payload) => {
+      for (const listener of [...promptSectionListeners]) listener(payload)
+    })
+  }, 'dsh-cowork: agent created fan-out')
+
+  const memoryHost: MemoryPromptHost = promptSectionHost
   const memoryDeps: MemoryPromptDeps = {
     resolveProjectRoot: (cwd) => findProjectRootSync(cwd),
     renderMemory: (repoPath) => renderProjectMemory(repoPath),
@@ -542,6 +558,24 @@ export function apply(ctx: Context, config: Config): void {
     }
     return () => registration.dispose()
   }, 'dsh-cowork: project memory prompt')
+
+  // M13: the durable annotation rules ride the cowork-topic system prompt at
+  // order 950 (after project memory), so the delivered user message stays a
+  // short marker + summary + structured context. Only topic sessions handle
+  // annotations; the module filters the preset. The effect releases the
+  // sections and the shared subscription entry with the fiber.
+  const annotationHost: AnnotationPromptHost = promptSectionHost
+  ctx.effect(() => {
+    const registration = registerAnnotationPrompt(annotationHost, {
+      log: (message) => ctx.logger?.warn?.(message),
+    })
+    if (registration.duplicateSkipped() > 0) {
+      ctx.logger?.warn?.(
+        `[${PLUGIN_NAME}] ${registration.duplicateSkipped()} cowork annotation section(s) already registered; skipped`,
+      )
+    }
+    return () => registration.dispose()
+  }, 'dsh-cowork: annotation prompt')
 
   ctx.logger?.info?.(`[${PLUGIN_NAME}] cowork tools, presets, and panel ready`)
 }

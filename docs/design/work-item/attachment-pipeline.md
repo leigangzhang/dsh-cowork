@@ -1,6 +1,6 @@
 # Cowork 工作项附件双向管线设计
 
-Status: proposed（2026-11-23；决策记录见 [2026-11-23-artifact-attachment-pipeline](../../../.agents/notes/proposed/feature/2026-11-23-artifact-attachment-pipeline.md)）
+Status: implemented（2026-11-23；实现落点见 [artifact.ts](../../../src/tools/artifact.ts)、[artifact-runtime.ts](../../../src/platform/artifact-runtime.ts)、[attachment-preview.tsx](../../../src/client/work-item/attachment-preview.tsx)；决策记录见 [2026-11-23-artifact-attachment-pipeline](../../../.agents/notes/implemented/feature/2026-11-23-artifact-attachment-pipeline.md)）
 
 本文是工作项「附件双向管线」的详细设计：模型如何生成/登记附件、用户如何上传附件、两者如何在 thread 与附件页展示、以及预览弹层与安全边界。它建立在三份已有设计之上，只写本页增量，不复制大段：
 
@@ -140,6 +140,8 @@ interface AttachmentPublishV1 {
 
 - **发布即计数**：`attachmentCount` 改为「`attachments.jsonl` 的去重行数」，在首次发布时 +1：浏览器 attach、评论/回复引用、`cowork_artifact_attach` 三条路径都调用同一发布函数；重复引用同一 id 不再 +1。
 - **孤儿 upload 不计数不展示**：`saveUpload` 只落字节，不写 `attachments.jsonl`、不加计数；只有发布动作才让它进入列表。用户上传后未发布 → 该 upload 保持孤儿，附件页与计数都不显示它。Markdown 粘贴图片必须在 upload 后立即调用浏览器 attach，因此不会成为孤儿。
+- **uploads/ 存储封顶**：每工作项 `uploads/` 的字节条目封顶 200（含未发布 upload）；上传路由落盘前用 `countUploads` 统计已存条目，达到 `MAX_ARTIFACT_ATTACHMENTS` 即返回 `artifact/limit-reached`，孤儿字节因此不能无界增长；该封顶不改变发布计数与展示口径。
+- **封顶检查的并发窗口**：上述 200 条检查在 `saveUpload` 的写锁之外、落盘之前执行；极端并发下同一工作项的多个上传可同时通过检查，使 `uploads/` 短暂超出上限最多 N 条（N 为同时通过检查的请求数），后续上传或重试即按新计数恢复拒绝。已发布附件计数不受影响：`publishAttachmentUnlocked` 在锁内按发布清单检查并在同一事务里 +1，封顶精确。
 - **content-addressed 幂等（否决）**：每次 `sourcePath` attach 都 mint 新 id；同 sourcePath 再次 attach 得到新 id。理由：同一路径内容会变，按 sha 去重会让「改了文件再 attach」静默返回旧附件，产生内容歧义。浏览器 `attachmentId` 重入才是幂等边界。
 - **`artifact.updated`**：发布时发 `{ attachmentId }`，前端据此刷新附件页与计数；不新增事件类型。
 - 读取：`detail` 响应新增 `publishedAttachments: AttachmentPublishV1[]`（由 store 读 `attachments.jsonl` 派生，bounded ≤ 200）。前端附件页、计数、badge 均以此为准；thread 内缩略图继续从评论 `attachments` 数组取（`attachmentRowsOf`），二者用同一 `attachmentId` 对齐。

@@ -30,17 +30,22 @@ const root = resolve(here, '../..')
 const read = (rel) => readFileSync(resolve(root, rel), 'utf8')
 const DEV_DRIVERS = []
 const BROWSER_SOURCES = [
+  'src/client/annotation-node.tsx',
+  'src/client/annotation-styles.ts',
   'src/client/contracts.ts',
   'src/client/inbox.tsx',
   'src/client/index.tsx',
   'src/client/list.tsx',
   'src/client/notice.tsx',
   'src/client/panel.tsx',
+  'src/client/work-item/annotation-pop.tsx',
+  'src/client/work-item/attachment-preview.tsx',
   'src/client/work-item/comment-composer.tsx',
   'src/client/work-item/editor.tsx',
   'src/client/work-item/list.tsx',
   'src/client/work-item/panel-frames.tsx',
   'src/client/work-item/panel.tsx',
+  'src/client/work-item/rail.tsx',
   'src/client/work-item/thread-card.tsx',
   'src/client/work-item/thread-list.tsx',
   'src/client/work-item/viewer-footer.tsx',
@@ -211,10 +216,10 @@ test('the owner map classifies every source file exactly once', () => {
   const map = JSON.parse(read('tools/coverage-map.json'))
   const result = validateOwnershipMap(map, sources)
   assert.deepEqual(result.failures, [])
-  assert.equal(sources.length, 117)
+  assert.equal(sources.length, 130)
   const byLane = { unit: 0, browser: 0, dev: 0 }
   for (const entry of map.files) byLane[entry.lane] += 1
-  assert.deepEqual(byLane, { unit: 94, browser: 23, dev: 0 })
+  assert.deepEqual(byLane, { unit: 102, browser: 28, dev: 0 })
   assert.deepEqual(
     map.files.filter((entry) => entry.lane === 'dev').map((entry) => entry.path).sort(),
     DEV_DRIVERS,

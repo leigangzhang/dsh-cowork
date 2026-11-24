@@ -16,6 +16,14 @@ import type { ReactElement, ReactNode } from 'react'
 import type { Token } from 'markdown-it'
 import type { ArtifactAnchor } from '../../../panel/artifact-contract.js'
 import { contentLines, type LineSelection, type WorkItemThread } from '../model.ts'
+import { AnnotationPop } from '../annotation-pop.tsx'
+import {
+  annotationPopPosition,
+  isMenuKey,
+  lineRangeLabel,
+  selectedTextOf,
+  type PopRect,
+} from '../rail-geometry.ts'
 import {
   blockAtLine,
   blockKey,
@@ -85,18 +93,6 @@ interface RenderContext {
 
 /** How long the selection must rest before the entry appears. */
 const SELECTION_DEBOUNCE_MS = 120
-
-/** Nominal floating-entry box used to clamp it inside the viewport. */
-const ENTRY_WIDTH = 232
-const ENTRY_HEIGHT = 36
-const ENTRY_GAP = 8
-
-/** Pin tooltip and aria label: `第 3 行` or `第 3–5 行`. */
-function lineRangeLabel(startLine: number, endLine: number): string {
-  return startLine === endLine
-    ? `第 ${String(startLine)} 行`
-    : `第 ${String(startLine)}–${String(endLine)} 行`
-}
 
 /** Source-range attributes shared by every block element. */
 function sourceAttrs(block: MarkdownBlock): Record<string, string> {
@@ -186,17 +182,9 @@ function scrollParent(element: HTMLElement): HTMLElement | null {
   return null
 }
 
-/** Clamp the floating entry under the selection, flipping above when short. */
-function entryPosition(rect: SelectionDraft['rect']): { left: number; top: number } {
-  const center = rect.left + rect.width / 2
-  const maxLeft = Math.max(ENTRY_GAP, window.innerWidth - ENTRY_WIDTH - ENTRY_GAP)
-  const left = Math.min(Math.max(center - ENTRY_WIDTH / 2, ENTRY_GAP), maxLeft)
-  const below = rect.top + rect.height + ENTRY_GAP
-  const above = rect.top - ENTRY_HEIGHT - ENTRY_GAP
-  const top = below >= ENTRY_GAP && below + ENTRY_HEIGHT <= window.innerHeight - ENTRY_GAP
-    ? below
-    : Math.max(ENTRY_GAP, Math.min(above, window.innerHeight - ENTRY_HEIGHT - ENTRY_GAP))
-  return { left, top }
+/** The viewport rectangle the entry is clamped inside. */
+function viewportBounds(): PopRect {
+  return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
 }
 
 /** One block pin: the ordinal, its tone, and the line range tooltip. */
@@ -639,45 +627,31 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
     if (article === null) return
     // Selection normalization: every early return is one unusable selection.
     // fallow-ignore-next-line complexity
-    const compute = (): void => {
+    const readSelection = (): SelectionDraft | null => {
       const selection = window.getSelection()
-      if (selection === null || selection.isCollapsed) {
-        setDraft(null)
-        return
-      }
+      if (selection === null || selection.isCollapsed) return null
       const range = selection.getRangeAt(0)
-      if (!article.contains(range.startContainer) || !article.contains(range.endContainer)) {
-        setDraft(null)
-        return
-      }
+      if (!article.contains(range.startContainer) || !article.contains(range.endContainer)) return null
       const startBlock = blockOfNode(range.startContainer)
       const endBlock = blockOfNode(range.endContainer)
-      const selectedText = selection.toString()
-      if (startBlock === null || endBlock === null || selectedText.trim() === '') {
-        setDraft(null)
-        return
-      }
+      const selectedText = selectedTextOf(selection)
+      if (startBlock === null || endBlock === null || selectedText === undefined) return null
       // Frontmatter is a read-only header: it has no pin and no anchor.
-      if (startBlock.kind === 'frontmatter' || endBlock.kind === 'frontmatter') {
-        setDraft(null)
-        return
-      }
+      if (startBlock.kind === 'frontmatter' || endBlock.kind === 'frontmatter') return null
       const rect = selectionRect(range)
       // A selection that is entirely outside the viewport has no usable entry
       // position; treat it as closed instead of pinning a control off-screen.
       if (rect === null || rect.top + rect.height < 0 || rect.top > window.innerHeight
-        || rect.left + rect.width < 0 || rect.left > window.innerWidth) {
-        setDraft(null)
-        return
-      }
-      setDraft({
+        || rect.left + rect.width < 0 || rect.left > window.innerWidth) return null
+      return {
         startBlock,
         endBlock,
         selectedText,
         range: lineRangeForSelection(blocks, lines, startBlock, endBlock, selectedText),
         rect,
-      })
+      }
     }
+    const compute = (): void => { setDraft(readSelection()) }
     const schedule = (): void => {
       if (debounceRef.current !== null) window.clearTimeout(debounceRef.current)
       debounceRef.current = window.setTimeout(compute, SELECTION_DEBOUNCE_MS)
@@ -687,7 +661,25 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
       if (entry !== null && event.target instanceof Node && entry.contains(event.target)) return
       setDraft(null)
     }
+    // Right-click and the menu key open the same entry for the same selection.
+    const onContextMenu = (event: MouseEvent): void => {
+      if (!(event.target instanceof Node) || !article.contains(event.target)) return
+      const next = readSelection()
+      if (next === null) return
+      event.preventDefault()
+      setDraft(next)
+    }
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (isMenuKey(event)) {
+        const next = readSelection()
+        if (next === null) return
+        event.preventDefault()
+        setDraft(next)
+        window.requestAnimationFrame(() => {
+          entryRef.current?.querySelector('button')?.focus()
+        })
+        return
+      }
       if (event.key !== 'Escape') return
       setDraft(null)
       onClearThreadRef.current()
@@ -697,6 +689,7 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
     document.addEventListener('selectionchange', schedule)
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('contextmenu', onContextMenu)
     window.addEventListener('resize', onViewportChange)
     document.addEventListener('scroll', onViewportChange, true)
     return () => {
@@ -704,6 +697,7 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
       document.removeEventListener('selectionchange', schedule)
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('contextmenu', onContextMenu)
       window.removeEventListener('resize', onViewportChange)
       document.removeEventListener('scroll', onViewportChange, true)
     }
@@ -748,7 +742,7 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
     scrollBlockToTop(articleRef.current, blocksRef.current, props.focusLine)
   }, [props.focusLine, props.focusToken])
 
-  const position = draft === null ? null : entryPosition(draft.rect)
+  const position = draft === null ? null : annotationPopPosition(draft.rect, viewportBounds())
   return (
     <article
       className="cwi-md-read"
@@ -777,30 +771,20 @@ export function MarkdownReadView(props: MarkdownReadViewProps): ReactElement {
       )}
       {renderTokenList(tokens, ctx, 'md', false)}
       {draft === null || position === null ? null : (
-        <div
-          className="cwi-md-selection"
-          data-testid="cwi-md-selection"
-          ref={entryRef}
-          role="group"
-          aria-label="选区批注"
-          style={{ left: position.left, top: position.top }}
-        >
-          <span className="cwi-md-selection-range">{lineRangeLabel(draft.range.startLine, draft.range.endLine)}</span>
-          <button
-            type="button"
-            className="cwi-primary cwi-md-selection-button"
-            data-testid="cwi-annotate"
-            disabled={props.annotateDisabled}
-            title={props.annotateReason ?? '对所选内容创建批注'}
-            onMouseDown={(event) => { event.preventDefault() }}
-            onClick={() => {
-              props.onAnnotate(draft.range.startLine, draft.range.endLine, draft.selectedText)
-              setDraft(null)
-            }}
-          >
-            批注
-          </button>
-        </div>
+        <AnnotationPop
+          startLine={draft.range.startLine}
+          endLine={draft.range.endLine}
+          left={position.left}
+          top={position.top}
+          disabled={props.annotateDisabled}
+          disabledTitle={props.annotateReason ?? '对所选内容创建批注'}
+          testId="cwi-md-selection"
+          entryRef={entryRef}
+          onAnnotate={() => {
+            props.onAnnotate(draft.range.startLine, draft.range.endLine, draft.selectedText)
+            setDraft(null)
+          }}
+        />
       )}
     </article>
   )

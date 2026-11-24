@@ -21,6 +21,7 @@ import {
   type ArtifactDispatchSummary,
   type ArtifactFileResponse,
   type ArtifactRecordV1,
+  type AttachmentPublishV1,
   type AttachmentRefV1,
   type CommentEventV1,
 } from '../../panel/artifact-contract.js'
@@ -38,7 +39,8 @@ import { createReadingSurface } from './reading-surface.ts'
 import {
   activeDispatchSummary,
   anchoredLineNumbers,
-  attachmentRowsOf,
+  attachmentDisplayRows,
+  type AttachmentDisplayRow,
   baseName,
   detailMeta,
   contentLines,
@@ -62,9 +64,7 @@ import {
   type OlderCall,
   type SavePhase,
   type WorkItemThread,
-  dispatchDetailLabel,
   deliverySummary,
-  formatElapsed,
   threadForDispatch,
   withOlderPage,
   withRecord,
@@ -74,7 +74,6 @@ import {
 } from './model.ts'
 import { openOwnerSession } from './session-open.ts'
 import { workItemOpenStore, type WorkItemOpenContext } from './store.ts'
-import { CommentComposer } from './comment-composer.tsx'
 import {
   CollapsedRailReceipt,
   ConflictCard,
@@ -86,11 +85,12 @@ import {
   useNarrowLayout,
   ViewerPlaceholder,
 } from './panel-frames.tsx'
-import { ThreadList } from './thread-list.tsx'
+import { CommentRail, useRailNavigation } from './rail.tsx'
 import { ViewerFooter } from './viewer-footer.tsx'
 import { ViewerToolbar } from './viewer-toolbar.tsx'
 import { ViewerHeader } from './viewer-header.tsx'
 import { AttachmentsPanel, VersionsPanel } from './viewer-side-tabs.tsx'
+import { AttachmentPreviewProvider } from './attachment-preview.tsx'
 
 /** The loaded viewer state; one snapshot per open work item. */
 interface ViewerData {
@@ -102,6 +102,8 @@ interface ViewerData {
   readonly hasOlder: boolean
   readonly sessionTitle: string | null
   readonly revisions: readonly number[]
+  /** Published attachment log, or null on a host that predates it. */
+  readonly publishedAttachments: readonly AttachmentPublishV1[] | null
 }
 
 const BYTE_ENCODER = new TextEncoder()
@@ -297,6 +299,105 @@ function useOlderPages(
   return { loadingOlder, loadOlderPage }
 }
 
+/** State setters the attachment upload writes. */
+interface AttachmentUploadSinks {
+  readonly setReceipt: Dispatch<SetStateAction<string | null>>
+  readonly setUploading: Dispatch<SetStateAction<boolean>>
+  readonly setPendingAttachments: Dispatch<SetStateAction<AttachmentRefV1[]>>
+}
+
+async function uploadAttachment(
+  context: WorkItemOpenContext,
+  file: File,
+  publish: boolean,
+): Promise<AttachmentRefV1> {
+  const uploaded = await workItemApi.upload({
+    sessionId: context.ownerSessionId,
+    artifactId: context.artifactId,
+    name: file.name,
+    bytes: file,
+  })
+  if (!publish) return uploaded.attachment
+  const published = await workItemApi.attachArtifact({
+    sessionId: context.ownerSessionId,
+    artifactId: context.artifactId,
+    attachmentId: uploaded.attachment.attachmentId,
+    name: uploaded.attachment.name,
+  })
+  return published.attachment
+}
+
+/** The most pending attachments one comment keeps. */
+const MAX_PENDING_ATTACHMENTS = 5
+
+async function uploadAttachments(
+  context: WorkItemOpenContext,
+  files: readonly File[],
+  publish: boolean,
+): Promise<AttachmentRefV1[]> {
+  const added: AttachmentRefV1[] = []
+  for (const file of files) added.push(await uploadAttachment(context, file, publish))
+  return added
+}
+
+/** The context an upload can run in, or null while the viewer is not ready. */
+function uploadTarget(context: WorkItemOpenContext | null, ready: boolean): WorkItemOpenContext | null {
+  return context !== null && ready ? context : null
+}
+
+/** The bounded file list of one upload, or null when it carries nothing. */
+function uploadFiles(files: FileList | readonly File[] | null): File[] | null {
+  if (files === null) return null
+  const list = Array.from(files).slice(0, MAX_PENDING_ATTACHMENTS)
+  return list.length === 0 ? null : list
+}
+
+/** One upload attempt: the target, the files, and whether to publish first. */
+function uploadPlan(
+  context: WorkItemOpenContext | null,
+  ready: boolean,
+  files: FileList | readonly File[] | null,
+): { readonly target: WorkItemOpenContext; readonly files: File[] } | null {
+  const target = uploadTarget(context, ready)
+  if (target === null) return null
+  const list = uploadFiles(files)
+  return list === null ? null : { target, files: list }
+}
+
+/**
+ * Upload picked files for the next comment; `publish` (paste) publishes them
+ * before they join the pending list (the comment path re-publishes idempotently).
+ */
+function useAttachmentUpload(
+  context: WorkItemOpenContext | null,
+  ready: boolean,
+  sinks: AttachmentUploadSinks,
+): (files: FileList | readonly File[] | null, options?: { readonly publish?: boolean }) => Promise<void> {
+  const { setPendingAttachments, setReceipt, setUploading } = sinks
+  return useCallback(async (
+    files: FileList | readonly File[] | null,
+    options?: { readonly publish?: boolean },
+  ) => {
+    const plan = uploadPlan(context, ready, files)
+    if (plan === null) return
+    setUploading(true)
+    setReceipt(null)
+    try {
+      const added = await uploadAttachments(plan.target, plan.files, options?.publish === true)
+      setPendingAttachments(current => [...current, ...added].slice(0, MAX_PENDING_ATTACHMENTS))
+    } catch (error) {
+      setReceipt(`附件上传失败：${messageOf(error)}`)
+    } finally {
+      setUploading(false)
+    }
+  }, [context, ready, setPendingAttachments, setReceipt, setUploading])
+}
+
+function useAttachmentRows(data: ViewerData | null, threads: readonly WorkItemThread[]): readonly AttachmentDisplayRow[] {
+  const published = data?.publishedAttachments ?? null
+  return useMemo(() => attachmentDisplayRows(published, threads), [published, threads])
+}
+
 /** Props the `conversation.view` seat injects into the viewer. */
 export interface WorkItemViewProps {
   /** Session currently displayed; the open item's owner may be another one. */
@@ -328,7 +429,6 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   const [readFocusToken, setReadFocusToken] = useState(0)
   /** Top visible source line of the active surface, shared by the switch. */
   const viewportLineRef = useRef(1)
-  const [showRail, setShowRail] = useState(false)
   // Bumped when the editor must rebuild its scene from the stored file; a
   // save alone must not remount Excalidraw (that would drop undo history).
   const [canvasReset, setCanvasReset] = useState(0)
@@ -367,6 +467,13 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   // Cross-session viewers are read-only previews: editing, confirming, and
   // commenting all belong to the owning session.
   const readOnly = crossSession
+  const {
+    showRail, state: rail, setShowRail, toggleRail, openSession, openThread, focusAnchor,
+    backToList: backToRailList, closeRail, reset: resetRail,
+  } = useRailNavigation({
+    setSelectedThreadId, setViewTab, setSelection,
+    setReadFocusLine, setReadFocusToken, setReplyTarget,
+  })
 
   // Relative times and activity ages stay current without a data refresh.
   useEffect(() => {
@@ -467,11 +574,13 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     }
   }, [context, crossSession, refreshToken])
 
-  // A different work item starts with the default rail projection.
+  // A different work item starts with the default rail projection and the
+  // list level; the session target and its filter never leak across items.
   useEffect(() => {
     setThreadFilter('all')
     setShowResolved(false)
-  }, [context])
+    resetRail()
+  }, [context, resetRail])
 
   /**
    * Switch to the owning session and make its Cowork tab active.
@@ -752,29 +861,9 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     }
   }, [context, refreshFromServer, sseToken])
 
-  /** Upload one picked file and keep the returned refs for the next comment. */
-  const attachFiles = useCallback(async (files: FileList | null) => {
-    if (context === null || data === null || files === null || files.length === 0) return
-    setUploading(true)
-    setReceipt(null)
-    try {
-      const added: AttachmentRefV1[] = []
-      for (const file of Array.from(files).slice(0, 5)) {
-        const uploaded = await workItemApi.upload({
-          sessionId: context.ownerSessionId,
-          artifactId: context.artifactId,
-          name: file.name,
-          bytes: file,
-        })
-        added.push(uploaded.attachment)
-      }
-      setPendingAttachments(current => [...current, ...added].slice(0, 5))
-    } catch (error) {
-      setReceipt(`附件上传失败：${messageOf(error)}`)
-    } finally {
-      setUploading(false)
-    }
-  }, [context, data])
+  const attachFiles = useAttachmentUpload(context, data !== null, {
+    setReceipt, setUploading, setPendingAttachments,
+  })
 
   /** Re-read one file after a rebind and adopt its content. */
   const reloadFile = async (path: string): Promise<void> => {
@@ -799,9 +888,6 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     setData(current => withRecord(current, next))
   }
 
-  /** Close the narrow drawer. */
-  const closeRail = (): void => { setShowRail(false) }
-
   const lines = useMemo(() => linesOf(data?.file), [data?.file])
   const threads = useMemo(() => sortThreads(foldThreads(data?.events ?? [])), [data?.events])
   const ordinals = useMemo(() => threadOrdinals(threads), [threads])
@@ -809,25 +895,10 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   const activeThread = useMemo(() => activeThreadOf(data, threads), [data, threads])
   const activeOrdinal = ordinalOf(activeThread, ordinals)
   const footerSummary = useMemo(() => deliveryLine(data, threads), [data, threads])
-  /** Attachment URL in the owner session, resolved once per context. */
   const attachmentUrl = useCallback(
     (attachmentId: string) => ownerAttachmentUrl(context, attachmentId),
     [context],
   )
-
-  const focusThread = useCallback((thread: WorkItemThread) => {
-    setSelectedThreadId(thread.threadId)
-    const anchor = thread.anchor
-    if (anchor === null || anchor.kind !== 'line-range') return
-    setViewTab('document')
-    setShowRail(true)
-    setSelection({ startLine: anchor.startLine, endLine: anchor.endLine })
-    setReadFocusLine(anchor.startLine)
-    setReadFocusToken(token => token + 1)
-    requestAnimationFrame(() => {
-      document.querySelector(`[data-line="${String(anchor.startLine)}"]`)?.scrollIntoView({ block: 'center' })
-    })
-  }, [])
 
   const anchoredLines = useMemo(() => anchoredLineNumbers(threads), [threads])
   const anchoredLineList = useMemo(
@@ -835,7 +906,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     [anchoredLines],
   )
   const staleLines = useMemo(() => staleLineNumbers(threads), [threads])
-  const attachmentRows = useMemo(() => attachmentRowsOf(threads), [threads])
+  const attachmentRows = useAttachmentRows(data, threads)
 
   const pickLine = (line: number, extend: boolean): void => {
     setSelection(current => selectLine(current, line, extend))
@@ -867,6 +938,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
       setSelection(current => clearIfUnchanged(current, submitted.selection, null))
       setPendingAttachments(current => clearIfUnchanged(current, submitted.attachments, []))
       setSelectedThreadId(response.comment.threadId)
+      openSession(response.comment.threadId)
       setReceipt(response.dispatchError === null
         ? '评论已提交'
         : `评论已保存，但投递失败：${response.dispatchError.message}`)
@@ -880,6 +952,7 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
   const startReply = useCallback((thread: WorkItemThread) => {
     if (readOnly) return
     setSelectedThreadId(thread.threadId)
+    openSession(thread.threadId)
     setReplyTarget(thread)
     setPendingAnchor(null)
     setSelection(null)
@@ -1009,143 +1082,150 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
     setReadFocusLine: (line) => { setReadFocusLine(line); setReadFocusToken(token => token + 1) },
     clearThread: () => { setSelectedThreadId(null) },
     focusComposer: () => { focusComposerAfterFlush(composerRef) },
-    openThread: focusThread,
+    openThread,
   })
   return (
-    <div
-      className="cwi-viewer"
-      data-testid="cwi-viewer"
-      data-phase="ready"
-      data-artifact-id={record.artifactId}
-      data-conversation-composer-overlay=""
+    <AttachmentPreviewProvider
+      urlFor={(attachmentId) => workItemApi.attachmentUrl({
+        sessionId: context.ownerSessionId,
+        artifactId: context.artifactId,
+        attachmentId,
+      })}
     >
-      <CrossSessionBanner
-        readOnly={readOnly}
-        sessionTitle={data.sessionTitle}
-        opening={ownerOpening}
-        onOpen={() => { void openOwner() }}
-      />
-      <CrossSessionError
-        error={ownerError}
-        opening={ownerOpening}
-        onRetry={() => { void openOwner() }}
-      />
-      <ViewerHeader
-        record={record}
-        file={data.file}
-        activity={activity}
-        now={now}
-        editing={editing}
-        confirming={confirming}
-        opening={opening}
-        readOnly={readOnly}
-        onReturn={requestClose}
-        onConfirm={() => { void confirmWork() }}
-        onToggleEditing={reading.toggleEditing}
-        onOpen={() => { void openInApp() }}
-        onExport={exportCurrentFile}
-        onRefresh={() => { setRefreshToken(token => token + 1) }}
-        onCopyPath={() => { void copyPath() }}
-      />
-      <RebindFileEntry
-        state={missingFile}
-        context={context}
-        record={record}
-        readOnly={readOnly}
-        onRecord={applyRecord}
-        reloadFile={reloadFile}
-        onReceipt={setReceipt}
-      />
-      <ViewerToolbar
-        viewTab={viewTab}
-        revisions={data.revisions.length}
-        attachments={attachmentRows.length}
-        editing={editing}
-        readMode={readMode}
-        showMode={reading.showMode}
-        savePhase={savePhase}
-        dirty={dirty}
-        revision={data.file?.revision ?? record.revision}
-        showRail={showRail}
-        threadCount={threads.length}
-        onTab={setViewTab}
-        onToggleReadMode={reading.toggleReadMode}
-        onToggleRail={() => { setShowRail(value => !value) }}
-      />
-      {fileProblem.notice === null ? null : (
-        <div className="cwi-receipt" data-testid="cwi-file-notice">{fileProblem.notice}</div>
-      )}
-      <CollapsedRailReceipt hidden={!showRail} text={receipt} />
-      {backArmed
-        ? <div className="cwi-receipt" data-testid="cwi-unsaved-notice">还有未保存内容：再点一次返回会关闭查看器</div>
-        : null}
-      <div className="cwi-body">
-        <div className="cwi-content" data-testid="cwi-content" data-kind={kind} data-editing={String(editing)}>
-          {sseNotice === null ? null : (
-            <div className="cwi-receipt" data-testid="cwi-sse-notice">
-              {sseNotice}{' '}
-              <button type="button" className="cwi-secondary" data-testid="cwi-sse-retry" onClick={() => { setSseNotice(null); setSseToken(token => token + 1) }}>
-                重试
-              </button>
-            </div>
-          )}
-          <ConflictCard
-            conflict={conflict}
-            latest={conflictLatest}
-            showDiff={showConflictDiff}
-            onToggleDiff={() => { setShowConflictDiff(value => !value) }}
-            onLoadLatest={() => { void loadLatest() }}
-            onKeepMine={keepMine}
-          />
-          <DocumentSurface
-            kind={kind}
-            file={data.file}
-            typeName={typeLabel(record.type)}
-            visible={viewTab === 'document'}
-            editing={editing}
-            editDraft={editDraft}
-            readMode={readMode}
-            canvasBroken={canvasBroken}
-            canvasReset={canvasReset}
-            readOnly={readOnly}
-            artifactId={record.artifactId}
-            anchoredLineList={anchoredLineList}
-            dirty={dirty}
-            conflict={conflict}
-            selection={selection}
-            lines={lines}
-            anchoredLines={anchoredLines}
-            staleLines={staleLines}
-            pins={linePins}
-            attachments={attachmentRows}
-            reading={reading.config}
-            editorStartLine={viewportLineRef.current}
-            onChangeDraft={(content) => { setEditDraft(content); setBackArmed(false) }}
-            onSaveDraft={() => { void saveDraft() }}
-            onAnnotate={reading.annotate}
-            onAnnotateLine={reading.annotateLine}
-            onClearSelection={() => { setSelection(null) }}
-            onPickLine={pickLine}
-            onPickPin={reading.focusPin}
-          />
-          {viewTab === 'versions' ? (
-            <VersionsPanel record={record} file={data.file} revisions={data.revisions} />
-          ) : null}
-          {viewTab === 'attachments' ? (
-            <AttachmentsPanel
-              attachments={attachmentRows}
-              urlFor={(attachmentId) => workItemApi.attachmentUrl({
-                sessionId: context.ownerSessionId,
-                artifactId: context.artifactId,
-                attachmentId,
-              })}
+      <div
+        className="cwi-viewer"
+        data-testid="cwi-viewer"
+        data-phase="ready"
+        data-artifact-id={record.artifactId}
+        data-conversation-composer-overlay=""
+      >
+        <CrossSessionBanner
+          readOnly={readOnly}
+          sessionTitle={data.sessionTitle}
+          opening={ownerOpening}
+          onOpen={() => { void openOwner() }}
+        />
+        <CrossSessionError
+          error={ownerError}
+          opening={ownerOpening}
+          onRetry={() => { void openOwner() }}
+        />
+        <ViewerHeader
+          record={record}
+          file={data.file}
+          activity={activity}
+          now={now}
+          editing={editing}
+          confirming={confirming}
+          opening={opening}
+          readOnly={readOnly}
+          onReturn={requestClose}
+          onConfirm={() => { void confirmWork() }}
+          onToggleEditing={reading.toggleEditing}
+          onOpen={() => { void openInApp() }}
+          onExport={exportCurrentFile}
+          onRefresh={() => { setRefreshToken(token => token + 1) }}
+          onCopyPath={() => { void copyPath() }}
+        />
+        <RebindFileEntry
+          state={missingFile}
+          context={context}
+          record={record}
+          readOnly={readOnly}
+          onRecord={applyRecord}
+          reloadFile={reloadFile}
+          onReceipt={setReceipt}
+        />
+        <ViewerToolbar
+          viewTab={viewTab}
+          revisions={data.revisions.length}
+          attachments={attachmentRows.length}
+          editing={editing}
+          readMode={readMode}
+          showMode={reading.showMode}
+          savePhase={savePhase}
+          dirty={dirty}
+          revision={data.file?.revision ?? record.revision}
+          showRail={showRail}
+          threadCount={threads.length}
+          onTab={setViewTab}
+          onToggleReadMode={reading.toggleReadMode}
+          onToggleRail={toggleRail}
+        />
+        {fileProblem.notice === null ? null : (
+          <div className="cwi-receipt" data-testid="cwi-file-notice">{fileProblem.notice}</div>
+        )}
+        <CollapsedRailReceipt hidden={!showRail} text={receipt} />
+        {backArmed
+          ? <div className="cwi-receipt" data-testid="cwi-unsaved-notice">还有未保存内容：再点一次返回会关闭查看器</div>
+          : null}
+        <div className="cwi-body">
+          <div className="cwi-content" data-testid="cwi-content" data-kind={kind} data-editing={String(editing)}>
+            {sseNotice === null ? null : (
+              <div className="cwi-receipt" data-testid="cwi-sse-notice">
+                {sseNotice}{' '}
+                <button type="button" className="cwi-secondary" data-testid="cwi-sse-retry" onClick={() => { setSseNotice(null); setSseToken(token => token + 1) }}>
+                  重试
+                </button>
+              </div>
+            )}
+            <ConflictCard
+              conflict={conflict}
+              latest={conflictLatest}
+              showDiff={showConflictDiff}
+              onToggleDiff={() => { setShowConflictDiff(value => !value) }}
+              onLoadLatest={() => { void loadLatest() }}
+              onKeepMine={keepMine}
             />
-          ) : null}
-        </div>
-        <RailEscape narrow={narrow} showRail={showRail} onClose={setShowRail} />
-        {railBackdrop(narrow, showRail, closeRail)}
-        <aside className="cwi-rail" data-testid="cwi-rail" data-drawer={String(narrow)} hidden={!showRail}>
-          <ThreadList
+            <DocumentSurface
+              kind={kind}
+              file={data.file}
+              typeName={typeLabel(record.type)}
+              visible={viewTab === 'document'}
+              editing={editing}
+              editDraft={editDraft}
+              readMode={readMode}
+              canvasBroken={canvasBroken}
+              canvasReset={canvasReset}
+              readOnly={readOnly}
+              artifactId={record.artifactId}
+              anchoredLineList={anchoredLineList}
+              dirty={dirty}
+              conflict={conflict}
+              selection={selection}
+              lines={lines}
+              anchoredLines={anchoredLines}
+              staleLines={staleLines}
+              pins={linePins}
+              attachments={attachmentRows}
+              reading={reading.config}
+              editorStartLine={viewportLineRef.current}
+              onChangeDraft={(content) => { setEditDraft(content); setBackArmed(false) }}
+              onSaveDraft={() => { void saveDraft() }}
+              onAnnotateRange={reading.annotateLines}
+              onClearSelection={() => { setSelection(null) }}
+              onPickLine={pickLine}
+              onPickPin={reading.focusPin}
+            />
+            {viewTab === 'versions' ? (
+              <VersionsPanel record={record} file={data.file} revisions={data.revisions} />
+            ) : null}
+            {viewTab === 'attachments' ? (
+              <AttachmentsPanel
+                rows={attachmentRows}
+                urlFor={(attachmentId) => workItemApi.attachmentUrl({
+                  sessionId: context.ownerSessionId,
+                  artifactId: context.artifactId,
+                  attachmentId,
+                })}
+              />
+            ) : null}
+          </div>
+          <RailEscape narrow={narrow} showRail={showRail} onClose={setShowRail} />
+          {railBackdrop(narrow, showRail, closeRail)}
+          <CommentRail
+            visible={showRail}
+            state={rail}
             threads={threads}
             ordinals={ordinals}
             selectedThreadId={selectedThreadId}
@@ -1159,57 +1239,50 @@ export function WorkItemViewer({ sessionId }: WorkItemViewProps): ReactElement |
             loadingOlder={loadingOlder}
             drawer={narrow}
             readOnly={readOnly}
-            onFilter={setThreadFilter}
-            onToggleResolved={() => { setShowResolved(value => !value) }}
-            onSelect={(thread) => { setSelectedThreadId(thread.threadId) }}
-            onToggle={toggleThread}
-            onReply={startReply}
-            onRetry={(dispatch) => { void retryDispatch(dispatch) }}
-            onFocus={focusThread}
-            onLoadOlder={loadOlderPage}
-            onCloseDrawer={closeRail}
-            attachmentUrl={(attachmentId) => workItemApi.attachmentUrl({
-              sessionId: context.ownerSessionId,
-              artifactId: context.artifactId,
-              attachmentId,
-            })}
-          >
-          {record.activeDispatch === null ? null : (
-            <div className="cwi-activity" data-tone={activity?.tone ?? 'active'} data-testid="cwi-activity-strip">
-              <span className="cwi-activity-dot" aria-hidden="true" />
-              <span className="cwi-activity-label">
-                模型正在处理{activeOrdinal === null ? '' : ` #${String(activeOrdinal)}`}：{dispatchDetailLabel(record.activeDispatch.state)}
-              </span>
-              <span className="cwi-activity-age">{formatElapsed(record.activeDispatch.updatedAt, now)}</span>
-            </div>
-          )}
-          </ThreadList>
-          <CommentComposer
-            replyTarget={replyTarget}
-            pendingAnchor={pendingAnchor}
+            activeDispatch={record.activeDispatch}
+            activeOrdinal={activeOrdinal}
             draft={draft}
             composerRef={composerRef}
             pendingAttachments={pendingAttachments}
             uploading={uploading}
             submitting={submitting}
-            receipt={showRail ? receipt : null}
-            readOnly={readOnly}
+            receipt={receipt}
+            replyTarget={replyTarget}
+            pendingAnchor={pendingAnchor}
+            onFilter={setThreadFilter}
+            onToggleResolved={() => { setShowResolved(value => !value) }}
+            onEnterThread={openThread}
+            onLocate={focusAnchor}
+            onToggle={toggleThread}
+            onReply={startReply}
+            onRetry={(dispatch) => { void retryDispatch(dispatch) }}
+            onLoadOlder={loadOlderPage}
+            onCloseDrawer={closeRail}
+            onBackToList={backToRailList}
+            attachmentUrl={(attachmentId) => workItemApi.attachmentUrl({
+              sessionId: context.ownerSessionId,
+              artifactId: context.artifactId,
+              attachmentId,
+            })}
             onDraft={setDraft}
             onCancelReply={() => { setReplyTarget(null) }}
             onCancelAnchor={() => { setPendingAnchor(null) }}
-            onAttach={(files) => { void attachFiles(files) }}
+            onAttach={(
+              files: FileList | readonly File[] | null,
+              options?: { readonly publish?: boolean },
+            ) => { void attachFiles(files, options) }}
             onRemoveAttachment={(attachmentId) => {
               setPendingAttachments(current => current.filter((entry) => entry.attachmentId !== attachmentId))
             }}
             onSubmit={() => { void submit() }}
           />
-        </aside>
+        </div>
+        <ViewerFooter
+          summary={footerSummary}
+          revision={data.file?.revision ?? record.revision}
+          updatedAt={record.updatedAt}
+        />
       </div>
-      <ViewerFooter
-        summary={footerSummary}
-        revision={data.file?.revision ?? record.revision}
-        updatedAt={record.updatedAt}
-      />
-    </div>
+    </AttachmentPreviewProvider>
   )
 }

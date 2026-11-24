@@ -11,8 +11,16 @@
  * working. That is the documented degradation, not a silent fallback to raw
  * filesystem access.
  */
-import { ArtifactEventHub } from './artifact-events.js'
+import { ArtifactEventHub, createEventRow } from './artifact-events.js'
 import { ArtifactStore } from '../store/artifact-store.js'
+import {
+  MAX_ARTIFACT_ATTACHMENTS,
+  type ArtifactEventV1,
+  type ArtifactRecordV1,
+  type AttachmentPublishV1,
+  type AttachmentRefV1,
+  type CommentEventV1,
+} from '../panel/artifact-contract.js'
 import {
   createHostArtifactFiles,
   type ArtifactFilePort,
@@ -38,6 +46,133 @@ export interface ArtifactRuntime {
   /** Annotation delivery; null on a host/embed without a prompt port. */
   readonly dispatch: ArtifactDispatcher | null
   dispose(): void
+}
+
+/** One attachment about to be published. */
+export interface PublishAttachmentInput {
+  readonly artifactId: string
+  /** Canonical ref; media type, size, and hash come from the stored bytes. */
+  readonly attachment: AttachmentRefV1
+  /** Who published the bytes; only the model tool may pass `'model'`. */
+  readonly source: 'user' | 'model'
+  readonly now: Date
+}
+
+/** What one publish call produced. */
+export interface AttachmentPublishOutcome {
+  readonly publish: AttachmentPublishV1
+  readonly record: ArtifactRecordV1
+  /** Project event to broadcast after the transaction; null on a re-publish. */
+  readonly event: ArtifactEventV1 | null
+  /** False when the id was already published (the idempotent re-publish). */
+  readonly published: boolean
+}
+
+/** Project one publish row back onto the wire attachment ref. */
+export function attachmentRefOf(publish: AttachmentPublishV1): AttachmentRefV1 {
+  return {
+    attachmentId: publish.attachmentId,
+    name: publish.name,
+    mediaType: publish.mediaType,
+    size: publish.size,
+    sha256: publish.sha256,
+  }
+}
+
+/**
+ * Publish one stored attachment inside the caller's store transaction.
+ *
+ * This is the single place `attachmentCount` grows. The browser upload route
+ * only stores bytes; the browser attach route, the comment/reply routes, and
+ * `cowork_artifact_attach` all publish through here, so no path can count the
+ * same bytes twice or count an orphan upload. Publishing an id that is already
+ * in the log returns its existing row with `published: false` and touches
+ * neither the record nor the event log.
+ *
+ * The caller must hold the store's write lock; record update, log append, and
+ * the project event then commit as one publish transaction.
+ *
+ * @throws ArtifactDomainError `artifact/not-found` when the record vanished, or
+ * `artifact/limit-reached` when the work item already holds the cap.
+ */
+export async function publishAttachmentUnlocked(
+  runtime: ArtifactRuntime,
+  input: PublishAttachmentInput,
+): Promise<AttachmentPublishOutcome> {
+  const { artifactId, attachment, source, now } = input
+  const existing = (await runtime.store.readAttachmentPublishes(artifactId))
+    .find((row) => row.attachmentId === attachment.attachmentId)
+  const current = await runtime.store.readRecord(artifactId)
+  if (current === null) {
+    throw new ArtifactDomainError('artifact/not-found', `unknown artifact: ${artifactId}`, artifactId)
+  }
+  if (existing !== undefined) {
+    return { publish: existing, record: current, event: null, published: false }
+  }
+  const record = await runtime.store.mutateRecordUnlocked(artifactId, (open) => {
+    if (open.attachmentCount >= MAX_ARTIFACT_ATTACHMENTS) {
+      throw new ArtifactDomainError(
+        'artifact/limit-reached',
+        `work item already holds ${String(MAX_ARTIFACT_ATTACHMENTS)} attachments`,
+        artifactId,
+      )
+    }
+    return { ...open, attachmentCount: open.attachmentCount + 1, updatedAt: now.toISOString() }
+  })
+  const publish: AttachmentPublishV1 = {
+    version: 1,
+    attachmentId: attachment.attachmentId,
+    name: attachment.name,
+    mediaType: attachment.mediaType,
+    size: attachment.size,
+    sha256: attachment.sha256,
+    source,
+    publishedAt: now.toISOString(),
+  }
+  await runtime.store.appendAttachmentPublishUnlocked(artifactId, publish)
+  const event = await runtime.store.appendEventUnlocked(
+    createEventRow(artifactId, 'artifact.updated', now, { attachmentId: attachment.attachmentId }),
+  )
+  return { publish, record, event, published: true }
+}
+
+/**
+ * Every published attachment of one work item.
+ *
+ * `attachments.jsonl` is the source once it has rows. A record written before
+ * the log existed has none, so its list is derived from the comment refs — a
+ * read-only fallback that writes nothing and changes no count.
+ */
+export async function publishedAttachmentsOf(
+  runtime: ArtifactRuntime,
+  artifactId: string,
+): Promise<readonly AttachmentPublishV1[]> {
+  const publishes = await runtime.store.readAttachmentPublishes(artifactId)
+  if (publishes.length > 0) return publishes
+  return legacyPublishesOf(await runtime.store.readComments(artifactId))
+}
+
+/** Derive publish rows from the comment refs of a record without the publish log. */
+function legacyPublishesOf(comments: readonly CommentEventV1[]): AttachmentPublishV1[] {
+  const rows = new Map<string, AttachmentPublishV1>()
+  for (const event of comments) {
+    if (event.type !== 'create' && event.type !== 'reply') continue
+    for (const ref of event.attachments ?? []) {
+      if (rows.has(ref.attachmentId)) continue
+      rows.set(ref.attachmentId, {
+        version: 1,
+        attachmentId: ref.attachmentId,
+        name: ref.name,
+        mediaType: ref.mediaType,
+        size: ref.size,
+        sha256: ref.sha256,
+        source: event.author === 'model' ? 'model' : 'user',
+        publishedAt: event.createdAt,
+      })
+    }
+  }
+  const distinct = [...rows.values()]
+  return distinct.length > MAX_ARTIFACT_ATTACHMENTS ? distinct.slice(0, MAX_ARTIFACT_ATTACHMENTS) : distinct
 }
 
 /** The file port of a host without `ctx.fs`: every operation fails the same way. */

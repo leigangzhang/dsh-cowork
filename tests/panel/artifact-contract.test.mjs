@@ -1,16 +1,31 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import '../support/ts-hook.mjs'
 
 /**
  * The artifact wire contract is the one vocabulary the host routes, the
  * `cowork_artifact_*` tools and the browser half share. This suite pins the
- * frozen names, the two state axes, the complete label/status tables, and the
- * pure helpers, so a rename or a missing label fails here instead of on the
- * wire.
+ * frozen names, the two state axes, the complete label/status tables, the
+ * merged rail projection, and the pure helpers, so a rename or a missing label
+ * fails here instead of on the wire.
  */
 const contract = await import('../../src/panel/artifact-contract.ts')
 const apiContract = await import('../../src/panel/api-contract.ts')
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+
+/** One declared interface body from the contract source, braces excluded. */
+function declaredInterface(name) {
+  const source = readFileSync(resolve(root, 'src/panel/artifact-contract.ts'), 'utf8')
+  const start = source.indexOf(`export interface ${name} {`)
+  assert.notEqual(start, -1, `artifact-contract.ts must declare ${name}`)
+  const end = source.indexOf('\n}', start)
+  assert.notEqual(end, -1, `${name} must close its declaration`)
+  return source.slice(start, end)
+}
 
 test('every artifact route is an exact /api/cowork route with a unique path', () => {
   const paths = Object.entries(contract)
@@ -86,8 +101,66 @@ test('every state and type has exactly one human label', () => {
   assert.deepEqual(Object.keys(contract.DISPATCH_STATE_LABELS).sort(), [...contract.DISPATCH_STATES].sort())
   assert.equal(contract.ARTIFACT_STATUS_LABELS['pending-view'], '待查看')
   assert.equal(contract.ARTIFACT_STATUS_LABELS['needs-feedback'], '需反馈')
+  assert.equal(contract.ARTIFACT_STATUS_LABELS.confirmed, '已完成')
   assert.equal(contract.ARTIFACT_TYPE_LABELS.text, 'Markdown')
   assert.equal(contract.DISPATCH_STATE_LABELS.replied, '已回复')
+})
+
+test('the merged rail projection is one frozen definition', () => {
+  assert.deepEqual(contract.WORK_ITEM_RAIL_STATUSES, [
+    'pending-confirm', 'needs-feedback', 'in-progress', 'confirmed',
+  ])
+  assert.equal(contract.railStatusOf('pending-view'), 'pending-confirm')
+  for (const status of contract.WORK_ITEM_RAIL_STATUSES) {
+    assert.equal(contract.railStatusOf(status), status, `${status} is shown as itself`)
+  }
+  // Both pending statuses read as 待确认; the rest keep their own label.
+  assert.equal(contract.railStatusLabel('pending-view'), '待确认')
+  assert.equal(contract.railStatusLabel('pending-confirm'), '待确认')
+  assert.equal(contract.railStatusLabel('needs-feedback'), '需反馈')
+  assert.equal(contract.railStatusLabel('in-progress'), '进行中')
+  assert.equal(contract.railStatusLabel('confirmed'), '已完成')
+  for (const status of contract.ARTIFACT_STATUSES) {
+    assert.equal(contract.railStatusLabel(status), contract.ARTIFACT_STATUS_LABELS[contract.railStatusOf(status)])
+  }
+})
+
+test('the pending-confirm filter merges the two pending statuses and nothing else', () => {
+  for (const filter of contract.ARTIFACT_STATUSES) {
+    for (const status of contract.ARTIFACT_STATUSES) {
+      const expected = filter === 'pending-confirm'
+        ? status === 'pending-confirm' || status === 'pending-view'
+        : status === filter
+      assert.equal(contract.artifactStatusMatches(filter, status), expected, `${filter} filter vs ${status} record`)
+    }
+  }
+  assert.equal(contract.artifactStatusMatches('pending-view', 'pending-confirm'), false)
+})
+
+test('the attachment pipeline declarations are the frozen wire shapes', () => {
+  assert.equal(contract.ARTIFACT_ATTACH_PATH, '/api/cowork.artifact.attach')
+  const publish = declaredInterface('AttachmentPublishV1')
+  for (const line of [
+    'readonly version: 1',
+    'readonly attachmentId: string',
+    'readonly name: string',
+    'readonly mediaType: string',
+    'readonly size: number',
+    'readonly sha256: string',
+    "readonly source: 'user' | 'model'",
+    'readonly publishedAt: string',
+  ]) {
+    assert.ok(publish.includes(line), `AttachmentPublishV1 must declare ${line}`)
+  }
+  const attach = declaredInterface('ArtifactAttachResponse')
+  assert.ok(attach.includes('readonly ok: true'))
+  assert.ok(attach.includes('readonly attachment: AttachmentRefV1'))
+  assert.ok(attach.includes("readonly source: 'user'"))
+  assert.ok(attach.includes('readonly published: boolean'))
+  assert.ok(declaredInterface('ArtifactDetailResponse').includes(
+    'readonly publishedAttachments?: readonly AttachmentPublishV1[]',
+  ))
+  assert.ok(declaredInterface('ArtifactSummaryV1').includes('readonly sessionTitle?: string | null'))
 })
 
 test('the artifact error table is complete and joins the panel error table', () => {
@@ -114,6 +187,7 @@ test('the record version stamps are the frozen v1 values', () => {
 test('the limits match the frozen design numbers', () => {
   assert.equal(contract.MAX_ARTIFACTS_PER_PROJECT, 500)
   assert.equal(contract.ARTIFACT_LIST_MAX_LIMIT, 200)
+  assert.equal(contract.MAX_ARTIFACT_SEARCH_CHARS, 100)
   assert.equal(contract.MAX_ARTIFACT_FILES, 20)
   assert.equal(contract.MAX_ARTIFACT_COMMENT_CHARS, 4000)
   assert.equal(contract.MAX_ARTIFACT_COMMENTS, 5000)

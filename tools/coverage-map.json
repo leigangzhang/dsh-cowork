@@ -18,6 +18,18 @@
       "lane": "unit"
     },
     {
+      "path": "src/client/annotation-model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/annotation-node.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/annotation-styles.ts",
+      "lane": "browser"
+    },
+    {
       "path": "src/client/api.ts",
       "lane": "unit"
     },
@@ -66,7 +78,23 @@
       "lane": "unit"
     },
     {
+      "path": "src/client/work-item/annotation-pop.tsx",
+      "lane": "browser"
+    },
+    {
       "path": "src/client/work-item/api.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/attachment-preview-model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/attachment-preview.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/attachment-styles.ts",
       "lane": "unit"
     },
     {
@@ -91,6 +119,22 @@
     },
     {
       "path": "src/client/work-item/panel.tsx",
+      "lane": "browser"
+    },
+    {
+      "path": "src/client/work-item/rail-geometry.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/rail-state.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/rail-styles.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/client/work-item/rail.tsx",
       "lane": "browser"
     },
     {
@@ -310,6 +354,10 @@
       "lane": "unit"
     },
     {
+      "path": "src/panel/artifact-list-api.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/panel/artifact-rebind.ts",
       "lane": "unit"
     },
@@ -335,6 +383,10 @@
     },
     {
       "path": "src/panel/probe-model.ts",
+      "lane": "unit"
+    },
+    {
+      "path": "src/platform/annotation-prompt.ts",
       "lane": "unit"
     },
     {

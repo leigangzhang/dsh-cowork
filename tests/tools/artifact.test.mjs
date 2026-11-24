@@ -84,13 +84,14 @@ async function setup(repoPath, options = {}) {
   return { tool: host.registry.get('cowork_artifact_create'), manager, logs, deps, host }
 }
 
-test('the tool registers exactly one definition in the public order', async () => {
+test('the artifact tools register in the documented order', async () => {
   await withRepo(async (repoPath) => {
     const { host } = await setup(repoPath)
     assert.deepEqual([...host.registry.keys()], [
       'cowork_artifact_create',
       'cowork_artifact_comments',
       'cowork_artifact_reply',
+      'cowork_artifact_attach',
     ])
     const tool = host.registry.get('cowork_artifact_create')
     assert.equal(typeof tool.description, 'string')
@@ -590,6 +591,11 @@ test('the reply tool canonicalizes attachments and enforces the comment limit', 
     const replies = (await store.readComments(artifactId)).filter((event) => event.type === 'reply')
     assert.equal(replies[0].attachments[0].mediaType, 'image/png')
     assert.equal(replies[0].attachments[0].size, png.byteLength)
+    // Referencing the upload publishes it as user-sourced and counts it once.
+    const publishes = await store.readAttachmentPublishes(artifactId)
+    assert.deepEqual(publishes.map((row) => row.attachmentId), [attachmentId])
+    assert.equal(publishes[0].source, 'user')
+    assert.equal((await store.readRecord(artifactId)).attachmentCount, 1)
 
     await store.mutateRecord(artifactId, (record) => ({ ...record, commentCount: 5000 }))
     const overLimit = await reply.execute({ artifactId, commentIds: ['comment-1'], body: 'too many' }, fakeExec(MASTER, repoPath))

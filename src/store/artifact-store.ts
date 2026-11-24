@@ -2,11 +2,12 @@
  * Artifact store: the only writer of `<repo>/.dsh-cowork/artifacts/`.
  *
  * The layout is one directory per work item (`artifact.json`, `comments.jsonl`,
- * `dispatch.jsonl`, `revisions/`, `uploads/`) plus a project-level
- * `events.jsonl`, all under an independent `.write.lock` so work-item traffic
- * never queues behind the project index. Records and events are replaced
- * atomically; comment/dispatch rows are append-only. Readers stay lock-free:
- * a rename or a complete line is the commit, so a read sees old or new.
+ * `dispatch.jsonl`, `attachments.jsonl`, `revisions/`, `uploads/`) plus a
+ * project-level `events.jsonl`, all under an independent `.write.lock` so
+ * work-item traffic never queues behind the project index. Records and events
+ * are replaced atomically; comment/dispatch/publish rows are append-only.
+ * Readers stay lock-free: a rename or a complete line is the commit, so a read
+ * sees old or new.
  *
  * A damaged record fails its own read as `artifact/corrupt`; a damaged row in a
  * JSONL file is skipped, and the rest of the file stays readable.
@@ -18,15 +19,18 @@ import {
   ARTIFACT_EVENT_LOG_MAX_LINES,
   ARTIFACT_EVENT_VERSION,
   MAX_ARTIFACTS_PER_PROJECT,
+  MAX_ARTIFACT_ATTACHMENTS,
   MAX_ARTIFACT_REVISIONS_PER_FILE,
   type ArtifactEventV1,
   type ArtifactRecordV1,
+  type AttachmentPublishV1,
   type CommentEventV1,
   type DispatchRecordV1,
 } from '../panel/artifact-contract.js'
 import { DIR_MODE, FILE_MODE, readTextIfPresent, withProjectLock, writeJsonAtomic, writeTextAtomic } from './atomic-json.js'
 import {
   parseArtifactEvent,
+  parseAttachmentPublish,
   parseArtifactRecord,
   parseCommentEvent,
   parseDispatchRecord,
@@ -49,6 +53,8 @@ const REVISION_FILE_SUFFIX = '.txt'
 const COMMENTS_FILE_NAME = 'comments.jsonl'
 /** Per-work-item dispatch log. */
 const DISPATCH_FILE_NAME = 'dispatch.jsonl'
+/** Per-work-item published-attachment log; one row per published id. */
+const ATTACHMENTS_FILE_NAME = 'attachments.jsonl'
 /** Project-level event log. */
 const EVENTS_FILE_NAME = 'events.jsonl'
 /** Artifact ids are directory names, so only a safe character set is accepted. */
@@ -146,6 +152,40 @@ export class ArtifactStore {
   /** Whether one upload id is stored for the work item. */
   async hasUpload(artifactId: string, attachmentId: string): Promise<boolean> {
     return (await this.readUpload(artifactId, attachmentId)) !== null
+  }
+
+  /**
+   * How many upload files one work item stores, published or not.
+   *
+   * The upload directory is the byte store: every stored id is one file named
+   * by its `attachment-*` id, and any other entry is ignored so a stray file
+   * cannot inflate the count. The scan stops at `limit` because callers only
+   * compare against a cap; a missing directory counts as zero.
+   * @param artifactId - work item id.
+   * @param limit - stop counting once this many files were seen; defaults to the
+   * attachment cap.
+   * @returns the number of upload files found, capped at `limit`.
+   */
+  // The upload route reaches this method through the runtime's store instance;
+  // fallow's member scan does not follow that edge, so the method looks unused.
+  // fallow-ignore-next-line unused-class-member
+  async countUploads(artifactId: string, limit: number = MAX_ARTIFACT_ATTACHMENTS): Promise<number> {
+    if (!Number.isSafeInteger(limit) || limit <= 0) return 0
+    let names
+    try {
+      names = await readdir(this.uploadsDir(artifactId))
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return 0
+      throw error
+    }
+    let count = 0
+    for (const name of names) {
+      if (!SAFE_UPLOAD_ID.test(name)) continue
+      count += 1
+      if (count >= limit) return count
+    }
+    return count
   }
 
   /** Run `operation` while holding the artifact writer lock. */
@@ -352,6 +392,33 @@ export class ArtifactStore {
     const latest = new Map<string, DispatchRecordV1>()
     for (const row of rows) latest.set(row.dispatchId, row)
     return [...latest.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+  }
+
+  /**
+   * Every published attachment of one work item, in publish order.
+   *
+   * A row is appended once per attachment id; if the log carries a repeated id
+   * (a damaged or hand-edited file), the newest row wins. The result is capped
+   * at {@link MAX_ARTIFACT_ATTACHMENTS}, keeping the newest rows.
+   *
+   * @param artifactId - work item id.
+   * @returns publish rows, oldest first, at most the attachment cap.
+   */
+  async readAttachmentPublishes(artifactId: string): Promise<AttachmentPublishV1[]> {
+    const rows = await this.readJsonLines(ATTACHMENTS_FILE_NAME, artifactId, parseAttachmentPublish)
+    const newest = new Map<string, AttachmentPublishV1>()
+    for (const row of rows) newest.set(row.attachmentId, row)
+    const distinct = [...newest.values()]
+    return distinct.length > MAX_ARTIFACT_ATTACHMENTS ? distinct.slice(-MAX_ARTIFACT_ATTACHMENTS) : distinct
+  }
+
+  /**
+   * Append one publish row; only valid inside {@link withLock}, where the
+   * caller also bumps `attachmentCount` and appends the project event, so the
+   * log and the count commit as one publish transaction.
+   */
+  async appendAttachmentPublishUnlocked(artifactId: string, publish: AttachmentPublishV1): Promise<void> {
+    await this.appendLine(ATTACHMENTS_FILE_NAME, artifactId, publish)
   }
 
   /**

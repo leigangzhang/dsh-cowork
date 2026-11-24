@@ -48,6 +48,9 @@ export const ARTIFACT_PRESENCE_PATH = '/api/cowork.artifact.presence'
 /** Exact Fetch-route path: upload one comment/reply attachment (stage 3). */
 export const ARTIFACT_UPLOAD_PATH = '/api/cowork.artifact.upload'
 
+/** Exact Fetch-route path: publish one stored upload as a work-item attachment. */
+export const ARTIFACT_ATTACH_PATH = '/api/cowork.artifact.attach'
+
 /** Exact Fetch-route path: read one stored attachment's bytes (stage 3). */
 export const ARTIFACT_ATTACHMENT_PATH = '/api/cowork.artifact.attachment'
 
@@ -201,6 +204,26 @@ export interface AttachmentRefV1 {
   readonly sha256: string
 }
 
+/**
+ * One published attachment: a row of `attachments.jsonl`.
+ *
+ * The log is the truth for the published attachment list, the record's
+ * `attachmentCount`, and the 模型生成 badge; an id appears at most once however
+ * many comments reference it. `source` records who published the bytes — the
+ * model's `sourcePath` attach or a browser upload — and never comes from a
+ * caller-supplied field.
+ */
+export interface AttachmentPublishV1 {
+  readonly version: 1
+  readonly attachmentId: string
+  readonly name: string
+  readonly mediaType: string
+  readonly size: number
+  readonly sha256: string
+  readonly source: 'user' | 'model'
+  readonly publishedAt: string
+}
+
 /** One file registered by a work item; the path is project-relative POSIX. */
 export interface ArtifactFileV1 {
   readonly path: string
@@ -331,6 +354,9 @@ export const MAX_ARTIFACTS_PER_PROJECT = 500
 /** Work items one list response returns at most. */
 export const ARTIFACT_LIST_MAX_LIMIT = 200
 
+/** Longest accepted list search string; a longer `q` is a malformed request. */
+export const MAX_ARTIFACT_SEARCH_CHARS = 100
+
 /** Files one work item may register. */
 export const MAX_ARTIFACT_FILES = 20
 
@@ -362,6 +388,9 @@ export const MAX_ARTIFACT_TEXT_LINES = 20_000
 /** Attachments one comment or reply may carry and their per-file cap. */
 export const MAX_ARTIFACT_ATTACHMENTS_PER_COMMENT = 5
 export const MAX_ARTIFACT_ATTACHMENT_BYTES = 5 * 1024 * 1024
+
+/** Longest display name of one attachment. */
+export const MAX_ARTIFACT_ATTACHMENT_NAME_CHARS = 200
 
 /** Revision snapshots kept per file. */
 export const MAX_ARTIFACT_REVISIONS_PER_FILE = 20
@@ -469,7 +498,46 @@ export const ARTIFACT_STATUS_LABELS: Readonly<Record<ArtifactStatus, string>> = 
   'pending-confirm': '待确认',
   'needs-feedback': '需反馈',
   'in-progress': '进行中',
-  confirmed: '已确认',
+  confirmed: '已完成',
+}
+
+/**
+ * The statuses the rail shows once 待查看 is merged into 待确认, in rail order.
+ *
+ * This block is the single definition of that merge: the list route filters
+ * with {@link artifactStatusMatches} and the rail labels/groups with
+ * {@link railStatusOf}/{@link railStatusLabel}, so the two halves cannot drift.
+ * The stored statuses stay as they are — no record is rewritten.
+ */
+export const WORK_ITEM_RAIL_STATUSES = [
+  'pending-confirm',
+  'needs-feedback',
+  'in-progress',
+  'confirmed',
+] as const
+
+/** One merged rail status. */
+export type WorkItemRailStatus = (typeof WORK_ITEM_RAIL_STATUSES)[number]
+
+/** Project one stored status onto the rail: 待查看 is shown as 待确认. */
+export function railStatusOf(status: ArtifactStatus): WorkItemRailStatus {
+  return status === 'pending-view' ? 'pending-confirm' : status
+}
+
+/** Human label of one stored status under the merged rail projection. */
+export function railStatusLabel(status: ArtifactStatus): string {
+  return ARTIFACT_STATUS_LABELS[railStatusOf(status)]
+}
+
+/**
+ * Whether one stored status passes a rail filter.
+ *
+ * `pending-confirm` is the merged filter, so it keeps both stored statuses;
+ * every other filter is exact.
+ */
+export function artifactStatusMatches(filter: ArtifactStatus, status: ArtifactStatus): boolean {
+  if (filter === 'pending-confirm') return status === 'pending-confirm' || status === 'pending-view'
+  return status === filter
 }
 
 /** Human label of one artifact type. */
@@ -541,6 +609,8 @@ export interface ArtifactSummaryV1 {
   readonly activeDispatch: ActiveDispatchV1 | null
   readonly createdAt: string
   readonly updatedAt: string
+  /** Owning topic-session title; null when the host listing has none. */
+  readonly sessionTitle?: string | null
 }
 
 /** Per-state counts the rail shows next to its filters. */
@@ -583,6 +653,12 @@ export interface ArtifactDetailResponse {
   readonly sessionTitle?: string | null
   /** Kept snapshot revision numbers, newest first (at most 20). */
   readonly revisions?: readonly number[]
+  /**
+   * Published attachments of this work item in publish order (at most
+   * {@link MAX_ARTIFACT_ATTACHMENTS} rows); absent on a host that does not
+   * maintain `attachments.jsonl`.
+   */
+  readonly publishedAttachments?: readonly AttachmentPublishV1[]
 }
 
 /** Body of a successful `POST artifact.open`. */
@@ -702,6 +778,19 @@ export interface ArtifactPresenceResponse {
 export interface ArtifactUploadResponse {
   readonly ok: true
   readonly attachment: AttachmentRefV1
+}
+
+/**
+ * Body of a successful `POST artifact.attach`.
+ *
+ * The browser publishes one stored upload by id; `published` is false on the
+ * idempotent re-publish of an attachment that is already in the log.
+ */
+export interface ArtifactAttachResponse {
+  readonly ok: true
+  readonly attachment: AttachmentRefV1
+  readonly source: 'user'
+  readonly published: boolean
 }
 
 /** Zero counts for an empty project. */

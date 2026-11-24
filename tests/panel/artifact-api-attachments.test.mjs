@@ -17,6 +17,8 @@ const { rawRequest } = await import('../support/artifact-fixtures.mjs')
 const SPEC = '# Spec\n\nfirst paragraph\nsecond paragraph\n'
 const ARTIFACT = 'artifact-11111111-1111-4111-8111-111111111111'
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+const DETAIL = artifactContract.ARTIFACT_DETAIL_PATH
+const ATTACHMENT = artifactContract.ARTIFACT_ATTACHMENT_PATH
 
 function specFile(content = SPEC, overrides = {}) {
   return makeFile({ size: Buffer.byteLength(content), sha256: sha256(content), fsVersion: sha256(content), ...overrides })
@@ -45,7 +47,7 @@ async function uploadAttachment(harness, name, bytes, contentType = 'application
   ))
 }
 
-test('an image upload is sniffed, stored, and counted', async () => {
+test('an image upload is sniffed and stored without counting', async () => {
   await withSeededHarness(async (harness) => {
     const response = await uploadAttachment(harness, 'shot.png', PNG_BYTES)
     assert.equal(response.status, 200)
@@ -58,8 +60,10 @@ test('an image upload is sniffed, stored, and counted', async () => {
     assert.deepEqual([...stored], [...PNG_BYTES])
     const { createHash } = await import('node:crypto')
     assert.equal(body.attachment.sha256, createHash('sha256').update(PNG_BYTES).digest('hex'))
+    // Storing bytes publishes nothing: no count, no publish row.
     const record = await harness.runtime().store.readRecord(ARTIFACT)
-    assert.equal(record.attachmentCount, 1)
+    assert.equal(record.attachmentCount, 0)
+    assert.deepEqual(await harness.runtime().store.readAttachmentPublishes(ARTIFACT), [])
 
     const comment = await jsonOf(await harness.request('/api/cowork.artifact.comment', {
       method: 'POST',
@@ -72,8 +76,11 @@ test('an image upload is sniffed, stored, and counted', async () => {
     }))
     assert.equal(comment.ok, true)
     assert.deepEqual(comment.comment.attachments, [body.attachment])
-    // The upload counted once; attaching its ref must not count it again.
+    // Referencing the upload is what publishes and counts it — once.
     assert.equal(comment.record.attachmentCount, 1)
+    const publishes = await harness.runtime().store.readAttachmentPublishes(ARTIFACT)
+    assert.deepEqual(publishes.map((row) => row.attachmentId), [body.attachment.attachmentId])
+    assert.equal(publishes[0].source, 'user')
   })
 })
 
@@ -220,6 +227,31 @@ test('the upload attachment cap is enforced', async () => {
     const response = await uploadAttachment(harness, 'shot.png', PNG_BYTES)
     assert.equal(response.status, 409)
     assert.equal((await jsonOf(response)).error.code, 'artifact/limit-reached')
+  })
+})
+
+test('the upload cap also bounds unpublished orphan uploads', async () => {
+  await withSeededHarness(async (harness) => {
+    const store = harness.runtime().store
+    for (let index = 0; index < artifactContract.MAX_ARTIFACT_ATTACHMENTS; index += 1) {
+      const attachmentId = `attachment-orphan-${String(index).padStart(4, '0')}`
+      await store.saveUpload(ARTIFACT, attachmentId, new Uint8Array([index % 256]))
+    }
+    assert.equal(await store.countUploads(ARTIFACT), artifactContract.MAX_ARTIFACT_ATTACHMENTS)
+    const response = await uploadAttachment(harness, 'shot.png', PNG_BYTES)
+    assert.equal(response.status, 409)
+    assert.equal((await jsonOf(response)).error.code, 'artifact/limit-reached')
+    // Storing nothing was published: the count and list still hold published rows only.
+    const detail = await jsonOf(await harness.request(DETAIL, {
+      query: { sessionId: SESSION, artifactId: ARTIFACT },
+    }))
+    assert.equal(detail.record.attachmentCount, 0)
+    assert.deepEqual(detail.publishedAttachments, [])
+    // An orphan stays unreadable through the attachment route.
+    const orphan = await harness.request(ATTACHMENT, {
+      query: { sessionId: SESSION, artifactId: ARTIFACT, attachmentId: 'attachment-orphan-0000' },
+    })
+    assert.equal(orphan.status, 404)
   })
 })
 

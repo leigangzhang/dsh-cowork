@@ -143,7 +143,7 @@ const inboxEvents = (count) =>
     summary: `inbox ${index}`,
   }))
 
-test('the assembly registers the twenty-five tools in the documented order', () => {
+test('the assembly registers the twenty-six tools in the documented order', () => {
   const host = fakeHost()
   registerCoworkTools(host, fakeDeps())
   assert.deepEqual([...host.registry.keys()], BUSINESS_TOOL_ORDER)

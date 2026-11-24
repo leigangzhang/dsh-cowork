@@ -1,9 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
+  artifactContract,
   artifactStore,
+  makeAttachmentPublish,
   makeComment,
   makeRecord,
   makeRepo,
@@ -227,6 +229,44 @@ test('upload ids are validated and an unreadable entry is reported', async () =>
   })
 })
 
+test('countUploads counts stored upload files and ignores other entries', async () => {
+  await withStore(async (store, repo) => {
+    await store.createRecord(makeRecord())
+    assert.equal(await store.countUploads(ARTIFACT), 0, 'a missing upload directory counts as zero')
+    for (const attachmentId of ['attachment-a1', 'attachment-b2', 'attachment-c3']) {
+      await store.saveUpload(ARTIFACT, attachmentId, new Uint8Array([1, 2, 3]))
+    }
+    const directory = join(repo.repoPath, '.dsh-cowork', 'artifacts', ARTIFACT, 'uploads')
+    await writeFile(join(directory, 'notes.txt'), 'not an upload id')
+    await writeFile(join(directory, 'artifact-lookalike'), 'not an upload prefix')
+    assert.equal(await store.countUploads(ARTIFACT), 3)
+    // The scan short-circuits at the requested bound.
+    assert.equal(await store.countUploads(ARTIFACT, 2), 2)
+    assert.equal(await store.countUploads(ARTIFACT, 0), 0)
+    await assert.rejects(store.countUploads('../escape'), (error) => {
+      assert.equal(error.code, 'artifact/not-found')
+      return true
+    })
+  })
+})
+
+test('an unreadable upload directory is reported instead of counting zero', async () => {
+  await withStore(async (store, repo) => {
+    await store.createRecord(makeRecord())
+    const directory = join(repo.repoPath, '.dsh-cowork', 'artifacts', ARTIFACT, 'uploads')
+    await mkdir(directory, { recursive: true })
+    await chmod(directory, 0o000)
+    try {
+      await assert.rejects(store.countUploads(ARTIFACT), (error) => {
+        assert.equal(error.code, 'EACCES')
+        return true
+      })
+    } finally {
+      await chmod(directory, 0o700)
+    }
+  })
+})
+
 test('the artifact writer lock is the independent artifacts lock', async () => {
   await withStore(async (store) => {
     const order = []
@@ -407,5 +447,61 @@ test('a cache fingerprint that cannot stat the directory is rethrown', async () 
     // the fingerprint must rethrow instead of reporting an empty project.
     await symlink(root, root)
     await assert.rejects(store.listRecords(), (error) => error.code === 'ELOOP')
+  })
+})
+
+test('publish rows append in order and a damaged row is skipped', async () => {
+  await withStore(async (store, repo) => {
+    await store.withLock(async () => {
+      await store.appendAttachmentPublishUnlocked(ARTIFACT, makeAttachmentPublish({ attachmentId: 'attachment-one', name: 'one.png' }))
+      await store.appendAttachmentPublishUnlocked(ARTIFACT, makeAttachmentPublish({
+        attachmentId: 'attachment-two',
+        name: 'two.txt',
+        mediaType: 'text/plain',
+        source: 'user',
+      }))
+    })
+    const rows = await store.readAttachmentPublishes(ARTIFACT)
+    assert.deepEqual(rows.map((row) => row.attachmentId), ['attachment-one', 'attachment-two'])
+    assert.equal(rows[1].source, 'user')
+    assert.equal(rows[1].publishedAt, '2026-02-01T00:00:00.000Z')
+
+    const file = join(repo.repoPath, '.dsh-cowork', 'artifacts', ARTIFACT, 'attachments.jsonl')
+    await appendFile(file, '{broken\n')
+    await appendFile(file, `${JSON.stringify(makeAttachmentPublish({ attachmentId: 'attachment-three' }))}\n`)
+    assert.deepEqual(
+      (await store.readAttachmentPublishes(ARTIFACT)).map((row) => row.attachmentId),
+      ['attachment-one', 'attachment-two', 'attachment-three'],
+    )
+  })
+})
+
+test('a repeated publish id keeps the newest row once', async () => {
+  await withStore(async (store) => {
+    await store.withLock(async () => {
+      await store.appendAttachmentPublishUnlocked(ARTIFACT, makeAttachmentPublish({ name: 'first.png', source: 'user' }))
+      await store.appendAttachmentPublishUnlocked(ARTIFACT, makeAttachmentPublish({ name: 'second.png', source: 'model' }))
+    })
+    const rows = await store.readAttachmentPublishes(ARTIFACT)
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].name, 'second.png')
+    assert.equal(rows[0].source, 'model')
+  })
+})
+
+test('the publish log read keeps the newest rows within the attachment cap', async () => {
+  await withStore(async (store) => {
+    const limit = artifactContract.MAX_ARTIFACT_ATTACHMENTS
+    await store.withLock(async () => {
+      for (let index = 0; index <= limit; index += 1) {
+        await store.appendAttachmentPublishUnlocked(ARTIFACT, makeAttachmentPublish({
+          attachmentId: `attachment-${String(index).padStart(3, '0')}`,
+        }))
+      }
+    })
+    const rows = await store.readAttachmentPublishes(ARTIFACT)
+    assert.equal(rows.length, limit)
+    assert.equal(rows[0].attachmentId, 'attachment-001')
+    assert.equal(rows[rows.length - 1].attachmentId, `attachment-${String(limit).padStart(3, '0')}`)
   })
 })
