@@ -354,6 +354,10 @@
       "lane": "unit"
     },
     {
+      "path": "src/panel/artifact-list-api.ts",
+      "lane": "unit"
+    },
+    {
       "path": "src/panel/artifact-rebind.ts",
       "lane": "unit"
     },
