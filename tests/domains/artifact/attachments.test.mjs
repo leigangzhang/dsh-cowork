@@ -34,3 +34,25 @@ test('the canonical media type comes from the name and bytes', () => {
   assert.throws(() => attachments.attachmentMediaType('notes.md', Uint8Array.from([0xff])), /UTF-8/)
   assert.throws(() => attachments.attachmentMediaType('page.html', new TextEncoder().encode('<script>')), /only image and text/)
 })
+
+test('a published attachment without an extension trusts the stored bytes', () => {
+  // The browser display name is optional; without any extension the bytes
+  // decide between an inline image and UTF-8 text.
+  assert.equal(attachments.publishedAttachmentMediaType('attachment-1', PNG), 'image/png')
+  assert.equal(
+    attachments.publishedAttachmentMediaType('attachment-1', new TextEncoder().encode('hello')),
+    'text/plain',
+  )
+  // Neither a supported image magic type nor valid UTF-8: the upload is refused
+  // with the same stable code the strict extension path uses.
+  assert.throws(
+    () => attachments.publishedAttachmentMediaType('noext', Uint8Array.from([0xff, 0xfe, 0xfd])),
+    (error) => error.code === 'artifact/upload-invalid',
+  )
+  // A name with an extension keeps the strict media-type rules.
+  assert.equal(attachments.publishedAttachmentMediaType('shot.png', PNG), 'image/png')
+  assert.throws(
+    () => attachments.publishedAttachmentMediaType('page.html', new TextEncoder().encode('<b>x</b>')),
+    (error) => error.code === 'artifact/upload-invalid',
+  )
+})

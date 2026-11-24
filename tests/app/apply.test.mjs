@@ -719,6 +719,28 @@ test('the annotation section registers for topic agents only and is released wit
   assert.equal(afterDispose.sections.length, 0)
 })
 
+test('a duplicate annotation section is skipped and reported once per agent', async () => {
+  // A section-name collision (a second plugin instance, or a hot reload that
+  // left the old section in place) is contained per agent: the annotation
+  // effect warns once with the collided agent count and startup continues.
+  const recorder = memoryAgent('agent-duplicate-annotation', undefined, {
+    sectionThrows: true,
+    preset: 'cowork-topic',
+  })
+  const host = makeHost({ agents: [recorder.agent] })
+  apply(host.ctx, config())
+  await settle()
+
+  const duplicates = host.warn.filter((line) => line.includes('cowork annotation section(s) already registered'))
+  assert.deepEqual(duplicates, [`[${PLUGIN}] 1 cowork annotation section(s) already registered; skipped`])
+  // The per-agent failure is reported too, and startup continues.
+  assert.equal(
+    host.warn.some((line) => line.includes('annotation section registration failed for agent agent-duplicate-annotation')),
+    true,
+  )
+  assert.equal(host.tools.length, 26)
+})
+
 /* ------------------------------------------------------------------ */
 /* Host services: llm and agentDefaultModel                             */
 /* ------------------------------------------------------------------ */
