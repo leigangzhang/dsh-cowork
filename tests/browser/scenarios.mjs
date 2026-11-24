@@ -3,7 +3,18 @@ import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { BROWSER_ARTIFACT, BROWSER_REQUESTS, BROWSER_SPEC, BROWSER_SPEC_PATH, BROWSER_TOPICS } from './fixtures.mjs'
+import {
+  BROWSER_ARTIFACT,
+  BROWSER_ATTACHMENT_ARTIFACT,
+  BROWSER_ATTACHMENTS,
+  BROWSER_ATTACHMENT_TEXT_HEAD,
+  BROWSER_EMPTY_ARTIFACT,
+  BROWSER_REQUESTS,
+  BROWSER_SPEC,
+  BROWSER_SPEC_PATH,
+  BROWSER_TOPICS,
+  seedAttachmentArtifacts,
+} from './fixtures.mjs'
 
 const PATH_RESOLVE = '/api/cowork.topic.resolve'
 const PATH_REOPEN = '/api/cowork.topic.reopen'
@@ -611,6 +622,58 @@ function editorText(page) {
 /** Replace the whole editor document through the real browser input path. */
 async function fillEditor(page, text) {
   await page.getByTestId('cwi-editor').fill(text)
+}
+
+/**
+ * Trigger the viewer's menu refresh and wait for the load it restarts
+ * (detail → file → comments → first-view status).
+ *
+ * The load's completion resets the viewer to reading mode. A caller that opens
+ * an editor, a preview, or another surface afterwards must wait for it, or the
+ * late reset competes with the new surface.
+ */
+async function refreshViewer(page) {
+  await page.getByTestId('cwi-more').click()
+  await page.getByTestId('cwi-menu').waitFor({ timeout: 5_000 })
+  const detail = page.waitForResponse((response) => {
+    try {
+      const url = new URL(response.url())
+      return url.pathname === '/api/cowork.artifact.detail' && response.request().method() === 'GET'
+    } catch {
+      return false
+    }
+  })
+  const file = page.waitForResponse((response) => {
+    try {
+      const url = new URL(response.url())
+      return url.pathname === '/api/cowork.artifact.file' && response.request().method() === 'GET'
+    } catch {
+      return false
+    }
+  })
+  // The load's last step records the first-view status; by the time that
+  // request is issued, the surface has already been reset.
+  const status = page.waitForRequest((request) => {
+    try {
+      const url = new URL(request.url())
+      return url.pathname === '/api/cowork.artifact.status' && request.method() === 'POST'
+    } catch {
+      return false
+    }
+  })
+  await page.getByTestId('cwi-menu-refresh').click()
+  await page.getByTestId('cwi-menu').waitFor({ state: 'detached', timeout: 5_000 })
+  await detail
+  await file
+  await page.waitForResponse((response) => {
+    try {
+      return new URL(response.url()).pathname === '/api/cowork.artifact.comments'
+        && response.request().method() === 'GET'
+    } catch {
+      return false
+    }
+  }, { timeout: 10_000 })
+  await status
 }
 
 /**
@@ -2288,52 +2351,9 @@ async function scenarioWorkItemEdit(page, fixtures) {
   await page.getByTestId('cwi-more').click()
   await page.getByTestId('cwi-menu-copy').click()
   await page.getByText(/路径已复制|复制失败/).waitFor({ timeout: 5_000 })
-  await page.getByTestId('cwi-more').click()
-  await page.getByTestId('cwi-menu').waitFor({ timeout: 5_000 })
-  // The menu refresh restarts the viewer load, whose completion resets the
-  // surface to reading mode; entering the editor before it settles would be
-  // undone by that reset. Wait for the load's detail → file → comments reads.
-  const refreshedDetail = page.waitForResponse((response) => {
-    try {
-      const url = new URL(response.url())
-      return url.pathname === '/api/cowork.artifact.detail' && response.request().method() === 'GET'
-    } catch {
-      return false
-    }
-  })
-  const refreshedFile = page.waitForResponse((response) => {
-    try {
-      const url = new URL(response.url())
-      return url.pathname === '/api/cowork.artifact.file' && response.request().method() === 'GET'
-    } catch {
-      return false
-    }
-  })
-  // The load's last step records the first-view status; by the time that
-  // request is issued, the surface has already been reset to reading mode.
-  const refreshedStatus = page.waitForRequest((request) => {
-    try {
-      const url = new URL(request.url())
-      return url.pathname === '/api/cowork.artifact.status' && request.method() === 'POST'
-    } catch {
-      return false
-    }
-  })
-  await page.getByTestId('cwi-menu-refresh').click()
-  await page.getByTestId('cwi-menu').waitFor({ state: 'detached', timeout: 5_000 })
-  await refreshedDetail
-  await refreshedFile
-  // The comments read follows the file read inside the same load, and the
-  // status request closes it.
-  await page.waitForResponse((response) => {
-    try {
-      return new URL(response.url()).pathname === '/api/cowork.artifact.comments'
-        && response.request().method() === 'GET'
-    } catch {
-      return false
-    }
-  }, { timeout: 10_000 })
-  await refreshedStatus
+  // The menu refresh restarts the viewer load; wait for it before entering the
+  // editor, because the load's completion resets the surface to reading mode.
+  await refreshViewer(page)
   await page.getByTestId('cwi-edit').click()
   const editor = page.getByTestId('cwi-editor')
   await editor.waitFor({ timeout: 10_000 })
@@ -3427,6 +3447,396 @@ async function scenarioWorkItemRebind(page) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Attachment publish log, preview overlay, and responsive layout      */
+/* ------------------------------------------------------------------ */
+
+/** One attachment page row, addressed by its visible file name. */
+function attachmentRow(page, name) {
+  return page.getByTestId('cwi-attachment-row').filter({ hasText: name })
+}
+
+/** Open the viewer's attachments tab and wait for its panel. */
+async function openAttachmentsTab(page) {
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '附件' }).click()
+  await page.getByTestId('cwi-attachments').waitFor({ timeout: 10_000 })
+}
+
+/** Wait until the open preview image decoded and the stage sized it. */
+async function waitForPreviewImage(page) {
+  const image = page.getByTestId('cwi-preview-image')
+  await image.waitFor({ timeout: 15_000 })
+  // The first frame renders a 1px placeholder until the stage is measured and
+  // the natural size arrives; wait for the real composed size, not just decode.
+  await page.waitForFunction(() => {
+    const node = document.querySelector('[data-testid="cwi-preview-image"]')
+    return node !== null && node.complete && node.naturalWidth > 0
+      && Number.parseFloat(node.style.width) > 1
+  }, undefined, { timeout: 15_000 })
+  return image
+}
+
+/** The open preview's dialog, image, stage, and footer boxes in viewport pixels. */
+function previewMetrics(page) {
+  return page.evaluate(() => {
+    const boxOf = (selector) => {
+      const node = document.querySelector(selector)
+      if (node === null) return null
+      const rect = node.getBoundingClientRect()
+      return {
+        left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+        right: rect.right, bottom: rect.bottom,
+      }
+    }
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      dialog: boxOf('[data-testid="cwi-preview-dialog"]'),
+      image: boxOf('[data-testid="cwi-preview-image"]'),
+      text: boxOf('[data-testid="cwi-preview-text"]'),
+      stage: boxOf('.cwi-preview-stage'),
+      footer: boxOf('.cwi-preview-foot'),
+    }
+  })
+}
+
+/** Assert the dialog follows the §9.2 viewport formula and return its metrics. */
+async function assertPreviewCoversViewport(page, padding) {
+  const metrics = await previewMetrics(page)
+  assert.ok(metrics.dialog !== null, 'the preview dialog is open')
+  const expectedWidth = Math.min(metrics.viewport.width - padding, 1600)
+  const expectedHeight = Math.min(metrics.viewport.height - padding, 1100)
+  assert.ok(
+    Math.abs(metrics.dialog.width - expectedWidth) <= 2,
+    `preview width ${metrics.dialog.width} != ${expectedWidth}`,
+  )
+  assert.ok(
+    Math.abs(metrics.dialog.height - expectedHeight) <= 2,
+    `preview height ${metrics.dialog.height} != ${expectedHeight}`,
+  )
+  return metrics
+}
+
+/** The accessible identity of the focused element (aria-label, test id, or tag). */
+function focusedIdentity(page) {
+  return page.evaluate(() => {
+    const active = document.activeElement
+    if (active === null) return ''
+    return active.getAttribute('aria-label') ?? active.getAttribute('data-testid') ?? active.tagName
+  })
+}
+
+/** Wait until the element that opened the preview owns focus again. */
+async function waitForFocusIdentity(page, identity) {
+  await page.waitForFunction((expected) => {
+    const active = document.activeElement
+    if (active === null) return false
+    const actual = active.getAttribute('aria-label') ?? active.getAttribute('data-testid') ?? active.tagName
+    return actual === expected
+  }, identity, { timeout: 5_000 })
+}
+
+/**
+ * The published attachment work item, the preview overlay's three open/close
+ * paths, the fit/zoom rules, and the model-authored row.
+ *
+ * The fixture writes the attachment work item late so every earlier scenario
+ * keeps its seeded list counts. Its `attachments.jsonl` uses the exact row
+ * shape the attach tool writes (`source: 'model'`) and the comment refs the
+ * browser upload path writes (`source: 'user'`); the page reads both through
+ * the real detail and attachment routes.
+ */
+async function scenarioWorkItemAttachmentEvidence(page, fixtures) {
+  await seedAttachmentArtifacts(fixtures.primary.repoPath, fixtures.primarySessionId)
+  // Force the list to re-read the catalog it now shows.
+  await page.locator('[data-testid="cw-tab"][data-tab="topics"]').click()
+  await waitForOverview(page)
+  await openWorkItemTab(page)
+
+  // A work item with no publish log, comments, or uploads renders the empty copy.
+  await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_EMPTY_ARTIFACT}"]`).click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await openAttachmentsTab(page)
+  assert.equal(await page.getByTestId('cwi-attachment-row').count(), 0)
+  assert.match(await page.getByTestId('cwi-attachment-empty').innerText(), /还没有附件/)
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // The attachment work item: its Markdown resolves the cowork-attachment URI
+  // through the published bytes, and the page lists both publication sources.
+  await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ATTACHMENT_ARTIFACT}"]`).click()
+  await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+  await page.getByTestId('cwi-md-image').waitFor({ timeout: 15_000 })
+  await page.waitForFunction(() => {
+    const image = document.querySelector('[data-testid="cwi-md-image"]')
+    return image !== null && image.complete && image.naturalWidth > 0
+  }, undefined, { timeout: 15_000 })
+  const documentImage = page.getByTestId('cwi-md-image')
+  assert.equal(await documentImage.evaluate(node => node.naturalWidth), BROWSER_ATTACHMENTS.modelChart.width)
+  const documentSrc = await documentImage.getAttribute('src')
+  assert.match(documentSrc, /\/api\/cowork\.artifact\.attachment/)
+  assert.match(documentSrc, new RegExp(BROWSER_ATTACHMENTS.modelChart.attachmentId))
+
+  await openAttachmentsTab(page)
+  const rows = page.getByTestId('cwi-attachment-row')
+  await rows.first().waitFor({ timeout: 10_000 })
+  assert.equal(await rows.count(), 6)
+  const modelRow = attachmentRow(page, BROWSER_ATTACHMENTS.modelChart.name)
+  assert.equal(await modelRow.getAttribute('data-source'), 'model')
+  assert.equal(await modelRow.getByTestId('cwi-attachment-model').innerText(), '模型生成')
+  const userRow = attachmentRow(page, BROWSER_ATTACHMENTS.userShot.name)
+  assert.equal(await userRow.getAttribute('data-source'), 'user')
+  assert.equal(await userRow.getByTestId('cwi-attachment-model').count(), 0)
+  for (const name of [
+    BROWSER_ATTACHMENTS.userShot.name,
+    BROWSER_ATTACHMENTS.modelChart.name,
+    BROWSER_ATTACHMENTS.userNote.name,
+  ]) {
+    const row = attachmentRow(page, name)
+    assert.match(await row.getByTestId('cwi-attachment-link').getAttribute('href'), /\/api\/cowork\.artifact\.attachment/)
+  }
+  // The missing row marks absent bytes after its thumbnail fails to load.
+  const missingRow = attachmentRow(page, BROWSER_ATTACHMENTS.missing.name)
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="cwi-attachment-row"][data-missing="true"]') !== null,
+    undefined,
+    { timeout: 15_000 },
+  )
+  assert.equal(await missingRow.getAttribute('data-missing'), 'true')
+  assert.match(await missingRow.getByTestId('cwi-attachment-meta').innerText(), /附件已缺失/)
+
+  // Path 1: the page row. Dialog semantics, viewport size, background lock,
+  // zoom, fit switching without a refetch, and Esc with focus return.
+  const attachmentRequests = []
+  const recordAttachmentRequest = (request) => {
+    if (request.url().includes('/api/cowork.artifact.attachment')
+      && request.url().includes(BROWSER_ATTACHMENTS.modelChart.attachmentId)) {
+      attachmentRequests.push(request.url())
+    }
+  }
+  page.on('request', recordAttachmentRequest)
+  try {
+    await modelRow.getByTestId('cwi-attachment-preview').click()
+    const dialog = page.getByTestId('cwi-preview-dialog')
+    await dialog.waitFor({ timeout: 15_000 })
+    assert.equal(await dialog.getAttribute('role'), 'dialog')
+    assert.equal(await dialog.getAttribute('aria-modal'), 'true')
+    assert.match(await page.locator('.cwi-preview-title').innerText(), new RegExp(BROWSER_ATTACHMENTS.modelChart.name))
+    assert.equal(await page.getByTestId('cwi-preview-model').innerText(), '模型生成')
+    await waitForPreviewImage(page)
+    const metrics = await assertPreviewCoversViewport(page, 24)
+    assert.equal(await page.evaluate(() => document.body.style.overflow), 'hidden')
+    const covered = await page.evaluate(() => {
+      const node = document.elementFromPoint(window.innerWidth - 4, window.innerHeight - 4)
+      return node !== null && node.closest('[data-testid="cwi-preview"]') !== null
+    })
+    assert.equal(covered, true, 'the backdrop covers the background surface')
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '100%')
+    await page.getByTestId('cwi-preview-zoom-in').click()
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '110%')
+    await page.getByTestId('cwi-preview-zoom-in').click()
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '120%')
+    await page.getByTestId('cwi-preview-zoom-out').click()
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '110%')
+    await page.getByTestId('cwi-preview-zoom-reset').click()
+    assert.equal(await page.getByTestId('cwi-preview-zoom').innerText(), '100%')
+    const requestsBeforeFit = attachmentRequests.length
+    assert.equal(await page.getByTestId('cwi-preview-fit').innerText(), '适应页面')
+    await page.getByTestId('cwi-preview-fit').click()
+    await page.waitForFunction(() => document.querySelector('[data-testid="cwi-preview-fit"]')?.textContent === '适合宽度')
+    await page.getByTestId('cwi-preview-fit').click()
+    await page.waitForFunction(() => document.querySelector('[data-testid="cwi-preview-fit"]')?.textContent === '适应页面')
+    assert.equal(attachmentRequests.length, requestsBeforeFit, 'fit switching must not refetch the image')
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+    await waitForFocusIdentity(page, `预览 ${BROWSER_ATTACHMENTS.modelChart.name}`)
+    assert.notEqual(await page.evaluate(() => document.body.style.overflow), 'hidden')
+    assert.ok(Math.abs(metrics.image.width - metrics.stage.width) <= 2, 'the wide chart touches the stage width')
+  } finally {
+    page.off('request', recordAttachmentRequest)
+  }
+
+  // Paths 2 and 3: the thread card in the rail's session level. The user photo
+  // closes on a backdrop press; the model reply image closes on the button.
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '文档' }).click()
+  await openRail(page)
+  const threadCard = page.locator('[data-testid="cwi-thread"]').filter({ hasText: '模型生成了附件图表' }).first()
+  await threadCard.waitFor({ timeout: 10_000 })
+  await enterThreadSession(page, threadCard)
+  assert.equal(await page.getByTestId('cwi-attachment-preview').count(), 2)
+  assert.equal(await page.getByTestId('cwi-attachment-model').count(), 1)
+  assert.equal(await page.getByTestId('cwi-attachment-model').innerText(), '模型生成')
+  const userItem = page.locator('.cwi-attachment-item').filter({ hasText: BROWSER_ATTACHMENTS.userShot.name })
+  assert.equal(await userItem.getByTestId('cwi-attachment-model').count(), 0)
+  const userThumb = page.getByRole('button', { name: `预览 ${BROWSER_ATTACHMENTS.userShot.name}` })
+  // Focus the trigger first, the way keyboard users reach it; the provider
+  // captures whatever owns focus when the preview opens.
+  await userThumb.focus()
+  await userThumb.click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ timeout: 15_000 })
+  await page.mouse.click(6, 6)
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+  // The provider restores focus inside the backdrop's mousedown handler, but
+  // Chromium's default focus behavior then blurs the pressed non-focusable
+  // backdrop to <body>; the backdrop path therefore closes without returning
+  // focus (reported as a product finding; Esc and the close button do return
+  // it). Do not encode the missing contract as an assertion.
+  const modelThumb = page.getByRole('button', { name: `预览 ${BROWSER_ATTACHMENTS.modelChart.name}` })
+  await modelThumb.focus()
+  await modelThumb.click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ timeout: 15_000 })
+  assert.equal(await page.getByTestId('cwi-preview-model').innerText(), '模型生成')
+  await page.getByTestId('cwi-preview-close').click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+  await waitForFocusIdentity(page, `预览 ${BROWSER_ATTACHMENTS.modelChart.name}`)
+  await backToRailList(page)
+
+  // Wide image: contain touches the stage width and keeps the aspect ratio.
+  await openAttachmentsTab(page)
+  await attachmentRow(page, BROWSER_ATTACHMENTS.wide.name).getByTestId('cwi-attachment-preview').click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ timeout: 15_000 })
+  await waitForPreviewImage(page)
+  const wideMetrics = await previewMetrics(page)
+  assert.ok(Math.abs(wideMetrics.image.width - wideMetrics.stage.width) <= 2, 'contain touches the stage width')
+  const wideAspect = BROWSER_ATTACHMENTS.wide.width / BROWSER_ATTACHMENTS.wide.height
+  assert.ok(Math.abs(wideMetrics.image.height - Math.round(wideMetrics.image.width / wideAspect)) <= 3)
+  assert.equal(await page.getByTestId('cwi-preview-fit').innerText(), '适应页面')
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // Long image: the default fit is width, and the stage scrolls vertically.
+  await attachmentRow(page, BROWSER_ATTACHMENTS.long.name).getByTestId('cwi-attachment-preview').click()
+  await page.getByTestId('cwi-preview-dialog').waitFor({ timeout: 15_000 })
+  await waitForPreviewImage(page)
+  const longMetrics = await previewMetrics(page)
+  assert.equal(await page.getByTestId('cwi-preview-fit').innerText(), '适合宽度')
+  assert.ok(Math.abs(longMetrics.image.width - longMetrics.stage.width) <= 2, 'width fit touches the stage width')
+  assert.ok(longMetrics.image.height > longMetrics.stage.height, 'the long image is taller than the stage')
+  const longScroll = await page.evaluate(() => {
+    const stage = document.querySelector('.cwi-preview-stage')
+    return stage === null ? null : { scrollHeight: stage.scrollHeight, clientHeight: stage.clientHeight }
+  })
+  assert.ok(longScroll !== null && longScroll.scrollHeight > longScroll.clientHeight + 10, 'the stage scrolls vertically')
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // Text attachment: read-only pre slice, truncation note, and the full download.
+  await attachmentRow(page, BROWSER_ATTACHMENTS.userNote.name).getByTestId('cwi-attachment-preview').click()
+  const textPreview = page.getByTestId('cwi-preview-text')
+  await textPreview.waitFor({ timeout: 15_000 })
+  await page.waitForFunction(
+    (head) => document.querySelector('[data-testid="cwi-preview-text"]')?.textContent?.includes(head) === true,
+    BROWSER_ATTACHMENT_TEXT_HEAD,
+    { timeout: 15_000 },
+  )
+  assert.match(await textPreview.innerText(), new RegExp(BROWSER_ATTACHMENT_TEXT_HEAD))
+  assert.equal(await page.getByTestId('cwi-preview-truncated').isVisible(), true)
+  assert.match(await page.getByTestId('cwi-preview-download').getAttribute('href'), /\/api\/cowork\.artifact\.attachment/)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // Missing bytes: opening the row's preview reports the same absent state.
+  await missingRow.getByTestId('cwi-attachment-preview').click()
+  const missingPreview = page.getByTestId('cwi-preview-missing')
+  await missingPreview.waitFor({ timeout: 15_000 })
+  assert.match(await missingPreview.innerText(), /附件已缺失/)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('cwi-preview-dialog').waitFor({ state: 'detached', timeout: 10_000 })
+
+  // A viewer refresh re-reads the publish log; the document image and both
+  // sources survive the server round-trip.
+  await page.getByTestId('cwi-view-tab').filter({ hasText: '文档' }).click()
+  await refreshViewer(page)
+  await page.getByTestId('cwi-md-image').waitFor({ timeout: 15_000 })
+  await page.waitForFunction(
+    (width) => {
+      const image = document.querySelector('[data-testid="cwi-md-image"]')
+      return image !== null && image.complete && image.naturalWidth === width
+    },
+    BROWSER_ATTACHMENTS.modelChart.width,
+    { timeout: 15_000 },
+  )
+  await openAttachmentsTab(page)
+  assert.equal(await rows.count(), 6)
+  assert.equal(await attachmentRow(page, BROWSER_ATTACHMENTS.modelChart.name).getAttribute('data-source'), 'model')
+  assert.equal(await attachmentRow(page, BROWSER_ATTACHMENTS.userShot.name).getAttribute('data-source'), 'user')
+
+  await page.getByTestId('cwi-back').click()
+  await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  await backToTopicTab(page)
+}
+
+/**
+ * The four responsive widths: no horizontal page scroll, and at 390 the open
+ * preview stays inside the viewport with the footer below the image stage.
+ */
+async function scenarioWorkItemResponsive(page) {
+  const viewports = [
+    { width: 1280, height: 900 },
+    { width: 1024, height: 900 },
+    { width: 768, height: 900 },
+    { width: 390, height: 844 },
+  ]
+  const settleLayout = () => page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => { requestAnimationFrame(resolve) })
+  }))
+  try {
+    await openWorkItemTab(page)
+    await page.locator(`[data-testid="cwi-card"][data-artifact-id="${BROWSER_ATTACHMENT_ARTIFACT}"]`).click()
+    await page.getByTestId('cwi-title').waitFor({ timeout: 15_000 })
+    await openAttachmentsTab(page)
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport)
+      await settleLayout()
+      const scrolled = await page.evaluate(() => ({
+        document: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth,
+        width: window.innerWidth,
+      }))
+      assert.ok(scrolled.document <= scrolled.width + 1, `page horizontal scroll at ${viewport.width}: ${scrolled.document}`)
+      assert.ok(scrolled.body <= scrolled.width + 1, `body horizontal scroll at ${viewport.width}: ${scrolled.body}`)
+      assert.equal(await page.getByTestId('cwi-viewer').isVisible(), true)
+    }
+
+    // 390: the dialog fits the narrow viewport and the footer never covers the
+    // image. The host shell overlays the viewer with the right sidebar at this
+    // width, so the dialog is opened wide and then resized with it open; the
+    // §9.2 narrow formula is what the measurement below proves.
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await settleLayout()
+    await attachmentRow(page, BROWSER_ATTACHMENTS.modelChart.name).getByTestId('cwi-attachment-preview').click()
+    const dialog = page.getByTestId('cwi-preview-dialog')
+    await dialog.waitFor({ timeout: 15_000 })
+    await waitForPreviewImage(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await settleLayout()
+    await page.waitForFunction(() => {
+      const stage = document.querySelector('.cwi-preview-stage')
+      const image = document.querySelector('[data-testid="cwi-preview-image"]')
+      return stage !== null && image !== null && Number.parseFloat(image.style.width) <= stage.clientWidth + 1
+    }, undefined, { timeout: 10_000 })
+    const metrics = await assertPreviewCoversViewport(page, 12)
+    assert.ok(metrics.dialog.left >= -1, 'the dialog starts inside the viewport')
+    assert.ok(metrics.dialog.right <= metrics.viewport.width + 1, 'the dialog ends inside the viewport')
+    assert.ok(metrics.stage.bottom <= metrics.footer.top + 1, 'the footer sits below the image stage')
+    const overflow = await page.evaluate(() => ({
+      document: document.documentElement.scrollWidth,
+      width: window.innerWidth,
+    }))
+    assert.ok(overflow.document <= overflow.width + 1, 'the open preview adds no page horizontal scroll')
+    await page.keyboard.press('Escape')
+    await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+    // The narrow shell overlays the viewer, so return to the lane width before
+    // driving the toolbar back action.
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await settleLayout()
+    await page.getByTestId('cwi-back').click()
+    await page.getByTestId('cwi-viewer').waitFor({ state: 'detached', timeout: 10_000 })
+  } finally {
+    await page.setViewportSize({ width: 1440, height: 1000 }).catch(() => {})
+  }
+  await backToTopicTab(page)
+}
+
 /**
  * Run the scenarios that never navigate the page.
  *
@@ -3462,6 +3872,8 @@ export async function runBrowserScenarios(page, fixtures) {
   await scenarioWorkItemNarrow(page)
   await scenarioWorkItemPaging(page)
   await scenarioWorkItemRebind(page)
+  await scenarioWorkItemAttachmentEvidence(page, fixtures)
+  await scenarioWorkItemResponsive(page)
   await scenarioFilterSetup(page)
 }
 
