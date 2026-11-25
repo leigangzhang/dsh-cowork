@@ -26,12 +26,17 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          DSH_COWORK_SOURCEMAP: '0'
 
       - name: Typecheck
         run: npm run typecheck
 
       - name: Test
         run: npm test
+
+      - name: Check repository conventions
+        run: npm run check
 
       - name: Check publish artifact
         run: npm run pack:check

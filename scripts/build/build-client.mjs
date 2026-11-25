@@ -61,7 +61,7 @@ const args = [
   `--footer:js=${FOOTER}`,
   '--log-level=warning',
 ]
-if (process.env.DSH_COWORK_SOURCEMAP === '1') args.push('--sourcemap')
+if (process.env.DSH_COWORK_SOURCEMAP !== '0') args.push('--sourcemap')
 
 const result = spawnSync(ESBUILD_BIN, args, { cwd: ROOT, stdio: 'inherit' })
 if (result.error !== undefined) fail(`esbuild 启动失败：${result.error.message}`)

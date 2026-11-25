@@ -13,7 +13,7 @@
  * `npm run build` before starting this helper.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -272,6 +272,21 @@ function installHostPackage({ layout, hostEnv, dsh }) {
     cwd: layout.cwd,
     env: hostEnv,
   })
+  // Release artifacts intentionally omit the client source map. The browser
+  // coverage lane still needs it to map the served combo bundle back to
+  // src/client, so restore the local build map into this temporary install.
+  const localMap = join(layout.root, 'lib', 'client.js.map')
+  const installedMap = join(
+    layout.dshHome,
+    'profiles',
+    layout.profileName,
+    'node_modules',
+    '@dsh-external',
+    'dsh-cowork',
+    'lib',
+    'client.js.map',
+  )
+  if (existsSync(localMap)) copyFileSync(localMap, installedMap)
   return { manifest, tarball }
 }
 

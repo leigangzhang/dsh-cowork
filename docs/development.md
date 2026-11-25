@@ -63,10 +63,10 @@ npm run plugin:status       # 检查 link、bundle 列表与构建产物
 npm run plugin:uninstall    # 移除 link 安装
 ```
 
-调试客户端 bundle 时显式生成 sourcemap：
+客户端 sourcemap 默认生成，供浏览器覆盖率使用；发布包通过 `files` 白名单排除。需要更小的本地构建时关闭：
 
 ```sh
-DSH_COWORK_SOURCEMAP=1 npm run build
+DSH_COWORK_SOURCEMAP=0 npm run build
 ```
 
 sourcemap 只留在本地，不提交。

@@ -60,6 +60,8 @@ print(f'{action}: package.json updated')
 PY
 }
 
+# Profile assumption: pnpm v9 lockfile (lockfileVersion '9.0'). The bundle
+# anchor is optional; a profile without it appends the entry at the end.
 edit_lockfile() {
   local action="$1"
   python3 - "$action" "$PROFILE_DIR/pnpm-lock.yaml" "$PKG_NAME" "$PROFILE_DIR" "$ROOT" <<'PY'
@@ -69,6 +71,8 @@ from pathlib import Path
 action, lockfile, pkg, profile_dir, root = sys.argv[1:6]
 path = Path(lockfile)
 text = path.read_text()
+if not text.startswith("lockfileVersion: '9.0'"):
+    raise SystemExit('unsupported pnpm lockfile: expected lockfileVersion 9.0')
 
 # Importer entry: six-space key inside importers.
 importer = re.compile(
