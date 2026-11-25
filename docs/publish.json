@@ -60,7 +60,7 @@
     },
     {
       "pattern": "docs/development.md",
-      "reason": "developer setup, build, local link install, and release workflow; user-facing install steps live in README.md"
+      "reason": "developer setup, build, and local link install; user-facing install steps live in README.md; release automation stays in the GitHub workflow"
     },
     {
       "pattern": "docs/design/*",

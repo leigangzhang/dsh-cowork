@@ -1,6 +1,6 @@
-# 开发与发布
+# 开发指南
 
-面向仓库贡献者的开发环境搭建、构建和发布流程。用户安装、升级、卸载见 [README.md](../README.md)；测试分层与证据要求见 [testing.md](testing.md)。
+面向仓库贡献者的开发环境搭建、构建和本地 link 安装。用户安装、更新、卸载见 [README.md](../README.md)；测试分层与证据要求见 [testing.md](testing.md)。
 
 ## 前置条件
 
@@ -24,20 +24,19 @@ npm test
 
 首次搭建完成的标志是 `npm run typecheck`、`npm run build` 和 `npm test` 都通过。
 
-## 源码、构建与发布物
+## 源码与构建产物
 
-| 位置 | 归属 | 是否进发布包 |
-|---|---|---|
-| `src/`、`src/client/` | 源码 | 否 |
-| `tests/`、`scripts/`、`docs/` | 开发与文档 | 否 |
-| `package.json` 的 `devDependencies` | 构建、测试、客户端打包 | 否 |
-| `package.json` 的 `dependencies` | 服务端运行时依赖；当前为空 | 是，若新增则显式评审 |
-| `package.json` 的 `peerDependencies` | 必须由 DSH 宿主共享的单例 | 否 |
-| `lib/` | `npm run build` 生成的 host/client 产物 | 是，但 gitignore |
-| `lib/client.js` | 客户端预构建 bundle | 是 |
-| `lib/client.js.map` | 调试用 sourcemap | 否 |
+| 位置 | 归属 |
+|---|---|
+| `src/`、`src/client/` | 源码 |
+| `tests/`、`scripts/`、`docs/` | 开发与文档 |
+| `package.json` 的 `devDependencies` | 构建、测试、客户端打包 |
+| `package.json` 的 `dependencies` | 服务端运行时依赖；当前为空 |
+| `package.json` 的 `peerDependencies` | 必须由 DSH 宿主共享的单例 |
+| `lib/` | `npm run build` 生成的 host/client 产物，gitignore |
+| `lib/client.js` | 客户端预构建 bundle |
 
-客户端重型库（Excalidraw、Mermaid、markdown-it、CodeMirror 等）放在 `devDependencies`，由 esbuild 打进 `lib/client.js`；用户安装插件时不会单独下载它们。
+客户端重型库（Excalidraw、Mermaid、markdown-it、CodeMirror 等）放在 `devDependencies`，由 esbuild 打进 `lib/client.js`；本地 link 安装时不会单独安装它们。
 
 ## 本地插件开发
 
@@ -70,31 +69,7 @@ npm run plugin:uninstall    # 移除 link 安装
 DSH_COWORK_SOURCEMAP=1 npm run build
 ```
 
-sourcemap 只留在本地，不进入发布包。
-
-## 发布
-
-发布包只包含预构建运行时文件。先构建并检查：
-
-```sh
-npm run build
-npm run typecheck
-npm test
-npm run pack:check
-npm pack --ignore-scripts
-```
-
-`pack:check` 会拒绝以下内容：`src/`、`tests/`、`scripts/`、`docs/`、`node_modules/`、`.dsh-cowork/`、任何 `.map`、`.env`、tarball，以及非空的运行时 `dependencies`。同时检查包体积和 `lib/client.js` 上限。
-
-发布到 npm：
-
-```sh
-npm publish --access public
-```
-
-`npm publish` 会先运行 `prepublishOnly`（typecheck + test）和 `prepack`（build + pack-check）。发布前确认版本号与计划发布的 tag 一致。
-
-GitHub Actions 的 `release` workflow 在推送 `v*` tag 时执行同一套检查，并用 npm Trusted Publishing 发布，同时把 `npm pack` 产物附到 GitHub Release。使用前需要在 npm 包设置里配置该 workflow 为 trusted publisher。
+sourcemap 只留在本地，不提交。
 
 ## 检查命令
 
@@ -118,10 +93,8 @@ npm run test:e2e           # keyless E2E，需要 dsh
 - npm peer 冲突：确认仓库根 `.npmrc` 的 `legacy-peer-deps=true` 生效后运行 `npm ci`；不要用 `--force` 绕过。
 - `lib/` 缺失或过期：运行 `npm run build`；`lib/` 不入 git。
 - 安装后仍加载旧代码：重启 DSH；当前 profile 是否支持 live 应用以宿主能力为准。
-- 发布包意外变大：先运行 `npm run pack:check`，检查是否带上了 `.map`、测试或源码。
 
 ## 不在本仓库做的事
 
 - 不把 profile 的本地插件或 registry 缓存 vendor 进本仓库。
 - 不提交 `lib/`、`*.tgz`、`node_modules/` 或 sourcemap。
-- 不把开发依赖打进发布包；发布包只保留运行时需要的 `lib/`、类型声明和挂载配置。

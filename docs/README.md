@@ -5,7 +5,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | Your question | Where to go |
 |---|---|
 | 这个插件是什么、怎么安装和卸载 | [README.md](../README.md) |
-| 怎么从新环境搭建开发环境、构建、发布 | [development.md](development.md) |
+| 怎么从新环境搭建开发环境、构建、本地 link 安装 | [development.md](development.md) |
 | 产品范围、架构、里程碑、验收（V0.1，M0–M4） | [PLAN.md](PLAN.md) |
 | 主题会话模型重构的阶段计划（V0.2，M6–M12） | [PLAN-V0.2.md](PLAN-V0.2.md) |
 | 文档怎么写、放哪里、预算、发布 | [AGENTS.md](AGENTS.md)；执行步骤见 [write-docs](../.agents/skills/write-docs/SKILL.md) |
@@ -41,7 +41,7 @@ What the documents are, and what each one answers. This page only routes: the ru
 | `docs/PLAN.md` | plan | V0.1 产品范围、架构、M0–M4 完成记录 |
 | `docs/PLAN-V0.2.md` | plan | V0.2 主题会话模型重构：M6–M12 阶段、架构与验收 |
 | `docs/testing.md` | guide | 测试分层、证据、flake 政策 |
-| `docs/development.md` | guide | 开发者环境搭建、构建、本地 link 安装与发布流程 |
+| `docs/development.md` | guide | 开发者环境搭建、构建与本地 link 安装 |
 | `docs/github-workflow.md` | guide | 从分支到 `main` 的 GitHub 测试、审查、证据校验和人工合并流程 |
 | `docs/heavy-runner.md` | guide | heavy runner 的自动/手动触发、head-bound 结果核对与派生 gate 消费规则 |
 | `docs/AGENTS.md` | guide | 文档种类、命名、目录架构、单一事实源、预算、发布开关与防劣质清单 |
