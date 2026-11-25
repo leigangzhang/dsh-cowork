@@ -4,91 +4,37 @@
  *
  * The host's client module loader (`window.__ModuleLoader__`) expects one
  * pre-bundled CJS closure per plugin, with `react` / `react/jsx-runtime` left to
- * the host's module table. The repository has no client bundler dependency of
- * its own, so this script reuses the esbuild binary that ships inside the DSH
- * source checkout (the same checkout `scripts/build/build.sh` uses for types).
+ * the host's module table. The esbuild binary comes from this repository's
+ * devDependencies, so the build is reproducible without a DSH source checkout.
  *
- * Output shape:
- *
- *   window.__ModuleLoader__.load({ id: "@dsh-external/dsh-cowork", factory: (require) => { var module = { exports: {} }; var exports = module.exports; … });
- *
- * Idempotent: it always rewrites `lib/client.js` (+ source map) from `src/client`.
+ * Source maps are development-only. Release builds omit them so the packed
+ * artifact stays small; set DSH_COWORK_SOURCEMAP=1 to emit `lib/client.js.map`.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const ENTRY = join(ROOT, 'src', 'client', 'index.tsx')
 const OUTFILE = join(ROOT, 'lib', 'client.js')
+const ESBUILD_BIN = join(ROOT, 'node_modules', 'esbuild', 'bin', 'esbuild')
 const PACKAGE_NAME = '@dsh-external/dsh-cowork'
-
-const CHECKOUT_CANDIDATES = [
-  process.env.DSH_CHECKOUT,
-  join(process.env.HOME ?? '', 'Workspace', 'deepseek-harness'),
-  join(process.env.HOME ?? '', 'deepseek-harness'),
-  join(process.env.HOME ?? '', 'dsh-harness'),
-  join(process.env.HOME ?? '', 'dsh'),
-  join(process.env.HOME ?? '', '.dsh', 'dsh-harness'),
-]
 
 const BANNER = `window.__ModuleLoader__.load({ id: ${JSON.stringify(PACKAGE_NAME)}, factory: (require) => { var module = { exports: {} }; var exports = module.exports;`
 const FOOTER = '\n    return module.exports;\n  }\n});'
-
-/** Locate a DSH source checkout that can provide esbuild. */
-function findCheckout() {
-  for (const candidate of CHECKOUT_CANDIDATES) {
-    if (candidate === undefined || candidate === '') continue
-    if (existsSync(join(candidate, 'packages'))) return candidate
-  }
-  return undefined
-}
-
-/** Compare two dotted version strings numerically. */
-function compareVersions(left, right) {
-  const a = left.split('.').map(Number)
-  const b = right.split('.').map(Number)
-  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-    const diff = (a[index] ?? 0) - (b[index] ?? 0)
-    if (diff !== 0) return diff
-  }
-  return 0
-}
-
-/** Find the newest esbuild binary inside the checkout's pnpm store. */
-function findEsbuild(checkout) {
-  const store = join(checkout, 'node_modules', '.pnpm')
-  if (!existsSync(store)) return undefined
-  const candidates = readdirSync(store)
-    .map(name => /^esbuild@(\d+\.\d+\.\d+)$/.exec(name))
-    .filter(match => match !== null)
-    .map(match => match[1])
-    .sort(compareVersions)
-    .reverse()
-  for (const version of candidates) {
-    const binary = join(store, `esbuild@${version}`, 'node_modules', 'esbuild', 'bin', 'esbuild')
-    if (existsSync(binary)) return { binary, version }
-  }
-  return undefined
-}
 
 function fail(message) {
   console.error(`build-client: ${message}`)
   process.exit(1)
 }
 
-const checkout = findCheckout()
-if (checkout === undefined) {
-  fail('找不到 DSH 源码 checkout（含 packages/）。设置 DSH_CHECKOUT 指向它，例如 DSH_CHECKOUT=~/Workspace/deepseek-harness npm run build:client')
-}
-const esbuild = findEsbuild(checkout)
-if (esbuild === undefined) {
-  fail(`在 ${join(checkout, 'node_modules', '.pnpm')} 下找不到 esbuild@*（需要 node_modules/.pnpm/esbuild@x.y.z/node_modules/esbuild/bin/esbuild）`)
+if (!existsSync(ESBUILD_BIN)) {
+  fail('找不到本地 esbuild；先运行 npm install')
 }
 
-console.log(`=== build-client: ${ENTRY} → ${OUTFILE} (esbuild ${esbuild.version}) ===`)
-const result = spawnSync(esbuild.binary, [
+console.log(`=== build-client: ${ENTRY} → ${OUTFILE} ===`)
+const args = [
   '--bundle',
   ENTRY,
   '--format=cjs',
@@ -111,12 +57,13 @@ const result = spawnSync(esbuild.binary, [
   '--external:react-dom/client',
   '--external:@deepseek-ai/*',
   `--outfile=${OUTFILE}`,
-  '--sourcemap',
   `--banner:js=${BANNER}`,
   `--footer:js=${FOOTER}`,
   '--log-level=warning',
-], { cwd: ROOT, stdio: 'inherit' })
+]
+if (process.env.DSH_COWORK_SOURCEMAP === '1') args.push('--sourcemap')
 
+const result = spawnSync(ESBUILD_BIN, args, { cwd: ROOT, stdio: 'inherit' })
 if (result.error !== undefined) fail(`esbuild 启动失败：${result.error.message}`)
 if (result.status !== 0) fail(`esbuild 退出码 ${result.status ?? 'null'}`)
 

@@ -257,7 +257,7 @@ async function stopConnection(connection) {
 /** Install the current package artifact into the temporary profile. */
 function installHostPackage({ layout, hostEnv, dsh }) {
   const manifest = JSON.parse(readFileSync(resolve(layout.root, 'package.json'), 'utf8'))
-  const packResult = runCommand('npm', ['pack', '--json', '--pack-destination', layout.tempRoot], {
+  const packResult = runCommand('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', layout.tempRoot], {
     cwd: layout.root,
     env: hostEnv,
   })

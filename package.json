@@ -2,16 +2,15 @@
   "name": "@dsh-external/dsh-cowork",
   "version": "0.2.0",
   "description": "DSH 项目式主从协作插件：master 主会话 + 主题会话 + 项目记忆 + 工作项 + 评审请求 + 活动流",
-  "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.19.0",
+    "dsh": ">=0.2.1-rc.2"
   },
   "main": "./lib/index.js",
   "types": "./lib/types/index.d.ts",
   "files": [
     "lib/**/*.js",
-    "lib/client.js.map",
     "lib/**/*.d.ts",
     "cordis.patch.yml",
     "README.md",
@@ -32,12 +31,34 @@
     "@codemirror/language": "6.13.1",
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-atomic-write": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-brand": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-ptc-runtime": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-sandbox": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-sandbox-policy": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-scope": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-session": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-user-approval": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-util-values": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-working-directory": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.19.0",
     "@excalidraw/excalidraw": "0.18.1",
     "@types/node": "^24.13.3",
+    "@types/react": "18.3.32",
+    "@types/react-dom": "18.3.7",
+    "esbuild": "0.28.2",
     "fallow": "3.43.0",
     "markdown-it": "15.0.3",
     "pele": "1.13.0",
     "playwright": "1.65.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "typescript": "^5.9.0"
   },
   "scripts": {
@@ -64,7 +85,11 @@
     "plugin:status": "bash scripts/dev/plugin-profile.sh status",
     "plugin:install": "bash scripts/dev/plugin-profile.sh install",
     "plugin:uninstall": "bash scripts/dev/plugin-profile.sh uninstall",
-    "plugin:hot": "bash scripts/dev/plugin-profile.sh hot"
+    "plugin:hot": "bash scripts/dev/plugin-profile.sh hot",
+    "pack:check": "node scripts/release/pack-check.mjs",
+    "prepack": "npm run build && npm run pack:check",
+    "prepublishOnly": "npm run typecheck && npm test",
+    "release": "npm publish --access public"
   },
   "exports": {
     ".": {
@@ -87,6 +112,30 @@
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.1-rc.2+": "compatible"
+      }
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leigangzhang/dsh-cowork.git"
+  },
+  "homepage": "https://github.com/leigangzhang/dsh-cowork",
+  "bugs": {
+    "url": "https://github.com/leigangzhang/dsh-cowork/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cowork",
+    "agent-teams",
+    "work-items",
+    "code-review"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
