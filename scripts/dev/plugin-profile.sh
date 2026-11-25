@@ -8,11 +8,18 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROFILE_NAME="${DSH_PROFILE:-web}"
-PROFILE_DIR="${DSH_PROFILE_DIR:-$HOME/.dsh/profiles/$PROFILE_NAME}"
+if [ -n "${DSH_PROFILE:-}" ]; then
+  PROFILE_DIR="$HOME/.dsh/profiles/$PROFILE_NAME"
+else
+  PROFILE_DIR="${DSH_PROFILE_DIR:-$HOME/.dsh/profiles/$PROFILE_NAME}"
+fi
 PKG_NAME="@dsh-external/dsh-cowork"
 LINK_SPEC="link:$ROOT"
 REGISTRY="${DSH_VENDOR_REGISTRY:-https://registry.npmjs.org}"
 VENDOR_STORE="$ROOT/vendor/pnpm-store"
+VENDOR_PACKAGES="$ROOT/vendor/packages"
+TRACE_TARBALL="dsh-trace-waterfall-6c73e9a0.tar.gz"
+TRACE_INTEGRITY="sha512-GkJtcZBMswnklx6ybYzOH3+dGfBdXXaOy/pXjaRga7ydM8iGuHcQpfwJo55CP+Kb+RPflaR6d3wQ5SL/S1CREw=="
 
 now() { python3 -c 'import time;print(time.time())'; }
 duration() { python3 -c "print(f'{float('$2') - float('$1'):.2f}s')"; }
@@ -106,13 +113,84 @@ print(f'{action}: lockfile updated')
 PY
 }
 
+
+# Install the profile. A fresh profile uses the committed vendor store; an
+# existing profile keeps its current store so a hot link update stays a relink.
+pnpm_install_profile() {
+  local args=(--frozen-lockfile --offline --trust-lockfile)
+  if [ ! -d "$PROFILE_DIR/node_modules" ] && [ -d "$VENDOR_STORE" ]; then
+    args+=(--store-dir "$VENDOR_STORE")
+  fi
+  ( cd "$PROFILE_DIR" && pnpm install "${args[@]}" )
+}
+
+vendor_install() {
+  require_profile
+  [ -d "$VENDOR_PACKAGES" ] || {
+    echo "vendor packages missing: $VENDOR_PACKAGES" >&2
+    exit 1
+  }
+  local start; start=$(now)
+  mkdir -p "$PROFILE_DIR/vendor"
+
+  cp "$VENDOR_PACKAGES/feng0531-dsh-code-review-0.92.3.tgz" \
+    "$PROFILE_DIR/vendor/@feng0531-dsh-code-review-0.92.3.tgz"
+  cp "$VENDOR_PACKAGES/wingsky-1-dsh-mcp-manager-0.2.9.tgz" \
+    "$PROFILE_DIR/vendor/@wingsky-1-dsh-mcp-manager-0.2.9.tgz"
+  cp "$VENDOR_PACKAGES/dsh-vscode-file-links-0.1.0.tgz" \
+    "$PROFILE_DIR/vendor/dsh-vscode-file-links-0.1.0.tgz"
+  cp "$VENDOR_PACKAGES/dsh-webview-clipboard-0.2.1.tgz" \
+    "$PROFILE_DIR/vendor/dsh-webview-clipboard-0.2.1.tgz"
+  cp "$VENDOR_PACKAGES/$TRACE_TARBALL" "$PROFILE_DIR/vendor/$TRACE_TARBALL"
+
+  rm -rf "$PROFILE_DIR/vendor/dsh-vscode-open-external"
+  mkdir -p "$PROFILE_DIR/vendor/dsh-vscode-open-external"
+  tar -xzf "$VENDOR_PACKAGES/dsh-vscode-open-external-0.1.0.tgz" \
+    -C "$PROFILE_DIR/vendor/dsh-vscode-open-external" --strip-components=1
+
+  python3 - "$PROFILE_DIR" "$TRACE_TARBALL" "$TRACE_INTEGRITY" <<'PY'
+import json, sys
+from pathlib import Path
+
+profile = Path(sys.argv[1])
+tarball = sys.argv[2]
+integrity = sys.argv[3]
+spec = f'file:vendor/{tarball}'
+
+manifest = profile / 'package.json'
+data = json.loads(manifest.read_text())
+deps = data.setdefault('dependencies', {})
+changed = deps.get('dsh-trace-waterfall') != spec
+deps['dsh-trace-waterfall'] = spec
+manifest.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+
+lock = profile / 'pnpm-lock.yaml'
+text = lock.read_text()
+old_url = 'https://codeload.github.com/omdsh-dev/dsh-trace-waterfall/tar.gz/6c73e9a0a85d1ded06b088e0f1435d15dc278660'
+text = text.replace('github:omdsh-dev/dsh-trace-waterfall', spec)
+text = text.replace(old_url, spec)
+text = text.replace(
+    'resolution: {gitHosted: true, integrity: ' + integrity + ', tarball: ' + spec + '}',
+    'resolution: {integrity: ' + integrity + ', tarball: ' + spec + '}',
+)
+lock.write_text(text)
+print(f'vendor-install: trace-waterfall -> {spec} (manifest changed: {changed})')
+PY
+
+  echo "[vendor-install] packages copied in $(duration "$start" "$(now)")"
+  echo "[vendor-install] pnpm frozen offline install"
+  pnpm_install_profile
+  echo "[vendor-install] total $(duration "$start" "$(now)")"
+}
+
 install() {
   require_profile
+  vendor_install
   local start; start=$(now)
   edit_manifest install
   edit_lockfile install
   echo "[install] pnpm frozen offline install"
-  ( cd "$PROFILE_DIR" && pnpm install --frozen-lockfile --offline --trust-lockfile )
+  pnpm_install_profile
   echo "[install] total $(duration "$start" "$(now)")"
 }
 
@@ -129,7 +207,7 @@ uninstall() {
     exit 1
   fi
   echo "[uninstall] pnpm frozen offline install"
-  ( cd "$PROFILE_DIR" && pnpm install --frozen-lockfile --offline --trust-lockfile )
+  pnpm_install_profile
   echo "[uninstall] total $(duration "$start" "$(now)")"
 }
 
@@ -153,6 +231,7 @@ if package.exists():
 lib = target / 'lib/platform/artifact-files.js'
 print('sandbox policy fix:', 'sandboxPolicy' in lib.read_text() if lib.exists() else 'lib missing')
 PY
+  echo "vendor packages: $(find "$VENDOR_PACKAGES" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ') at $VENDOR_PACKAGES"
   if [ -d "$VENDOR_STORE" ]; then
     echo "vendor store: $(du -sh "$VENDOR_STORE" | awk '{print $1}') at $VENDOR_STORE"
   else
@@ -167,6 +246,7 @@ vendor() {
   cp "$PROFILE_DIR/package.json" "$fetch_dir/package.json"
   cp "$PROFILE_DIR/pnpm-lock.yaml" "$fetch_dir/pnpm-lock.yaml"
   [ -f "$PROFILE_DIR/pnpm-workspace.yaml" ] && cp "$PROFILE_DIR/pnpm-workspace.yaml" "$fetch_dir/pnpm-workspace.yaml"
+  [ -d "$PROFILE_DIR/vendor" ] && cp -R "$PROFILE_DIR/vendor" "$fetch_dir/vendor"
   mkdir -p "$VENDOR_STORE"
   local start; start=$(now)
   echo "[vendor] pnpm fetch from $REGISTRY"
@@ -189,6 +269,7 @@ case "${1:-status}" in
   uninstall) uninstall ;;
   status) status ;;
   vendor) vendor ;;
+  vendor-install) vendor_install ;;
   hot) hot ;;
-  *) echo "usage: $0 {install|uninstall|status|vendor|hot}" >&2; exit 2 ;;
+  *) echo "usage: $0 {install|uninstall|status|vendor|vendor-install|hot}" >&2; exit 2 ;;
 esac
