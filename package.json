@@ -64,9 +64,7 @@
     "plugin:status": "bash scripts/dev/plugin-profile.sh status",
     "plugin:install": "bash scripts/dev/plugin-profile.sh install",
     "plugin:uninstall": "bash scripts/dev/plugin-profile.sh uninstall",
-    "plugin:vendor": "bash scripts/dev/plugin-profile.sh vendor",
-    "plugin:hot": "bash scripts/dev/plugin-profile.sh hot",
-    "plugin:vendor:install": "bash scripts/dev/plugin-profile.sh vendor-install"
+    "plugin:hot": "bash scripts/dev/plugin-profile.sh hot"
   },
   "exports": {
     ".": {
