@@ -47,7 +47,8 @@
         "docs/routing.md",
         "docs/decision-and-handoff.md",
         "docs/github-workflow.md",
-        "docs/heavy-runner.md"
+        "docs/heavy-runner.md",
+        "docs/development.md"
       ]
     },
     {

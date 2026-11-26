@@ -60,8 +60,23 @@ export interface HostFileTarget {
   readonly displayPath: string
 }
 
+/** The mutation modes a sandboxing host filesystem can enforce. */
+type HostSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
+
+/** The per-call mutation policy a sandboxing host filesystem enforces. */
+interface HostSandboxPolicy {
+  readonly mode: HostSandboxMode
+  readonly workspaceRoot: string
+}
+
 /** The host `ctx.fs` service slice the adapter uses. */
 export interface HostFileSystem {
+  /**
+   * The backend's default mutation mode; undefined when it does not confine.
+   * A sandboxing backend reads it so the adapter can pass a project-scoped
+   * policy instead of inheriting the deployment-wide fallback root.
+   */
+  readonly sandboxMode?: HostSandboxMode
   resolve(path: string, options?: { readonly cwd?: string }): Promise<HostFileTarget>
   stat(target: HostFileTarget): Promise<
     { readonly version: unknown; readonly type: 'file' | 'directory' | 'other'; readonly size?: number } | undefined
@@ -71,6 +86,8 @@ export interface HostFileSystem {
     target: HostFileTarget,
     content: string,
     expected?: { readonly kind: 'replaceIfVersion'; readonly version: unknown },
+    signal?: AbortSignal,
+    sandboxPolicy?: HostSandboxPolicy,
   ): Promise<{ readonly version: unknown; readonly before?: string | null }>
 }
 
@@ -203,6 +220,12 @@ export async function readBytesInsideRepo(
  * version to the host service.
  */
 export function createHostArtifactFiles(fs: HostFileSystem, repoPath: string): ArtifactFilePort {
+  // The host's default policy roots workspace-write at the deployment cwd, not
+  // at the project holding this work item. A user-initiated panel save must be
+  // fenced by the project itself, or it is denied whenever the two differ.
+  const sandboxPolicy: HostSandboxPolicy | undefined = fs.sandboxMode === undefined
+    ? undefined
+    : { mode: fs.sandboxMode, workspaceRoot: repoPath }
   return {
     async stat(path) {
       const real = await resolveInsideRepo(repoPath, path)
@@ -243,8 +266,14 @@ export function createHostArtifactFiles(fs: HostFileSystem, repoPath: string): A
       try {
         const target = await fs.resolve(real)
         const outcome = expectedVersion === null
-          ? await fs.writeText(target, content)
-          : await fs.writeText(target, content, { kind: 'replaceIfVersion', version: expectedVersion })
+          ? await fs.writeText(target, content, undefined, undefined, sandboxPolicy)
+          : await fs.writeText(
+            target,
+            content,
+            { kind: 'replaceIfVersion', version: expectedVersion },
+            undefined,
+            sandboxPolicy,
+          )
         return { version: String(outcome.version), before: outcome.before ?? null }
       } catch (error) {
         throw mapFsError(error, path)

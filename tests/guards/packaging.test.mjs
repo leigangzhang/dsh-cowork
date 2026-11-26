@@ -19,7 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../..')
 
 /** The published file list, exactly — npm's `files` whitelist is a set. */
-const PUBLISHED_FILES = ['lib/**/*.js', 'lib/client.js.map', 'lib/**/*.d.ts', 'cordis.patch.yml', 'README.md', 'LICENSE']
+const PUBLISHED_FILES = ['lib/**/*.js', 'lib/**/*.d.ts', 'cordis.patch.yml', 'README.md', 'LICENSE']
 
 /** Paths the tarball must never contain: build/test/docs inputs and artifacts. */
 const FORBIDDEN_PACK_PREFIXES = ['src/', 'tests/', 'docs/', '.dsh-cowork/', '.agents/', 'scripts/', 'tools/']
@@ -31,7 +31,8 @@ const patchText = readFileSync(resolve(root, pkg.dsh?.bundle?.patch ?? 'cordis.p
 test('package.json keeps the identity and entry points a bundle install relies on', () => {
   assert.equal(pkg.name, '@dsh-external/dsh-cowork')
   assert.equal(pkg.version, '0.2.0')
-  assert.equal(pkg.private, true, 'the package stays unpublished by default')
+  assert.notEqual(pkg.private, true, 'the package is publishable')
+  assert.equal(pkg.publishConfig?.access, 'public', 'scoped package must publish publicly')
   assert.equal(pkg.type, 'module')
   assert.equal(pkg.main, './lib/index.js')
   assert.equal(pkg.types, './lib/types/index.d.ts')
@@ -85,7 +86,7 @@ test('npm pack ships only the runtime files, never sources, tests, docs or artif
   // repository's packaging result.
   const cache = mkdtempSync(join(tmpdir(), 'cowork-npm-cache-'))
   try {
-    const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+    const raw = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
       cwd: root,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -111,9 +112,7 @@ test('npm pack ships only the runtime files, never sources, tests, docs or artif
     )
     assert.deepEqual(forbidden, [], `npm pack included development paths: ${forbidden.join(', ')}`)
     const maps = paths.filter((path) => path.endsWith('.map'))
-    // CI runs this test on a checkout without a local lib/ build; when lib is
-    // present, only the client map may ship.
-    assert.deepEqual(maps.filter((path) => path !== 'lib/client.js.map'), [], 'only the client source map may ship')
+    assert.deepEqual(maps, [], 'source maps must never ship')
 
     for (const entry of manifest.files) {
       assert.ok(entry.size > 0, `${entry.path} must not be empty in the tarball`)

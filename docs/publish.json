@@ -59,6 +59,10 @@
       "reason": "maintainer runbook for the local heavy runner: automatic and manual triggers, head-bound result checks, derived-gate consumption, and rollback; not user-facing guidance"
     },
     {
+      "pattern": "docs/development.md",
+      "reason": "developer setup, build, and local link install; user-facing install steps live in README.md; release automation stays in the GitHub workflow"
+    },
+    {
       "pattern": "docs/design/*",
       "reason": "feature design records and their current template assets: internal design documents for contributors, not user-facing guides"
     }

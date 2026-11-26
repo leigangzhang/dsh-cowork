@@ -15,10 +15,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "sourceMap": true,
-    "paths": {
-      "@deepseek-ai/*": ["./node_modules/.dsh-types/@deepseek-ai/*/lib/types/index.d.ts"]
-    }
+    "sourceMap": true
   },
   "include": ["src"],
   "exclude": ["src/client"]

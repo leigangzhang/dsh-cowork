@@ -100,6 +100,7 @@ export function fakeHostFs(options = {}) {
   }
   return {
     calls,
+    sandboxMode: options.sandboxMode,
     async resolve(path) {
       calls.push(['resolve', path])
       return { targetKey: path, displayPath: path }
@@ -125,8 +126,8 @@ export function fakeHostFs(options = {}) {
       await fail(target.targetKey)
       return readFile(target.targetKey, 'utf8')
     },
-    async writeText(target, content, expected) {
-      calls.push(['writeText', target.targetKey, content, expected])
+    async writeText(target, content, expected, _signal, sandboxPolicy) {
+      calls.push(['writeText', target.targetKey, content, expected, sandboxPolicy])
       await fail(target.targetKey)
       const before = await readFile(target.targetKey, 'utf8').catch((error) => {
         if (error.code === 'ENOENT') return null

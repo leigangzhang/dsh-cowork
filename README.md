@@ -7,42 +7,54 @@ DSH 的项目式主从协作插件。0.2.0 采用**主题会话模型**：master
 ## 它提供什么
 
 - **三个 preset**：`cowork-master`（显示为 `Cowork模式`）、`cowork-topic`、`cowork-reviewer`。新建会话只显示 master；topic/reviewer 由插件内部创建，不出现在选择器。定义与工具面见 [src/platform/presets.ts](./src/platform/presets.ts)。
-- **25 个业务工具**：初始化、路由、主题、handoff、上报、决策提案、待授权、通知读取、用户评审请求、提问、计划确认、工作项、评审、合并、记忆、交付物（工作项登记/批注读取/模型回复）；名称与注册顺序见 [src/app/tools.ts](./src/app/tools.ts)，参数以各工具模块为准。
-- **右侧栏 CoWork 面板**：内部标签为 主题 / 工作项 / 活动记录 / 项目记忆（后两者占位）。主题标签宽侧栏两列（主题列表 + 请求收件箱），窄侧栏只列主题并在顶部显示“需要你处理 N 项”，点入面板内全宽收件箱；四类请求（用户评审 / 权限审批 / 提问 / PLAN）按“左侧主题消息 + 行动卡 + 解决后的右侧用户回复”展示，分配、上报、决策提案、自动评审结果与归档用居中灰字。工作项标签列出已登记的交付物，点卡片在会话区的「Cowork」标签打开查看器（默认不显示，可随时切回对话）：文本逐行阅读与批注、编辑与自动保存、冲突合并、附件、投递状态与 SSE；图表（Mermaid）、画布（Excalidraw）和 HTML 页面各有查看器（含图表源码与 HTML 源码编辑、HTML 静态/交互沙箱预览）。24 条 `/api/cowork.*` 路由见 [src/panel/api-contract.ts](./src/panel/api-contract.ts)、[src/panel/inbox-contract.ts](./src/panel/inbox-contract.ts) 与 [src/panel/artifact-contract.ts](./src/panel/artifact-contract.ts)。
+- **26 个工具注册（含 `cowork_thread_*` 两个弃用别名）**：初始化、路由、主题、handoff、上报、决策提案、待授权、通知读取、用户评审请求、提问、计划确认、工作项、评审、合并、记忆、交付物（工作项登记/批注读取/模型回复）；名称与注册顺序见 [src/app/tools.ts](./src/app/tools.ts)，参数以各工具模块为准。
+- **右侧栏 CoWork 面板**：内部标签为 主题 / 工作项 / 活动记录 / 项目记忆（后两者占位）。主题标签宽侧栏两列（主题列表 + 请求收件箱），窄侧栏只列主题并在顶部显示“需要你处理 N 项”，点入面板内全宽收件箱；四类请求（用户评审 / 权限审批 / 提问 / PLAN）按“左侧主题消息 + 行动卡 + 解决后的右侧用户回复”展示，分配、上报、决策提案、自动评审结果与归档用居中灰字。工作项标签列出已登记的交付物，点卡片在会话区的「Cowork」标签打开查看器（默认不显示，可随时切回对话）：文本逐行阅读与批注、编辑与自动保存、冲突合并、附件、投递状态与 SSE；图表（Mermaid）、画布（Excalidraw）和 HTML 页面各有查看器（含图表源码与 HTML 源码编辑、HTML 静态/交互沙箱预览）。26 条 `/api/cowork.*` 路由见 [src/panel/api-contract.ts](./src/panel/api-contract.ts)、[src/panel/inbox-contract.ts](./src/panel/inbox-contract.ts) 与 [src/panel/artifact-contract.ts](./src/panel/artifact-contract.ts)。
 - **项目记忆 / 活动流 / 通知账本 / master 收件箱 / 请求收件箱**：跨会话保留决定与事实，状态变化可审计；主题通知写 `.dsh-cowork/notices.json` 账本，master 可用 `cowork_notices` 读取；请求收件箱的请求记录写在 `.dsh-cowork/requests/<requestId>.json`，不读写旧 `inbox.json`；旧收件箱只保留合入、评审退回和跨主题冲突等既有事件。
 
 角色边界、状态机与生命周期规则由 [PLAN-V0.2](docs/PLAN-V0.2.md) 拥有；一次需求的完整闭环见 [routing.md](docs/routing.md)，上下文共享与记忆注入见 [context.md](docs/context.md)。
 
-## 安装
+## 安装 / 更新 / 卸载
 
-前提：
+前提：Node.js >= 22.19（见 `package.json` 的 `engines`），以及已安装的 DSH app。发布包已经包含预构建的 host/client 产物，用户侧不需要安装 devDependencies，也不需要 `npm run build`。
 
-- Node.js >= 22.19（见 `package.json` 的 `engines`）。
-- 本机已安装 DSH app；构建还需要一份装好依赖的 DSH 源码 checkout。`scripts/build/build.sh` 自动探测常见位置，非默认布局用 `DSH_CHECKOUT` / `DSH_APP_NODE_MODULES` 指定。
-
-构建并打包：
+### 从 npm 安装（发布版本）
 
 ```bash
-npm run build     # 编译 host 到 lib/，并打包浏览器半边 lib/client.js
-npm pack          # 产出 dsh-external-dsh-cowork-0.2.0.tgz
-```
-
-tarball 只含 `lib/`、`cordis.patch.yml`、`README.md`、`LICENSE` 与 `package.json`。装进**专用 profile**，不要装进正在使用的 `web`/`desktop`：
-
-```bash
-dsh --profile <profile> --from-default-profile web --dump-config   # 新建 profile
-dsh plugin --profile <profile> add ./dsh-external-dsh-cowork-0.2.0.tgz
-dsh --profile <profile> --dump-config    # 应出现 dsh-cowork 层，且只有一行 id: dsh-cowork
+dsh plugin --profile <profile> add @dsh-external/dsh-cowork
+dsh --profile <profile> --dump-config    # 应出现 dsh-cowork 层
 dsh --profile <profile> --port 3091 --no-open
 ```
 
-启动日志会打印带 token 的已认证 URL；用浏览器打开**这条 URL**（不带 token 时 `/api` 返回 401）。新建会话选 `Cowork模式`（preset id 仍是 `cowork-master`），在目标仓库目录调用一次 `cowork_project_init` 完成初始化。
+`--from-default-profile` 只用于新建 profile；已有 profile 不要带这个参数。当前源码仓库尚未发布到 npm 时，使用下一节的 GitHub Release tarball，或按 [docs/development.md](docs/development.md) 从源码 link 安装。
 
-安装注意：
+### 从 GitHub Release tarball 安装
 
-- `--from-default-profile` 只用于新建 profile（目标必须尚不存在）；已有 profile 去掉该参数。
-- 安装、升级、卸载后都要重启 profile 进程，旧进程不会热加载新 bundle。
-- 只承诺 tarball 安装：包是 `private: true`，未发布 npm；也不要用 git 地址安装（源码没有预构建的 `lib/`）。
+发布 workflow 会把 `npm pack` 产物附到对应 tag 的 GitHub Release。下载后：
+
+```bash
+dsh plugin --profile <profile> add ./dsh-external-dsh-cowork-<version>.tgz
+```
+
+### 更新
+
+```bash
+dsh plugin --profile <profile> update @dsh-external/dsh-cowork@latest
+```
+
+tarball 安装的更新方式是先移除旧版本，再安装新 tarball。
+
+### 卸载
+
+```bash
+dsh plugin --profile <profile> remove @dsh-external/dsh-cowork
+```
+
+### 安装说明
+
+- 发布包只含 `lib/`、`cordis.patch.yml`、README、LICENSE 与 `package.json`；不会下载 Excalidraw、Mermaid、CodeMirror、playwright 等开发依赖。
+- 客户端源码已由 esbuild 打进 `lib/client.js`；用户安装时不需要构建工具链。
+- 不要把裸 git clone 当安装源：源码仓库没有预构建的 `lib/`。开发者从源码搭建、link 安装和发布流程见 [docs/development.md](docs/development.md)。
+- 建议装进专用 profile。安装、升级、卸载后能否免重启取决于当前 profile 的 live 能力；无法确认时重启 profile 进程。
 - `--dump-config` 看不到 cowork 层时，检查 profile 补丁里是否有 `disabled: true` 的 `dsh-cowork` 条目压住了 bundle 行。
 
 ## 一次需求的闭环
@@ -79,11 +91,11 @@ dsh --profile <profile> --port 3091 --no-open
 - 迁移成功后向 `activity.jsonl` 追加一条 `status-changed`（“migrated project index to v2”）与每条归档失败的 `error` 行；v2 已落盘，活动写失败不回滚迁移。
 - fail closed：未知 v1 状态或校验失败报 `store/corrupt`，备份与原始文件保持原样。规则与实现见 [store-migration.ts](./src/store/migration.ts) 与 [store.ts](./src/store/project-store.ts)。
 
-升级命令（同一路径的 tgz 会被判为已安装，必须先 remove）：
+升级命令：
 
 ```bash
-dsh plugin --profile <profile> remove @dsh-external/dsh-cowork
-dsh plugin --profile <profile> add ./dsh-external-dsh-cowork-0.2.0.tgz
+dsh plugin --profile <profile> update @dsh-external/dsh-cowork@0.2.0
+# 或 tarball：先 remove，再 add 新的 tgz
 # 重启 profile
 ```
 
@@ -133,6 +145,8 @@ dsh plugin --profile <profile> remove @dsh-external/dsh-cowork
 
 ## 本地检查
 
+开发环境搭建、依赖边界和发布流程见 [docs/development.md](docs/development.md)。
+
 ```bash
 npm run check              # 可执行约定（AGENTS 预算 / workflow.json / 模板 / 发布清单）
 npm run check:self-test    # 证明上述守卫能变红
@@ -146,7 +160,7 @@ npm run test:e2e:live      # 观测用真实模型 E2E，需 DEEPSEEK_API_KEY，
 npm run test:e2e:bash      # 观测用 topic bash 检查，需可用 bash sandbox（heavy lane）
 npm run test:host-smoke    # 打包当前 lib/，在临时 DSH profile 启动并检查健康路由
 npm run change-scope -- --base <verified-base>  # 列出 committed/staged/unstaged/untracked 路径
-npm run typecheck          # TypeScript 检查（依赖同构建前提）
+npm run typecheck          # TypeScript 检查（依赖 npm ci 安装的 devDependencies）
 npm run build              # host + client 构建
 ```
 
